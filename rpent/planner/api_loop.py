@@ -60,7 +60,7 @@ from pydantic_ai.exceptions import (
     UsageLimitExceeded,
     UserError,
 )
-from pydantic_ai.messages import ModelMessage, UserContent
+from pydantic_ai.messages import ModelMessage, UserContent, UserPromptPart
 from pydantic_ai.models import Model, ModelRequestContext
 from pydantic_ai.run import AgentRun, AgentRunResult
 from pydantic_ai_harness.compaction import SlidingWindowCompaction
@@ -76,6 +76,7 @@ from rpent.planner.base import (
     cancel_and_wait,
     execute_tool,
 )
+from rpent.prompt.api import API_PLANNER_INSTRUCTIONS, render_environment_context
 from rpent.session.env_capture import current_tool_call
 from rpent.session.planner_capture import CapturingModel, sdk_payload
 from rpent.tools.toolkit import Toolkit, ToolResult
@@ -178,7 +179,7 @@ class ApiAgentLoop(Planner):
         agent = Agent(
             capture if capture is not None else self.model,
             name="rpent_api",
-            system_prompt=system_prompt,
+            system_prompt=(API_PLANNER_INSTRUCTIONS, system_prompt),
             output_type=adapter.output_types,
             toolsets=[adapter],
             # Accepted finish skips sibling tool calls in the same response.
@@ -604,6 +605,11 @@ class _Session(AbstractCapability):
             return node
         if not isinstance(node, ModelRequestNode):
             return node
+        if not ctx.messages and ctx.prompt:
+            # The SDK puts the task last. Keep it with the context during compaction.
+            parts = list(node.request.parts)
+            parts.insert(-1, UserPromptPart(render_environment_context()))
+            node.request.parts = parts
         while not self.inbox.empty():
             submission = self.inbox.get_nowait()
             enqueue_id = ctx.enqueue(submission.text)

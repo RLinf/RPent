@@ -23,7 +23,10 @@ import math
 import queue
 import threading
 import time
+from datetime import datetime
 from types import SimpleNamespace
+from xml.etree import ElementTree
+from zoneinfo import ZoneInfo
 
 import numpy as np
 import pytest
@@ -42,11 +45,13 @@ from pydantic_core import to_jsonable_python
 from rpent.dashboard.events import RunStartedEvent, TranscriptEvent, UsageEvent
 from rpent.dashboard.state import DashboardState
 from rpent.planner.api_loop import ApiAgentLoop
+from rpent.prompt.api import API_PLANNER_INSTRUCTIONS, render_environment_context
 from rpent.session import EnvState, Payload
 from rpent.tools import Toolkit, ToolResult, common
 from rpent.tools import tool as declare_tool
 
 FINISH_ARGS = {"status": "success", "summary": "done"}
+ROBOT_PROMPT = "Use the robot toolkit. Finish when done."
 
 
 class Events:
@@ -118,7 +123,7 @@ def solve(tmp_path, model, toolkit=None, events=None, **kwargs):
     }
     planner = ApiAgentLoop(model=model, dashboard_events=events, **config)
     result = planner.solve(
-        system_prompt="Use the robot toolkit. Finish when done.",
+        system_prompt=ROBOT_PROMPT,
         user_message="Do the task.",
         toolkit=toolkit,
         max_turns=kwargs.pop("max_turns", 10),
@@ -181,6 +186,18 @@ def test_finish_returns_transcript_for_rpent_without_step_files(tmp_path, monkey
     assert "finish" not in [
         t.name for t in model.last_model_request_parameters.function_tools
     ]
+
+
+def test_environment_context_uses_the_repository_and_local_date(tmp_path, monkeypatch):
+    root = tmp_path / "arm & <camera>"
+    zone = ZoneInfo("Asia/Shanghai")
+    monkeypatch.setenv("RPENT_REPO_ROOT", str(root))
+    monkeypatch.setenv("TZ", zone.key)
+    context = ElementTree.fromstring(render_environment_context())
+    assert context.tag == "environment_context"
+    assert context.findtext("cwd") == str(root)
+    assert context.findtext("timezone") == zone.key
+    assert context.findtext("current_date") == datetime.now(zone).date().isoformat()
 
 
 def test_refused_finish_retries_without_claiming_success(tmp_path):
@@ -252,7 +269,9 @@ def test_anthropic_request_retains_all_prompt_cache_controls(tmp_path, monkeypat
     assert len(requests) == 1
     request = requests[0]
     assert request["max_tokens"] == 321
-    assert request["system"][0]["text"] == "Use the robot toolkit. Finish when done."
+    assert (
+        request["system"][0]["text"] == f"{API_PLANNER_INSTRUCTIONS}\n\n{ROBOT_PROMPT}"
+    )
     assert request["system"][-1]["cache_control"]["type"] == "ephemeral"
     assert request["tools"][-1]["cache_control"]["type"] == "ephemeral"
     assert (
@@ -653,6 +672,12 @@ def test_harness_compacts_long_history(tmp_path):
         == requests
     )
     assert any(after < before for before, after in zip(lengths, lengths[1:]))
+    assert [part["content"] for part in requests[-1][0]["parts"]] == [
+        API_PLANNER_INSTRUCTIONS,
+        ROBOT_PROMPT,
+        render_environment_context(),
+        "Do the task.",
+    ]
     assert result.messages[0] == {"role": "user", "content": "Do the task."}
     assert len([m for m in result.messages if m["role"] == "assistant"]) == 45
     assert len([m for m in result.messages if m.get("name") == "observe"]) == 44
@@ -819,6 +844,7 @@ def test_dashboard_interrupt_drains_tool_before_followup(
         else:
             assert stopped.is_set()
             assert user_texts(messages) == [
+                render_environment_context(),
                 "Do the task.",
                 "Continue after stopping the move.",
             ]
@@ -967,11 +993,12 @@ def test_native_terminal_preserves_completed_actions_after_model_failure(
         for message in requests[-1]
         for part in message.parts
     )
-    assert user_texts(requests[-1]) == [
+    followup_texts = [
         "Do the task.",
         "Inspect the scene.",
         "Continue after the error.",
     ]
+    assert user_texts(requests[-1]) == [render_environment_context(), *followup_texts]
     returns = [
         part
         for message in requests[-1]
@@ -982,9 +1009,9 @@ def test_native_terminal_preserves_completed_actions_after_model_failure(
     assert "position" in str(returns[0].content)
     assert any(isinstance(item, BinaryContent) for item in returns[0].content)
     assert toolkit.calls == [("observe", {})]
-    assert [m["content"] for m in result.messages if m["role"] == "user"] == user_texts(
-        requests[-1]
-    )
+    assert [
+        m["content"] for m in result.messages if m["role"] == "user"
+    ] == followup_texts
 
 
 def test_native_terminal_followups_share_budget_and_clear_recovered_error(
@@ -1263,6 +1290,12 @@ def test_reasoning_effort_reaches_openai_chat_request_body(tmp_path, effort):
     assert toolkit.calls == [("finish", FINISH_ARGS)]
     assert len(bodies) == 1
     assert bodies[0]["reasoning_effort"] == effort
+    assert [(m["role"], m["content"]) for m in bodies[0]["messages"]] == [
+        ("system", API_PLANNER_INSTRUCTIONS),
+        ("system", ROBOT_PROMPT),
+        ("user", render_environment_context()),
+        ("user", "Do the task."),
+    ]
 
 
 def test_api_executes_readonly_calls_concurrently(tmp_path):
