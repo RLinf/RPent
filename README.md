@@ -207,6 +207,16 @@ For a complete list of CLI options, see the [Command-Line Reference](https://rpe
 
 For more detailed documentation, see the [RPent documentation](https://rpent.readthedocs.io/en/latest/).
 
+## Adoption
+
+RPent is an open-source framework for embodied AI and robotics, combining perception, reasoning, memory, and execution to support long-horizon tasks and learning from interaction. Research teams from companies and universities including NVIDIA, Huawei, Tencent, SenseTime, Z-Trans AI (Zetta), Maincode, Qingyan Technology, Tsinghua University, Peking University, and the National University of Singapore have used RPent code, memory resources, or supporting environment packages, or developed extensions on top of them. The community also includes research and development partners in technical exchange, including ROBAM.
+
+<div align="center">
+  <img src="docs/assets/adoption/adoption.png" alt="RPent community: 10 companies, including Z-Trans AI / Zetta and ROBAM, followed by 22 universities and 8 research and educational organizations"/>
+</div>
+
+✨ If your organization is using RPent for embodied AI research or robotics applications, feel free to reach out or submit a PR to be listed here.
+
 ## Contributing
 
 Contributions are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) for the
