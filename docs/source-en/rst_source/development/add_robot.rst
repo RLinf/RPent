@@ -330,6 +330,41 @@ filenames rather than maintaining a parallel observation index.
 the toolkit passes verbatim to your primitives' ``__init__`` — typically
 ``{"env": MyEnvClient(...), "model": VLAClient(...), ...}``.
 
+If the execution loop must coordinate with a device exposed by a site MCP
+server, adopt the selected tools as first-class Toolkit tools instead of
+attaching the server to a planner. ``get_toolkit`` receives the run's
+``config``, so the adopted tools include the site and robot servers:
+
+.. code-block:: python
+
+   def get_toolkit(*, runtime_kwargs, dashboard_events, config):
+       toolkit = MyRobotToolkit(
+           runtime_kwargs=runtime_kwargs,
+           dashboard_events=dashboard_events,
+           memory=MemoryManager(
+               root=config.prompt_vars.get("memory_dir") or get_memory_dir("myrobot"),
+           ),
+       )
+       toolkit.add_mcp_tools(
+           config.mcp_servers,
+           tools={"facility": ["set_charging_dock", "read_battery"]},
+       )
+       return toolkit
+
+Adoption validates the names against the server's tool list when the toolkit is
+constructed, keeps the remote input schemas, and marks a tool ``readonly`` when
+the server sets ``readOnlyHint``. Adopted tools become ordinary Toolkit tools:
+``claude_code`` and ``codex`` show them as ``mcp__rpent__<name>``, while
+``api`` uses their own names. They take part in observation capture. Tools
+that need no coordination belong under ``planner_tools`` instead. See
+:ref:`external-mcp-servers`.
+
+Two limits come from the MCP client below the Toolkit contract. A remote call
+runs synchronously on the toolkit's operation slot and is bounded by the
+client's request and SSE read timeouts (30 and 300 seconds by default), not by
+RPent's cancellation. Only ``image/png`` blocks become native images; other
+block types arrive as metadata without their payload.
+
 Conventions Worth Keeping
 -------------------------
 
@@ -376,6 +411,14 @@ validates those fields and returns a
 - ``task_desc`` — robot-specific dict of task-identifying fields, written into
   the transcript JSON record verbatim (LIBERO:
   ``{"suite": ..., "task": ..., "seed": ...}``).
+- ``mcp_servers`` — optional tuple of MCP servers this robot contributes,
+  parsed from the robot config's ``mcp_servers`` section with
+  :func:`~rpent.utils.mcp_servers.parse_mcp_servers`. The CLI merges in
+  deployment-level site servers, so leave it empty when the robot owns none.
+  Only specs with ``planner_tools`` reach a planner; the Env/Toolkit layer
+  adopts coordination-required tools through
+  :meth:`~rpent.tools.toolkit.Toolkit.add_mcp_tools`. See
+  :ref:`external-mcp-servers`.
 
 .. code-block:: python
 

@@ -35,7 +35,7 @@ import threading
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from uuid import uuid4
 
 import openai_codex
@@ -54,13 +54,16 @@ from rpent.planner.base import (
     Planner,
     PlannerResult,
     cancel_and_wait,
-    strip_mcp_prefix,
+    display_tool_name,
 )
 from rpent.planner.utils.http_mcp_server import HttpMcpServer
 from rpent.session.codex_capture import finalize_codex_capture
 from rpent.tools.toolkit import Toolkit
 from rpent.utils.config import get_repo_root
 from rpent.utils.logging import get_logger
+
+if TYPE_CHECKING:
+    from rpent.utils.mcp_servers import McpServerSpec
 
 logger = get_logger("codex")
 
@@ -103,6 +106,7 @@ class CodexPlanner(Planner):
         output_path: str | Path | None = None,
         model: str | None = None,
         reasoning_effort: str = "none",
+        mcp_servers: tuple["McpServerSpec", ...] = (),
     ):
         """Initialize the Codex SDK backend."""
         self._output_dir = str(output_dir)
@@ -115,6 +119,7 @@ class CodexPlanner(Planner):
         self._api_key = os.environ.get("CODEX_API_KEY", None)
         self._service_tier = os.environ.get("CODEX_SERVICE_TIER", None)
         self._dashboard_events = dashboard_events
+        self._mcp_servers = mcp_servers
         if reasoning_effort not in REASONING_EFFORTS:
             raise ValueError(f"unsupported reasoning effort: {reasoning_effort}")
         self._thread_options = {
@@ -558,6 +563,7 @@ class CodexPlanner(Planner):
             api_key=self._api_key,
             cwd=self._repo_root,
             trace_root=trace_root,
+            mcp_servers=self._mcp_servers,
         )
 
 
@@ -796,7 +802,7 @@ class _Recorder:
         if _is_tool_item(item):
             self.tool_calls += 1
             if item_type in {"mcpToolCall", "dynamicToolCall"}:
-                name = strip_mcp_prefix(str(_get(item, "tool", item_type)))
+                name = display_tool_name(str(_get(item, "tool", item_type)))
                 self._maybe_capture_finish(name, item)
             elif item_type == "commandExecution":
                 name = str(_get(item, "command", item_type))
@@ -920,6 +926,7 @@ def build_codex_config(
     api_key: str | None,
     cwd: str,
     trace_root: Path | None = None,
+    mcp_servers: tuple["McpServerSpec", ...] = (),
 ) -> Any:
     """Build the Codex child config with optional native rollout tracing.
 
@@ -931,6 +938,9 @@ def build_codex_config(
         cwd: Working directory handed to the Codex child process.
         trace_root: Directory where Codex writes native rollout traces. If ``None``,
             the child inherits the parent's ``CODEX_ROLLOUT_TRACE_ROOT`` setting.
+        mcp_servers: Planner-layer streamable-HTTP MCP servers to attach
+            alongside RPent's own, each rendered as an ``mcp_servers.<name>``
+            table. Specs without ``planner_tools`` are skipped.
 
     Returns:
         The ``openai_codex.CodexConfig`` to open a session with.
@@ -940,7 +950,9 @@ def build_codex_config(
         env[PROVIDER_ENV_KEY] = api_key
     if trace_root is not None:
         env["CODEX_ROLLOUT_TRACE_ROOT"] = str(trace_root.resolve())
-    config_overrides = _codex_mcp_config_overrides(mcp_url=mcp_url, base_url=base_url)
+    config_overrides = _codex_mcp_config_overrides(
+        mcp_url=mcp_url, base_url=base_url, mcp_servers=mcp_servers
+    )
     # Project development instructions and skills are excluded from planner context.
     config_overrides.append("project_doc_max_bytes=0")
     disabled_skills = [
@@ -1086,10 +1098,27 @@ def _codex_mcp_config_overrides(
     *,
     mcp_url: str | None,
     base_url: str | None,
+    mcp_servers: tuple["McpServerSpec", ...] = (),
 ) -> list[str]:
     config: list[tuple[str, Any]] = []
     if mcp_url:
         config.append(("mcp_servers.rpent.url", mcp_url))
+    from rpent.utils.mcp_servers import ALL_TOOLS
+
+    for server in mcp_servers:
+        if server.planner_tools is None:
+            continue
+        config.append((f"mcp_servers.{server.name}.url", server.url))
+        if server.headers:
+            config.append((f"mcp_servers.{server.name}.http_headers", server.headers))
+        if server.env_http_headers:
+            config.append(
+                (f"mcp_servers.{server.name}.env_http_headers", server.env_http_headers)
+            )
+        if server.planner_tools != ALL_TOOLS:
+            config.append(
+                (f"mcp_servers.{server.name}.enabled_tools", list(server.planner_tools))
+            )
     if base_url:
         normalized = base_url.rstrip("/")
         if not normalized.endswith("/v1"):
@@ -1109,7 +1138,24 @@ def _codex_mcp_config_overrides(
     auto_compact_token_limit = os.environ.get("CODEX_AUTO_COMPACT_TOKEN_LIMIT", None)
     if auto_compact_token_limit is not None:
         config.append(("model_auto_compact_token_limit", int(auto_compact_token_limit)))
-    return [f"{key}={json.dumps(value)}" for key, value in config]
+    return [f"{key}={_toml_value(value)}" for key, value in config]
+
+
+def _toml_value(value: Any) -> str:
+    """Render a ``--config`` override value as TOML.
+
+    Codex parses each override's value as TOML, so a mapping (an MCP server's
+    ``http_headers``) must be an inline table, not the JSON object
+    ``json.dumps`` would otherwise produce.
+    """
+    if isinstance(value, dict):
+        inner = ", ".join(
+            f"{json.dumps(key, ensure_ascii=False)} = "
+            f"{json.dumps(val, ensure_ascii=False)}"
+            for key, val in value.items()
+        )
+        return "{" + inner + "}"
+    return json.dumps(value, ensure_ascii=False)
 
 
 # ---------------------------------------------------------------------------

@@ -33,7 +33,7 @@ import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from uuid import uuid4
 
 from rpent.cli.tui import next_user_line
@@ -51,8 +51,8 @@ from rpent.planner.base import (
     _wait_for_cleanup,
     add_mcp_prefix,
     cancel_and_wait,
+    display_tool_name,
     execute_tool,
-    strip_mcp_prefix,
 )
 from rpent.planner.utils.http_mcp_server import mcp_result
 from rpent.session import MissingInfo, Payload
@@ -62,6 +62,9 @@ from rpent.tools import Toolkit, ToolResult
 from rpent.utils.config import get_repo_root
 from rpent.utils.logging import get_logger, init_output_dir
 from rpent.utils.templates import substitute
+
+if TYPE_CHECKING:
+    from rpent.utils.mcp_servers import McpServerSpec
 
 logger = get_logger("claude")
 
@@ -88,6 +91,7 @@ class ClaudeCodePlanner(Planner):
         extra_dirs: list[str] | None = None,
         output_path: str | Path | None = None,
         reasoning_effort: str = "none",
+        mcp_servers: tuple["McpServerSpec", ...] = (),
     ):
         """Initialize the Claude Agent SDK backend."""
         self._output_dir = str(output_dir)
@@ -99,6 +103,7 @@ class ClaudeCodePlanner(Planner):
         self._extra_dirs = extra_dirs or []
         self._output_path = Path(output_path) if output_path else None
         self._dashboard_events = dashboard_events
+        self._mcp_servers = mcp_servers
         if reasoning_effort not in REASONING_EFFORTS:
             raise ValueError(f"unsupported reasoning effort: {reasoning_effort}")
         self._reasoning_effort = reasoning_effort
@@ -379,6 +384,8 @@ class ClaudeCodePlanner(Planner):
         allowed.extend(
             add_mcp_prefix(declaration.name) for declaration in toolkit.list_tools()
         )
+        external_servers, external_allowed = _external_mcp_config(self._mcp_servers)
+        allowed.extend(external_allowed)
 
         thinking = {"type": "disabled"} if self._reasoning_effort == "none" else None
         effort = None if self._reasoning_effort == "none" else self._reasoning_effort
@@ -392,6 +399,7 @@ class ClaudeCodePlanner(Planner):
             allowed_tools=list(dict.fromkeys(allowed)),
             mcp_servers={
                 "rpent": _build_rpent_server(sdk, toolkit=toolkit, run_id=run_id),
+                **external_servers,
             },
             add_dirs=[self._output_dir, *self._extra_dirs],
             # Ignore user/project .claude configuration; RPent owns the loop.
@@ -713,7 +721,7 @@ class _Recorder:
                     )
             elif block_kind == "ToolUseBlock":
                 tool_id = str(_get(block, "id", ""))
-                name = strip_mcp_prefix(str(_get(block, "name", "tool")))
+                name = display_tool_name(str(_get(block, "name", "tool")))
                 self.tool_names[tool_id] = name
                 tool_input = _get(block, "input", {}) or {}
                 if name == "finish" and isinstance(tool_input, dict):
@@ -837,6 +845,51 @@ class _Recorder:
 # ---------------------------------------------------------------------------
 # Tool bridge (RPent registry -> SDK MCP server)
 # ---------------------------------------------------------------------------
+
+
+def _external_mcp_config(
+    mcp_servers: tuple["McpServerSpec", ...],
+) -> tuple[dict[str, Any], list[str]]:
+    """Render planner-layer MCP servers for the SDK and its allowlist.
+
+    Each spec becomes an SDK streamable-HTTP entry. ``allowed_tools`` is an
+    allowlist, so every tool the model may call must be named: a spec that
+    lists ``planner_tools`` yields ``mcp__<server>__<tool>`` per name; a spec
+    that admits all tools yields the server-level ``mcp__<server>`` rule. A
+    server with ``planner_tools`` unset belongs to the robot's Env/Toolkit
+    layer and is skipped here. The SDK still mounts the whole server, so the
+    list controls auto-approval, not what the model can see; use one server
+    entry per permission boundary when that distinction matters.
+
+    The SDK serializes these entries onto the ``claude`` child process's
+    command line, where other local users can read them. Env-backed headers
+    therefore carry only ``${VAR}``: the CLI, which inherits RPent's
+    environment, expands the value after the command line is parsed.
+
+    Returns:
+        ``(mcp_servers_entries, allowed_tool_names)``.
+    """
+    from rpent.utils.mcp_servers import ALL_TOOLS
+
+    servers: dict[str, Any] = {}
+    allowed: list[str] = []
+    for server in mcp_servers:
+        if server.planner_tools is None:
+            continue
+        entry: dict[str, Any] = {"type": "http", "url": server.url}
+        headers = dict(server.headers)
+        for name, env_name in server.env_http_headers.items():
+            headers[name] = f"${{{env_name}}}"
+        if headers:
+            entry["headers"] = headers
+        servers[server.name] = entry
+        if server.planner_tools == ALL_TOOLS:
+            allowed.append(f"mcp__{server.name}")
+        else:
+            allowed.extend(
+                f"mcp__{server.name}__{tool}" for tool in server.planner_tools
+            )
+    return servers, allowed
 
 
 def _build_rpent_server(

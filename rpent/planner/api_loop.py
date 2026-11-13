@@ -22,10 +22,10 @@ RPent's runner saves the returned transcript through its existing output flow.
 import asyncio
 import json
 import threading
-from collections.abc import AsyncIterator, Sequence
+from collections.abc import AsyncIterator, Callable, Sequence
 from contextlib import asynccontextmanager, nullcontext
 from functools import partial
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from uuid import uuid4
 
 from jsonschema import Draft202012Validator
@@ -82,6 +82,9 @@ from rpent.tools.toolkit import Toolkit, ToolResult
 from rpent.utils.logging import get_logger
 from rpent.utils.templates import substitute
 
+if TYPE_CHECKING:
+    from rpent.utils.mcp_servers import McpServerSpec
+
 logger = get_logger("api")
 
 
@@ -108,6 +111,7 @@ class ApiAgentLoop(Planner):
         no_images: bool = False,
         timeout_s: float = 1200,
         interactive: bool = False,
+        mcp_servers: tuple["McpServerSpec", ...] = (),
     ) -> None:
         if reasoning_effort not in REASONING_EFFORTS:
             raise ValueError(f"unsupported reasoning effort: {reasoning_effort}")
@@ -120,6 +124,7 @@ class ApiAgentLoop(Planner):
         self.no_images = no_images
         self.timeout_s = timeout_s
         self.interactive = interactive
+        self.mcp_servers = mcp_servers
 
     def solve(
         self,
@@ -166,37 +171,24 @@ class ApiAgentLoop(Planner):
             if state is not None and state.get_task() is not None
             else None
         )
-        adapter = _HarnessToolkit(
-            toolkit,
-            dashboard_events=self.dashboard_events,
-            no_images=self.no_images,
-            capture=capture,
-        )
+        try:
+            # The adapter registers one pydantic-ai tool per Toolkit tool, so a
+            # robot tool that reuses a planner-owned name (read_image) fails
+            # here. Guard construction for the same reason as the Agent below:
+            # it must end as PlannerResult.error, not escape solve().
+            adapter = _HarnessToolkit(
+                toolkit,
+                dashboard_events=self.dashboard_events,
+                no_images=self.no_images,
+                capture=capture,
+            )
+        except Exception as exc:
+            logger.exception("Harness toolkit construction failed")
+            return PlannerResult(
+                error=f"{type(exc).__name__}: {exc}", stop_reason="planner_error"
+            )
         session = _Session(
             adapter, conversation_id, max_turns, interactive=self.interactive
-        )
-        agent = Agent(
-            capture if capture is not None else self.model,
-            name="rpent_api",
-            system_prompt=system_prompt,
-            output_type=adapter.output_types,
-            toolsets=[adapter],
-            # Accepted finish skips sibling tool calls in the same response.
-            end_strategy="early",
-            # Finish refusals may span attempts; the request budget still applies.
-            retries={"output": max_turns},
-            model_settings=_build_model_settings(
-                self.model, self.max_tokens, self.reasoning_effort
-            ),
-            capabilities=[
-                SlidingWindowCompaction(
-                    max_messages=80, max_fraction=0.8, keep_messages=40
-                ),
-                Thinking(
-                    False if self.reasoning_effort == "none" else self.reasoning_effort
-                ),
-                session,
-            ],
         )
         if interaction is not None:
             session.control = DashboardPlannerControl(
@@ -209,6 +201,34 @@ class ApiAgentLoop(Planner):
                 submit_while_busy=True,
             )
         try:
+            # Building the toolsets resolves env-backed MCP headers, so keep it
+            # inside the try: a bad site config must end as PlannerResult.error,
+            # not as an exception that skips RPent's normal failure handling.
+            agent = Agent(
+                capture if capture is not None else self.model,
+                name="rpent_api",
+                system_prompt=system_prompt,
+                output_type=adapter.output_types,
+                toolsets=[adapter, *self._external_toolsets(adapter)],
+                # Accepted finish skips sibling tool calls in the same response.
+                end_strategy="early",
+                # Finish refusals may span attempts; the request budget still applies.
+                retries={"output": max_turns},
+                model_settings=_build_model_settings(
+                    self.model, self.max_tokens, self.reasoning_effort
+                ),
+                capabilities=[
+                    SlidingWindowCompaction(
+                        max_messages=80, max_fraction=0.8, keep_messages=40
+                    ),
+                    Thinking(
+                        False
+                        if self.reasoning_effort == "none"
+                        else self.reasoning_effort
+                    ),
+                    session,
+                ],
+            )
             await asyncio.wait_for(
                 session.run(_ConversationAgent(agent), user_message),
                 timeout=None if self.interactive else self.timeout_s,
@@ -246,6 +266,50 @@ class ApiAgentLoop(Planner):
             stop_reason=session.stop_reason,
         )
 
+    def _external_toolsets(self, recorder: "_HarnessToolkit") -> list[Any]:
+        """Build one MCP toolset per planner-layer external server.
+
+        Each server's tools are prefixed with its name (``<server>_<tool>``) so
+        two servers cannot collide. Remote tool names are only known after the
+        server connects, so a name that still collides with an RPent tool is
+        reported by pydantic-ai during the first run step. A spec that names
+        its tools is filtered before dispatch, so coordinated tools adopted by
+        the robot's Toolkit cannot leak back into the planner layer. The
+        pydantic-ai MCP client is an optional import: it is only needed when a
+        server is actually attached.
+        """
+        servers = [
+            server for server in self.mcp_servers if server.planner_tools is not None
+        ]
+        if not servers:
+            return []
+        try:
+            from pydantic_ai.mcp import MCPToolset
+        except ImportError as exc:
+            raise RuntimeError(
+                "attaching external MCP servers to the 'api' planner requires "
+                "the pydantic-ai MCP client; install it with "
+                '`pip install "pydantic-ai-slim[mcp]"`.'
+            ) from exc
+
+        from rpent.utils.mcp_servers import ALL_TOOLS, request_headers
+
+        toolsets: list[Any] = []
+        for server in servers:
+            toolset = MCPToolset(
+                server.url,
+                id=server.name,
+                headers=request_headers(server) or None,
+                process_tool_call=recorder.external_tool_hook(server.name),
+            )
+            if server.planner_tools != ALL_TOOLS:
+                allowed = frozenset(server.planner_tools or ())
+                toolset = toolset.filtered(
+                    lambda _ctx, tool_def, allowed=allowed: tool_def.name in allowed
+                )
+            toolsets.append(toolset.prefixed(server.name))
+        return toolsets
+
 
 def _build_model_settings(
     model: Model, max_tokens: int, reasoning_effort: str | None = None
@@ -272,6 +336,33 @@ def _build_model_settings(
             ),
         )
     return ModelSettings(max_tokens=max_tokens, parallel_tool_calls=True)
+
+
+def _external_result_text(result: Any) -> str:
+    """Render an external MCP tool result as transcript text.
+
+    Image content is recorded by media type and size: transcript events and
+    message logs must never carry the raw bytes, which would defeat
+    ``--no-images`` and make the Dashboard replay large payloads.
+    """
+    if isinstance(result, str):
+        return result
+    if isinstance(result, BinaryContent):
+        return f"[image: {result.media_type}, {len(result.data)} bytes]"
+    if isinstance(result, dict):
+        return json.dumps(result)
+    if isinstance(result, Sequence):
+        return "\n".join(_external_result_text(item) for item in result)
+    return str(result)
+
+
+def _omit_external_images(result: Any) -> Any:
+    """Replace external MCP image content the way local tools do."""
+    if isinstance(result, BinaryContent):
+        return "[Image omitted: --no-images is enabled.]"
+    if isinstance(result, list):
+        return [_omit_external_images(item) for item in result]
+    return result
 
 
 class _ConversationAgent(WrapperAgent):
@@ -479,6 +570,35 @@ class _HarnessToolkit(FunctionToolset):
         self.dashboard_events.emit(
             TranscriptEvent({"type": "tool_result", "tool": name, "result": text})
         )
+
+    def external_tool_hook(self, server: str) -> Callable[..., Any]:
+        """Wrap an external MCP tool call so it is recorded like a local one.
+
+        The toolset's ``process_tool_call`` receives the bare tool name; the
+        server prefix is restored here to match the name the model invoked.
+        """
+
+        async def hook(
+            ctx: RunContext,
+            call_tool: Callable[..., Any],
+            name: str,
+            args: dict[str, Any],
+        ) -> Any:
+            tool = f"{server}_{name}"
+            self._record_call(tool, args, ctx)
+            try:
+                result = await call_tool(name, args)
+            except Exception as exc:
+                # Keep tool_call/tool_result paired even when the remote fails;
+                # pydantic-ai converts the exception into a retry for the model.
+                self._record_result(
+                    tool, ctx, json.dumps({"error": f"{type(exc).__name__}: {exc}"})
+                )
+                raise
+            self._record_result(tool, ctx, _external_result_text(result))
+            return _omit_external_images(result) if self.no_images else result
+
+        return hook
 
     async def call(self, name: str, ctx: RunContext, /, **arguments: Any) -> ToolReturn:
         """Return native multimodal content for an ordinary tool."""

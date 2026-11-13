@@ -276,6 +276,112 @@ The value passed to RPent with ``--model`` must match vLLM's
 ``--served-model-name``. For another model, use its recommended vLLM parser
 settings.
 
+.. _external-mcp-servers:
+
+Attach External MCP Servers
+---------------------------
+
+A site or a robot can attach third-party MCP servers it does not own, so the
+model calls their tools alongside RPent's own. MCP is only the transport: the
+layer a server belongs to is decided by whether RPent's control loop must
+coordinate with the device, not by the fact that it speaks MCP.
+
+Two layers
+~~~~~~~~~~
+
+- **Env/robot layer.** Devices the execution loop must coordinate with — safety
+  interlocks, a charging dock whose state changes motion limits, battery or task
+  scheduling, lighting that changes camera exposure — become first-class
+  Toolkit tools. The robot adopts them with
+  :meth:`~rpent.tools.toolkit.Toolkit.add_mcp_tools`. They become ordinary
+  Toolkit tools: ``claude_code`` and ``codex`` expose them as
+  ``mcp__rpent__<name>``, while ``api`` calls them by their own names. They
+  capture observations and honor the ``readonly`` marker derived from the
+  server's ``readOnlyHint``. An adopted call runs synchronously, so it holds the
+  Toolkit's operation slot until it returns or the MCP client's request timeout
+  expires, and only ``image/png`` results reach the planners as native images.
+  See :ref:`add-robot-toolkit`.
+- **Planner layer.** Independent tools that need no coordination — decorative
+  lighting, unrelated site outlets or electronics — attach directly to the
+  selected planner. A single server may serve both layers: split it at the tool
+  boundary, adopting the tools that need coordination and listing the rest
+  under ``planner_tools``.
+
+Both layers accept only Streamable HTTP servers; stdio servers (``command``)
+are not supported.
+
+Deployment-level configuration
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Facility services belong to the site rather than to any single robot, so
+declare them in a shared YAML and pass it with ``--site-config``:
+
+.. code-block:: yaml
+
+   mcp_servers:
+     facility:
+       url: https://facility.example.com/mcp
+       env_http_headers:
+         Authorization: FACILITY_TOKEN
+       planner_tools: [read_power_meter]
+     docs:
+       url: https://docs.example.com/mcp
+       planner_tools: "*"
+
+.. code-block:: bash
+
+   rpent --robot myrobot --site-config /path/to/site.yaml --planner claude_code ...
+
+The CLI merges site servers into every run, for every robot, without editing
+the robot. A robot can also own a service: its ``parse_config`` parses its own
+config YAML's ``mcp_servers`` section with
+:func:`~rpent.utils.mcp_servers.parse_mcp_servers` and returns the specs on
+``RunConfig``. No shipped robot wires this yet, so use ``--site-config`` for
+services every robot at the site shares; names must be unique across both
+sources. Only the ``mcp_servers`` section is resolved when the file is loaded,
+so an unset ``${oc.env:...}`` in another section does not block startup.
+
+Fields:
+
+- ``url`` — the server's Streamable HTTP endpoint. Only HTTP(S) servers are
+  supported.
+- ``headers`` — optional literal request headers. In a site config,
+  ``${oc.env:...}`` resolves the value when the file is loaded. ``claude_code``
+  and ``codex`` pass these values on the child process command line, where
+  other local users can read them; keep credentials in ``env_http_headers``.
+- ``env_http_headers`` — optional mapping of header name to environment
+  variable name. Values are resolved when a request is made. ``codex`` receives
+  the mapping itself, and ``claude_code`` passes ``${VAR}`` for the CLI to
+  expand, so the secret never appears on a child process command line. A
+  header cannot appear in both ``headers`` and ``env_http_headers``.
+- ``planner_tools`` — ``"*"`` admits every tool the server exposes; a list of
+  names admits only those tools; omit it to keep the server out of the planner
+  layer entirely (the Env/Toolkit layer may still adopt its tools). ``api``
+  and ``codex`` expose exactly the listed tools. ``claude_code`` mounts the
+  whole server and uses the list as its auto-approved set: the server's other
+  tools stay visible to the model, but a headless call to them is refused
+  because no interactive prompt can approve it. Declare a separate server entry
+  per permission boundary when that distinction matters. A list containing
+  ``"*"`` is rejected; write ``"*"`` on its own.
+
+Every online planner (``api``, ``claude_code``, ``codex``) attaches the servers
+declared with ``planner_tools``. The server name becomes the tool namespace:
+``claude_code`` and ``codex`` show the tools as ``mcp__<server>__<tool>``; the
+``api`` planner shows them as ``<server>_<tool>``. The name must start with a
+letter or digit, may otherwise contain letters, digits, ``_``, and ``-``, and
+must not contain ``__`` (the namespace separator). It cannot be ``rpent``,
+which is reserved for RPent's own toolkit server.
+
+A declared server is part of the run, not an optional extra: if one is
+unreachable, a variable named in its ``env_http_headers`` is unset, or one of
+its tools collides with an RPent tool name, the episode ends with a planner
+error instead of continuing with the remaining servers. Keep facility servers
+that a run can survive without out of ``planner_tools``.
+
+The ``api`` planner attaches MCP servers through Pydantic AI's MCP client,
+installed by the ``pydantic-ai-slim[mcp]`` extra, which RPent lists by default.
+A run that attaches no MCP server never loads it.
+
 .. _planner-check:
 
 Verify Your Configuration

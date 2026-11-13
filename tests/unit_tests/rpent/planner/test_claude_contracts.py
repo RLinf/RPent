@@ -40,6 +40,7 @@ from rpent.session import EnvState, Payload
 from rpent.tools import Toolkit, ToolResult, tool
 from rpent.tools.common import CommonTools
 from rpent.utils.logging import init_output_dir
+from rpent.utils.mcp_servers import McpServerSpec
 
 
 @pytest.fixture(autouse=True)
@@ -193,6 +194,72 @@ def test_options_construct_with_the_installed_claude_sdk(tmp_path: Path) -> None
         "mcp__rpent__inspect_scene",
         "mcp__rpent__finish",
     ]
+
+
+def test_options_attach_external_mcp_servers(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("FACILITY_TOKEN", "Bearer secret")
+    planner = ClaudeCodePlanner(
+        output_dir=str(tmp_path),
+        repo_root=tmp_path,
+        model="fake-claude",
+        allowed_tools="Read",
+        timeout_s=1,
+        max_budget_usd=1.0,
+        extra_dirs=[],
+        output_path=tmp_path / "claude.out",
+        dashboard_events=RecordingSink(),
+        mcp_servers=(
+            McpServerSpec(
+                name="web",
+                url="https://mcp.example/mcp",
+                planner_tools="*",
+            ),
+            McpServerSpec(
+                name="kb",
+                url="https://kb.example/mcp",
+                headers={"Authorization": "Bearer token"},
+                planner_tools=("search", "fetch"),
+            ),
+            McpServerSpec(
+                name="facility",
+                url="https://facility.example/mcp",
+                env_http_headers={"Authorization": "FACILITY_TOKEN"},
+                planner_tools=("read_power_meter",),
+            ),
+            McpServerSpec(name="dock", url="https://dock.example/mcp"),
+        ),
+    )
+    fake_sdk = FakeSdkTools()
+
+    options = planner._build_options(fake_sdk, toolkit=FakeToolkit(), max_turns=4)
+
+    assert options["mcp_servers"]["rpent"]["name"] == "rpent"
+    assert options["mcp_servers"]["web"] == {
+        "type": "http",
+        "url": "https://mcp.example/mcp",
+    }
+    assert options["mcp_servers"]["kb"] == {
+        "type": "http",
+        "url": "https://kb.example/mcp",
+        "headers": {"Authorization": "Bearer token"},
+    }
+    # The SDK puts this entry on the child process command line, so an
+    # env-backed header carries only the variable reference.
+    assert options["mcp_servers"]["facility"] == {
+        "type": "http",
+        "url": "https://facility.example/mcp",
+        "headers": {"Authorization": "${FACILITY_TOKEN}"},
+    }
+    # A spec without ``planner_tools`` stays in the Env/Toolkit layer.
+    assert "dock" not in options["mcp_servers"]
+    # ``planner_tools="*"`` allows the whole server; a listed spec names each.
+    assert "mcp__web" in options["allowed_tools"]
+    assert "mcp__kb__search" in options["allowed_tools"]
+    assert "mcp__kb__fetch" in options["allowed_tools"]
+    assert "mcp__kb" not in options["allowed_tools"]
+    assert "mcp__dock" not in options["allowed_tools"]
 
 
 def test_in_process_mcp_bridge_maps_schema_dispatch_and_errors() -> None:
