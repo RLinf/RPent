@@ -345,7 +345,7 @@ uncached instructions; otherwise the official runtime handles uncached text.
 
 For Fast-WAM, use its provisioned environment:
 
-The LIBERO worker requires RLinf's ``release/v0.4`` Fast-WAM integration and
+The LIBERO worker requires RLinf's ``main`` Fast-WAM integration and
 the Fast-WAM revision selected by RLinf's ``requirements/install.sh`` (currently
 ``45d8e1458921d83f8ad6cf9ce993d371208dabd0``). Prepare these together using
 RLinf's ``bash requirements/install.sh embodied --model fastwam``; arbitrary

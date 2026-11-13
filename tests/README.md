@@ -73,12 +73,12 @@ RoboCasa separates simulator checks, model component checks and the full call ch
 
 | Tests | Coverage | Requirements |
 | --- | --- | --- |
-| `test_environment_smoke.py` | Three scenes, navigation RGB-D/world map and mobile-camera tracking | RoboCasa extra, assets and GPU/EGL; no model weights or planner credentials |
+| `test_environment_smoke.py` | Three scenes, navigation RGB-D/world map and mobile-camera tracking | RoboCasa dependencies, assets and GPU/EGL; no model weights or planner credentials |
 | `test_components.py` | Environment observations over RPC and RLDX inference | Model checkpoint, assets and GPU/EGL |
 | `test_policy_chain.py` | CLI → tools → RLDX → simulator action → `finish` | Model checkpoint, assets and GPU/EGL; local scripted planner |
 
 To check simulator installation and interfaces independently, install the
-RoboCasa extra and assets, then run:
+RoboCasa dependencies and assets, then run:
 
 ```bash
 RPENT_RUN_ROBOCASA_INTEGRATION=1 \

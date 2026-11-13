@@ -1,0 +1,4 @@
+# LIBERO-plus requires robosuite<1.5; do not include the standard LIBERO runtime.
+rlinf-liberoplus
+mujoco==3.3.0
+h5py

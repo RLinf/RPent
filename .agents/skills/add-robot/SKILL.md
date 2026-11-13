@@ -23,7 +23,7 @@ any necessary divergence in the PR.
 
 For an existing robot, follow only the steps affected by the change. Keep
 robot-specific choices in `robots/<robot>/` and optional dependencies in the
-appropriate extra with lazy imports.
+appropriate `requirements/envs/` or `requirements/models/` file with lazy imports.
 
 ## Wire the integration
 
@@ -43,8 +43,8 @@ appropriate extra with lazy imports.
    failure and cleanup; handle complete CLI startup and selected Dashboard
    components when supported. Keep robot-specific result schemas in the
    robot's finalization hook and verify which entry points call it.
-6. Update the relevant installation extra, usage/development documentation,
-   and tests. Follow the actual runner and CI configuration when adding a new
+6. Update the relevant requirements files and default environment dependencies, usage/development
+   documentation, and tests. Follow the actual runner and CI configuration when adding a new
    supported test target; adding a directory alone does not wire it into CI.
 
 ## Validate and hand off

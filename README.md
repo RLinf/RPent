@@ -119,15 +119,16 @@ RPent is built for four kinds of users:
 
 ```bash
 git clone https://github.com/RLinf/RPent rpent && cd rpent
-pip install -e ".[libero-pro]"  # Recommended default (LIBERO-PRO)
+bash requirements/install.sh --env libero-pro
+source .venv-libero-pro/bin/activate
 
 # Other environment configurations:
-pip install -e ".[robocasa]"    # RoboCasa
-pip install -e ".[robotwin]"    # RoboTwin
-pip install -e ".[franka]"      # Franka and dual Franka
+bash requirements/install.sh --env robocasa    # RoboCasa
+bash requirements/install.sh --env robotwin    # RoboTwin
+bash requirements/install.sh --env franka      # Franka and dual Franka
 ```
 
-`.[libero-pro]` is the recommended default. See the [installation docs](https://rpent.readthedocs.io/en/latest/rst_source/get_started/quickstart.html) for other environments.
+`libero-pro` is the recommended default. See the [installation docs](https://rpent.readthedocs.io/en/latest/rst_source/get_started/quickstart.html) for other environments.
 
 For RoboCasa setup, task memory, and the Target50 protocol, see the
 [RoboCasa guide](https://rpent.readthedocs.io/en/latest/rst_source/simulators/robocasa.html).

@@ -16,25 +16,16 @@ Requirements
 1. Install RPent
 ----------------
 
-Create and activate an isolated Python environment:
+Install the LIBERO-PRO environment, then activate it:
 
 .. code-block:: bash
 
    git clone https://github.com/RLinf/RPent.git
    cd RPent
-   uv venv --python 3.11
-   source .venv/bin/activate
+   bash requirements/install.sh --env libero-pro
+   source .venv-libero-pro/bin/activate
 
-Install ``torch==2.7.1`` and ``torchvision==0.22.1`` as required by OpenPI.
-Choose a build compatible with your GPU and NVIDIA driver from the
-`PyTorch installation instructions <https://pytorch.org/get-started/previous-versions/>`_,
-replacing ``pip install`` with ``uv pip install``. Then install LIBERO-PRO:
-
-.. code-block:: bash
-
-   uv pip install -e ".[libero-pro]"
-
-Run the remaining commands in this terminal from the RPent repository root. In a new terminal, activate ``.venv`` and set the checkpoint paths and API key again.
+Run the remaining commands in this terminal from the RPent repository root. In a new terminal, activate ``.venv-libero-pro`` and set the checkpoint paths and API key again.
 
 2. Download Assets and Models
 -----------------------------

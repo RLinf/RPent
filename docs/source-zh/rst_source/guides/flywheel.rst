@@ -16,7 +16,8 @@ RPent 数据飞轮用于记录从任务规划到动作执行的轨迹，并从�
 
 .. code-block:: bash
 
-   uv pip install -e ".[libero-pro,flywheel]"
+   bash requirements/install.sh --env libero-pro --flywheel
+   source .venv-libero-pro/bin/activate
 
 采集轨迹
 --------

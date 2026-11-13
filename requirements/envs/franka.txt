@@ -1,0 +1,24 @@
+# Keep aligned with RLinf requirements/embodied/envs/franka.txt.
+# NumPy must stay below 2, including the PyArrow import-time requirement.
+pyyaml
+rospkg
+pyrealsense2; sys_platform == 'linux' and platform_machine == 'x86_64'
+empy==3.3.4
+gymnasium==0.29.1
+pyquaternion
+opencv-python
+defusedxml
+pyspacemouse>=2.0.0
+pymodbus>=3.0,<4.0
+pyserial
+imageio[ffmpeg]
+evdev
+numpy<2
+pyarrow<26.0.0
+pyzmq
+websockets
+franky-control @ https://github.com/Brunch-Life/franky/releases/download/wheels-libfranka-0.19.0/franky_control-1.1.3-cp310-cp310-manylinux_2_28_x86_64.whl ; python_version == '3.10' and sys_platform == 'linux' and platform_machine == 'x86_64'
+franky-control @ https://github.com/Brunch-Life/franky/releases/download/wheels-libfranka-0.19.0/franky_control-1.1.3-cp311-cp311-manylinux_2_28_x86_64.whl ; python_version == '3.11' and sys_platform == 'linux' and platform_machine == 'x86_64'
+franky-control @ https://github.com/Brunch-Life/franky/releases/download/wheels-libfranka-0.19.0/franky_control-1.1.3-cp312-cp312-manylinux_2_28_x86_64.whl ; python_version == '3.12' and sys_platform == 'linux' and platform_machine == 'x86_64'
+matplotlib>=3.8
+pillow>=10

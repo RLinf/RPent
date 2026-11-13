@@ -1,0 +1,2 @@
+-r libero.txt
+rpent-liberopro @ git+https://github.com/RLinf/LIBERO-PRO.git@rpent

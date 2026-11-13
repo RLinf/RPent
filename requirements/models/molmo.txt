@@ -1,0 +1,5 @@
+# Use a separate environment: OpenPI pins an incompatible Transformers version.
+transformers>=4.57
+torch
+torchvision
+pillow>=10

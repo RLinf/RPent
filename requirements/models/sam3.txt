@@ -1,0 +1,6 @@
+sam3 @ git+https://github.com/RLinf/sam3.git@main
+einops>=0.8.0
+pycocotools
+torch
+torchvision
+pillow>=10

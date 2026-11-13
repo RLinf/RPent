@@ -31,24 +31,13 @@
 配置 Molmo
 ------------
 
-在独立 Python 环境中运行 Molmo：
+在独立的 Python 3.11 环境中安装 Molmo；它要求的 Transformers 版本与 Pi0.5 环境不兼容：
 
 .. code-block:: bash
 
-   uv venv --python 3.11 /path/to/molmo-venv
+   bash requirements/install.sh --model molmo --venv /path/to/molmo-venv
 
-接着在该环境中安装 PyTorch 和匹配的 torchvision。按 `PyTorch 安装指南 <https://pytorch.org/get-started/locally/>`_ 选择兼容 GPU 和 NVIDIA 驱动的构建，将下方 ``<CUDA_TAG>`` 替换为所选构建（如 ``cu126`` 或 ``cu128``）。此命令使用 `上海交大 PyTorch 镜像 <https://mirror.sjtu.edu.cn/docs/pytorch-wheels>`_：
-
-.. code-block:: bash
-
-   uv pip install --python /path/to/molmo-venv/bin/python \
-     torch torchvision --index-url "https://mirror.sjtu.edu.cn/pytorch-wheels/<CUDA_TAG>/"
-
-PyTorch 安装完成后，再安装 Molmo extra：
-
-.. code-block:: bash
-
-   uv pip install --python /path/to/molmo-venv/bin/python -e ".[molmo]"
+安装脚本按检测到的驱动选择 Torch CUDA 构建；可用 ``--torch-backend cu128`` 显式指定，或加 ``--use-mirror`` 使用清华 PyPI 镜像。模型仍需单独下载。
 
 从 `Hugging Face <https://huggingface.co/allenai/Molmo2-8B>`_ 或 `ModelScope <https://modelscope.cn/models/allenai/Molmo2-8B>`_ 下载 ``allenai/Molmo2-8B``，然后启动服务：
 

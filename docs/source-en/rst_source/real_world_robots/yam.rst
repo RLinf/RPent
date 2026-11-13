@@ -25,51 +25,50 @@ Use Linux and Python 3.11. This guide uses two machines:
   runs ENV and RPent.
 * **Inference machine**: runs the Pi0.5 VLA service on an NVIDIA GPU.
 
-Use the same RPent code and RLinf commit on both machines. Install uv following
-:doc:`../get_started/quickstart`, then prepare the environment on each machine:
+Use the same RPent code on both machines. Install uv following
+:doc:`../get_started/quickstart`, then clone RPent on each machine:
 
 .. code-block:: bash
 
    git clone https://github.com/RLinf/RPent.git /path/to/RPent
    cd /path/to/RPent
-   uv venv --python 3.11
-   source .venv/bin/activate
-
-   git clone --branch main https://github.com/RLinf/RLinf.git /path/to/RLinf
-   git -C /path/to/RLinf checkout --detach 196d40b6dec6f7a4063edee31cfeaa6ca0ee435a
 
 **Control machine installation**
 
-From the RPent repository root on the control machine, install RPent, RLinf, the i2rt
-SDK and the required build dependencies together:
+The RPent installer installs RLinf ``main``, the pinned i2rt SDK, camera and
+kinematics dependencies, and applies the build constraint required by ruckig.
+The host needs a C/C++ build toolchain for the SDK's native dependencies.
 
 .. code-block:: bash
 
-   cd /path/to/RPent
-   uv pip install --torch-backend cpu \
-     --build-constraints /path/to/RLinf/requirements/embodied/envs/yam-build-constraints.txt \
-     -e '.[yam]' -e /path/to/RLinf \
-     -r /path/to/RLinf/requirements/embodied/envs/yam.txt
-   uv pip check
+   bash requirements/install.sh --env yam --torch-backend cpu
+   source .venv-yam/bin/activate
+
+This environment uses the SDK's NumPy 2 requirement. Install OpenPI separately
+on the inference machine, following the next section.
 
 **Inference machine installation**
 
-On the inference machine, use RLinf's installer to install YAM and OpenPI dependencies,
-then install RPent:
+RLinf's YAM/OpenPI installer adapts the i2rt dependency metadata for OpenPI's
+NumPy 1 requirement. Use that workflow, then install only RPent's base package
+so the original SDK requirement does not replace RLinf's adapted installation:
 
 .. code-block:: bash
 
+   git clone --branch main https://github.com/RLinf/RLinf.git /path/to/RLinf
    cd /path/to/RLinf
    bash requirements/install.sh embodied --model openpi --env yam \
-     --venv /path/to/RPent/.venv --install-rlinf
+     --venv /path/to/RPent/.venv-yam-openpi --install-rlinf
+   source /path/to/RPent/.venv-yam-openpi/bin/activate
    cd /path/to/RPent
-   uv pip install -e '.[yam]'
-   uv pip check
+   uv pip install -e .
 
-If system dependencies are already installed, append ``--no-root`` to the installer
-command.
+If system dependencies are already installed, append ``--no-root`` to the RLinf
+installer command. Do not run RPent's ``--env yam`` in this model environment:
+its unmodified i2rt SDK requires NumPy 2.
 
-In each new terminal, enter the RPent repository on that machine and activate ``.venv``.
+In each new terminal, activate
+``.venv-yam`` on the control machine or ``.venv-yam-openpi`` on the inference machine.
 
 .. _yam-calibration:
 
@@ -200,7 +199,8 @@ Before using Codex, configure separate runtime directories and log in by followi
 Start the Two-Machine Services
 ------------------------------
 
-Activate the installed ``.venv`` on each machine and start the services as follows:
+Activate ``.venv-yam`` on the control machine and ``.venv-yam-openpi`` on the
+inference machine, then start the services as follows:
 
 * **Control machine**: runs RPent, ENV and operator commands, with both arm CAN
   interfaces and all three cameras connected.
@@ -216,7 +216,7 @@ consistent:
 .. code-block:: bash
 
    cd /path/to/RPent
-   source .venv/bin/activate
+   source .venv-yam/bin/activate
    export TASK_ID=1
 
 **1. Control machine: start ENV**

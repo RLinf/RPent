@@ -22,17 +22,15 @@ Use the same installation workflow as :doc:`../get_started/quickstart`:
 
    git clone https://github.com/RLinf/RPent.git
    cd RPent
-   uv venv
+   bash requirements/install.sh --env franka --venv .venv
    source .venv/bin/activate
-   uv pip install -e ".[franka,sam3]"
 
 If Python package downloads are slow, replace the installation command with the
 `Tsinghua PyPI mirror <https://mirrors.tuna.tsinghua.edu.cn/help/pypi/>`_:
 
 .. code-block:: bash
 
-   uv pip install -e ".[franka,sam3]" \
-     --index-url https://pypi.tuna.tsinghua.edu.cn/simple
+   bash requirements/install.sh --env franka --venv .venv --use-mirror
 
 This option changes only the Python package index; it does not proxy Git
 repositories, direct download URLs or model weights.
@@ -44,18 +42,25 @@ calibration steps below.
 Run subsequent commands from the repository root in this environment. In a new
 terminal, activate ``.venv`` and set the required model variables again.
 
-Download SAM3 weights on the environment node if local segmentation is needed:
+For optional segmentation, install and start SAM3 in its own virtual environment
+on a GPU node. Run the following from the RPent repository root in a separate
+terminal:
 
 .. code-block:: bash
 
-   uv pip install modelscope
-   modelscope download --model facebook/sam3 sam3.pt \
+   bash requirements/install.sh --model sam3
+   uv pip install --python .venv-sam3/bin/python modelscope
+   .venv-sam3/bin/modelscope download --model facebook/sam3 sam3.pt \
      --local_dir ./checkpoints/sam3
-   export SAM3_CHECKPOINT_PATH="$PWD/checkpoints/sam3/sam3.pt"
+   SAM3_CHECKPOINT_PATH="$PWD/checkpoints/sam3/sam3.pt" \
+     .venv-sam3/bin/python -m rpent.robots.components.sam3_server \
+     --host 127.0.0.1 --port 8114
 
-Without this variable or ``--sam3-endpoint``, segmentation is unavailable;
-installing the extra alone does not download weights. VLA checkpoints are
-configured in :ref:`dual-franka-vla`.
+Keep this service running and add ``--sam3-endpoint http://127.0.0.1:8114`` to
+the RPent or manual-call command in the Franka environment. For a separate GPU
+node, bind the service to its reachable address and use that address in the
+endpoint. Without a SAM3 service, segmentation is unavailable. VLA checkpoints
+are configured in :ref:`dual-franka-vla`.
 
 Calibration
 -----------

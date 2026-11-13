@@ -19,16 +19,14 @@ RPent 通过 RLinf ``RealWorldEnv`` worker 控制双节点双臂 Franka 系统�
 
    git clone https://github.com/RLinf/RPent.git
    cd RPent
-   uv venv
+   bash requirements/install.sh --env franka --venv .venv
    source .venv/bin/activate
-   uv pip install -e ".[franka,sam3]"
 
 下载 Python 依赖较慢时，可使用 `清华 PyPI 镜像 <https://mirrors.tuna.tsinghua.edu.cn/help/pypi/>`_ 替换上面的安装命令：
 
 .. code-block:: bash
 
-   uv pip install -e ".[franka,sam3]" \
-     --index-url https://pypi.tuna.tsinghua.edu.cn/simple
+   bash requirements/install.sh --env franka --venv .venv --use-mirror
 
 该选项只替换 Python 包索引，不代理 Git 仓库、直接下载链接或模型权重。
 
@@ -36,16 +34,19 @@ RPent 通过 RLinf ``RealWorldEnv`` worker 控制双节点双臂 Franka 系统�
 
 后续命令在仓库根目录和该环境中执行。新开终端时，重新激活 ``.venv`` 并设置所需的模型环境变量。
 
-需要本地分割时，在环境节点下载 SAM3 权重：
+需要分割功能时，在 GPU 节点的独立虚拟环境中安装并启动 SAM3。另开终端，在 RPent 仓库根目录执行：
 
 .. code-block:: bash
 
-   uv pip install modelscope
-   modelscope download --model facebook/sam3 sam3.pt \
+   bash requirements/install.sh --model sam3
+   uv pip install --python .venv-sam3/bin/python modelscope
+   .venv-sam3/bin/modelscope download --model facebook/sam3 sam3.pt \
      --local_dir ./checkpoints/sam3
-   export SAM3_CHECKPOINT_PATH="$PWD/checkpoints/sam3/sam3.pt"
+   SAM3_CHECKPOINT_PATH="$PWD/checkpoints/sam3/sam3.pt" \
+     .venv-sam3/bin/python -m rpent.robots.components.sam3_server \
+     --host 127.0.0.1 --port 8114
 
-未设置该变量或 ``--sam3-endpoint`` 时，分割功能不可用；仅安装 extra 不会下载权重。VLA checkpoint 配置见 :ref:`dual-franka-vla`。
+保持服务运行，在 Franka 环境中的 RPent 或手动调用命令后添加 ``--sam3-endpoint http://127.0.0.1:8114``。若使用独立 GPU 节点，将服务绑定到可访问的地址，并在 endpoint 中使用该地址。未连接 SAM3 服务时，分割功能不可用。VLA checkpoint 配置见 :ref:`dual-franka-vla`。
 
 标定
 ----

@@ -28,7 +28,8 @@ optional export dependencies:
 
 .. code-block:: bash
 
-   uv pip install -e ".[libero-pro,flywheel]"
+   bash requirements/install.sh --env libero-pro --flywheel
+   source .venv-libero-pro/bin/activate
 
 Record a Trajectory
 -------------------

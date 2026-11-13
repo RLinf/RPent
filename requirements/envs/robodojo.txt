@@ -1,0 +1,3 @@
+# PyArrow 26 requires NumPy 2, incompatible with the simulator stack.
+rlinf-robodojo-runtime @ git+https://github.com/RLinf/RoboDojo.git@rpent
+pyarrow>=21.0.0,<26.0.0

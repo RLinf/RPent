@@ -37,24 +37,16 @@ planner、robot 或 tool 集成，都能帮助项目持续发展。
 ### 第 2 步：搭建开发环境
 
 ```bash
-# 创建并启用隔离环境。
-uv venv --python 3.11
+# 创建 CPU 开发环境并安装测试依赖。
+bash requirements/install.sh --core --test --venv .venv
 source .venv/bin/activate
-
-# 安装源码检出和轻量测试依赖。
-uv pip install -e ".[test]"
-
-# 开发 robot 时，改为选择对应的测试环境。
-uv pip install -e ".[test,libero-pro]"  # LIBERO
-uv pip install -e ".[test,robocasa]"    # RoboCasa
-uv pip install -e ".[test,robotwin]"    # RoboTwin
 
 # 安装并启用仓库 hooks。
 uv pip install pre-commit==4.6.2
 pre-commit install
 ```
 
-以上命令是不同选择；只安装当前改动涉及的 robot extra。各环境的具体配置见
+开发机器人集成时，使用 `--env <name> --test` 选择目标，运行测试或安装 hooks 前激活 `.venv-<name>`。各平台前置要求见
 [安装指南](docs/source-zh/rst_source/get_started/quickstart.rst)。
 
 ### 第 3 步：开发
@@ -67,8 +59,8 @@ pre-commit install
 - **修改共享模块、类和方法时检查职责与影响。** 确认改动符合原有职责，优先使用合适的现有扩展点，避免将环境专用逻辑或上层依赖放入底层公共组件。检查受影响的调用方、子类和后端，包括不使用新功能的实现；即使接口签名不变，也要核对行为、状态和生命周期是否改变。是否修改公共层应根据共享需求判断，不能只看功能大小。
 - **可选依赖只在使用处导入。** 例如，只在实际使用 RoboCasa 的代码中导入
   `robosuite`，不要在模块加载时导入。这样即使没有安装所有模拟器，
-  `import rpent`、robot 发现和 CLI help 仍然可用。集成专用依赖应放在可选 extra
-  中。
+  `import rpent`、robot 发现和 CLI help 仍然可用。机器人和模型专用依赖分别放在 `requirements/envs/`、`requirements/models/`，
+  并由 `requirements/install.sh` 选择安装。
 - **保持已有接口和行为兼容。** 修改 API、命令行参数、配置或保存数据的格式时，检查已有调用和数据是否仍可使用。即使参数名称和类型不变，也要检查其含义、默认值和执行行为是否改变。确需改变现有用法时，说明影响和调整方式，并更新相关调用、测试和文档。
 - **改动应配套测试。** 新行为和 bug 修复应包含测试。refactor 应保持已有测试通过；
   如果行为发生变化，请同步更新测试并说明原因。单测必须能在普通 CPU 机器上离线
