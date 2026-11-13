@@ -242,3 +242,11 @@ def test_healthz_still_reports_transport_liveness_only(state: DashboardState) ->
 
     assert resp.status_code == 200
     assert resp.json() == {"ok": True}
+
+
+@pytest.mark.parametrize(
+    "path", ["teleop", "teleop/stop", "teleop/recording", "teleop/end"]
+)
+def test_dashboard_has_no_teleoperation_routes(state, path):
+    client = _client(_server(state))
+    assert client.post(f"/api/session/{path}", json={}).status_code == 404

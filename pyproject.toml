@@ -57,6 +57,7 @@ rpent = "rpent.cli.main:main"
 rpent-memory = "rpent.cli.memory:main"
 rpent-check-llm = "rpent.cli.check_llm:main"
 rpent-flywheel = "rpent.flywheel.cli:main"
+rpent-lekiwi-server = "robots.lekiwi.env_server:main"
 
 [project.urls]
 Homepage = "https://github.com/RLinf/RPent"
@@ -163,6 +164,19 @@ yam = [
     "pyrealsense2>=2.55,<3",
     "imageio-ffmpeg",
 ]
+lekiwi = [
+    "rlinf @ git+https://github.com/RLinf/RLinf.git@main",
+    "omegaconf>=2.3,<3",
+    "pyyaml",
+    "gymnasium",
+    "lerobot[feetech]>=0.4.1,<0.7",
+    # Headless: lerobot[feetech] installs opencv-python-headless, and mixing
+    # the GUI and headless distributions corrupts cv2/ (both unpack into it),
+    # so keep this extra on the headless build — the robot computer has no
+    # display, and the GUI build needs a system libGL.so.1.
+    "opencv-python-headless",
+    "imageio[ffmpeg]",
+]
 robotwin = [
     "rpent[rlinf]",
     "rlinf-robotwin-runtime==0.1.3",
@@ -195,6 +209,46 @@ prerelease = "allow"
 # Each robot extra pulls a separately pinned VLA runtime whose Torch,
 # Transformers, Tokenizers, or Diffusers versions are mutually incompatible.
 conflicts = [
+    [
+        { extra = "lekiwi" },
+        { extra = "rlinf" },
+    ],
+    [
+        { extra = "lekiwi" },
+        { extra = "libero" },
+    ],
+    [
+        { extra = "lekiwi" },
+        { extra = "libero-pro" },
+    ],
+    [
+        { extra = "lekiwi" },
+        { extra = "libero-plus" },
+    ],
+    [
+        { extra = "lekiwi" },
+        { extra = "franka" },
+    ],
+    [
+        { extra = "lekiwi" },
+        { extra = "robocasa" },
+    ],
+    [
+        { extra = "lekiwi" },
+        { extra = "robotwin" },
+    ],
+    [
+        { extra = "lekiwi" },
+        { extra = "robodojo" },
+    ],
+    [
+        { extra = "lekiwi" },
+        { extra = "robodojo-sim" },
+    ],
+    [
+        { extra = "lekiwi" },
+        { extra = "flywheel" },
+    ],
     [
         { extra = "franka" },
         { extra = "libero" },
@@ -277,6 +331,7 @@ exclude = ["tests*", "docs*", "examples*", "docker*", "toolkits*"]
 "robots.robodojo" = ["guides/*.md"]
 "rpent.dashboard" = ["*.html", "static/*.css", "static/*.js"]
 "robots.yam" = ["config/*.yaml", "config/*.json", "guides/*.md"]
+"robots.lekiwi" = ["config/*.yaml"]
 
 [tool.pytest.ini_options]
 addopts = ["--import-mode=importlib"]

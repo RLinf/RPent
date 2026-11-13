@@ -118,6 +118,7 @@ Choose an environment: :doc:`LIBERO <rst_source/simulators/libero>`, :doc:`RoboC
    Single-Arm Franka <rst_source/real_world_robots/franka>
    Dual-Arm Franka <rst_source/real_world_robots/dual_franka>
    YAM <rst_source/real_world_robots/yam>
+   LeKiwi <rst_source/real_world_robots/lekiwi>
    SO-101 <rst_source/real_world_robots/so101>
 
 .. toctree::
