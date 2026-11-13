@@ -51,6 +51,7 @@ require loading every skill.
 | Task | Skill |
 | --- | --- |
 | Explain and review a PR, or review an explicitly selected local diff | [review-pr](.agents/skills/review-pr/SKILL.md) |
+| Write or streamline documentation in concise task-first style | [write-doc](.agents/skills/write-doc/SKILL.md) |
 | Check documentation, comments, translations, or user/model-facing prose | [docs-check](.agents/skills/docs-check/SKILL.md) |
 | Select and run checks for a change, or prepare validation evidence | [verify-change](.agents/skills/verify-change/SKILL.md) |
 | Add a robot integration or extend its Env/VLA/tool/runtime wiring | [add-robot](.agents/skills/add-robot/SKILL.md) |
