@@ -25,6 +25,7 @@ import time
 import uuid
 from pathlib import Path
 
+from robots.rl.remote import REMOTE_OPTION_DEFAULTS, remote_options
 from rpent.utils.config import get_repo_root
 from rpent.utils.daemon import ProcessDaemon
 from rpent.utils.logging import get_logger
@@ -58,6 +59,8 @@ def validate_request(request: dict, gpus: set[int]) -> None:
         "observation_mode",
         "prompt",
         "libero_type",
+        "init_state_id",
+        *REMOTE_OPTION_DEFAULTS,
     }
     if set(task).difference(allowed) or environment not in (
         "libero",
@@ -65,13 +68,15 @@ def validate_request(request: dict, gpus: set[int]) -> None:
         "robotwin",
     ):
         raise ValueError("unsupported remote simulator/task fields")
-    if (
-        task.get("workflow", "episode") != "episode"
-        or task.get("observation_mode", "adaptive") != "adaptive"
-    ):
-        raise ValueError("remote toolkit currently supports adaptive episode")
+    remote_options(task)
     if type(task.get("seed")) is not int or task["seed"] < 0:
         raise ValueError("seed must be a nonnegative integer")
+    if "init_state_id" in task and (
+        type(task["init_state_id"]) is not int
+        or task["init_state_id"] < 0
+        or task["init_state_id"] != task["seed"]
+    ):
+        raise ValueError("explicit init_state_id must match the native seed index")
     name = task.get("suite") if environment == "libero" else task.get("task_name")
     if not isinstance(name, str) or re.fullmatch(r"[A-Za-z0-9_]+", name) is None:
         raise ValueError("invalid native task identifier")

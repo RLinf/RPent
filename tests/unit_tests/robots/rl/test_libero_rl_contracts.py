@@ -151,6 +151,7 @@ def make_toolkit(
     *,
     env: FakeEnv | None = None,
     sam3: FakeSam3 | None = None,
+    **options,
 ) -> RLToolkit:
     return RLToolkit(
         runtime_kwargs={
@@ -161,6 +162,7 @@ def make_toolkit(
         memory=MemoryManager(tmp_path / "memory"),
         observation_mode=mode,
         output_dir=tmp_path / "run",
+        **options,
     )
 
 
@@ -596,6 +598,63 @@ def test_episode_planner_is_a_thinking_qwen_policy_client() -> None:
     assert settings["extra_body"]["top_k"] == 20
     assert settings["parallel_tool_calls"] is False
     assert "openai_reasoning_effort" not in settings
+
+
+def test_training_sampling_and_request_audit_reach_the_native_planner(tmp_path):
+    import asyncio
+
+    from robots.rl.rl_episode import build_planner
+
+    planner, client = build_planner(
+        base_url="http://127.0.0.1:1/v1",
+        model_name="policy",
+        max_tokens=32768,
+        request_timeout_s=1,
+        episode_timeout_s=1,
+        observation_mode="adaptive",
+        history_compaction=None,
+        count_tokens=None,
+        sampling_params={
+            "temperature": 1,
+            "top_p": 1,
+            "top_k": -1,
+            "min_p": 0,
+            "presence_penalty": 0,
+            "repetition_penalty": 1,
+        },
+        request_trace_dir=tmp_path / "api_trace",
+    )
+    try:
+        settings = planner.model_settings
+        assert settings["top_p"] == 1 and settings["presence_penalty"] == 0
+        assert settings["extra_body"]["top_k"] == -1
+        assert settings["extra_body"]["chat_template_kwargs"]["enable_thinking"]
+        assert planner.model.request_trace.directory == tmp_path / "api_trace"
+    finally:
+        asyncio.run(client.close())
+
+
+def test_trainer_keeps_sam_service_failure_separate_from_task_failure(tmp_path):
+    from robots.rl.rl_episode import episode_outcome
+    from rpent.planner.base import PlannerResult
+
+    toolkit = make_toolkit(tmp_path, "adaptive")
+    result = PlannerResult(stats={"turns_used": 1})
+    try:
+        toolkit.execute_tool("segment", {})
+        assert episode_outcome(result, toolkit, 80)["terminal"] is True
+
+        def broken(*args, **kwargs):
+            raise ConnectionError("SAM3 unavailable")
+
+        toolkit._primitives._sam3.segment = broken
+        toolkit.execute_tool("segment", {"prompt": "cube"})
+        outcome = episode_outcome(result, toolkit, 80)
+        assert not outcome["terminal"] and not outcome["success"]
+        assert outcome["error_kind"] == "tool_transport"
+        assert outcome["service_errors"][0]["error"]["type"] == "ConnectionError"
+    finally:
+        toolkit.close()
 
 
 def test_concurrent_runtime_clients_follow_their_servers_announced_ports(tmp_path):

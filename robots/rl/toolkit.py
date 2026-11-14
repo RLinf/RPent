@@ -40,6 +40,34 @@ from rpent.tools import ToolResult, iter_tools
 from rpent.tools.toolkit import Toolkit
 
 
+def primitive_definitions(primitives, *, workflow, action_mode, perception_mode):
+    """Select the same native declarations for local and remote execution."""
+    for definition in iter_tools(primitives):
+        if definition.name in {"view_env", "segment", "back_project"} and (
+            perception_mode == "batch" or workflow != "episode"
+        ):
+            continue
+        if action_mode == "batch" and definition.name in {"move_to", "set_gripper"}:
+            continue
+        yield definition
+
+
+def action_batch_definition(toolkit, max_actions_per_call):
+    """Publish the configured bound on the single ordered action tool."""
+    from robots.rl.actions import ActionBatch
+
+    declaration = ActionBatch(toolkit).execute_actions
+    schema = declaration.input_schema
+    schema["properties"]["actions"]["maxItems"] = max_actions_per_call
+    return replace(
+        declaration,
+        _input_schema=schema,
+        description=declaration.description.replace(
+            "1..K", f"1..{max_actions_per_call}"
+        ),
+    )
+
+
 class RLToolkit(Toolkit):
     """Expose end-effector, perception, and finish tools.
 
@@ -136,27 +164,12 @@ class RLToolkit(Toolkit):
             from robots.rl.observe import Observe
 
             self.observer = Observe(self)
-        for definition in iter_tools(self._primitives):
-            if self.observer is not None and definition.name in {
-                "view_env",
-                "segment",
-                "back_project",
-            }:
-                continue
-            if workflow.startswith("zap_") and definition.name in {
-                "view_env",
-                "segment",
-                "back_project",
-            }:
-                continue
-            if workflow == "episode_image" and definition.name in {
-                "view_env",
-                "segment",
-                "back_project",
-            }:
-                continue
-            if action_mode == "batch" and definition.name in {"move_to", "set_gripper"}:
-                continue
+        for definition in primitive_definitions(
+            self._primitives,
+            workflow=workflow,
+            action_mode=action_mode,
+            perception_mode=perception_mode,
+        ):
             self.add_tool(definition)
         if self.observer is not None:
             declaration = self.observer.observe
@@ -192,20 +205,7 @@ class RLToolkit(Toolkit):
 
             self.add_tools(iter_tools(LatestImageTools(self._primitives)))
         if action_mode == "batch":
-            from robots.rl.actions import ActionBatch
-
-            declaration = ActionBatch(self).execute_actions
-            schema = declaration.input_schema
-            schema["properties"]["actions"]["maxItems"] = max_actions_per_call
-            self.add_tool(
-                replace(
-                    declaration,
-                    _input_schema=schema,
-                    description=declaration.description.replace(
-                        "1..K", f"1..{max_actions_per_call}"
-                    ),
-                )
-            )
+            self.add_tool(action_batch_definition(self, max_actions_per_call))
         if self.snapshot is not None:
             self.add_tool(self.snapshot.change_query)
             if workflow == "zap_turn":

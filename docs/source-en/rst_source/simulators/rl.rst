@@ -195,6 +195,50 @@ reference covers installation on each host, private routing, GPU capacities,
 source/task/budget checks, file hashes and lease cleanup. Remote ZAP is
 unsupported.
 
+Remote episode supports single perception, single or batch actions, image
+size and reasoning/image history limits. The backend echoes these settings
+and exposes the same strict tool declarations as the planner. A source,
+configuration or schema mismatch rejects the session before any tool executes.
+
+On the environment host, start SAM3 and a pool as described above, then start
+an independent backend with explicit capacities:
+
+.. code-block:: bash
+
+   export RPENT_ROOT=/path/to/RPent
+   export BACKEND_OUTPUT=/path/to/backend-artifacts
+   export SAM_POOL=http://127.0.0.1:8124
+   cd "$RPENT_ROOT"
+   python -m robots.rl.remote_manager \
+     --output-dir "$BACKEND_OUTPUT" \
+     --gpu-slots 0:32,1:32,2:32,3:32,4:32,5:32,6:32,7:32 \
+     --max-initializing-per-gpu 2 --sam3-endpoint "$SAM_POOL" \
+     --host 127.0.0.1 --port 28490
+
+The slot counts are limits; qualify that layout with real resident environments
+before collecting at that concurrency. Preserve the backend directory, including
+failed sessions. Use a server-owned SSH reverse forward or another private route
+to expose this loopback listener on each planner host. Bind forwarded ports to
+loopback and keep private keys on their originating server.
+
+On a planner host with the same RPent revision, pass the forwarded endpoint
+with the ordinary workflow flags:
+
+.. code-block:: bash
+
+   export RPENT_REMOTE_TOOLKIT_ENDPOINT=http://127.0.0.1:28490
+   python -m robots.rl.rl_episode \
+     --request /path/to/request.json --output-dir /path/to/episode \
+     --workflow episode --action-mode batch --max-actions-per-call 3 \
+     --perception-mode single --libero-type pro \
+     --tokenizer-path /path/to/Qwen3.5-4B --cuda-device 0
+
+``cuda-device`` selects the remote environment GPU here. The planner keeps
+verified copies of the original RGB, depth and geometry under its own output
+directory; trainers must reference that directory, not environment-host paths.
+If an action response is lost or leaves the outcome uncertain, the planner
+stops the episode without replaying the action in that session.
+
 RLinf Training
 --------------
 
@@ -202,6 +246,14 @@ The reference preserves offline installation and RLinf/SFT integration details.
 RLinf owns policy training/checkpoints; RPent owns simulator/tool execution.
 Its episode entry is ``robots.rl.rl_episode``. Dataset encoding belongs to
 ``ms-swift/examples/rpent`` and must preserve saved requests and image order.
+
+An RL trainer supplies ``task`` and ``planner`` objects in the request JSON.
+Planner options include ``max_turns``, ``max_tokens``, timeouts,
+``history_compaction``, ``thinking`` and ``sampling_params``. The
+``sampling_params`` fields use the Qwen adapter's sampling field names.
+Explicit values override the standalone sampling defaults. Each episode retains full HTTP/native traces in
+``api_trace/``. Use the paired RLinf episode PPO recipe to store sampled token
+IDs, behavior logprobs and ordered training images alongside these traces.
 
 
 Image feedback, action batches and history

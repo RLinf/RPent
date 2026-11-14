@@ -43,7 +43,7 @@ def backend(monkeypatch):
     module.LiberoEnv = constructor
     monkeypatch.setitem(sys.modules, module.__name__, module)
     utils = types.ModuleType("rlinf.envs.sim.libero.utils")
-    utils.benchmark = SimpleNamespace(get_benchmark=lambda _: lambda: suite)
+    utils.get_benchmark_overridden = lambda _: lambda: suite
     monkeypatch.setitem(sys.modules, utils.__name__, utils)
     return constructor, queried
 

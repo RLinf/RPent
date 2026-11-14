@@ -77,7 +77,7 @@ class Bridge(RpcFacade):
 
 
 @pytest.fixture
-def connected(tmp_path, monkeypatch):
+def connected(tmp_path, monkeypatch, request):
     monkeypatch.setattr(tools, "IMAGE_SIZE", 32)
     from rpent.utils import templates
 
@@ -85,10 +85,17 @@ def connected(tmp_path, monkeypatch):
         templates, "default_variables", lambda: {"output_dir": "/offline/output"}
     )
     env = FakeEnv(success_below_z=0.95)
-    toolkit = make_toolkit(tmp_path / "backend", "adaptive", env=env)
+    options = getattr(request, "param", {})
+    toolkit = make_toolkit(tmp_path / "backend", "adaptive", env=env, **options)
     release = contextlib.ExitStack()
     release.callback(toolkit.close)
-    task = {"environment": "libero", "suite": "libero_object", "task": 0, "seed": 1}
+    task = {
+        "environment": "libero",
+        "suite": "libero_object",
+        "task": 0,
+        "seed": 1,
+        **options,
+    }
     request = {"task": task, "gpu": 0, "max_episode_steps": 10000}
     config = {**request, "output_dir": str(tmp_path / "backend/run")}
     worker = remote.ToolkitWorker(toolkit, release, config)
@@ -152,6 +159,59 @@ def test_remote_preserves_native_tools_observations_and_original_bytes(connected
     )
 
 
+@pytest.mark.parametrize(
+    "connected",
+    [
+        {
+            "action_mode": "batch",
+            "max_actions_per_call": 3,
+            "reasoning_history": 3,
+            "image_history": 1,
+        }
+    ],
+    indirect=True,
+)
+def test_remote_batch_has_identical_contract_and_never_executes_invalid_list(connected):
+    client = connected.connect()
+    try:
+        assert remote.declarations(client) == remote.declarations(connected.toolkit)
+        assert {tool.name for tool in client.list_tools()} == {
+            "execute_actions",
+            "view_env",
+            "segment",
+            "back_project",
+            "finish",
+        }
+        assert client.reasoning_history == 3 and client.image_history == 1
+        invalid = client.execute_tool(
+            "execute_actions",
+            {
+                "actions": [
+                    {"action": "set_gripper", "opening": 0},
+                    {"action": "move_to", "xyz": [1, 2]},
+                ]
+            },
+        )
+        assert invalid.is_error
+        assert connected.bridge.calls == ["rl.observe"]
+        assert connected.env.actions == []
+        moved = client.execute_tool(
+            "execute_actions",
+            {
+                "actions": [
+                    {"action": "move_to", "xyz": [0.1, -0.2, 0.9]},
+                    {"action": "set_gripper", "opening": 1},
+                ]
+            },
+        )
+        assert moved.data["executed_count"] == 1
+        assert moved.data["stop_reason"] == "terminated"
+        assert client.workflow_stats["atomic_actions"] == 1
+        assert client.state.records() == connected.toolkit.state.records()
+    finally:
+        client.close()
+
+
 def test_response_loss_cannot_become_a_tool_error_and_replay_the_action(connected):
     client = connected.connect()
     connected.bridge.fail_after_action = True
@@ -199,7 +259,7 @@ def test_close_releases_owned_worker_even_if_cancellation_connection_fails(conne
 
 
 @pytest.mark.parametrize(
-    "field", ["source_digest", "task", "tools", "max_episode_steps"]
+    "field", ["source_digest", "task", "tools", "max_episode_steps", "workflow_options"]
 )
 def test_incompatible_backend_is_rejected_and_released(connected, field):
     connected.bridge.mismatch = field
@@ -273,6 +333,33 @@ def test_manager_rejects_tasks_outside_its_native_resource_contract(changes):
     }
     with pytest.raises(ValueError):
         validate_request(request, {0, 1})
+
+
+@pytest.mark.parametrize(
+    "bad",
+    [
+        {"action_mode": "batched"},
+        {"max_actions_per_call": True},
+        {"max_actions_per_call": 0},
+        {"image_size": 999},
+        {"reasoning_history": -2},
+        {"perception_mode": "batch"},
+    ],
+)
+def test_manager_validates_workflow_options_before_starting_a_worker(bad):
+    request = {
+        "task": {
+            "environment": "libero",
+            "suite": "libero_goal",
+            "task": 0,
+            "seed": 0,
+            **bad,
+        },
+        "gpu": 0,
+        "max_episode_steps": 10000,
+    }
+    with pytest.raises(ValueError):
+        validate_request(request, {0})
 
 
 def test_manager_capacity_includes_reserved_initializations_and_cleanup(tmp_path):

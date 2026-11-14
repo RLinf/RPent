@@ -111,9 +111,9 @@ def make_env(
 ) -> LiberoEnv:
     """Build a single-env LiberoEnv pinned to ``task_id`` / ``seed``."""
     from rlinf.envs.sim.libero.libero_env import LiberoEnv
-    from rlinf.envs.sim.libero.utils import benchmark as _bench_mod
+    from rlinf.envs.sim.libero.utils import get_benchmark_overridden
 
-    suite = _bench_mod.get_benchmark(suite_name)()
+    suite = get_benchmark_overridden(suite_name)()
     if not 0 <= task_id < suite.n_tasks:
         raise ValueError(
             f"task_id must be in [0, {suite.n_tasks}) for suite {suite_name!r}; got {task_id}"

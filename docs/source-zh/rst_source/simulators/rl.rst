@@ -175,12 +175,45 @@ Adaptive episode 可通过 ``python -m robots.rl.remote_manager`` 和
 两侧源码必须一致。参考文档覆盖两侧安装、私有网络连接、GPU 容量、源码/任务/
 预算校验、文件哈希与租约清理。远程 ZAP 暂不支持。
 
+远程 episode 支持 single 感知、single 或 batch 动作，以及图片尺寸和 reasoning/image 历史数量。后端回显实际配置，并与 planner 核对相同的严格工具声明。源码、配置或 schema 不一致会拒绝会话，不执行工具。
+
+在环境机器按上文启动 SAM3 和 pool，再用明确容量启动独立后端：
+
+.. code-block:: bash
+
+   export RPENT_ROOT=/path/to/RPent
+   export BACKEND_OUTPUT=/path/to/backend-artifacts
+   export SAM_POOL=http://127.0.0.1:8124
+   cd "$RPENT_ROOT"
+   python -m robots.rl.remote_manager \
+     --output-dir "$BACKEND_OUTPUT" \
+     --gpu-slots 0:32,1:32,2:32,3:32,4:32,5:32,6:32,7:32 \
+     --max-initializing-per-gpu 2 --sam3-endpoint "$SAM_POOL" \
+     --host 127.0.0.1 --port 28490
+
+slot 数是容量上限，采集前须用真实驻留环境验证布局。后端目录保留所有会话，包括失败会话。通过服务器自己维护的 SSH 反向转发或其他私有链路，让每台 planner 机器访问这个 loopback 端点。转发端口绑定 loopback，私钥留在生成它的服务器。
+
+在源码版本相同的 planner 机器传入转发端点和普通 workflow 参数：
+
+.. code-block:: bash
+
+   export RPENT_REMOTE_TOOLKIT_ENDPOINT=http://127.0.0.1:28490
+   python -m robots.rl.rl_episode \
+     --request /path/to/request.json --output-dir /path/to/episode \
+     --workflow episode --action-mode batch --max-actions-per-call 3 \
+     --perception-mode single --libero-type pro \
+     --tokenizer-path /path/to/Qwen3.5-4B --cuda-device 0
+
+这里的 ``cuda-device`` 选择远程环境 GPU。planner 在自己的输出目录保存校验后的原始 RGB、深度和几何文件，训练端应引用这里的文件，不能引用环境机器上的路径。动作响应丢失、执行结果不确定会停止 episode，同一会话内不重放动作。
+
 RLinf 训练
 ----------------------------------------------------------------
 
 参考文档保留离线安装、RLinf/SFT 集成说明。RLinf 负责策略训练和 checkpoint，
 RPent 负责仿真器与工具执行；episode 入口为 ``robots.rl.rl_episode`` 。
 数据编码位于 ``ms-swift/examples/rpent`` ，应保留实际请求与图片顺序。
+
+RL trainer 在请求 JSON 中提供 ``task`` 和 ``planner`` 对象。planner 参数包含 ``max_turns``、``max_tokens``、时间上限、``history_compaction``、``thinking`` 和 ``sampling_params``。采样字段与 Qwen adapter 同名，显式值覆盖独立运行的默认值。每条 episode 在 ``api_trace/`` 保留完整 HTTP 和原生请求记录。配套 RLinf episode PPO 示例还保存真实采样 token ID、行为 logprob 和有序训练图片，便于交叉核对。
 
 
 图片反馈、动作列表与历史保留

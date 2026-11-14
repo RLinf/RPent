@@ -271,23 +271,10 @@ def _validate_args(args: argparse.Namespace) -> None:
     if args.no_images:
         raise ValueError("rl requires camera images; remove --no-images")
     if getattr(args, "remote_toolkit_endpoint", None) is not None:
-        if any(
-            getattr(args, name, default) != default
-            for name, default in (
-                ("perception_mode", "single"),
-                ("max_observe_calls", 8),
-                ("observe_concurrency", 8),
-                ("action_mode", "single"),
-                ("max_actions_per_call", 3),
-                ("reasoning_history", -1),
-                ("image_history", -1),
-            )
-        ):
-            raise ValueError(
-                "remote toolkit does not yet support action/history/observe options"
-            )
         if getattr(args, "workflow", "episode") != "episode":
             raise ValueError("remote toolkit currently supports --workflow episode")
+        if getattr(args, "perception_mode", "single") != "single":
+            raise ValueError("remote toolkit currently supports single perception")
         if args.env_endpoint is not None or args.sam3_endpoint is not None:
             raise ValueError(
                 "remote toolkit owns its env/SAM3; remove separate endpoints"

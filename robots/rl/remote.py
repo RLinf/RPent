@@ -24,17 +24,73 @@ import json
 import os
 import sys
 import threading
+import time
 from pathlib import Path
 from typing import Any
 
+from pydantic_core import to_jsonable_python
+
 from rpent.session import EnvState
-from rpent.tools import ToolResult, iter_tools
+from rpent.tools import ToolResult
 from rpent.tools.toolkit import Toolkit
 from rpent.utils.config import get_repo_root
 from rpent.utils.logging import get_logger
 from rpent.utils.rpc import RpcFacade, make_rpc_client
 
 logger = get_logger("rl_remote")
+
+REMOTE_OPTION_DEFAULTS = {
+    "workflow": "episode",
+    "observation_mode": "adaptive",
+    "prompt": "simple",
+    "image_size": 1024,
+    "action_mode": "single",
+    "max_actions_per_call": 3,
+    "reasoning_history": -1,
+    "image_history": -1,
+    "perception_mode": "single",
+    "max_observe_calls": 8,
+    "observe_concurrency": 8,
+}
+
+
+def remote_options(task: dict) -> dict:
+    """Resolve and validate the workflow configuration at the RPC boundary."""
+    from robots.rl.contracts import validate_options, validate_perception_options
+    from robots.rl.images import IMAGE_SIZES
+    from robots.rl.prompt_bundle import PROMPT_VARIANTS
+
+    options = {
+        name: task.get(name, default)
+        for name, default in REMOTE_OPTION_DEFAULTS.items()
+    }
+    for name, default in REMOTE_OPTION_DEFAULTS.items():
+        if type(options[name]) is not type(default):
+            raise ValueError(f"invalid remote workflow option {name}")
+    if options["workflow"] != "episode" or options["observation_mode"] != "adaptive":
+        raise ValueError("remote toolkit supports adaptive episode only")
+    if options["perception_mode"] != "single":
+        raise ValueError("remote toolkit supports single perception only")
+    if (
+        options["image_size"] not in IMAGE_SIZES
+        or options["prompt"] not in PROMPT_VARIANTS
+    ):
+        raise ValueError("invalid remote image size or prompt variant")
+    validate_options(
+        task["environment"],
+        options["workflow"],
+        options["action_mode"],
+        options["max_actions_per_call"],
+        options["reasoning_history"],
+        options["image_history"],
+    )
+    validate_perception_options(
+        options["workflow"],
+        options["perception_mode"],
+        options["max_observe_calls"],
+        options["observe_concurrency"],
+    )
+    return options
 
 
 def source_digest() -> str:
@@ -160,6 +216,14 @@ class ToolkitWorker(RpcFacade):
         return {
             "task": self.config["task"],
             "max_episode_steps": self.config["max_episode_steps"],
+            "workflow_options": {
+                name: (
+                    getattr(self.toolkit, name)
+                    if name not in {"observation_mode", "prompt"}
+                    else self.config["task"].get(name, default)
+                )
+                for name, default in REMOTE_OPTION_DEFAULTS.items()
+            },
             "source_digest": source_digest(),
             "tools": declarations(self.toolkit),
             "pid": os.getpid(),
@@ -183,6 +247,7 @@ class ToolkitWorker(RpcFacade):
                 base64.b64encode(image).decode("ascii") for image in result.images
             ],
             "solved": self.toolkit.solved() if solved is None else solved,
+            "workflow_stats": self.toolkit.workflow_stats,
             "files": self.exchange.collect(),
         }
 
@@ -225,10 +290,17 @@ class RemoteToolkit(Toolkit):
         self._rpc = make_rpc_client(endpoint)
         self._output = config.output_dir
         self.output_dir = Path(config.output_dir)
-        self.workflow = "episode"
-        self.image_size = getattr(config, "prompt_vars", {}).get("image_size", 1024)
+        options = remote_options(request["task"])
+        configured = remote_options(
+            {**request["task"], **getattr(config, "prompt_vars", {})}
+        )
+        if configured != options:
+            raise ValueError(
+                "remote request differs from the planner workflow configuration"
+            )
+        for name, value in options.items():
+            setattr(self, name, value)
         self.snapshot = None
-        self.reasoning_history = self.image_history = -1
         self.workflow_stats = {}
         self._call_lock = threading.Lock()
         self._call_id = 0
@@ -249,6 +321,7 @@ class RemoteToolkit(Toolkit):
             if (
                 metadata["task"] != request["task"]
                 or metadata["max_episode_steps"] != request["max_episode_steps"]
+                or metadata["workflow_options"] != options
             ):
                 raise ValueError("remote toolkit task or budget mismatch")
             from robots.rl.backends import RoboCasaPrimitives, RoboTwinPrimitives
@@ -260,8 +333,21 @@ class RemoteToolkit(Toolkit):
                 "robotwin": RoboTwinPrimitives,
             }[request["task"]["environment"]]
             from robots.rl.contracts import strict_tool
+            from robots.rl.toolkit import action_batch_definition, primitive_definitions
 
-            for definition in iter_tools(owner):
+            definitions = list(
+                primitive_definitions(
+                    owner,
+                    workflow=self.workflow,
+                    action_mode=self.action_mode,
+                    perception_mode=self.perception_mode,
+                )
+            )
+            if self.action_mode == "batch":
+                definitions.append(
+                    action_batch_definition(self, self.max_actions_per_call)
+                )
+            for definition in definitions:
                 definition = strict_tool(
                     definition,
                     image_size=self.image_size,
@@ -281,6 +367,7 @@ class RemoteToolkit(Toolkit):
                             "source_digest",
                             "task",
                             "max_episode_steps",
+                            "workflow_options",
                         )
                     },
                     indent=2,
@@ -313,9 +400,11 @@ class RemoteToolkit(Toolkit):
         )
 
     def _receive(self, payload: dict) -> ToolResult:
+        started = time.perf_counter()
         transferred = ArtifactExchange.receive(self._output, payload["files"])
         self.state.reload()
         self._solved = payload["solved"]
+        self.workflow_stats = payload["workflow_stats"]
         trace = self._output / "remote-transfer.jsonl"
         with trace.open("a") as file:
             file.write(
@@ -323,6 +412,8 @@ class RemoteToolkit(Toolkit):
                     {
                         "call": self._call_id,
                         "artifact_bytes": transferred,
+                        "received_at": time.time(),
+                        "verify_write_seconds": time.perf_counter() - started,
                         "files": [
                             {"path": item["path"], "sha256": item["sha256"]}
                             for item in payload["files"]
@@ -346,7 +437,10 @@ class RemoteToolkit(Toolkit):
             try:
                 return self._receive(
                     self._invoke(
-                        "rl.execute", call_id=call_id, name=name, arguments=kwargs
+                        "rl.execute",
+                        call_id=call_id,
+                        name=name,
+                        arguments=to_jsonable_python(kwargs),
                     )
                 )
             except Exception as exc:

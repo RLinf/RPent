@@ -137,6 +137,8 @@ def build_planner(
     reasoning_effort: str = "none",
     thinking: bool = True,
     tokenizer_path: Path | None = None,
+    sampling_params: dict | None = None,
+    request_trace_dir: Path | None = None,
 ) -> tuple[ApiAgentLoop, AsyncOpenAI]:
     """Build the native planner on a policy endpoint and its model client.
 
@@ -147,8 +149,22 @@ def build_planner(
     """
     if observation_mode != "adaptive":
         raise ValueError("rl supports only adaptive observations")
+    trace, http_client = None, None
+    if request_trace_dir is not None:
+        import httpx
+
+        from rpent.planner.request_trace import RequestTrace, TraceTransport
+
+        trace = RequestTrace(request_trace_dir)
+        http_client = httpx.AsyncClient(
+            transport=TraceTransport(trace), timeout=request_timeout_s
+        )
     client = AsyncOpenAI(
-        base_url=base_url, api_key="unused", max_retries=0, timeout=request_timeout_s
+        base_url=base_url,
+        api_key="unused",
+        max_retries=0,
+        timeout=request_timeout_s,
+        http_client=http_client,
     )
     # The planner calls this capability factory once per run, so it must be a
     # callable whenever compaction is enabled and absent otherwise.
@@ -176,10 +192,12 @@ def build_planner(
             reasoning_effort=reasoning_effort,
             thinking=thinking,
             parallel_tool_calls=False,
+            **(sampling_params or {}),
         ),
         sequential_tools=True,
     )
     planner.model.tokenizer_path = tokenizer_path
+    planner.model.request_trace = trace
     return planner, client
 
 
@@ -205,6 +223,30 @@ async def solve(
 def episode_outcome(result: PlannerResult, toolkit: Toolkit, max_turns: int) -> dict:
     """Describe a finished episode; success always comes from the environment."""
     success = bool(toolkit.solved())
+    service_errors = []
+    for record in toolkit.state.records():
+        for name in sorted(record.artifacts):
+            if name.startswith("sam3_detection_") and name.endswith(".json"):
+                detection = toolkit.state.load(name, step=record.step_idx)
+                if detection["category"] == "service_error":
+                    service_errors.append(
+                        {
+                            "step": record.step_idx,
+                            "artifact": name,
+                            "error": detection["error"],
+                        }
+                    )
+    if service_errors:
+        return {
+            "success": success,
+            "truncated": False,
+            "terminal": False,
+            "termination_reason": "infrastructure_error",
+            "error_kind": "tool_transport",
+            "error": "SAM3 service failure; retain this attempt and retry the episode at most once.",
+            "service_errors": service_errors,
+        }
+    truncated = toolkit.state.latest_record().truncated
     terminal_error = result.error_kind in _TERMINAL_ERRORS
     if success:
         reason = "success"
@@ -212,12 +254,14 @@ def episode_outcome(result: PlannerResult, toolkit: Toolkit, max_turns: int) -> 
         reason = result.error_kind if terminal_error else "error"
     elif result.stats["turns_used"] >= max_turns:
         reason = "request_limit"
+    elif truncated:
+        reason = "environment_step_limit"
     else:
         reason = "planner_completed"
     return {
         "success": success,
-        "truncated": False,
-        "terminal": success or not result.error or terminal_error,
+        "truncated": truncated,
+        "terminal": success or truncated or not result.error or terminal_error,
         "termination_reason": reason,
         "error": result.error,
         "error_kind": result.error_kind,
@@ -265,6 +309,7 @@ def run(args: argparse.Namespace) -> int:
             history_compaction=history_compaction,
             count_tokens=count_tokens,
             tokenizer_path=args.tokenizer_path,
+            request_trace_dir=args.output_dir / "api_trace",
         )
         planner = get_robot_spec().configure_planner(planner, config)
         result = asyncio.run(
