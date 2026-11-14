@@ -7,6 +7,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import io
+import json
 from types import SimpleNamespace
 
 import pytest
@@ -67,6 +68,41 @@ class Processor:
         return [0] * 30  # two image placeholders and 28 other template tokens
 
 
+@pytest.mark.parametrize("sglang", [False, True])
+def test_template_counter_decodes_openai_argument_strings_without_mutating_wire(
+    sglang,
+):
+    from jinja2 import Environment
+
+    template = Environment().from_string(
+        "{% for name, value in messages[0].tool_calls[0].function.arguments|items %}"
+        "{{ name }}={{ value|tojson }};{% endfor %}"
+    )
+
+    def render(messages, **kwargs):
+        return template.render(messages=messages).encode()
+
+    arguments = {"camera": "all", "step": 0}
+    call = {"function": {"name": "view_env", "arguments": json.dumps(arguments)}}
+    wire = [{"role": "assistant", "content": "", "tool_calls": [call]}]
+    counter = QwenPromptCounter(
+        SimpleNamespace(tokenizer=SimpleNamespace(apply_chat_template=render)),
+        fingerprint="template-with-mapping-arguments",
+        sglang=sglang,
+    )
+    encoded = counter.count(wire, tools=[], template_kwargs={})
+    mapped = [
+        {
+            **wire[0],
+            "tool_calls": [
+                {"function": {**call["function"], "arguments": arguments}},
+            ],
+        }
+    ]
+    assert encoded.total_tokens == len(render(mapped))
+    assert isinstance(wire[0]["tool_calls"][0]["function"]["arguments"], str)
+
+
 def test_checkpoint_processor_controls_visual_cost_and_counts_occurrences():
     processor = Processor()
     counter = QwenPromptCounter(processor, fingerprint="config-hash")
@@ -89,6 +125,21 @@ def test_checkpoint_processor_controls_visual_cost_and_counts_occurrences():
     assert processor.seen[1] == tools and processor.seen[2]["enable_thinking"]
     assert count.images[0]["processor_sha256"] == "config-hash"
     assert wire[0]["content"][1]["type"] == "image_url"  # no mutation
+
+
+def test_tokenizer_mapping_default_does_not_count_dictionary_keys():
+    def render(messages, *, return_dict=True, **kwargs):
+        ids = list(range(19))
+        return {"input_ids": ids, "attention_mask": [1] * 19} if return_dict else ids
+
+    counter = QwenPromptCounter(
+        SimpleNamespace(tokenizer=SimpleNamespace(apply_chat_template=render)),
+        fingerprint="mapping-default-tokenizer",
+    )
+    result = counter.count(
+        [{"role": "user", "content": "task"}], tools=[], template_kwargs={}
+    )
+    assert result.total_tokens == 19
 
 
 def test_equal_pixels_different_png_compression_do_not_change_tokens():

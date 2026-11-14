@@ -126,21 +126,21 @@ class QwenPromptCounter:
         rendered_messages, images = [], []
         for message in messages:
             message = dict(message)
+            if message.get("tool_calls"):
+                normalized = []
+                for call in message["tool_calls"]:
+                    function = dict(call["function"])
+                    arguments = function.get("arguments")
+                    if isinstance(arguments, str):
+                        try:
+                            function["arguments"] = json.loads(arguments)
+                        except ValueError:
+                            pass
+                    normalized.append({**call, "function": function})
+                message["tool_calls"] = normalized
             if self.sglang:
                 content = message.get("content")
                 message["content"] = "" if content is None else content
-                if message.get("tool_calls"):
-                    normalized = []
-                    for call in message["tool_calls"]:
-                        function = dict(call["function"])
-                        arguments = function.get("arguments")
-                        if isinstance(arguments, str):
-                            try:
-                                function["arguments"] = json.loads(arguments)
-                            except ValueError:
-                                pass
-                        normalized.append({**call, "function": function})
-                    message["tool_calls"] = normalized
                 message = {
                     key: value for key, value in message.items() if value is not None
                 }
@@ -169,6 +169,7 @@ class QwenPromptCounter:
             rendered_messages,
             tools=tools or None,
             tokenize=True,
+            return_dict=False,
             add_generation_prompt=True,
             **template_kwargs,
         )
