@@ -23,6 +23,7 @@ import socket
 import subprocess
 import threading
 import time
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable
 
@@ -102,6 +103,78 @@ def pick_free_port(host: str = "127.0.0.1") -> int:
         return int(s.getsockname()[1])
 
 
+@dataclass
+class _ProcessGroupCheck:
+    group_id: int
+    ready: threading.Event = field(default_factory=threading.Event)
+    processes: list[int] = field(default_factory=list)
+    error: Exception | None = None
+
+
+class _ProcessGroupScanner:
+    """Coalesce pending checks; each request uses a snapshot begun after it arrived."""
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._pending: list[_ProcessGroupCheck] = []
+        self._running = False
+
+    def live(self, group_id: int) -> list[int]:
+        check = _ProcessGroupCheck(group_id)
+        with self._lock:
+            self._pending.append(check)
+            if not self._running:
+                self._running = True
+                try:
+                    threading.Thread(
+                        target=self._run, name="process-group-scan", daemon=True
+                    ).start()
+                except BaseException:
+                    self._running = False
+                    self._pending.remove(check)
+                    raise
+        check.ready.wait()
+        if check.error is not None:
+            raise check.error
+        return check.processes
+
+    def _run(self) -> None:
+        while True:
+            with self._lock:
+                pending, self._pending = self._pending, []
+            try:
+                snapshot = self._snapshot({check.group_id for check in pending})
+            except Exception as error:
+                for check in pending:
+                    check.error = error
+            else:
+                for check in pending:
+                    check.processes = list(snapshot.get(check.group_id, []))
+            finally:
+                for check in pending:
+                    check.ready.set()
+            with self._lock:
+                if not self._pending:
+                    self._running = False
+                    return
+
+    @staticmethod
+    def _snapshot(group_ids: set[int]) -> dict[int, list[int]]:
+        live: dict[int, list[int]] = {}
+        for stat in Path("/proc").glob("[0-9]*/stat"):
+            try:
+                fields = stat.read_text().rpartition(")")[2].split()
+            except (FileNotFoundError, ProcessLookupError, PermissionError):
+                continue
+            group_id = int(fields[2])
+            if group_id in group_ids and fields[0] != "Z":
+                live.setdefault(group_id, []).append(int(stat.parent.name))
+        return live
+
+
+_PROCESS_GROUPS = _ProcessGroupScanner()
+
+
 class ProcessDaemon:
     """Wraps a subprocess server with ready-detection and lifecycle."""
 
@@ -119,6 +192,7 @@ class ProcessDaemon:
             raise RuntimeError("owned process-group cleanup requires Linux /proc")
         self.start_new_session = start_new_session
         self._process_group: int | None = None
+        self._process_group_start_ticks: int | None = None
         self.name = name
         self.cmd = cmd
         self.subprocess_env = os.environ.copy()
@@ -160,6 +234,7 @@ class ProcessDaemon:
         )
         if self.start_new_session:
             self._process_group = self._proc.pid
+            self._process_group_start_ticks = self._leader_start_ticks(self._proc.pid)
         logger.info("%s spawned (pid=%s)", self.name, self._proc.pid)
 
     def stop(self, timeout: float = 15.0) -> None:
@@ -191,24 +266,38 @@ class ProcessDaemon:
             self._log_f = None
 
     @staticmethod
+    def _leader_start_ticks(group_id: int) -> int | None:
+        try:
+            fields = (
+                Path(f"/proc/{group_id}/stat").read_text().rpartition(")")[2].split()
+            )
+        except (FileNotFoundError, ProcessLookupError):
+            return None
+        return int(fields[19])
+
+    def _check_group_identity(self) -> None:
+        current = self._leader_start_ticks(self._process_group)
+        if current is not None and current != self._process_group_start_ticks:
+            raise RuntimeError(
+                f"owned process group {self._process_group} identifier was reused"
+            )
+
+    @staticmethod
     def _live_process_group(group_id: int) -> list[int]:
-        live = []
-        for stat in Path("/proc").glob("[0-9]*/stat"):
-            try:
-                fields = stat.read_text().rpartition(")")[2].split()
-            except (FileNotFoundError, ProcessLookupError, PermissionError):
-                continue
-            # A dead zombie owns no CUDA memory or descendant execution.
-            if int(fields[2]) == group_id and fields[0] != "Z":
-                live.append(int(stat.parent.name))
-        return live
+        try:
+            os.killpg(group_id, 0)
+        except ProcessLookupError:
+            return []
+        return _PROCESS_GROUPS.live(group_id)
 
     def _stop_process_group(self, timeout: float) -> None:
         group_id = self._process_group
         for sig in (signal.SIGTERM, signal.SIGKILL):
+            self._check_group_identity()
             if not self._live_process_group(group_id):
                 self._process_group = None
                 return
+            self._check_group_identity()
             try:
                 os.killpg(group_id, sig)
             except ProcessLookupError:

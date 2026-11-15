@@ -17,6 +17,7 @@ from __future__ import annotations
 import os
 import subprocess
 import sys
+import threading
 import time
 from collections.abc import Callable
 from pathlib import Path
@@ -374,5 +375,156 @@ def test_owned_process_group_reaps_cold_children_without_stopping_other_daemons(
         daemon.stop(timeout=0.1)
     finally:
         daemon.stop(timeout=0.1)
+        foreign.terminate()
+        foreign.wait(timeout=3)
+
+
+def test_process_group_checks_coalesce_pending_requests(monkeypatch):
+    from concurrent.futures import ThreadPoolExecutor
+
+    from rpent.utils.daemon import _ProcessGroupScanner
+
+    scanner = _ProcessGroupScanner()
+    entered, finish = threading.Event(), threading.Event()
+    snapshots = []
+
+    def snapshot(groups):
+        snapshots.append(set(groups))
+        if len(snapshots) == 1:
+            entered.set()
+            assert finish.wait(timeout=5)
+        return {group: [group * 10] for group in groups}
+
+    monkeypatch.setattr(scanner, "_snapshot", snapshot)
+    with ThreadPoolExecutor(max_workers=32) as pool:
+        first = pool.submit(scanner.live, 1)
+        assert entered.wait(timeout=3)
+        rest = [pool.submit(scanner.live, group) for group in range(2, 33)]
+        _wait_until(lambda: len(scanner._pending) == 31)
+        finish.set()
+        assert first.result(timeout=3) == [10]
+        assert [future.result(timeout=3) for future in rest] == [
+            [group * 10] for group in range(2, 33)
+        ]
+    assert snapshots == [{1}, set(range(2, 33))]
+
+
+def test_process_group_check_never_reuses_an_earlier_zero_snapshot(monkeypatch):
+    from concurrent.futures import ThreadPoolExecutor
+
+    from rpent.utils.daemon import _ProcessGroupScanner
+
+    scanner = _ProcessGroupScanner()
+    entered, finish = threading.Event(), threading.Event()
+    count = 0
+
+    def snapshot(groups):
+        nonlocal count
+        count += 1
+        if count == 1:
+            entered.set()
+            assert finish.wait(timeout=5)
+            return {}
+        return {7: [701]}
+
+    monkeypatch.setattr(scanner, "_snapshot", snapshot)
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        older = pool.submit(scanner.live, 7)
+        assert entered.wait(timeout=3)
+        newer = pool.submit(scanner.live, 7)
+        _wait_until(lambda: len(scanner._pending) == 1)
+        finish.set()
+        assert older.result(timeout=3) == []
+        assert newer.result(timeout=3) == [701]
+    assert count == 2
+
+
+def test_process_group_scan_failure_reaches_callers_and_does_not_wedge_next_check(
+    monkeypatch,
+):
+    from rpent.utils.daemon import _ProcessGroupScanner
+
+    scanner = _ProcessGroupScanner()
+
+    def broken(groups):
+        raise OSError("procfs unavailable")
+
+    monkeypatch.setattr(scanner, "_snapshot", broken)
+    with pytest.raises(OSError, match="procfs unavailable"):
+        scanner.live(7)
+    monkeypatch.setattr(scanner, "_snapshot", lambda groups: {7: [701]})
+    assert scanner.live(7) == [701]
+
+
+@pytest.mark.skipif(sys.platform != "linux", reason="uses Linux process groups")
+def test_missing_process_group_does_not_scan_proc(monkeypatch):
+    from rpent.utils import daemon as module
+
+    def unexpected(group):
+        raise AssertionError("an absent process group needs no procfs enumeration")
+
+    monkeypatch.setattr(module._PROCESS_GROUPS, "live", unexpected)
+    assert ProcessDaemon._live_process_group(10_000_000) == []
+
+
+@pytest.mark.skipif(sys.platform != "linux", reason="uses Linux process identity")
+def test_process_group_reuse_cannot_signal_a_foreign_group(tmp_path):
+    foreign = subprocess.Popen(
+        [sys.executable, "-c", "import time; time.sleep(60)"],
+        start_new_session=True,
+    )
+    owner = ProcessDaemon(
+        "retired-owner", [sys.executable, "-c", "pass"], start_new_session=True
+    )
+    owner._process_group = foreign.pid
+    owner._process_group_start_ticks = owner._leader_start_ticks(foreign.pid) + 1
+    try:
+        with pytest.raises(RuntimeError, match="identifier was reused"):
+            owner._stop_process_group(timeout=0.1)
+        assert foreign.poll() is None
+    finally:
+        owner._process_group = None
+        foreign.terminate()
+        foreign.wait(timeout=3)
+
+
+@pytest.mark.skipif(sys.platform != "linux", reason="uses Linux owned process groups")
+def test_concurrent_owned_process_groups_stop_without_cross_signals(tmp_path):
+    from concurrent.futures import ThreadPoolExecutor
+
+    daemons = []
+    foreign = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"])
+    try:
+        for index in range(8):
+            script = (
+                "import signal,time; "
+                "signal.signal(signal.SIGTERM,signal.SIG_IGN); "
+                "print('ready',flush=True);time.sleep(60)"
+            )
+            daemon = ProcessDaemon(
+                f"owned-{index}",
+                [sys.executable, "-c", script],
+                log_path=str(tmp_path / f"owned-{index}.log"),
+                cwd=str(tmp_path),
+                start_new_session=True,
+            )
+            daemon.start()
+            daemons.append(daemon)
+        _wait_until(
+            lambda: all(
+                "ready" in (tmp_path / f"owned-{index}.log").read_text()
+                for index in range(8)
+            )
+        )
+        with ThreadPoolExecutor(max_workers=8) as pool:
+            stops = [pool.submit(daemon.stop, timeout=0.1) for daemon in daemons]
+            for stop in stops:
+                stop.result(timeout=10)
+        assert all(daemon.poll() is not None for daemon in daemons)
+        assert all(daemon._process_group is None for daemon in daemons)
+        assert foreign.poll() is None
+    finally:
+        for daemon in daemons:
+            daemon.stop(timeout=0.1)
         foreign.terminate()
         foreign.wait(timeout=3)
