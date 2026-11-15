@@ -110,8 +110,9 @@ def connected(tmp_path, monkeypatch, request):
     thread.start()
     client_config = SimpleNamespace(output_dir=tmp_path / "frontend")
 
-    def connect():
+    def connect(owner_id=None):
         return remote.RemoteToolkit(
+            owner_id=owner_id,
             endpoint=f"http://127.0.0.1:{server.server_address[1]}",
             request=request,
             config=client_config,
@@ -567,4 +568,92 @@ def test_remote_cancel_owners_uses_rpc_and_retains_tombstones(tmp_path):
         server.shutdown()
         server.server_close()
         thread.join(timeout=3)
+        manager.close()
+
+
+def test_remote_explicit_attempt_owner_is_independent_of_process_environment(
+    connected, monkeypatch
+):
+    monkeypatch.setenv("RPENT_REMOTE_OWNER_ID", "a" * 32)
+    client = connected.connect(owner_id="b" * 32)
+    try:
+        assert connected.bridge.owner_id == "b" * 32
+    finally:
+        client.close()
+
+
+def test_cancel_owners_runs_bounded_parallel_cleanup(tmp_path):
+    from concurrent.futures import ThreadPoolExecutor
+
+    manager = BackendManager(tmp_path, {0: 20}, 1, "http://127.0.0.1:1")
+    gate, sixteen = threading.Event(), threading.Event()
+    lock = threading.Lock()
+    counts = {"started": 0, "active": 0, "peak": 0}
+
+    def stop():
+        with lock:
+            counts["started"] += 1
+            counts["active"] += 1
+            counts["peak"] = max(counts["peak"], counts["active"])
+            if counts["active"] == 16:
+                sixteen.set()
+        assert gate.wait(timeout=3)
+        with lock:
+            counts["active"] -= 1
+
+    owners = [f"{i:032x}" for i in range(20)]
+    for owner in owners:
+        manager._workers[owner] = {
+            "gpu": 0,
+            "rpc": None,
+            "owner_id": owner,
+            "output": tmp_path / owner,
+            "daemon": SimpleNamespace(stop=stop),
+        }
+        manager._owners[owner] = owner
+    try:
+        with ThreadPoolExecutor(max_workers=1) as executor:
+            future = executor.submit(manager.cancel_owners, owners)
+            assert sixteen.wait(timeout=3)
+            assert counts["started"] == counts["peak"] == 16
+            gate.set()
+            assert future.result(timeout=3)["cleanup_complete"]
+        assert counts["started"] == 20 and counts["peak"] == 16
+        assert manager.status()["reserved"] == 0
+    finally:
+        gate.set()
+        manager.close()
+
+
+def test_cancel_owner_cleanup_failure_keeps_evidence_and_cleans_other_owners(tmp_path):
+    manager = BackendManager(tmp_path, {0: 2}, 1, "http://127.0.0.1:1")
+    owners = ["a" * 32, "b" * 32]
+    stopped = []
+
+    def bad_stop():
+        raise RuntimeError("owned process still alive")
+
+    for owner in owners:
+        manager._workers[owner] = {
+            "gpu": 0,
+            "rpc": None,
+            "owner_id": owner,
+            "output": tmp_path / owner,
+            "daemon": SimpleNamespace(
+                stop=bad_stop if owner == owners[0] else lambda: stopped.append(True)
+            ),
+        }
+        manager._owners[owner] = owner
+    try:
+        with pytest.raises(RuntimeError, match="cleanup failed"):
+            manager.cancel_owners(owners)
+        assert stopped == [True]
+        assert manager.status()["reserved"] == 1
+        receipts = list((tmp_path / "cancellations").glob("*.json"))
+        receipt = json.loads(receipts[0].read_text())
+        assert not receipt["cleanup_complete"]
+        assert owners[0] in receipt["errors"] and owners[0] in receipt["remaining"]
+    finally:
+        manager._workers.clear()
+        manager._owners.clear()
         manager.close()

@@ -279,9 +279,13 @@ class ToolkitWorker(RpcFacade):
 
 def cancel_remote_owners(endpoint: str, owner_ids: list[str]) -> dict:
     """Release explicit episode attempts, including ones still in backend.open."""
-    result = make_rpc_client(endpoint).call(
-        "backend.cancel_owners", kwargs={"owner_ids": owner_ids}, timeout_s=180
-    )
+    rpc = make_rpc_client(endpoint)
+    try:
+        result = rpc.call(
+            "backend.cancel_owners", kwargs={"owner_ids": owner_ids}, timeout_s=180
+        )
+    finally:
+        rpc.close()
     if (
         result["owner_ids"] != list(dict.fromkeys(owner_ids))
         or result["remaining"]
@@ -297,7 +301,14 @@ class RemoteToolkit(Toolkit):
     planner_builtin_tools = False
 
     def __init__(
-        self, *, endpoint: str, request: dict, config, dashboard_events, memory
+        self,
+        *,
+        endpoint: str,
+        request: dict,
+        config,
+        dashboard_events,
+        memory,
+        owner_id: str | None = None,
     ):
         state = EnvState(config.output_dir)
         super().__init__(state=state, dashboard_events=dashboard_events, memory=memory)
@@ -323,7 +334,8 @@ class RemoteToolkit(Toolkit):
         self._solved = False
         self._transport_error = None
         self._heartbeat = None
-        owner_id = os.environ.get("RPENT_REMOTE_OWNER_ID")
+        if owner_id is None:
+            owner_id = os.environ.get("RPENT_REMOTE_OWNER_ID")
         open_kwargs = {"request": request}
         if owner_id is not None:
             open_kwargs["owner_id"] = owner_id

@@ -23,6 +23,7 @@ import sys
 import threading
 import time
 import uuid
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 from robots.rl.remote import REMOTE_OPTION_DEFAULTS, remote_options
@@ -105,6 +106,9 @@ class BackendManager(RpcFacade):
         self._workers: dict[str, dict] = {}
         self._owners: dict[str, str] = {}
         self._cancelled_owners: set[str] = set()
+        self._releases = ThreadPoolExecutor(
+            max_workers=16, thread_name_prefix="rl-backend-release"
+        )
         self._cold = {gpu: threading.BoundedSemaphore(cold_starts) for gpu in slots}
         self._rpc.update(
             {
@@ -276,32 +280,45 @@ class BackendManager(RpcFacade):
                 for owner_id, session in sessions.items()
                 if session is not None
             }
-        for session in sessions.values():
-            if session is not None:
-                self.release(session)
+        errors = self._release_sessions(
+            [session for session in sessions.values() if session is not None]
+        )
         with self._lock:
             remaining = {
                 owner_id: self._owners[owner_id]
                 for owner_id in owner_ids
                 if owner_id in self._owners
             }
-        if remaining:
-            raise RuntimeError(
-                f"remote attempts remain after cancellation: {remaining}"
-            )
         receipt = {
             "owner_ids": owner_ids,
             "sessions": sessions,
             "output_dirs": output_dirs,
             "remaining": remaining,
-            "cleanup_complete": True,
+            "cleanup_complete": not errors and not remaining,
+            "errors": errors,
         }
         cancellation_dir = self.output / "cancellations"
         cancellation_dir.mkdir(exist_ok=True)
-        (cancellation_dir / f"{uuid.uuid4().hex}.json").write_text(
-            json.dumps(receipt, indent=2) + "\n"
-        )
+        receipt_path = cancellation_dir / f"{uuid.uuid4().hex}.json"
+        receipt_path.write_text(json.dumps(receipt, indent=2) + "\n")
+        if not receipt["cleanup_complete"]:
+            raise RuntimeError(
+                f"remote attempt cleanup failed; see {receipt_path}: {errors or remaining}"
+            )
         return receipt
+
+    def _release_sessions(self, sessions: list[str]) -> dict[str, str]:
+        futures = {
+            session: self._releases.submit(self.release, session)
+            for session in dict.fromkeys(sessions)
+        }
+        errors = {}
+        for session, future in futures.items():
+            try:
+                future.result()
+            except Exception as error:
+                errors[session] = repr(error)
+        return errors
 
     def status(self) -> dict:
         """Count real ready workers separately from their reserved episode slots."""
@@ -333,8 +350,12 @@ class BackendManager(RpcFacade):
         self._sweeper.join(timeout=31)
         with self._lock:
             sessions = list(self._workers)
-        for session in sessions:
-            self.release(session)
+        try:
+            errors = self._release_sessions(sessions)
+            if errors:
+                raise RuntimeError(f"backend cleanup failed: {errors}")
+        finally:
+            self._releases.shutdown(wait=True)
 
 
 def main() -> None:
