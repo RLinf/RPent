@@ -29,8 +29,8 @@ from robots.rl import remote, tools
 from robots.rl.remote_manager import BackendManager, validate_request
 from rpent.dashboard.events import NullDashboardEventSink
 from rpent.memory import MemoryManager
-from rpent.utils.rpc import RpcFacade
-from rpent.utils.rpc.http_rpc import HttpRpcServer
+from rpent.utils.rpc import RpcError, RpcFacade
+from rpent.utils.rpc.http_rpc import HttpRpcClient, HttpRpcServer
 from tests.unit_tests.robots.rl.test_libero_rl_contracts import FakeEnv, make_toolkit
 
 
@@ -697,3 +697,169 @@ def test_cancel_tombstone_blocks_cold_start_before_queued_release_runs(
             assert manager.status()["reserved"] == 0
     finally:
         manager.close()
+
+
+@contextlib.contextmanager
+def _manager_rpc_proxy(tmp_path, handler):
+    """Use the actual manager and two HTTP boundaries without a simulator."""
+    from types import SimpleNamespace
+
+    owner = "a" * 32
+    origin = RpcFacade()
+    origin._rpc.update(
+        dict.fromkeys(("rl.observe", "rl.execute", "rl.close", "rl.cancel"), handler)
+    )
+    origin._readonly_methods.update(origin._rpc)
+    manager = BackendManager(tmp_path, {0: 32}, 1, "http://127.0.0.1:1")
+    servers = []
+    threads = []
+    clients = []
+    try:
+        for dispatch in (origin._dispatch, manager._dispatch):
+            server = HttpRpcServer(("127.0.0.1", 0), dispatch)
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            servers.append(server)
+            threads.append(thread)
+            clients.append(
+                HttpRpcClient(f"http://127.0.0.1:{server.server_address[1]}")
+            )
+        manager._workers["owned"] = {
+            "gpu": 0,
+            "last_seen": 0.0,
+            "daemon": None,
+            "rpc": clients[0],
+            "output": tmp_path / "owned",
+            "owner_id": owner,
+            "released": threading.Event(),
+            "closing": False,
+        }
+        manager._owners[owner] = "owned"
+        yield SimpleNamespace(
+            manager=manager,
+            client=clients[1],
+            upstream=clients[0],
+            origin=origin,
+        )
+    finally:
+        for client in clients:
+            client.close()
+        for server in reversed(servers):
+            server.shutdown()
+            server.server_close()
+        for thread in threads:
+            thread.join(timeout=3)
+            assert not thread.is_alive()
+        manager.close()
+
+
+def test_manager_http_forwards_exact_envelope_and_preserves_direct_calls(tmp_path):
+    import numpy as np
+
+    payload = {
+        "data": {"pose": np.arange(6, dtype=np.float32).reshape(2, 3)},
+        "images": [base64.b64encode(b"image-bytes").decode()],
+        "files": [
+            {
+                "path": "world.npz",
+                "bytes": base64.b64encode(b"geometry-bytes").decode(),
+                "sha256": hashlib.sha256(b"geometry-bytes").hexdigest(),
+            }
+        ],
+    }
+    with _manager_rpc_proxy(tmp_path, lambda: payload) as proxy:
+        direct = proxy.manager.call("owned", "rl.observe", {})
+        np.testing.assert_array_equal(direct["data"]["pose"], payload["data"]["pose"])
+
+        def decoded_call_would_duplicate_work(*args, **kwargs):
+            raise AssertionError("manager must not decode its upstream HTTP response")
+
+        proxy.upstream.call = decoded_call_would_duplicate_work
+        expected = proxy.upstream.forward("rl.observe").body
+        arguments = {
+            "session": "owned",
+            "method": "rl.observe",
+            "arguments": {},
+        }
+        actual = proxy.client.forward("backend.call", kwargs=arguments).body
+        assert actual == expected
+        assert hashlib.sha256(actual).digest() == hashlib.sha256(expected).digest()
+        decoded = proxy.client.call("backend.call", kwargs=arguments)
+        np.testing.assert_array_equal(decoded["data"]["pose"], payload["data"]["pose"])
+        assert decoded["data"]["pose"].dtype == np.float32
+        assert decoded["images"] == payload["images"]
+        assert decoded["files"] == payload["files"]
+
+
+def test_manager_http_forwards_remote_errors_without_success_wrapping(tmp_path):
+    def fail():
+        raise RuntimeError("owned camera failed")
+
+    with _manager_rpc_proxy(tmp_path, fail) as proxy:
+        with pytest.raises(RpcError, match="owned camera failed") as info:
+            proxy.client.call(
+                "backend.call",
+                kwargs={"session": "owned", "method": "rl.observe", "arguments": {}},
+            )
+        assert info.value.method == "backend.call"
+        assert "RuntimeError: owned camera failed" in info.value.server_traceback
+        assert proxy.client.call("backend.status")["reserved"] == 1
+
+
+def test_manager_http_rejects_disallowed_method_before_forwarding(tmp_path):
+    calls = []
+    with _manager_rpc_proxy(tmp_path, lambda: calls.append(True)) as proxy:
+        with pytest.raises(RpcError, match="unsupported toolkit operation"):
+            proxy.client.call(
+                "backend.call",
+                kwargs={"session": "owned", "method": "shutdown", "arguments": {}},
+            )
+        assert calls == []
+        assert not proxy.origin._shutdown_event.is_set()
+
+
+def test_manager_control_calls_respond_while_bulk_replies_are_pending(tmp_path):
+    from concurrent.futures import ThreadPoolExecutor
+
+    count = 32
+    entered = threading.Barrier(count + 1)
+    release = threading.Event()
+    blob = base64.b64encode(b"body" * (256 * 1024)).decode()
+
+    def bulk():
+        entered.wait(timeout=5)
+        assert release.wait(timeout=5)
+        return {"files": [{"bytes": blob}], "native_success": False}
+
+    with _manager_rpc_proxy(tmp_path, bulk) as proxy:
+
+        def no_decoded_call(*args, **kwargs):
+            raise AssertionError("manager must use opaque upstream forwarding")
+
+        proxy.upstream.call = no_decoded_call
+        with ThreadPoolExecutor(max_workers=count) as executor:
+            futures = [
+                executor.submit(
+                    proxy.client.call,
+                    "backend.call",
+                    kwargs={
+                        "session": "owned",
+                        "method": "rl.observe",
+                        "arguments": {},
+                    },
+                    timeout_s=10,
+                )
+                for _ in range(count)
+            ]
+            try:
+                entered.wait(timeout=5)
+                assert proxy.client.call("backend.status", timeout_s=1)["ready"] == 1
+                assert proxy.client.call(
+                    "backend.renew", kwargs={"session": "owned"}, timeout_s=1
+                ) == {"renewed": True}
+            finally:
+                release.set()
+            for future in futures:
+                result = future.result(timeout=10)
+                assert result["files"][0]["bytes"] == blob
+                assert result["native_success"] is False

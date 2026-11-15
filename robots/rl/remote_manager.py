@@ -31,6 +31,7 @@ from rpent.utils.config import get_repo_root
 from rpent.utils.daemon import ProcessDaemon
 from rpent.utils.logging import get_logger
 from rpent.utils.rpc import RpcFacade, make_rpc_client, wait_for_endpoint
+from rpent.utils.rpc.http_rpc import EncodedRpcResponse, HttpRpcClient
 
 logger = get_logger("rl_backend")
 
@@ -113,7 +114,7 @@ class BackendManager(RpcFacade):
         self._rpc.update(
             {
                 "backend.open": self.open,
-                "backend.call": self.call,
+                "backend.call": self.forward_call,
                 "backend.renew": self.renew,
                 "backend.release": self.release,
                 "backend.status": self.status,
@@ -216,14 +217,27 @@ class BackendManager(RpcFacade):
             row["last_seen"] = time.monotonic()
             return dict(row)
 
-    def call(self, session: str, method: str, arguments: dict) -> dict:
-        """Forward an allowed toolkit operation, without automatic replay."""
+    def _toolkit_rpc(self, session: str, method: str) -> HttpRpcClient:
         if method not in ("rl.observe", "rl.execute", "rl.close", "rl.cancel"):
             raise ValueError("unsupported toolkit operation")
         row = self._worker(session)
         if row["rpc"] is None:
             raise RuntimeError("toolkit has not finished initializing")
-        return row["rpc"].call(method, kwargs=arguments, timeout_s=600)
+        return row["rpc"]
+
+    def call(self, session: str, method: str, arguments: dict) -> dict:
+        """Call an allowed toolkit operation directly, without automatic replay."""
+        return self._toolkit_rpc(session, method).call(
+            method, kwargs=arguments, timeout_s=600
+        )
+
+    def forward_call(
+        self, session: str, method: str, arguments: dict
+    ) -> EncodedRpcResponse:
+        """Relay an HTTP toolkit reply without decoding and re-encoding its artifacts."""
+        return self._toolkit_rpc(session, method).forward(
+            method, kwargs=arguments, timeout_s=600
+        )
 
     def renew(self, session: str) -> dict:
         """Keep a worker leased while its planner waits for a model response."""
