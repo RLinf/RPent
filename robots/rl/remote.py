@@ -277,6 +277,20 @@ class ToolkitWorker(RpcFacade):
         self.release.close()
 
 
+def cancel_remote_owners(endpoint: str, owner_ids: list[str]) -> dict:
+    """Release explicit episode attempts, including ones still in backend.open."""
+    result = make_rpc_client(endpoint).call(
+        "backend.cancel_owners", kwargs={"owner_ids": owner_ids}, timeout_s=180
+    )
+    if (
+        result["owner_ids"] != list(dict.fromkeys(owner_ids))
+        or result["remaining"]
+        or result["cleanup_complete"] is not True
+    ):
+        raise RuntimeError(f"remote attempt cleanup was not verified: {result}")
+    return result
+
+
 class RemoteToolkit(Toolkit):
     """Keep the planner local while the original toolkit executes on its backend."""
 
@@ -309,11 +323,15 @@ class RemoteToolkit(Toolkit):
         self._solved = False
         self._transport_error = None
         self._heartbeat = None
-        metadata = self._rpc.call(
-            "backend.open", kwargs={"request": request}, timeout_s=1800
-        )
+        owner_id = os.environ.get("RPENT_REMOTE_OWNER_ID")
+        open_kwargs = {"request": request}
+        if owner_id is not None:
+            open_kwargs["owner_id"] = owner_id
+        metadata = self._rpc.call("backend.open", kwargs=open_kwargs, timeout_s=1800)
         self._session = metadata["session"]
         try:
+            if owner_id is not None and metadata.get("owner_id") != owner_id:
+                raise ValueError("remote toolkit attempt owner does not match")
             if metadata["source_digest"] != source_digest():
                 raise ValueError(
                     "remote toolkit source differs from the planner checkout"

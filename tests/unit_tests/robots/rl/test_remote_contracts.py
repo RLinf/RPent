@@ -55,8 +55,13 @@ class Bridge(RpcFacade):
         )
         self._readonly_methods.update(self._rpc)
 
-    def open(self, request):
-        result = {"session": "owned-session", **self.worker.describe()}
+    def open(self, request, owner_id=None):
+        self.owner_id = owner_id
+        result = {
+            "session": "owned-session",
+            "owner_id": owner_id,
+            **self.worker.describe(),
+        }
         if self.mismatch is not None:
             result[self.mismatch] = "different"
         return result
@@ -383,3 +388,183 @@ def test_manager_capacity_includes_reserved_initializations_and_cleanup(tmp_path
         manager.close()
     assert stopped == [True]
     assert manager.status()["reserved"] == 0
+
+
+def _owned_request():
+    return {
+        "task": {"environment": "robotwin", "task_name": "adjust_bottle", "seed": 1},
+        "gpu": 0,
+        "max_episode_steps": 10000,
+    }
+
+
+def test_cancel_owner_before_open_rejects_late_arrival(tmp_path):
+    manager = BackendManager(tmp_path, {0: 2}, 1, "http://127.0.0.1:1")
+    owner = "a" * 32
+    try:
+        receipt = manager.cancel_owners([owner])
+        assert receipt["cleanup_complete"] and receipt["remaining"] == {}
+        with pytest.raises(RuntimeError, match="cancelled"):
+            manager.open(_owned_request(), owner_id=owner)
+        assert manager.status()["reserved"] == 0
+        assert list((tmp_path / "cancellations").glob("*.json"))
+    finally:
+        manager.close()
+
+
+def test_cancel_owner_during_cold_start_never_spawns_it(tmp_path, monkeypatch):
+    from concurrent.futures import ThreadPoolExecutor
+
+    from robots.rl import remote_manager
+
+    manager = BackendManager(tmp_path, {0: 2}, 1, "http://127.0.0.1:1")
+    owner = "b" * 32
+    constructed = []
+    monkeypatch.setattr(
+        remote_manager, "ProcessDaemon", lambda **kwargs: constructed.append(kwargs)
+    )
+    manager._cold[0].acquire()
+    try:
+        with ThreadPoolExecutor(max_workers=1) as executor:
+            future = executor.submit(manager.open, _owned_request(), owner)
+            for _ in range(500):
+                if manager.status()["reserved"] == 1:
+                    break
+                threading.Event().wait(0.001)
+            assert manager.status()["reserved"] == 1
+            receipt = manager.cancel_owners([owner])
+            assert receipt["cleanup_complete"]
+            assert manager.status()["reserved"] == 0
+            manager._cold[0].release()
+            with pytest.raises(KeyError):
+                future.result(timeout=3)
+        # The wrapper can be constructed after the semaphore wakes, but start()
+        # is never reached for the removed reservation.
+        assert len(constructed) <= 1
+    finally:
+        manager.close()
+
+
+def test_cancel_owner_stops_only_its_initializing_worker(tmp_path, monkeypatch):
+    from concurrent.futures import ThreadPoolExecutor
+
+    from robots.rl import remote_manager
+
+    manager = BackendManager(tmp_path, {0: 3}, 2, "http://127.0.0.1:1")
+    owner, foreign = "c" * 32, "d" * 32
+    waiting, stopped = threading.Event(), threading.Event()
+    foreign_stopped = []
+    manager._workers["foreign"] = {
+        "gpu": 0,
+        "rpc": None,
+        "owner_id": foreign,
+        "output": tmp_path / "foreign",
+        "daemon": SimpleNamespace(stop=lambda: foreign_stopped.append(True)),
+    }
+    manager._owners[foreign] = "foreign"
+
+    class Daemon:
+        def __init__(self, **kwargs):
+            self.name = kwargs["name"]
+
+        def start(self):
+            pass
+
+        def stop(self):
+            stopped.set()
+
+    def endpoint(daemon, timeout_s):
+        waiting.set()
+        assert stopped.wait(timeout=3)
+        raise RuntimeError("owned daemon stopped during initialization")
+
+    monkeypatch.setattr(remote_manager, "ProcessDaemon", Daemon)
+    monkeypatch.setattr(remote_manager, "wait_for_endpoint", endpoint)
+    try:
+        with ThreadPoolExecutor(max_workers=1) as executor:
+            future = executor.submit(manager.open, _owned_request(), owner)
+            assert waiting.wait(timeout=3)
+            receipt = manager.cancel_owners([owner])
+            with pytest.raises(RuntimeError, match="stopped"):
+                future.result(timeout=3)
+        assert receipt["cleanup_complete"] and receipt["remaining"] == {}
+        assert list(manager._workers) == ["foreign"]
+        assert not foreign_stopped
+    finally:
+        manager.close()
+    assert foreign_stopped == [True]
+
+
+def test_cancel_owner_does_not_free_capacity_until_process_stop_finishes(tmp_path):
+    from concurrent.futures import ThreadPoolExecutor
+
+    manager = BackendManager(tmp_path, {0: 1}, 1, "http://127.0.0.1:1")
+    owner = "e" * 32
+    started, finish = threading.Event(), threading.Event()
+
+    def stop():
+        started.set()
+        assert finish.wait(timeout=3)
+
+    manager._workers["owned"] = {
+        "gpu": 0,
+        "rpc": None,
+        "owner_id": owner,
+        "output": tmp_path / "owned",
+        "daemon": SimpleNamespace(stop=stop),
+    }
+    manager._owners[owner] = "owned"
+    try:
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            cancel = executor.submit(manager.cancel_owners, [owner])
+            assert started.wait(timeout=3)
+            assert manager.status()["reserved"] == 1
+            with pytest.raises(RuntimeError, match="slots are full"):
+                manager.open(_owned_request())
+            duplicate = executor.submit(manager.cancel_owners, [owner])
+            finish.set()
+            assert cancel.result(timeout=3)["cleanup_complete"]
+            assert duplicate.result(timeout=3)["cleanup_complete"]
+        assert manager.status()["reserved"] == 0
+    finally:
+        finish.set()
+        manager.close()
+
+
+@pytest.mark.parametrize("owner", ["", "../x", "x" * 32, "a" * 31, None, 3])
+def test_cancel_owner_validates_the_complete_list_before_tombstoning(tmp_path, owner):
+    manager = BackendManager(tmp_path, {0: 1}, 1, "http://127.0.0.1:1")
+    try:
+        with pytest.raises(ValueError, match="UUID"):
+            manager.cancel_owners(["a" * 32, owner])
+        assert manager._cancelled_owners == set()
+    finally:
+        manager.close()
+
+
+def test_remote_attempt_owner_is_sent_before_open_and_echoed(connected, monkeypatch):
+    owner = "f" * 32
+    monkeypatch.setenv("RPENT_REMOTE_OWNER_ID", owner)
+    client = connected.connect()
+    try:
+        assert connected.bridge.owner_id == owner
+    finally:
+        client.close()
+
+
+def test_remote_cancel_owners_uses_rpc_and_retains_tombstones(tmp_path):
+    manager = BackendManager(tmp_path, {0: 2}, 1, "http://127.0.0.1:1")
+    server = HttpRpcServer(("127.0.0.1", 0), manager._dispatch)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        endpoint = f"http://127.0.0.1:{server.server_address[1]}"
+        receipt = remote.cancel_remote_owners(endpoint, ["a" * 32, "b" * 32])
+        assert receipt["cleanup_complete"] and receipt["remaining"] == {}
+        assert manager._cancelled_owners == {"a" * 32, "b" * 32}
+        assert manager.status()["reserved"] == 0
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=3)
+        manager.close()

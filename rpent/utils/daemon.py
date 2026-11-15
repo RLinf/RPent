@@ -18,9 +18,12 @@ from __future__ import annotations
 
 import os
 import select
+import signal
 import socket
 import subprocess
 import threading
+import time
+from pathlib import Path
 from typing import Callable
 
 from rpent.utils.config import get_repo_root, get_rlinf_repo_path
@@ -110,7 +113,12 @@ class ProcessDaemon:
         env_overrides: dict[str, str] | None = None,
         log_path: str | None = None,
         cwd: str | None = None,
+        start_new_session: bool = False,
     ) -> None:
+        if start_new_session and not Path("/proc/self/stat").is_file():
+            raise RuntimeError("owned process-group cleanup requires Linux /proc")
+        self.start_new_session = start_new_session
+        self._process_group: int | None = None
         self.name = name
         self.cmd = cmd
         self.subprocess_env = os.environ.copy()
@@ -148,7 +156,10 @@ class ProcessDaemon:
             stderr=subprocess.STDOUT,
             env=self.subprocess_env,
             cwd=self.cwd or get_repo_root(),
+            start_new_session=self.start_new_session,
         )
+        if self.start_new_session:
+            self._process_group = self._proc.pid
         logger.info("%s spawned (pid=%s)", self.name, self._proc.pid)
 
     def stop(self, timeout: float = 15.0) -> None:
@@ -168,6 +179,8 @@ class ProcessDaemon:
                 except subprocess.TimeoutExpired:
                     self._proc.kill()
                     self._proc.wait()
+        if self._process_group is not None:
+            self._stop_process_group(timeout)
         if self._proc is not None and self._proc.stdin is not None:
             self._proc.stdin.close()
         if self._log_f is not None:
@@ -176,3 +189,40 @@ class ProcessDaemon:
             except Exception:
                 pass
             self._log_f = None
+
+    @staticmethod
+    def _live_process_group(group_id: int) -> list[int]:
+        live = []
+        for stat in Path("/proc").glob("[0-9]*/stat"):
+            try:
+                fields = stat.read_text().rpartition(")")[2].split()
+            except (FileNotFoundError, ProcessLookupError, PermissionError):
+                continue
+            # A dead zombie owns no CUDA memory or descendant execution.
+            if int(fields[2]) == group_id and fields[0] != "Z":
+                live.append(int(stat.parent.name))
+        return live
+
+    def _stop_process_group(self, timeout: float) -> None:
+        group_id = self._process_group
+        for sig in (signal.SIGTERM, signal.SIGKILL):
+            if not self._live_process_group(group_id):
+                self._process_group = None
+                return
+            try:
+                os.killpg(group_id, sig)
+            except ProcessLookupError:
+                self._process_group = None
+                return
+            deadline = time.monotonic() + timeout
+            while time.monotonic() < deadline:
+                if not self._live_process_group(group_id):
+                    self._process_group = None
+                    return
+                time.sleep(0.02)
+        remaining = self._live_process_group(group_id)
+        if remaining:
+            raise RuntimeError(
+                f"owned process group {group_id} did not exit: {remaining}"
+            )
+        self._process_group = None

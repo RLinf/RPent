@@ -103,6 +103,8 @@ class BackendManager(RpcFacade):
         self.output.mkdir(parents=True, exist_ok=True)
         self._lock = threading.Lock()
         self._workers: dict[str, dict] = {}
+        self._owners: dict[str, str] = {}
+        self._cancelled_owners: set[str] = set()
         self._cold = {gpu: threading.BoundedSemaphore(cold_starts) for gpu in slots}
         self._rpc.update(
             {
@@ -111,6 +113,7 @@ class BackendManager(RpcFacade):
                 "backend.renew": self.renew,
                 "backend.release": self.release,
                 "backend.status": self.status,
+                "backend.cancel_owners": self.cancel_owners,
             }
         )
         # Registry mutations use _lock; independent worker RPCs must not share a write lock.
@@ -118,15 +121,21 @@ class BackendManager(RpcFacade):
         self._sweeper = threading.Thread(target=self._sweep, daemon=True)
         self._sweeper.start()
 
-    def open(self, request: dict) -> dict:
-        """Start exactly one owned task, with a per-GPU initialization limit."""
+    def open(self, request: dict, owner_id: str | None = None) -> dict:
+        """Start one worker; an optional attempt owner supports race-free cancellation."""
         validate_request(request, set(self.slots))
+        if owner_id is not None:
+            self._validate_owner(owner_id)
         gpu = request["gpu"]
         session = uuid.uuid4().hex
         output = self.output / session
         with self._lock:
             if self._shutdown_event.is_set():
                 raise RuntimeError("backend is closing")
+            if owner_id in self._cancelled_owners:
+                raise RuntimeError(f"remote attempt {owner_id} was cancelled")
+            if owner_id is not None and owner_id in self._owners:
+                raise ValueError(f"remote attempt {owner_id} is already open")
             if (
                 sum(row["gpu"] == gpu for row in self._workers.values())
                 >= self.slots[gpu]
@@ -138,7 +147,12 @@ class BackendManager(RpcFacade):
                 "daemon": None,
                 "rpc": None,
                 "output": output,
+                "owner_id": owner_id,
+                "released": threading.Event(),
+                "closing": False,
             }
+            if owner_id is not None:
+                self._owners[owner_id] = session
         try:
             output.mkdir()
             config = {
@@ -161,6 +175,7 @@ class BackendManager(RpcFacade):
                     ],
                     log_path=str(output / "worker.log"),
                     cwd=str(get_repo_root()),
+                    start_new_session=True,
                 )
                 with self._lock:
                     self._workers[session]["daemon"] = daemon
@@ -181,7 +196,7 @@ class BackendManager(RpcFacade):
                     )
                     + "\n"
                 )
-            return {"session": session, **metadata}
+            return {"session": session, "owner_id": owner_id, **metadata}
         except BaseException:
             self.release(session)
             raise
@@ -209,10 +224,84 @@ class BackendManager(RpcFacade):
     def release(self, session: str) -> dict:
         """Close only the owned worker; its configuration, log and artifacts remain."""
         with self._lock:
-            row = self._workers.pop(session, None)
-        if row is not None and row["daemon"] is not None:
-            row["daemon"].stop()
-        return {"released": row is not None}
+            row = self._workers.get(session)
+            if row is None:
+                return {"released": False}
+            # Keep the slot reserved until the owned process has really exited.
+            already_closing = row.get("closing", False)
+            if not already_closing:
+                row["closing"] = True
+                row.setdefault("released", threading.Event())
+        if already_closing:
+            if not row["released"].wait(120):
+                raise RuntimeError(f"remote session {session} cleanup did not finish")
+            if row.get("cleanup_error") is not None:
+                raise RuntimeError(row["cleanup_error"])
+            return {"released": True}
+        try:
+            if row["daemon"] is not None:
+                row["daemon"].stop()
+            with self._lock:
+                self._workers.pop(session)
+                owner_id = row.get("owner_id")
+                if owner_id is not None:
+                    self._owners.pop(owner_id)
+        except BaseException as error:
+            row["cleanup_error"] = repr(error)
+            raise
+        finally:
+            row["released"].set()
+        return {"released": True}
+
+    @staticmethod
+    def _validate_owner(owner_id: str) -> None:
+        if (
+            not isinstance(owner_id, str)
+            or re.fullmatch(r"[0-9a-f]{32}", owner_id) is None
+        ):
+            raise ValueError("remote owner_id must be one 32-character episode UUID")
+
+    def cancel_owners(self, owner_ids: list[str]) -> dict:
+        """Tombstone explicit attempts and release only their reserved/ready workers."""
+        if not isinstance(owner_ids, list):
+            raise ValueError("owner_ids must be a list of episode UUIDs")
+        for owner_id in owner_ids:
+            self._validate_owner(owner_id)
+        owner_ids = list(dict.fromkeys(owner_ids))
+        with self._lock:
+            self._cancelled_owners.update(owner_ids)
+            sessions = {owner_id: self._owners.get(owner_id) for owner_id in owner_ids}
+            output_dirs = {
+                owner_id: str(self._workers[session]["output"])
+                for owner_id, session in sessions.items()
+                if session is not None
+            }
+        for session in sessions.values():
+            if session is not None:
+                self.release(session)
+        with self._lock:
+            remaining = {
+                owner_id: self._owners[owner_id]
+                for owner_id in owner_ids
+                if owner_id in self._owners
+            }
+        if remaining:
+            raise RuntimeError(
+                f"remote attempts remain after cancellation: {remaining}"
+            )
+        receipt = {
+            "owner_ids": owner_ids,
+            "sessions": sessions,
+            "output_dirs": output_dirs,
+            "remaining": remaining,
+            "cleanup_complete": True,
+        }
+        cancellation_dir = self.output / "cancellations"
+        cancellation_dir.mkdir(exist_ok=True)
+        (cancellation_dir / f"{uuid.uuid4().hex}.json").write_text(
+            json.dumps(receipt, indent=2) + "\n"
+        )
+        return receipt
 
     def status(self) -> dict:
         """Count real ready workers separately from their reserved episode slots."""

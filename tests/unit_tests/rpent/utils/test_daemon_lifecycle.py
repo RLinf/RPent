@@ -323,3 +323,56 @@ def test_spawned_daemon_inherits_rlinf_pythonpath(
 
     value = log_path.read_text().strip().partition("PYTHONPATH=")[2]
     assert value.split(os.pathsep)[0] == str(checkout.resolve())
+
+
+@pytest.mark.skipif(sys.platform != "linux", reason="uses Linux owned process groups")
+def test_owned_process_group_reaps_cold_children_without_stopping_other_daemons(
+    tmp_path,
+):
+    import json
+
+    grandchild = (
+        "import signal,time; "
+        "signal.signal(signal.SIGTERM,signal.SIG_IGN); time.sleep(60)"
+    )
+    ids = tmp_path / "children.json"
+    child = (
+        "import json,os,signal,subprocess,sys,time; from pathlib import Path; "
+        "signal.signal(signal.SIGTERM,signal.SIG_IGN); "
+        f"p=subprocess.Popen([sys.executable,'-c',{grandchild!r}]); "
+        f"Path({str(ids)!r}).write_text(json.dumps([os.getpid(),p.pid])); "
+        "time.sleep(60)"
+    )
+    parent = (
+        "import subprocess,sys,time; "
+        f"subprocess.Popen([sys.executable,'-c',{child!r}]); time.sleep(60)"
+    )
+    daemon = ProcessDaemon(
+        "cold-owned-tree",
+        [sys.executable, "-c", parent],
+        log_path=str(tmp_path / "owned.log"),
+        cwd=str(tmp_path),
+        start_new_session=True,
+    )
+    foreign = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"])
+
+    def running(pid):
+        stat = Path(f"/proc/{pid}/stat")
+        if not stat.exists():
+            return False
+        return stat.read_text().rpartition(")")[2].split()[0] != "Z"
+
+    try:
+        daemon.start()
+        _wait_until(ids.exists)
+        children = json.loads(ids.read_text())
+        assert all(running(pid) for pid in children)
+        daemon.stop(timeout=0.1)
+        assert daemon.poll() is not None
+        assert not any(running(pid) for pid in children)
+        assert foreign.poll() is None
+        daemon.stop(timeout=0.1)
+    finally:
+        daemon.stop(timeout=0.1)
+        foreign.terminate()
+        foreign.wait(timeout=3)
