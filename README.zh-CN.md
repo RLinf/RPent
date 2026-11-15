@@ -210,13 +210,13 @@ rpent --robot libero --dashboard --dashboard-language zh-cn \
 
 ## Adoption
 
-RPent 是面向具身智能与机器人应用的开源智能体框架，将感知、推理、记忆与执行相结合，支持长时序任务规划、操作执行和交互经验积累。来自 NVIDIA、华为、腾讯、商汤、Z-Trans AI（Zetta）、Maincode、清雁科技，以及清华大学、北京大学、新加坡国立大学等企业和高校的研究团队，已在相关项目中使用 RPent 代码、memory 资源或配套环境包，或基于这些组件开展扩展开发。社区还包括参与研发和技术交流的伙伴，例如老板电器。
+我们很高兴看到 RPent 已被领先企业和科研机构采用，其用户与合作伙伴包括 NVIDIA、华为、腾讯、老板电器、Z-Trans AI（Zetta）、清华大学、北京大学和新加坡国立大学等。
+
+✨ 如果您觉得 RPent 对具身智能研究或机器人应用开发有所帮助，欢迎联系我们或提交 PR，将您的组织加入该列表。
 
 <div align="center">
   <img src="https://cdn.jsdelivr.net/gh/RLinf/misc@386d0db7d5e2ab50c20f1799d331853c76a3858c/rpent/adoption/adoption.png" alt="RPent 社区：上方为含 Z-Trans AI / Zetta 和老板电器在内的 10 家企业，下方为 22 所高校和 8 家科研教育机构"/>
 </div>
-
-✨ 如果您的组织正在使用 RPent 开展具身智能研究或开发机器人应用，欢迎联系或提交 PR 加入该列表。
 
 ## 参与贡献
 
