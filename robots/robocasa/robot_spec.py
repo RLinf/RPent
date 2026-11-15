@@ -17,6 +17,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 import sys
 from datetime import datetime
 from functools import partial
@@ -423,7 +424,7 @@ def _spawn_env_server(
                 *(["--cuda-device", str(device)] if device is not None else []),
             ],
             env_overrides={
-                "MUJOCO_GL": "egl",
+                "MUJOCO_GL": os.environ.get("MUJOCO_GL", "egl"),
                 "ROBOT_PLATFORM": "ROBOCASA",
                 # Standard RPent evaluation uses --seed directly. Do not let a
                 # stale variable from legacy paired-scene runs change the reset.
