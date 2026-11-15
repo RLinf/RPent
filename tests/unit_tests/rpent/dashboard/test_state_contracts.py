@@ -37,6 +37,7 @@ from rpent.dashboard.spec import DashboardSpec
 from rpent.dashboard.state import DashboardState
 from rpent.session import EnvState
 from rpent.tools import Toolkit, ToolResult, tool
+from rpent.utils.logging import init_output_dir
 
 DASHBOARD_SPEC: DashboardSpec = {
     "task": {
@@ -58,6 +59,7 @@ DASHBOARD_SPEC: DashboardSpec = {
 
 
 def _state(tmp_path: Path) -> DashboardState:
+    init_output_dir(tmp_path)
     return DashboardState(
         output_dir=tmp_path,
         dashboard_spec=DASHBOARD_SPEC,

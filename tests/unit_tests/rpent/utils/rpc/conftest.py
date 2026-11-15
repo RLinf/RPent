@@ -24,47 +24,8 @@ from contextlib import contextmanager
 import pytest
 
 from rpent.utils.daemon import pick_free_port
-from rpent.utils.rpc.http_rpc import HttpRpcClient, HttpRpcServer
-from rpent.utils.rpc.socket_rpc import SocketRpcClient, SocketRpcServer
-
-TRANSPORTS = ["socket", "http"]
-
-
-@pytest.fixture(params=TRANSPORTS)
-def transport(request):
-    return request.param
-
-
-@pytest.fixture
-def make_server_and_client():
-    """Serve ``facade._dispatch`` on a real transport server; yield a client.
-
-    The plain (concurrent) dispatch path, equivalent to ``RpcFacade.serve``.
-    """
-
-    @contextmanager
-    def _ctx(facade, transport, *, enable_sessions=False):
-        if transport == "socket":
-            server = SocketRpcServer(("127.0.0.1", 0), facade._dispatch)
-        else:
-            server = HttpRpcServer(("127.0.0.1", 0), facade._dispatch)
-        threading.Thread(target=server.serve_forever, daemon=True).start()
-        port = server.server_address[1]
-        try:
-            if transport == "socket":
-                client = SocketRpcClient(
-                    "127.0.0.1", port, enable_sessions=enable_sessions
-                )
-            else:
-                client = HttpRpcClient(
-                    f"http://127.0.0.1:{port}", enable_sessions=enable_sessions
-                )
-            yield client
-        finally:
-            server.shutdown()
-            server.server_close()
-
-    return _ctx
+from rpent.utils.rpc.http_rpc import HttpRpcClient
+from rpent.utils.rpc.socket_rpc import SocketRpcClient
 
 
 @pytest.fixture

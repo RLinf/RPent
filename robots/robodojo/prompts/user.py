@@ -24,6 +24,7 @@ TASK = """- task:   {{task}}
 - output_dir: {{output_dir}}
 - scene (static hint): {{task_summary}}"""
 
-BEGIN = """Call `view_env_state` first to read the instruction and observe the
-scene. Localize relevant targets, act through the registered primitives,
-inspect execution feedback, and record the outcome before finishing."""
+BEGIN = """Call `view_env_state` first to read the instruction, observe the scene
+and check the native action budget before planning. Localize relevant targets,
+act through the registered primitives, inspect execution feedback, and record
+the outcome before finishing."""

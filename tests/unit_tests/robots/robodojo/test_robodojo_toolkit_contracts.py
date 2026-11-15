@@ -28,6 +28,7 @@ def test_backend_alone_exposes_policy_primitives_geometry_and_memory(
         "output_dir": str(kit.state._output_dir),
         "task_summary": "Visible blocks",
         "recipe_tag": "stack_blocks",
+        "reference_tag": "stack_blocks_s0_l0",
         "memory_dir": str(kit.memory.root),
     }
     prompt = format_prompt(system_prompt(variables), variables=variables)
@@ -287,6 +288,9 @@ def test_default_prompt_preserves_vpp2_capabilities():
         variables={
             "output_dir": "output",
             "recipe_tag": "result",
+            "reference_tag": "stack_blocks_s0_l0",
+            "env_cfg_type": "arx_x5",
+            "task": "stack_blocks",
             "memory_dir": "memory",
         },
     )
@@ -384,6 +388,41 @@ def test_runtime_reused_after_toolkit_closes(policy_toolkit, tmp_path, backend):
 
 
 @pytest.mark.parametrize("backend", ["vpp2", "awomo05"])
+@pytest.mark.parametrize("untrusted", [False, True])
+def test_exploration_restarts_runtime_after_session_cleanup(
+    policy_toolkit, tmp_path, backend, untrusted
+):
+    from robots.robodojo.toolkit import RoboDojoToolkit
+    from rpent.dashboard.events import NullDashboardEventSink
+
+    env, policy, first = policy_toolkit(backend, mode="exploration")
+    arguments = {"instruction": "stack blocks"} if backend == "vpp2" else {}
+    assert not first.execute_tool(f"{backend}_act", arguments).is_error
+    first.cancel_active_and_wait()
+    if untrusted:
+        env.invalidate_execution()
+    first.close()
+    policy.events.clear()
+
+    second = RoboDojoToolkit(
+        primitives_kwargs={"env": env, "vla_client": policy, "vla_backend": backend},
+        dashboard_events=NullDashboardEventSink(),
+        memory=first.memory,
+        mode="exploration",
+        state_output_dir=tmp_path / "second",
+    )
+    try:
+        assert env.frame == 0
+        if backend == "awomo05":
+            assert policy.events == [("reset",), ("observe", 0)]
+        result = second.execute_tool(f"{backend}_act", arguments)
+        assert not result.is_error and report(result)["executed_chunks"] == 1
+    finally:
+        second.close()
+    assert not env.closed
+
+
+@pytest.mark.parametrize("backend", ["vpp2", "awomo05"])
 def test_toolkit_startup_failure_releases_execution(
     policy_toolkit, monkeypatch, backend
 ):
@@ -403,3 +442,38 @@ def test_toolkit_startup_failure_releases_execution(
     assert primitive.env._execution.policy_observer is None
     if backend == "awomo05":
         assert primitive.vla_client.events.count(("end",)) == 1
+
+
+@pytest.mark.parametrize("backend", ["vpp2", "awomo05"])
+def test_exploration_policy_reset_recipe_and_finish(
+    policy_toolkit, monkeypatch, backend
+):
+    from pathlib import Path
+
+    env, policy, kit = policy_toolkit(backend, mode="exploration", done_at=2)
+    if backend == "awomo05":
+        assert policy.events == [("reset",), ("observe", 0)]
+    status = env.get_status
+    monkeypatch.setattr(
+        env, "get_status", lambda: {**status(), "success": env.is_success()}
+    )
+    tool = f"{backend}_act"
+    arguments = {"instruction": "stack blocks"} if backend == "vpp2" else {}
+    assert not kit.execute_tool(
+        "set_gripper", {"arm": "left", "val": 0.5, "steps": 1}
+    ).is_error
+    refused = kit.execute_tool("finish", {"status": "failure", "summary": "retry"})
+    assert not refused.data.get("_finish")
+    assert not kit.execute_tool("reset", {}).is_error
+    assert env.frame == 0
+    assert not kit.execute_tool(tool, {"chunks": 1, **arguments}).is_error
+    result = kit.execute_tool("finish", {"status": "success", "summary": "done"})
+    assert result.data["_finish"]
+    recipe = [
+        json.loads(line)
+        for line in Path(kit.write_recipe("policy")).read_text().splitlines()
+    ]
+    assert recipe == [{"action": tool, "chunks": 1, **arguments}]
+    if backend == "awomo05":
+        assert policy.events[-1] == ("end",)
+    assert not env.closed
