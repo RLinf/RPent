@@ -657,3 +657,43 @@ def test_cancel_owner_cleanup_failure_keeps_evidence_and_cleans_other_owners(tmp
         manager._workers.clear()
         manager._owners.clear()
         manager.close()
+
+
+def test_cancel_tombstone_blocks_cold_start_before_queued_release_runs(
+    tmp_path, monkeypatch
+):
+    from concurrent.futures import ThreadPoolExecutor
+
+    from robots.rl import remote_manager
+
+    manager = BackendManager(tmp_path, {0: 1}, 1, "http://127.0.0.1:1")
+    owner = "f" * 32
+    spawned = []
+
+    class Daemon:
+        def __init__(self, **kwargs):
+            pass
+
+        def start(self):
+            spawned.append(True)
+
+    monkeypatch.setattr(remote_manager, "ProcessDaemon", Daemon)
+    manager._cold[0].acquire()
+    try:
+        with ThreadPoolExecutor(max_workers=1) as executor:
+            future = executor.submit(manager.open, _owned_request(), owner)
+            for _ in range(500):
+                if manager.status()["reserved"]:
+                    break
+                threading.Event().wait(0.001)
+            assert manager.status()["reserved"] == 1
+            # The bounded release executor may still be busy with earlier owners.
+            with manager._lock:
+                manager._cancelled_owners.add(owner)
+            manager._cold[0].release()
+            with pytest.raises(RuntimeError, match="cancelled"):
+                future.result(timeout=3)
+            assert not spawned
+            assert manager.status()["reserved"] == 0
+    finally:
+        manager.close()

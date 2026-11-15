@@ -182,7 +182,10 @@ class BackendManager(RpcFacade):
                     start_new_session=True,
                 )
                 with self._lock:
-                    self._workers[session]["daemon"] = daemon
+                    row = self._workers[session]
+                    if row["closing"] or owner_id in self._cancelled_owners:
+                        raise RuntimeError(f"remote attempt {owner_id} was cancelled")
+                    row["daemon"] = daemon
                     daemon.start()
                 rpc = make_rpc_client(wait_for_endpoint(daemon, timeout_s=1800))
                 with self._lock:
@@ -208,6 +211,8 @@ class BackendManager(RpcFacade):
     def _worker(self, session: str) -> dict:
         with self._lock:
             row = self._workers[session]
+            if row["closing"] or row["owner_id"] in self._cancelled_owners:
+                raise RuntimeError(f"remote session {session} is closing")
             row["last_seen"] = time.monotonic()
             return dict(row)
 
