@@ -26,7 +26,7 @@ import numpy as np
 import pytest
 
 import robots.robolab.robot_spec as robolab_spec
-from robots.robolab.env_server import RoboLabEnvFacade, _resolve_isaac_device
+from robots.robolab.env_server import RoboLabEnvFacade
 from robots.robolab.toolkit import RoboLabToolkit
 from rpent.dashboard.events import NullDashboardEventSink
 from rpent.evaluation import RunFinalizationContext
@@ -115,39 +115,6 @@ def test_runtime_keeps_virtualenv_python_symlinks(tmp_path, monkeypatch, env_gpu
     assert vla_daemon.env_overrides["CUDA_VISIBLE_DEVICES"] == "2"
 
 
-@pytest.mark.parametrize(
-    "mask, device, nodes, resolved, remaining_mask",
-    [
-        ("2", "cuda:0", [0, 1, 2, 3], "cuda:2", None),
-        ("2,0", "cuda:1", [0, 1, 2, 3], "cuda:0", None),
-        ("0", "cuda:0", [2], "cuda:0", "0"),
-        ("2", "cuda:0", [2], "cuda:0", None),
-        ("GPU-example", "cuda:0", [0, 1, 2, 3], "cuda:0", "GPU-example"),
-        ("MIG-example", "cuda:0", [2], "cuda:0", "MIG-example"),
-        (None, "cuda:2", [0, 1, 2, 3], "cuda:2", None),
-        ("", "cuda:0", [0, 1, 2, 3], "cuda:0", ""),
-        ("-1", "cuda:0", [0, 1, 2, 3], "cuda:0", "-1"),
-    ],
-)
-def test_isaac_device_respects_visible_gpu_namespace(
-    monkeypatch, mask, device, nodes, resolved, remaining_mask
-):
-    import os
-
-    if mask is None:
-        monkeypatch.delenv("CUDA_VISIBLE_DEVICES", raising=False)
-    else:
-        monkeypatch.setenv("CUDA_VISIBLE_DEVICES", mask)
-    monkeypatch.setattr(
-        Path, "glob", lambda self, pattern: [Path(f"/dev/nvidia{i}") for i in nodes]
-    )
-    selected, kit_args = _resolve_isaac_device(device)
-    assert selected == resolved
-    assert f"--/renderer/activeGpu={resolved.split(':')[1]}" in kit_args
-    assert "--/renderer/multiGpu/autoEnable=false" in kit_args
-    assert os.environ.get("CUDA_VISIBLE_DEVICES") == remaining_mask
-
-
 def test_external_env_connection_ignores_local_gpu(monkeypatch, tmp_path):
     parser = argparse.ArgumentParser()
     robolab_spec.get_robot_spec().add_cli_args(parser, False)
@@ -204,54 +171,52 @@ def test_explicit_memory_repository_sets_prompt_and_runtime_root(monkeypatch, tm
 
 @pytest.mark.parametrize("success", [False, True])
 @pytest.mark.parametrize("chunk", [False, True])
-def test_native_episode_survives_artifact_reset_and_freezes(
-    monkeypatch, success, chunk
-):
-    pytest.importorskip("torch")
-    monkeypatch.setitem(
-        sys.modules,
-        "robolab.core.task.instruction",
-        SimpleNamespace(instruction_text=lambda value: value),
-    )
-    monkeypatch.setattr(RoboLabEnvFacade, "_observation", lambda self, raw: raw)
-
-    class NativeEnv:
-        device = "cpu"
-        max_episode_length = 3
-        action_space = SimpleNamespace(low=np.full(8, -10), high=np.full(8, 10))
+def test_native_episode_survives_artifact_reset_and_freezes(success, chunk):
+    class RLinfEnv:
+        task_descriptions = ["Task"]
+        action_bounds = {"low": np.full(8, -10), "high": np.full(8, 10)}
 
         def __init__(self):
-            self.episode_length_buf = np.array([0])
-            self.all_terminated = False
             self.calls = 0
-            self.result = {"success": None, "step": None}
+            self.status = {
+                "steps": 0,
+                "step_limit": 3,
+                "success": None,
+                "terminated": False,
+                "truncated": False,
+            }
 
-        def get_env_results(self):
-            return [self.result]
+        def get_status(self):
+            return [self.status.copy()]
 
         def step(self, action):
             assert tuple(action.shape) == (1, 8)
             self.calls += 1
-            # The second action triggers RoboLab's early physics-artifact reset.
-            self.episode_length_buf[0] = [1, 0, 1, 2, 3][self.calls - 1]
+            self.status["steps"] = [1, 0, 1, 2, 3][self.calls - 1]
             if self.calls == 5:
-                self.all_terminated = True
-                self.result = {"success": success, "step": 3}
-                # Frozen status must use the recorded step, not the live buffer.
-                self.episode_length_buf[0] = 0
-            return {}, 0.0, True, False, {}
+                self.status.update(
+                    success=success, terminated=success, truncated=not success
+                )
+            return (
+                {"states": np.zeros((1, 8))},
+                np.array([float(self.status["terminated"])]),
+                np.array([self.status["terminated"]]),
+                np.array([self.status["truncated"]]),
+                {},
+            )
 
-    env = NativeEnv()
-    facade = RoboLabEnvFacade(
-        env, SimpleNamespace(instruction="Task"), object(), {"task": "Task", "seed": 0}
-    )
+    env = RLinfEnv()
+    facade = RoboLabEnvFacade(env, {"task": "Task", "seed": 0})
     assert facade.get_status()["success"] is None
+    assert facade.get_task_language() == "Task"
     if chunk:
         result = facade.chunk_step(np.zeros((10, 8)), return_all_frames=True)
         assert len(result[0]) == 5
+        assert result[0][0]["states"].shape == (8,)
     else:
         for steps in [1, 0, 1, 2]:
             result = facade.step(np.zeros(8))
+            assert result[0]["states"].shape == (8,)
             assert result[2:4] == (False, False)
             assert result[4]["steps"] == steps
             assert result[4]["success"] is None

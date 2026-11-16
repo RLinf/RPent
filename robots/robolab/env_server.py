@@ -12,12 +12,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Serve one externally installed RoboLab task through RPent's environment RPC."""
+"""Expose RLinf's RoboLab environment through RPent's single-env RPC."""
 
 from __future__ import annotations
 
 import argparse
-import os
 import sys
 from pathlib import Path
 from typing import Any
@@ -32,25 +31,46 @@ from rpent.robots.components.action_spec import (  # noqa: E402
     validate_action,
 )
 from rpent.robots.components.env_facade_base import BaseEnvFacade  # noqa: E402
-from rpent.utils.logging import get_logger, init_output_dir  # noqa: E402
+from rpent.utils.logging import init_output_dir  # noqa: E402
 from rpent.utils.rpc.main_thread_serve import MainThreadServeMixin  # noqa: E402
+from rpent.utils.serialization import to_numpy_tree  # noqa: E402
 
-logger = get_logger("robolab_env_server")
+
+def make_env(task: str, seed: int, device: str, output_dir: str) -> Any:
+    """Create one RLinf environment governed by the native task's time limit."""
+    from omegaconf import OmegaConf
+    from rlinf.envs.sim.robolab.robolab_env import RoboLabEnv
+
+    cfg = OmegaConf.create(
+        {
+            "auto_reset": False,
+            "ignore_terminations": False,
+            "max_episode_steps": None,
+            "seed": seed,
+            "init_params": {
+                "task": task,
+                "device": device,
+                "output_dir": output_dir,
+                "renderer": "realtime",
+                "kit_args": (
+                    "--/renderer/multiGpu/enabled=false "
+                    "--/renderer/multiGpu/autoEnable=false"
+                ),
+                "enable_subtask": True,
+            },
+        }
+    )
+    return RoboLabEnv(
+        cfg=cfg, num_envs=1, seed_offset=0, total_num_processes=1, worker_info=None
+    )
 
 
 class RoboLabEnvFacade(MainThreadServeMixin, BaseEnvFacade):
-    """Execute RoboLab's native DROID joint-position actions on the Isaac main thread."""
+    """Adapt batched RLinf observations and serialize access to its simulator socket."""
 
-    def __init__(self, env: Any, env_cfg: Any, app: Any, meta: dict[str, Any]):
+    def __init__(self, env: Any, meta: dict[str, Any]):
         self.env = env
-        self.env_cfg = env_cfg
-        self.app = app
         self.meta = meta
-        self._last_obs: dict[str, Any] | None = None
-        self._closed = False
-        from robolab.core.task.instruction import instruction_text
-
-        self._instruction = instruction_text(env_cfg.instruction)
         super().__init__()
 
     def _register_rpc(self) -> None:
@@ -62,69 +82,34 @@ class RoboLabEnvFacade(MainThreadServeMixin, BaseEnvFacade):
         return dict(self.meta)
 
     def get_action_spec(self) -> dict[str, dict[str, Any]]:
-        space = getattr(self.env, "single_action_space", self.env.action_space)
-        low = np.asarray(space.low).reshape(-1)
-        high = np.asarray(space.high).reshape(-1)
-        if low.size != 8:
-            raise ValueError(
-                f"DROID joint-position action must have 8 values, got {low.size}"
-            )
         return {
             "default": box_action_spec(
-                low,
-                high,
+                self.env.action_bounds["low"],
+                self.env.action_bounds["high"],
                 "DROID joint positions: seven arm joints followed by the gripper command.",
             )
         }
 
-    def _observation(self, raw: dict[str, Any]) -> dict[str, Any]:
-        from openpi_client import image_tools
-
-        images = raw["image_obs"]
-        state = raw["proprio_obs"]
-        return {
-            "main_images": image_tools.resize_with_pad(
-                images["over_shoulder_left_camera"][0].detach().cpu().numpy(), 224, 224
-            ),
-            "wrist_images": image_tools.resize_with_pad(
-                images["wrist_cam"][0].detach().cpu().numpy(), 224, 224
-            ),
-            "states": np.concatenate(
-                [
-                    state["arm_joint_pos"][0].detach().cpu().numpy(),
-                    state["gripper_pos"][0].detach().cpu().numpy(),
-                ]
-            ).astype(np.float32),
-            "task_descriptions": self._instruction,
-        }
+    @staticmethod
+    def _observation(raw: dict[str, Any]) -> dict[str, Any]:
+        return {key: value[0] for key, value in to_numpy_tree(raw).items()}
 
     def reset(self) -> dict[str, Any]:
-        if self._last_obs is not None:
-            from robolab.core.environments.runtime import end_episode
-
-            end_episode(self.env)
-        self.env.reset_eval_state()
-        self.env.reset()
-        self._last_obs, _ = self.env.reset()
-        return self._observation(self._last_obs)
+        obs, _ = self.env.reset()
+        return self._observation(obs)
 
     def step(self, action: Any) -> tuple[dict[str, Any], float, bool, bool, dict]:
-        if self.env.all_terminated:
+        status = self.get_status()
+        if status["terminated"] or status["truncated"]:
             raise RuntimeError("RoboLab episode has ended")
         validated = validate_action(action, self.get_action_spec()["default"])
-        import torch
-
-        tensor = torch.as_tensor(
-            validated[None], dtype=torch.float32, device=self.env.device
-        )
-        self._last_obs, _, _, _, _ = self.env.step(tensor)
-        info = self.get_status()
+        obs, reward, terminated, truncated, _ = self.env.step(validated[None])
         return (
-            self._observation(self._last_obs),
-            float(info["terminated"]),
-            info["terminated"],
-            info["truncated"],
-            info,
+            self._observation(obs),
+            float(reward[0]),
+            bool(terminated[0]),
+            bool(truncated[0]),
+            self.get_status(),
         )
 
     def chunk_step(
@@ -145,76 +130,23 @@ class RoboLabEnvFacade(MainThreadServeMixin, BaseEnvFacade):
         return (frames if return_all_frames else result[0], *result[1:])
 
     def get_status(self) -> dict[str, Any]:
-        native = self.env.get_env_results()[0]
-        done = self.env.all_terminated
-        # RoboLab resets early physics artifacts and records the final step on freeze.
-        steps = native["step"] if done else int(self.env.episode_length_buf[0].item())
-        return {
-            "steps": steps,
-            "step_limit": int(self.env.max_episode_length),
-            "success": native["success"],
-            "terminated": done and native["success"] is True,
-            "truncated": done and native["success"] is False,
-        }
+        return self.env.get_status()[0]
 
     def get_task_language(self) -> str:
-        return self._instruction
+        return self.env.task_descriptions[0]
 
-    def render_camera(self, camera_name: str, **kwargs: Any) -> np.ndarray:
-        del kwargs
-        if camera_name not in {"over_shoulder_left_camera", "wrist_cam"}:
-            raise ValueError(f"unknown RoboLab camera: {camera_name!r}")
-        if self._last_obs is None:
-            raise RuntimeError("RoboLab environment has not been reset")
-        return self._last_obs["image_obs"][camera_name][0].detach().cpu().numpy()
+    def render_camera(self, camera_name: str) -> np.ndarray:
+        return self.env.render_camera(camera_name)
 
-    def get_camera_meta(self, camera_name: str, **kwargs: Any) -> dict[str, Any]:
-        image = self.render_camera(camera_name, **kwargs)
-        return {
-            "camera_name": camera_name,
-            "height": image.shape[0],
-            "width": image.shape[1],
-        }
+    def get_camera_meta(self, camera_name: str) -> dict[str, Any]:
+        return self.env.get_camera_meta(camera_name)
 
     def close(self) -> None:
-        if self._closed:
-            return
-        self._closed = True
-        try:
-            self.env.close()
-        finally:
-            self.app.close()
-
-
-def _resolve_isaac_device(device: str) -> tuple[str, str]:
-    """Match CUDA and Kit ordinals where visible NVIDIA device nodes allow it."""
-    kit_args = "--/renderer/multiGpu/autoEnable=false"
-    if not device.startswith("cuda"):
-        return device, kit_args
-    ordinal = int(device.split(":")[1]) if ":" in device else 0
-    if ordinal < 0:
-        raise ValueError("--device must use a nonnegative CUDA ordinal")
-    visible = os.environ.get("CUDA_VISIBLE_DEVICES")
-    if visible:
-        devices = [entry.strip() for entry in visible.split(",")]
-        if all(entry.isdigit() for entry in devices):
-            if ordinal >= len(devices):
-                raise ValueError("--device index is outside CUDA_VISIBLE_DEVICES")
-            nodes = sorted(
-                int(path.name.removeprefix("nvidia"))
-                for path in Path("/dev").glob("nvidia[0-9]*")
-                if path.name.removeprefix("nvidia").isdigit()
-            )
-            if set(map(int, devices)).issubset(nodes):
-                # CUDA and Vulkan enumerate only mounted GPUs inside containers.
-                ordinal = nodes.index(int(devices[ordinal]))
-                del os.environ["CUDA_VISIBLE_DEVICES"]
-        # UUID masks and container-local indices must keep their CUDA namespace.
-    return f"cuda:{ordinal}", kit_args + f" --/renderer/activeGpu={ordinal}"
+        self.env.close()
 
 
 def main() -> None:
-    """Launch Isaac before importing RoboLab environment modules."""
+    """Start the RPC facade; RLinf owns the Isaac simulator child process."""
     parser = argparse.ArgumentParser(description="RoboLab RPent environment server")
     parser.add_argument("--task", required=True)
     parser.add_argument("--seed", type=int, default=0)
@@ -226,81 +158,17 @@ def main() -> None:
     args = parser.parse_args()
     init_output_dir(args.output_dir)
 
-    device, kit_args = _resolve_isaac_device(args.device)
-    logger.info("RoboLab simulation device: %s (requested %s)", device, args.device)
-
-    import cv2  # noqa: F401 -- Isaac Lab requires OpenCV to load first.
-    from isaaclab.app import AppLauncher
-
-    app_launcher = AppLauncher(
-        headless=True,
-        enable_cameras=True,
-        device=device,
-        renderer="realtime",
-        multi_gpu=False,
-        kit_args=kit_args,
-    )
-    app = app_launcher.app
-    logger.info("Isaac app started for RoboLab task %s", args.task)
-    env = None
-    facade = None
-    failure = None
+    env = make_env(args.task, args.seed, args.device, args.output_dir)
     try:
-        from robolab.constants import ASSET_DIR, set_output_dir
-        from robolab.core.environments.runtime import create_env
-        from robolab.registrations.droid.auto_env_registrations_jointpos import (
-            auto_register_droid_envs,
-        )
-
-        if not Path(ASSET_DIR).is_dir():
-            raise FileNotFoundError(
-                f"RoboLab assets not found at {ASSET_DIR}; install RoboLab from "
-                "an external checkout containing its assets"
-            )
-        auto_register_droid_envs(task=args.task)
-        logger.info("RoboLab task registered: %s", args.task)
-        set_output_dir(args.output_dir)
-        logger.info("Creating RoboLab environment for %s", args.task)
-        env, env_cfg = create_env(
-            args.task,
-            device=device,
-            seed=args.seed,
-            num_envs=1,
-            policy="rpent",
-            renderer="realtime",
-        )
-        logger.info("RoboLab environment created for %s", args.task)
-        facade = RoboLabEnvFacade(
-            env,
-            env_cfg,
-            app,
-            {"task": args.task, "seed": args.seed},
-        )
+        facade = RoboLabEnvFacade(env, {"task": args.task, "seed": args.seed})
         facade.serve(
             transport="http",
             host=args.host,
             port=args.port,
             parent_watch=args.parent_watch,
         )
-        logger.info("RoboLab environment RPC stopped")
-    except BaseException as exc:
-        failure = exc
-        logger.exception("RoboLab environment server failed")
-        raise
     finally:
-        try:
-            if facade is not None:
-                facade.close()
-            else:
-                try:
-                    if env is not None:
-                        env.close()
-                finally:
-                    app.close()
-        except BaseException:
-            if failure is None:
-                raise
-            logger.exception("RoboLab cleanup failed after server error")
+        env.close()
 
 
 if __name__ == "__main__":
