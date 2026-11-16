@@ -15,7 +15,7 @@ RoboDojo
 
    .. grid-item-card:: 规划器
 
-      ``api``、``claude_code``、``codex``
+      ``api``、``claude_code``、``codex``、``gemini_cli``
 
    .. grid-item-card:: 任务
 
@@ -379,6 +379,117 @@ SAM3 用于物体分割。先在 `facebook/sam3 模型页面 <https://huggingfac
 ``move_to(arm, xyz, quat=None, gripper=None, substeps=25)`` 使用世界坐标、米及 wxyz 四元数；省略姿态或夹爪参数则保持对应状态／目标。``substeps`` 限制路径抽样数，每个执行的路点消耗一个原生动作步（0.04 秒仿真时间）。Prompt 默认使用 25，较小修正可依次选择 10、5、1；1 只发送最后路点，不会等待到达。``rotate_wrist`` 绕世界 Z 轴相对旋转，单位为度。``final_dist_m`` 是实测位置误差，不是到达保证。检查 ``completed``、``executed_steps`` 和 ``stop_reason``；超时的动作可能已在服务端执行，不会自动重试。
 
 ``set_gripper(arm, val, steps=10)`` 使用 0=闭、1=开，``release`` 默认开到 1。中间值表示归一化开度目标，而非物理宽度。反馈读取实测关节状态，夹爪运动期间保持其他关节目标不变。
+
+
+通过 XPolicyLab 评测
+--------------------------------
+
+通过官方 RoboDojo evaluator 运行现有 RPent 规划器与 VPP2 工具。
+先安装官方 RoboDojo 仓库、XPolicyLab 子模块、资产及仿真依赖，再在该环境中安装
+RPent。按前文启动 VPP2 服务；SAM3 也可使用已有服务地址。
+下面的命令只负责启动和关闭策略服务器及 evaluator。
+
+已验证的运行时版本为 RoboDojo
+``f57e1633ffed59761bc8e568cfe7530c4b33381c`` 和 XPolicyLab
+``5d0be1499634d3176258c8f2e31f5fe816497b0a``，使用 Python 3.11、
+Isaac Sim 5.1.0 和 PyTorch 2.7.0+cu128。完成官方安装后，在启动环境中安装
+``websockets==15.0.1`` 和 ``msgpack-numpy==0.4.8``。官方安装脚本固定的
+WebSocket 12.0 缺少此 XPolicyLab 服务端使用的 ``websockets.asyncio`` 接口。
+
+在 ``env_cfg/arx_x5.yml`` 的 ``observation.vision`` 下开启 ``depth``、
+``intrinsic_matrix`` 和 ``extrinsic_matrix``；同时在
+``env_cfg/camera/camera_config.yml`` 的 ``annotator`` 下，为 ``cam_head``、
+``cam_left_wrist``、``cam_right_wrist`` 启用已有的
+``distance_to_image_plane_capture`` 配置，使用 ``device: cpu``。
+保持 ``approximate_depth: false``，使深度以米为单位。
+这些改动只配置观测，任务成功判定和动作限制仍由官方 evaluator 负责。
+
+安装 ``ffmpeg`` 可执行程序并加入 ``PATH``；官方 evaluator 从第一帧观测
+就开始录制视频。
+
+此运行时不返回 ``extra_info.detailed_instruction``。运行前准备
+`官网公开任务说明 <https://robodojo-benchmark.com/leaderboard/detail-description>`_
+的本地快照：
+
+.. code-block:: bash
+
+   python -m robots.robodojo.xpolicylab.descriptions \
+     --output /path/to/official-descriptions.json
+
+下载工具校验已核对的资源哈希，将来源地址与 42 个任务的说明一起保存，
+不执行下载的 JavaScript，也不读取任务实现代码。评测读取本地快照；
+请将此文件与本轮冻结配置一并保留。
+
+.. code-block:: bash
+
+   python -m robots.robodojo.xpolicylab \
+     --runtime-root /path/to/RoboDojo \
+     --task stack_bowls --seed 1 --episodes 2 \
+     --am-endpoint socket://127.0.0.1:9100 \
+     --sam3-endpoint socket://127.0.0.1:9200 \
+     --memory-dir /path/to/memory/robodojo \
+     --official-descriptions /path/to/official-descriptions.json \
+     --planner codex --reasoning-effort high --timeout 4800 \
+     --env-cuda-device 0 --policy-cuda-device 1 \
+     --output-dir /path/to/results/stack-bowls-seed1
+
+命令将适配器注册到 ``XPolicyLab/policy/RPent``，运行 layout 0 和 1。
+省略 ``--episodes`` 时使用官方任务回合数。每次运行使用新的 ``--output-dir``；
+并行运行时分配独立 GPU 和输出目录，每条命令会启动独立策略服务器。
+
+官方 evaluator 将 ``_result.json`` 和三个相机视角的录像保存到
+``<runtime-root>/eval_result/RoboDojo/<task>/RPent/arx_x5/``。
+RPent 在 ``--output-dir`` 保存配置、代码版本与补丁、prompt／guide／memory
+校验值，以及各回合的规划日志；manifest 记录官方结果的完整路径。
+在 RoboDojo 仓库中运行 ``bash scripts/robodojo.sh summarize`` 可更新汇总表。
+少量试跑会保存逐回合结果，但未达到官方要求回合数时，汇总表中的对应单元格仍为空。
+
+官方详细任务说明从 ``extra_info.detailed_instruction`` 追加到规划器的首次用户消息。
+旧运行时若没有该字段，需传入
+``--official-descriptions /path/to/official-descriptions.json``。
+该文件以任务名为键，每项包含官方公开的 ``description`` 字符串与 ``scoring``
+字符串列表；各回合会保存实际使用的说明及来源。
+
+批量评测
+~~~~~~~~
+
+用 ``--dimensions`` 替代 ``--task`` 选择官方任务类别。
+每个 ``--worker ENV_GPU:POLICY_GPU`` 同时运行一个任务，所有 worker 使用相同的
+规划器、memory 和 VPP2／SAM3 服务地址。分配资源时也需为这些服务预留 GPU。
+
+.. code-block:: bash
+
+   python -m robots.robodojo.xpolicylab \
+     --runtime-root /path/to/RoboDojo \
+     --dimensions generalization memory long-horizon precision --seed 1 \
+     --worker 0:0 --worker 1:1 --worker 2:2 --worker 3:3 \
+     --am-endpoint socket://127.0.0.1:9100 \
+     --sam3-endpoint socket://127.0.0.1:9200 \
+     --memory-dir /path/to/memory/robodojo \
+     --official-descriptions /path/to/official-descriptions.json \
+     --planner codex --reasoning-effort high --timeout 4800 \
+     --output-dir /path/to/results/four-categories-seed1 --dry-run
+
+``--dry-run`` 只写出 ``batch-plan.json``，不启动仿真器或模型。
+上述版本的四类共 46 个任务版本，在 seed 1 上共 1,700 回合：泛化 600 回合
+（每个基础任务普通版与 Random 版各 25 回合）、Memory 300 回合、长程 400 回合、
+精确操作 400 回合。省略 ``--episodes`` 保留官方回合数；不选择 Open 类任务。
+
+可用 ``--tasks stack_blocks swap_T`` 限定所选类别中的任务，并配合
+``--episodes 1`` 进行少量回合的接入检查。
+
+检查清单后，将命令中的 ``--dry-run`` 换成 ``--resume`` 执行。
+续跑会拒绝代码、配置或 memory 已变化的批次，核验已完成任务的结果及录像，
+仅启动尚未开始的任务。中断任务保留部分结果，需要明确处理后再恢复；
+不会自动重跑，也不自动挑选最好的一次。
+``batch-status.json`` 记录执行状态，``complete`` 表示要求的回合及录像齐全，
+不代表每个回合都成功。官方汇总表位于 ``official-results/_summary.md``，
+通过链接只纳入本批已完成任务的结果，不混入历史实验。
+
+适配器使用世界坐标系中的 link6 目标。cuRobo 在策略 GPU 上规划，官方环境执行
+每一步动作并判定 success 和 score。夹爪反馈表示控制目标；VPP2 后的首次 Primitive
+从实测关节位置建立保持目标。Agent 思考和只读观测不消耗原生动作步数。
+基础设施错误会停止当前任务并单独记录；批量调度继续处理其他任务。
 
 .. _robodojo-local-nvidia-assets:
 

@@ -50,7 +50,7 @@ class DashboardMessage:
 
 
 class PlannerSessionDriver(Protocol):
-    """Backend operations used by the Dashboard planner control.
+    """Backend operations used by the shared planner interaction control.
 
     The controller drains physical toolkit work before requesting an interrupt.
     Drivers own their SDK resources, event consumers, and cleanup.
@@ -61,7 +61,7 @@ class PlannerSessionDriver(Protocol):
 
         Steering an active turn may return zero. With deferred acknowledgement,
         the driver reports when the message starts or is discarded through
-        ``DashboardPlannerControl``; returning only confirms acceptance.
+        ``PlannerInteractionControl``; returning only confirms acceptance.
         """
         ...
 

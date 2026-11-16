@@ -260,3 +260,24 @@ Offline regression tests remain in `unit_tests/robots/dual_franka/`.
 See the deployment prerequisites in the
 [English](../docs/source-en/rst_source/real_world_robots/dual_franka.rst) or
 [Chinese](../docs/source-zh/rst_source/real_world_robots/dual_franka.rst) guide.
+
+### RoboDojo through XPolicyLab
+
+The XPolicyLab adapter has a two-episode GPU check using the existing offline
+planner server. It exercises gripper interpolation, cuRobo, one real VPP2 chunk,
+controller switching and fresh history at reset. The official evaluator saves
+native outcomes and three videos per episode; task success is not required.
+
+```bash
+RPENT_RUN_XPOLICYLAB_INTEGRATION=1 \
+RPENT_XPOLICYLAB_ROOT=/path/to/RoboDojo \
+RPENT_ROBODOJO_VLA_ENDPOINT=socket://127.0.0.1:9100 \
+RPENT_XPOLICYLAB_ENV_GPU=0 RPENT_XPOLICYLAB_POLICY_GPU=1 \
+RPENT_E2E_OUTPUT_DIR=/path/to/new-output-dir \
+  python -m pytest tests/e2e_tests/robodojo/test_xpolicylab.py -v -s
+```
+
+Enable depth and calibration as described in the RoboDojo guide. Older official
+runtimes also need `RPENT_OFFICIAL_DESCRIPTIONS=/path/to/official-descriptions.json`.
+The test uses no external reasoning-model service. It borrows the VPP2 endpoint
+and leaves it running. Without the opt-in flag this test is skipped.

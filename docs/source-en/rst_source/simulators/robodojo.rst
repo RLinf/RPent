@@ -18,7 +18,7 @@ Overview
 
    .. grid-item-card:: Planners
 
-      ``api``, ``claude_code``, ``codex``
+      ``api``, ``claude_code``, ``codex``, ``gemini_cli``
 
    .. grid-item-card:: Tasks
 
@@ -529,6 +529,128 @@ not an arrival guarantee. Check ``completed``, ``executed_steps`` and
 defaults to 1. Intermediate values are normalized opening targets rather than
 physical widths. Feedback comes from measured joints. Other controller targets
 are retained while the gripper moves.
+
+
+Evaluate through XPolicyLab
+---------------------------
+
+Run the existing RPent planner and VPP2 tools through the official RoboDojo
+evaluator. Install the official RoboDojo checkout, its XPolicyLab submodule,
+assets and simulator dependencies first, then install RPent in that environment.
+Start the VPP2 service as described above; SAM3 can also be supplied as an
+existing endpoint. The command owns only the policy server and evaluator.
+
+The validated runtime revisions are RoboDojo
+``f57e1633ffed59761bc8e568cfe7530c4b33381c`` and XPolicyLab
+``5d0be1499634d3176258c8f2e31f5fe816497b0a``, with Python 3.11,
+Isaac Sim 5.1.0 and PyTorch 2.7.0+cu128. After the official installation,
+install ``websockets==15.0.1`` and ``msgpack-numpy==0.4.8`` in the launch
+environment. The official install script pins WebSocket 12.0, which lacks
+the ``websockets.asyncio`` API used by this XPolicyLab server.
+
+Enable ``depth``, ``intrinsic_matrix`` and ``extrinsic_matrix`` under
+``observation.vision`` in ``env_cfg/arx_x5.yml``. Also enable the existing
+``distance_to_image_plane_capture`` entries with ``device: cpu`` for
+``cam_head``, ``cam_left_wrist`` and ``cam_right_wrist`` under ``annotator``
+in ``env_cfg/camera/camera_config.yml``. Keep ``approximate_depth: false``
+so depth remains in metres. These are observation configuration changes;
+task success checks and action limits stay with the official evaluator.
+
+Install the ``ffmpeg`` executable and make it available on ``PATH``; the
+official evaluator starts video recording with the first observation.
+
+This runtime does not return ``extra_info.detailed_instruction``. Prepare
+a local snapshot of the `official public task descriptions
+<https://robodojo-benchmark.com/leaderboard/detail-description>`_ before running:
+
+.. code-block:: bash
+
+   python -m robots.robodojo.xpolicylab.descriptions \
+     --output /path/to/official-descriptions.json
+
+The download verifies the reviewed asset checksum and saves its source URL
+with the 42 task descriptions. It does not execute downloaded JavaScript or
+read task implementation code. Evaluation reads the local snapshot; keep
+this file with the frozen run inputs.
+
+.. code-block:: bash
+
+   python -m robots.robodojo.xpolicylab \
+     --runtime-root /path/to/RoboDojo \
+     --task stack_bowls --seed 1 --episodes 2 \
+     --am-endpoint socket://127.0.0.1:9100 \
+     --sam3-endpoint socket://127.0.0.1:9200 \
+     --memory-dir /path/to/memory/robodojo \
+     --official-descriptions /path/to/official-descriptions.json \
+     --planner codex --reasoning-effort high --timeout 4800 \
+     --env-cuda-device 0 --policy-cuda-device 1 \
+     --output-dir /path/to/results/stack-bowls-seed1
+
+The command registers the adapter at ``XPolicyLab/policy/RPent`` and runs
+layouts 0 and 1. Omit ``--episodes`` to use the official task count. Use a fresh
+``--output-dir`` for each run. For concurrent runs, allocate separate GPUs and
+output directories; each invocation starts its own policy server.
+
+The official evaluator writes ``_result.json`` and three camera videos under
+``<runtime-root>/eval_result/RoboDojo/<task>/RPent/arx_x5/``. RPent writes the
+configuration, source revisions and patches, prompt/guide/memory hashes, and
+per-episode planner logs under ``--output-dir``. The manifest gives the exact
+official result directory. Run ``bash scripts/robodojo.sh summarize`` from the
+RoboDojo checkout to refresh its summary. Partial batches retain individual
+results, but aggregate cells remain empty until the required count is present.
+
+Detailed task instructions are appended to the initial planner message from
+``extra_info.detailed_instruction``. For older runtimes without that field,
+provide ``--official-descriptions /path/to/official-descriptions.json``: a map
+from task name to the official public ``description`` string and ``scoring``
+list of strings. The selected instruction and source are saved per episode.
+
+Batch evaluation
+~~~~~~~~~~~~~~~~
+
+Use ``--dimensions`` instead of ``--task`` to select the official task groups.
+Each ``--worker ENV_GPU:POLICY_GPU`` runs one task at a time, using the same
+planner, memory and VPP2/SAM3 endpoints. Reserve GPUs for these services as well.
+
+.. code-block:: bash
+
+   python -m robots.robodojo.xpolicylab \
+     --runtime-root /path/to/RoboDojo \
+     --dimensions generalization memory long-horizon precision --seed 1 \
+     --worker 0:0 --worker 1:1 --worker 2:2 --worker 3:3 \
+     --am-endpoint socket://127.0.0.1:9100 \
+     --sam3-endpoint socket://127.0.0.1:9200 \
+     --memory-dir /path/to/memory/robodojo \
+     --official-descriptions /path/to/official-descriptions.json \
+     --planner codex --reasoning-effort high --timeout 4800 \
+     --output-dir /path/to/results/four-categories-seed1 --dry-run
+
+``--dry-run`` writes ``batch-plan.json`` without starting a simulator or model.
+At the revisions above, the four groups contain 46 task variants and 1,700
+seed-1 episodes: Generalization 600 (25 standard + 25 Random per base task),
+Memory 300, Long Horizon 400 and Precision 400. Omit ``--episodes`` to retain
+these official counts. Open tasks are not selected.
+
+Use ``--tasks stack_blocks swap_T`` to restrict a batch to named tasks within
+the selected groups, and ``--episodes 1`` for a short integration run.
+
+After reviewing the plan, repeat the command with ``--resume`` instead of
+``--dry-run``. Resume rejects changed code, configuration or memory, checks
+completed tasks' results and videos, and launches only unstarted tasks.
+Interrupted tasks retain their partial results and require explicit recovery;
+there is no automatic rerun or selection of the best attempt.
+``batch-status.json`` records task execution status; ``complete`` means all
+requested episodes and videos are present, not that every episode succeeded.
+The official summary is generated under ``official-results/_summary.md``
+from links to this batch's completed task results, excluding older runs.
+
+The adapter uses world-frame link6 targets. cuRobo runs on the policy GPU;
+the official environment executes every action and determines success and
+score. Gripper feedback is a control target. After VPP2, the next Primitive
+starts joint holds from measured positions. Agent thinking and read-only
+observation requests consume no native action steps. Infrastructure errors
+stop the affected task and are recorded separately; batch workers continue
+with other tasks.
 
 .. _robodojo-local-nvidia-assets:
 
