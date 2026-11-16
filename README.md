@@ -212,6 +212,16 @@ For a complete list of CLI options, see the [Command-Line Reference](https://rpe
 
 For more detailed documentation, see the [RPent documentation](https://rpent.readthedocs.io/en/latest/).
 
+## Adoption
+
+We are happy to see RPent has been adopted by leading companies and research institutions, with users and collaborators including NVIDIA, Huawei, Tencent, ROBAM, Z-Trans AI (Zetta project), Tsinghua University, Peking University, and the National University of Singapore.
+
+✨ If you find RPent useful for embodied AI research or robotics applications, feel free to reach out or submit a PR to have your organization listed here.
+
+<div align="center">
+  <img src="https://cdn.jsdelivr.net/gh/RLinf/misc@beb75d9289a0dee012004c26436f8fb1c688f310/rpent/adoption/adoption.png" alt="RPent community: 10 companies, including Z-Trans AI (Zetta project) and ROBAM, followed by 22 universities and 8 research institutions"/>
+</div>
+
 ## Contributing
 
 Contributions are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) for the
