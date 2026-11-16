@@ -98,9 +98,10 @@ Some tasks allow another attempt. For those tasks, the model can call
 ``efe_reset`` to abandon the current episode (one attempt), return to the same
 initial scene, and spend one reset from the task's budget. When
 ``explore_sessions`` is greater than 1, RPent also resets on its own between
-planner sessions: a session that ends the episode hands off by spending one
-reset, and the next session starts a fresh attempt. Only the last episode is
-graded.
+planner sessions: a session that ended early hands off by spending one reset,
+and the next session starts a fresh attempt. An episode the agent ends with
+``efe_end_episode`` is graded as it stands and is not reset. Only the last
+episode is graded.
 
 Other tasks withhold the success signal from the agent. For those tasks,
 RPent provides ``efe_end_episode`` so the model can declare that it has finished
@@ -291,9 +292,10 @@ Task Memory and Exploration
   directory for the trial. Without it, the trial starts with an empty ``memory/``.
 - ``--agent-kwarg explore_sessions=N``: runs up to ``N`` planner sessions,
   stopping early when the reset budget is spent or time runs out. A session
-  that ends the episode hands off by resetting while the reset budget remains,
-  so the next session starts a fresh attempt and only the final episode is
-  graded. Later sessions can read working notes from earlier sessions.
+  that ends early hands off by resetting while the reset budget remains, so
+  the next session starts a fresh attempt; an episode the agent ends itself is
+  graded without a reset, and only the final episode is graded. Later sessions
+  can read working notes from earlier sessions.
 - Each trial uses its own ``codex-home/``; the model is selected by ``--model``,
   and credentials come from the forwarded environment variables.
 

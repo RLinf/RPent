@@ -375,6 +375,26 @@ class EfeSkills:
             position = current["position"]
             error = target - position
         if position is None:
+            if self.client.done:
+                # ``observe`` refuses a finished episode, and the end may have
+                # been reported by ``/status`` without proprioception. Report
+                # the end instead of failing the read.
+                ended_in_success = "success" in (self.client.done_reason or "").lower()
+                end_data: dict[str, Any] = {
+                    "ok": ended_in_success,
+                    "tcp": self.tcp,
+                    "target": target.tolist(),
+                    "submit_calls": submit_calls,
+                    "control_steps": control_steps,
+                    "done": True,
+                    "reason": self.client.done_reason,
+                }
+                if not ended_in_success:
+                    end_data["error"] = (
+                        "The episode ended before the position could be measured "
+                        f"({self.client.done_reason or 'no reason reported'})"
+                    )
+                return ToolResult(data=end_data)
             current = self._current_state()
             position = current["position"]
             error = target - position

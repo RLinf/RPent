@@ -279,6 +279,41 @@ def test_multi_session_usage_recovery_sums_each_session_trace(tmp_path):
     )
 
 
+def test_malformed_usage_events_are_skipped(tmp_path):
+    agent = RPentEfeAgent(logs_dir=tmp_path, model_name="openai/test")
+    output_dir = tmp_path / "rpent"
+    output_dir.mkdir()
+    (output_dir / "session.json").write_text(
+        json.dumps({"stats": {"usage_observed": False}})
+    )
+    events = [
+        {"method": "thread/tokenUsage/updated"},
+        {"method": "thread/tokenUsage/updated", "payload": None},
+        {"method": "thread/tokenUsage/updated", "payload": {"token_usage": None}},
+        {
+            "method": "thread/tokenUsage/updated",
+            "payload": {"token_usage": {"total": None}},
+        },
+        {
+            "method": "thread/tokenUsage/updated",
+            "payload": {
+                "token_usage": {
+                    "total": {"input_tokens": 4, "output_tokens": 2},
+                }
+            },
+        },
+    ]
+    (output_dir / "codex.txt.stream.jsonl").write_text(
+        "".join(json.dumps(event) + "\n" for event in events)
+    )
+    context = AgentContext()
+
+    agent.populate_context_post_run(context)
+
+    assert context.n_input_tokens == 4
+    assert context.n_output_tokens == 2
+
+
 def test_zero_usage_trace_is_not_recovered_as_measured(tmp_path):
     agent = RPentEfeAgent(logs_dir=tmp_path, model_name="openai/test")
     output_dir = tmp_path / "rpent"
@@ -471,6 +506,41 @@ def test_a_planner_budget_shorter_than_the_agent_timeout_is_kept(tmp_path):
 def test_an_agent_timeout_too_small_for_one_session_is_rejected(tmp_path):
     with pytest.raises(ValueError, match="too small"):
         RPentEfeAgent(logs_dir=tmp_path, model_name="openai/test", agent_timeout_s=30)
+
+
+def test_the_trial_config_resolves_the_agent_timeout(tmp_path):
+    """Harbor passes its resolved budget only through the trial's config."""
+    trial = tmp_path / "trial"
+    logs_dir = trial / "agent"
+    logs_dir.mkdir(parents=True)
+    agent = RPentEfeAgent(logs_dir=logs_dir, model_name="openai/test-model")
+
+    assert agent._resolve_harbor_agent_timeout() is None
+
+    (trial / "config.json").write_text(
+        json.dumps(
+            {
+                "agent": {"override_timeout_sec": 900, "max_timeout_sec": 600},
+                "agent_timeout_multiplier": 1.5,
+            }
+        )
+    )
+
+    assert agent._resolve_harbor_agent_timeout() == 900
+
+
+def test_the_task_config_supplies_the_timeout_without_an_override(tmp_path):
+    task = tmp_path / "task"
+    task.mkdir()
+    (task / "task.toml").write_text("[agent]\ntimeout_sec = 1200\n")
+    trial = tmp_path / "trial"
+    (trial / "agent").mkdir(parents=True)
+    (trial / "config.json").write_text(
+        json.dumps({"task": {"path": str(task)}, "timeout_multiplier": 0.5})
+    )
+    agent = RPentEfeAgent(logs_dir=trial / "agent", model_name="openai/test-model")
+
+    assert agent._resolve_harbor_agent_timeout() == 600
 
 
 def test_a_session_report_without_a_stats_object_falls_back_to_recovery(tmp_path):

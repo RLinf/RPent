@@ -396,8 +396,21 @@ class RPentEfeAgent(BaseInstalledAgent):
                         event = json.loads(line)
                     except json.JSONDecodeError:
                         continue
-                    if event.get("method") == "thread/tokenUsage/updated":
-                        last = event["payload"]["token_usage"]["total"]
+                    if event.get("method") != "thread/tokenUsage/updated":
+                        continue
+                    payload = event.get("payload")
+                    token_usage = (
+                        payload.get("token_usage")
+                        if isinstance(payload, dict)
+                        else None
+                    )
+                    total = (
+                        token_usage.get("total")
+                        if isinstance(token_usage, dict)
+                        else None
+                    )
+                    if isinstance(total, dict):
+                        last = total
             if last is None:
                 continue
             values = {

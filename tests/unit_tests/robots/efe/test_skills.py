@@ -184,6 +184,21 @@ def test_move_stops_when_the_episode_ends(skills):
     assert result.data["submit_calls"] == 0
 
 
+def test_move_reports_the_end_without_observing_a_finished_episode(skills):
+    service, client = skills
+    client.done = True
+    client.done_reason = "failed"
+    client.last_meta = {}
+
+    result = service.move_to_xyz(0.0, 0.1, 0.0)
+
+    assert client.observe_calls == 0
+    assert result.data["ok"] is False
+    assert result.data["done"] is True
+    assert result.data["reason"] == "failed"
+    assert "ended before the position" in result.data["error"]
+
+
 def test_chunk_duration_follows_a_control_rate_the_default_does_not_fit():
     client = MovingClient()
     client.spec["control_hz"] = 24.0
