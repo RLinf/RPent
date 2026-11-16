@@ -106,6 +106,15 @@ def test_observe_saves_frames_for_view_env_state(tmp_path):
     )
 
 
+def test_view_state_before_the_first_record_reports_a_clean_error(tmp_path):
+    state = EnvState(tmp_path)
+
+    view = view_env_state(-1, state=state)
+
+    assert view.is_error is True
+    assert "state step not available" in view.data["error"]
+
+
 def test_view_state_without_an_observation_has_no_images(tmp_path):
     client = FakeEfeClient()
     state = EnvState(tmp_path)

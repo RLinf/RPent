@@ -266,6 +266,51 @@ def test_a_blocked_gripper_is_reported_as_an_error():
     assert "Gripper reached" in result.data["error"]
 
 
+def test_a_submit_without_proprioception_reads_the_gripper_back():
+    class SilentSubmitClient(MovingClient):
+        """The service can end a chunk without returning the state it reached."""
+
+        def submit(self, action_type, actions, *, dt=None, **kwargs):
+            result = super().submit(action_type, actions, dt=dt, **kwargs)
+            result.meta.pop("proprio", None)
+            return result
+
+    service = EfeSkills(client=SilentSubmitClient(), check_cancelled=lambda: None)
+
+    result = service.set_gripper(0.037)
+
+    assert result.data["ok"] is True
+    assert result.data["opening_m"] == pytest.approx(0.037)
+
+
+def test_an_unmeasured_gripper_command_is_not_reported_as_success():
+    class NeverMeasuresClient(MovingClient):
+        def submit(self, action_type, actions, *, dt=None, **kwargs):
+            result = super().submit(action_type, actions, dt=dt, **kwargs)
+            result.meta.pop("proprio", None)
+            return result
+
+        def observe(self, cameras=None, *, depth=False, video="frames"):
+            result = super().observe(cameras=cameras, depth=depth, video=video)
+            record = proprio()
+            layout = [name for name in record["layout"] if name != "gripper_opening"]
+            values = dict(zip(record["layout"], record["now"], strict=False))
+            result.meta["proprio"] = {
+                "layout": layout,
+                "now": [values[name] for name in layout],
+            }
+            return result
+
+    service = EfeSkills(client=NeverMeasuresClient(), check_cancelled=lambda: None)
+
+    result = service.set_gripper(0.037)
+
+    assert result.data["ok"] is False
+    assert result.is_error is True
+    assert result.data["opening_m"] is None
+    assert "no gripper opening" in result.data["error"]
+
+
 def test_a_task_with_no_declared_gripper_travel_keeps_the_skills():
     """A missing gripper limit must not unregister the skills."""
     client = MovingClient()

@@ -398,7 +398,10 @@ def view_env_state(
     written, bound by artifact name when the record was captured. A record
     written before any observation has no images.
     """
-    record = state.get(step)
+    try:
+        record = state.get(step)
+    except (LookupError, ValueError) as exc:
+        return ToolResult(data={"error": f"state step not available: {exc}"})
     data = record.to_blob()
     images: list[bytes] = []
     frame_paths: dict[str, str] = {}
