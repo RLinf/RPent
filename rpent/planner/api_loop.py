@@ -67,7 +67,7 @@ from pydantic_ai_harness.compaction import SlidingWindowCompaction
 
 from rpent.dashboard.events import DashboardEventSink, TranscriptEvent, UsageEvent
 from rpent.dashboard.interaction import DashboardInteractionPort, DashboardMessage
-from rpent.dashboard.planner_control import DashboardPlannerControl
+from rpent.dashboard.planner_control import PlannerInteractionControl
 from rpent.planner.base import (
     REASONING_EFFORTS,
     Planner,
@@ -199,7 +199,7 @@ class ApiAgentLoop(Planner):
             ],
         )
         if interaction is not None:
-            session.control = DashboardPlannerControl(
+            session.control = PlannerInteractionControl(
                 interaction=interaction,
                 cancel_active_and_wait=adapter.cancel_active_and_wait,
                 resume_calls=toolkit.resume_calls,
@@ -529,7 +529,7 @@ class _Session(AbstractCapability):
         self.interactive = interactive
         self.error: str | None = None
         self.stop_reason = "model_output"
-        self.control: DashboardPlannerControl | None = None
+        self.control: PlannerInteractionControl | None = None
         self.inbox: asyncio.Queue[DashboardMessage] = asyncio.Queue()
         self.enqueued: dict[str, DashboardMessage] = {}
         self.run_done = asyncio.Event()
