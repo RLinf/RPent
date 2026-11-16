@@ -19,11 +19,35 @@ terminal. Use a terminal with interactive input (TTY).
    rpent --robot libero --suite libero_10_task --task 0 --seed 1 \
      --planner claude_code --model claude-opus-4-8 --tui
 
-With ``claude_code`` or ``codex``, the first prompt contains the task
-instruction. Edit it or submit it with Enter. During execution, type a message
-to guide the agent. Claude Code interrupts the current turn before receiving
-your message; Codex steers the current turn. Use ``/help`` to see commands and
-``/quit``, ``/exit``, or ``/q`` to end the session.
+With ``claude_code``, ``codex``, or ``gemini_cli``, the first prompt contains the
+task instruction. Edit it or submit it with Enter. Use ``/help`` to see commands
+and ``/quit``, ``/exit``, or ``/q`` to end the session.
+
+For example, while Claude Code, Codex, or Gemini CLI is running a task, you
+want it to check the cup's position. Choose an input below and press Enter:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 40 60
+
+   * - Example input
+     - Behavior
+   * - ``Check the cup's position``
+     - Append the message to the queue and wait for the current agent turn
+       to end. A turn can include several tool calls; finishing one tool call
+       does not immediately send the message.
+   * - ``/interrupt``
+     - Interrupt the current turn, then send the first queued message. For
+       example, this sends "Check the cup's position" if it is first in the queue.
+   * - ``/interrupt Check the cup's position first``
+     - Interrupt the current turn and send "Check the cup's position first"
+       ahead of the existing queued messages, which remain queued.
+
+Follow-ups use the same conversation, with one message sent after each turn.
+On interruption, RPent cancels the active tool and waits for it to stop, then
+interrupts the backend turn. It sends the message only after the backend has
+stopped. If interruption fails, messages remain queued until a successful
+interrupt retry. Completed physical actions are not undone.
 
 With the ``api`` planner, the selected task starts automatically. After the
 agent responds, the terminal accepts follow-up instructions with the existing
@@ -44,7 +68,7 @@ For physical robot setup and human confirmation, see the
 Dashboard
 ---------
 
-The Dashboard supports the ``api``, ``claude_code``, and ``codex`` planners.
+The Dashboard supports the ``api``, ``claude_code``, ``codex``, and ``gemini_cli`` planners.
 Configure ``--planner`` and ``--model`` on the command line as for a normal
 run; see :doc:`configure_planner`.
 
@@ -68,10 +92,26 @@ in the live monitor. After the shared services are ready, start a TaskRun with:
 
 Each TaskRun gets a fresh environment while the VLA and SAM3 services are
 reused by the Session. Submit a new ``/rpent-task`` to start or switch tasks;
-during a run, normal messages steer the agent and Esc requests an interruption.
+during a run, submit follow-up messages or press Esc to request an interruption.
 Press Ctrl+C in the terminal to stop the Session.
 
-``--dashboard`` cannot be combined with ``--interactive`` or
+With Claude Code, Codex, and Gemini CLI, ordinary messages queue until the
+current agent turn ends. For example, to ask the planner to check the cup's
+position during a task:
+
+1. Enter "Check the cup's position first" in the input box and press Enter.
+   The message joins the queue.
+2. To interrupt instead of waiting for the turn to end, press Esc while the
+   input box has focus.
+3. RPent cancels the active tool and waits for it to stop, then interrupts the
+   backend turn. Once it has stopped, RPent automatically sends the first
+   queued message and continues in the same conversation.
+
+Esc does not reorder the queue; any earlier queued messages are sent first.
+If interruption fails, no new message is sent until a successful interrupt
+retry. A successful ``finish`` ends the task without sending pending messages.
+
+``--dashboard`` cannot be combined with ``--tui`` or
 ``--env-endpoint``. External ``--am-endpoint`` and ``--sam3-endpoint``
 services remain supported. Use ``--dashboard-language zh-cn`` for the
 Chinese UI.
