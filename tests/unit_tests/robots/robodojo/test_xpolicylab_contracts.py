@@ -353,17 +353,27 @@ def test_terminal_status_waits_for_cleanup(tmp_path, monkeypatch):
     assert (tmp_path / "episodes/stack_blocks_s1_l0/report.json").is_file()
 
 
-def test_public_description_extraction_preserves_text_without_executing_js():
-    from robots.robodojo.xpolicylab.descriptions import extract_descriptions
+def test_public_description_export_is_offline_and_preserves_existing_file(
+    tmp_path, monkeypatch
+):
+    from robots.robodojo.xpolicylab import descriptions
+    from robots.robodojo.xpolicylab.model import task_description
 
-    source = 'throw Error("never execute");[{name:"a",description:"Line 1\\nLine 2",scoring:["0", "100"]}]'
-    assert extract_descriptions(source)["a"] == {
-        "name": "a",
-        "description": "Line 1\nLine 2",
-        "scoring": ["0", "100"],
-    }
-    with pytest.raises(ValueError, match="Duplicate"):
-        extract_descriptions(source + source)
+    output = tmp_path / "inputs/descriptions.json"
+    monkeypatch.setattr("sys.argv", ["descriptions", "--output", str(output)])
+    descriptions.main()
+    bundled = Path(descriptions.__file__).with_name("official_descriptions.json")
+    assert output.read_bytes() == bundled.read_bytes()
+    catalog = json.loads(output.read_text())
+    assert len(catalog) == 42
+    for task, entry in catalog.items():
+        text, source = task_description({}, task, str(output))
+        assert text == entry["description"] + "\n\n" + "\n".join(entry["scoring"])
+        assert source == str(output)
+    output.write_text("existing frozen input")
+    with pytest.raises(FileExistsError):
+        descriptions.main()
+    assert output.read_text() == "existing frozen input"
 
 
 def test_official_task_counts_and_worker_arguments(tmp_path, monkeypatch):

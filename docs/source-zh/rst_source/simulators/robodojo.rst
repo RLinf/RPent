@@ -416,9 +416,10 @@ WebSocket 12.0 缺少此 XPolicyLab 服务端使用的 ``websockets.asyncio`` �
    python -m robots.robodojo.xpolicylab.descriptions \
      --output /path/to/official-descriptions.json
 
-下载工具校验已核对的资源哈希，将来源地址与 42 个任务的说明一起保存，
-不执行下载的 JavaScript，也不读取任务实现代码。评测读取本地快照；
-请将此文件与本轮冻结配置一并保留。
+该命令复制 RPent 随附的 42 个任务说明，无需联网。
+原始来源地址和校验值记录在
+``robots/robodojo/xpolicylab/official_descriptions.source.json`` 中。
+评测读取导出的文件；请将其与本轮冻结配置一并保留。
 
 .. code-block:: bash
 

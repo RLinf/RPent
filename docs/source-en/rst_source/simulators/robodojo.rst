@@ -568,10 +568,10 @@ a local snapshot of the `official public task descriptions
    python -m robots.robodojo.xpolicylab.descriptions \
      --output /path/to/official-descriptions.json
 
-The download verifies the reviewed asset checksum and saves its source URL
-with the 42 task descriptions. It does not execute downloaded JavaScript or
-read task implementation code. Evaluation reads the local snapshot; keep
-this file with the frozen run inputs.
+This command copies the 42-task snapshot bundled with RPent; no network access
+is needed. The original source URL and checksums are recorded in
+``robots/robodojo/xpolicylab/official_descriptions.source.json``.
+Evaluation reads the exported file; keep it with the frozen run inputs.
 
 .. code-block:: bash
 

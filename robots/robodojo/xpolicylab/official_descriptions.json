@@ -1,0 +1,386 @@
+{
+  "arrange_largest_number": {
+    "name": "arrange_largest_number",
+    "description": "Identify all digit tiles in the current scene, determine the arrangement that forms the largest possible number, and place the tiles on their corresponding pads in descending order from left to right. Use the digits actually present rather than assuming a fixed combination. Keep every digit centered, correctly oriented, and clearly readable, and correct any tile that shifts or rotates after placement. In the final arrangement, all digits must lie flat and follow the same normal upright reading direction. Correct any initial skew; do not leave any digit skewed, sideways, or upside down, even when rotation leaves its appearance unchanged, and do not turn a digit into a different number by rotating it. Release all digit tiles, fully open both grippers and return both arms to their initial poses. arrange_largest_number_random uses the same description.",
+    "scoring": [
+      "**0 points:** No digit is placed correctly.",
+      "**5 points:** Any one digit is placed on its correct pad in descending-number order, with valid orientation and the gripper open.",
+      "**15 points:** Any two digits are correctly placed.",
+      "**25 points:** In a 5-digit layout, any three digits are correctly placed.",
+      "**30 points:** In a 4-digit layout, any three digits are correctly placed.",
+      "**40 points:** In a 5-digit layout, any four digits are correctly placed.",
+      "**100 points:** All digits are correctly ordered on the pads, have valid orientation, and the robot returns to origin."
+    ]
+  },
+  "fold_clothes": {
+    "name": "fold_clothes",
+    "description": "First fold both sleeves inward across the torso so that each cuff rests near the opposite underarm, keeping the fabric flat and untwisted. Confirm that the sleeves remain tucked in after release, then fold the lower half of the garment upward toward the shoulders, aligning the hem with the shoulder line and keeping both sleeves inside. Check and correct any incomplete, loose, or misaligned folds. Release the garment, fully open both grippers and return both arms to their initial poses. fold_clothes_random uses the same description.",
+    "scoring": [
+      "**0 points:** The sleeve-fold condition is not reached.",
+      "**20 points:** When the gripper opens, both sleeves are folded inward close to the opposite chest points.",
+      "**100 points:** Both sleeves are folded inward, the hems are close to the shoulder points in x/y, the hem line is aligned with the shoulder line within the angle threshold, and the robot returns to origin."
+    ]
+  },
+  "hang_mugs": {
+    "name": "hang_mugs",
+    "description": "Hang every mug in the scene on the rack by its handle, one mug at a time. Each supporting branch must pass through the handle so that the rack bears the mug's weight, rather than the mug merely leaning against the rack or remaining held by a gripper. Confirm that each mug stays securely suspended after release before proceeding to the next, and correct any slipping, detachment, or interference between mugs. Release all mugs, fully open both grippers and return both arms to their initial poses. hang_mugs_random uses the same description.",
+    "scoring": [
+      "**0 points:** No mug is hung on the mug rack.",
+      "**15 points:** Any one mug is hung on the mug rack and the gripper is open.",
+      "**40 points:** Any two mugs are hung on the mug rack.",
+      "**100 points:** All three mugs are hung on the rack and the robot returns to origin."
+    ]
+  },
+  "make_toast": {
+    "name": "make_toast",
+    "description": "Place bread slices upright into the toaster, one at a time, until every slot contains a fully seated slice. Prevent slices from slipping, falling over, or disturbing neighboring slices, and keep unused slices upright on the bread rack. Once all inserted slices are correctly positioned, press the toaster lever fully down. Confirm that the bread remains in place and the lever stays depressed. Release all objects, fully open both grippers and return both arms to their initial poses. make_toast_random uses the same description.",
+    "scoring": [
+      "**0 points:** No bread slice is inserted into a toaster slot.",
+      "**25 points:** One bread slice is inserted into a toaster slot and all bread axes satisfy the required orientation.",
+      "**50 points:** Two bread slices are inserted into the toaster slots and all bread axes satisfy the required orientation.",
+      "**100 points:** Both toaster slots are filled, exactly two bread slices remain on the shelf, the toaster control is pressed down, and the robot returns to origin."
+    ]
+  },
+  "pack_objects_into_box": {
+    "name": "pack_objects_into_box",
+    "description": "Pack the toy car, hammer, toothbrush, and shoe into the box. Keep the box upright, with its long edges running from left to right across the table. Place each object lengthwise, parallel to the box's long edges. Orient the toy car with its front pointing left and its rear pointing right, the hammer with its head on the left and its handle on the right, the toothbrush with its brush head on the left and its handle on the right, and the shoe with its toe pointing left and its heel pointing right. Plan the packing order according to the objects' sizes and the available space in the box, leaving room for the remaining objects. Every object must fit entirely inside the box and rest on the box bottom or another stable supporting surface. No object may protrude outside the box or rest unstably. Once all objects are correctly positioned, oriented, and supported, release all objects, fully open both grippers and return both arms to their initial poses. pack_objects_into_box_random uses the same description.",
+    "scoring": [
+      "**0 points:** No object is placed correctly into the box.",
+      "**10 points:** Any one object is inside the box with its front side facing left, the box is aligned, and the gripper is open.",
+      "**25 points:** Any two objects are placed correctly into the box.",
+      "**50 points:** Any three objects are placed correctly into the box.",
+      "**100 points:** All four objects are placed in the aligned box with correct facing direction, and the robot returns to origin."
+    ]
+  },
+  "pour_liquid_into_cup": {
+    "name": "pour_liquid_into_cup",
+    "description": "Pour all of the liquid from the bottle into the designated cup, keeping the liquid flowing into the cup and minimizing spills onto the table or outside the cup. Observe the transfer as it proceeds, avoid hitting the rim or tipping the cup, and correct any stream that misses the opening before continuing. Once the transfer is complete and the liquid in the cup has settled, bring the bottle upright. Finish with the bottle upright. Returning both arms to their initial poses is not required. pour_liquid_into_cup_random uses the same description.",
+    "scoring": [
+      "**0 points:** The liquid is not successfully poured into the cup.",
+      "**100 points:** The cup contains the required amount of liquid and the bottle is upright."
+    ]
+  },
+  "push_T": {
+    "name": "push_T",
+    "description": "Push the T-shaped block along the tabletop until its position and orientation exactly match the gray T-shaped target pad. Keep the block supported by the table throughout the task and do not pick it up. Check the alignment of both the stem and crossbar rather than only bringing the block's center near the target. Correct the remaining position and orientation differences until the block matches the target outline and stays stable after contact ends. Fully open both grippers and return both arms to their initial poses. push_T_random uses the same description.",
+    "scoring": [
+      "**0 points:** The target pose, reset, or no-lift condition is not satisfied.",
+      "**100 points:** The T-shaped block is within the target xy threshold, its orientation matches the target, the robot returns to origin, and the block is never lifted above the allowed height."
+    ]
+  },
+  "sort_nesting_dolls_by_size": {
+    "name": "sort_nesting_dolls_by_size",
+    "description": "Compare the sizes of all nesting dolls in the current scene and arrange them in a row from smallest on the left to largest on the right. Use their actual sizes rather than assuming fixed positions or a predetermined order. Keep every doll upright, leave clear separation between neighbors, and align the entire row consistently. Keep the left-to-right distance between the centers of every pair of neighboring dolls greater than 3 cm, and keep the front-to-back distance between the frontmost and rearmost doll centers less than 3.5 cm. Correct any doll that is out of order, tilted, or displaced after release. Once all dolls are correctly arranged and stable, fully open both grippers and return both arms to their initial poses. sort_nesting_dolls_by_size_random uses the same description.",
+    "scoring": [
+      "**0 points:** The dolls are not arranged in the required size order.",
+      "**100 points:** All five nesting dolls stand in a one horizontal straight row, are ordered from left to right from smallest to largest, and the robot returns to origin."
+    ]
+  },
+  "stack_blocks": {
+    "name": "stack_blocks",
+    "description": "Stack all target blocks in the scene into one complete, stable tower, centering each upper block on the block below it. Choose the stacking order according to the actual shapes and positions, ensuring stable support between layers. After each placement, check whether the new block is displaced, tilted, or disturbing the existing structure, and repair any misalignment or collapse before continuing. Finish with the entire tower standing independently without gripper support. Fully open both grippers and return both arms to their initial poses. stack_blocks_random uses the same description.",
+    "scoring": [
+      "**0 points:** No two-block stack is completed.",
+      "**15 points:** Any two of the three blocks are stacked, and the gripper is open.",
+      "**100 points:** All three blocks are stacked together and the robot returns to origin."
+    ]
+  },
+  "stack_bowls": {
+    "name": "stack_bowls",
+    "description": "Nest all bowls together into one complete, upright, stable stack. Each bowl must fit properly into the bowl below it rather than merely balancing on a rim, hanging at an angle, or remaining upside down outside the stack. Check for stuck, misaligned, or omitted bowls and adjust the existing stack as needed until every bowl is included. Confirm that the complete stack remains stable after release. Fully open both grippers and return both arms to their initial poses. stack_bowls_random uses the nesting instructions above. For stack_bowls, the bottom bowl must sit flat on the tabletop.",
+    "scoring": [
+      "**0 points:** No two bowls are stacked correctly.",
+      "**15 points:** Any two bowls are stacked upright and the gripper is open.",
+      "**100 points:** All three bowls are stacked together, all bowls are upright, the bottom bowl is strictly and stably placed on the table, and the robot returns to origin."
+    ]
+  },
+  "store_laptop_and_headphones": {
+    "name": "store_laptop_and_headphones",
+    "description": "First hang the headphones on their stand with the headband bridge resting securely on the supporting cradle, then close the laptop and place it upright in the vertical laptop rack. Confirm that the stand actually supports the headphones rather than the headphones merely leaning against it, and that the closed laptop's bottom is fully seated inside its rack. Check whether placing either object has disturbed the other, and correct any tilting or displacement. Ensure that both objects remain stably placed after release, with the headphones securely supported and the laptop standing firmly in its rack, without slipping, rocking, or tipping. Release both objects, fully open both grippers and return both arms to their initial poses. store_laptop_and_headphones_random uses the same description.",
+    "scoring": [
+      "**0 points:** Neither the headphones nor the laptop is stored correctly.",
+      "**20 points:** The headphones are placed on the stand: the headband bridge is close to the support cradle and aligned, with the gripper open.",
+      "**80 points:** The headphones are correctly placed on the stand, and the laptop is closed, vertically inserted into the laptop rack, and within the required range.",
+      "**100 points:** Both the headphones and laptop conditions are satisfied and the robot returns to origin."
+    ]
+  },
+  "sweep_blocks": {
+    "name": "sweep_blocks",
+    "description": "Use the brush and dustpan to sweep all target objects from the tabletop into the dustpan. Avoid pushing objects outside the pan or toward the table edge, and check for objects left in their original positions, scattered nearby, or stopped at the pan entrance. Continue until every target object is completely inside and remains contained. At completion, the dustpan must be more than 10 cm to the left of the brush along the world x-axis, measured between their object origins. Finish with the dustpan level on the table and positioned to the left of the brush, then fully open both grippers and return both arms to their initial poses. sweep_blocks_random uses the same description.",
+    "scoring": []
+  },
+  "build_tower": {
+    "name": "build_tower",
+    "description": "Assemble the complete tower from bottom to top: place the large board on the white supports standing on the table, add the remaining white supports on the large board to carry the smaller board, then add the thin top board and green triangular block. For each of the two pairs of white supports—the pair beneath the large board and the pair supporting the smaller board—use one support that started on the left side of the table and one that started on the right. The white supports must bear weight on their broad faces while preserving their original upper faces. Center every layer over its supports, align the boards' long edges, and keep the triangular block's bottom edge parallel to the top board's long edge. Let each layer stabilize before continuing and correct any misalignment or tilting. Release all pieces, fully open both grippers and return both arms to their initial poses.",
+    "scoring": [
+      "**0 points:** No tower layer is completed.",
+      "**10 points:** The lower board is placed across two upright supports, remains stable and centered on them, and the gripper is open.",
+      "**30 points:** The middle board is placed on the completed lower layer, stays centered over it, and all lower and middle pieces remain upright.",
+      "**100 points:** The full tower is completed with the top pieces, all eight pieces remain upright, each layer stays centered over the layer below it, the gripper is open, and the robot returns to origin."
+    ]
+  },
+  "deposit_coin": {
+    "name": "deposit_coin",
+    "description": "Remove the coin from its holder and deposit it completely into the coin bank through the slot. Confirm that the coin itself is being handled and that it actually enters the opening rather than remaining above it, resting on an edge, or becoming stuck in the slot. If it has not fully entered, continue correcting its placement until the entire coin is inside the bank. Release the coin, then fully open both grippers and return both arms to their initial poses.",
+    "scoring": [
+      "**0 points:** The coin is not lifted.",
+      "**20 points:** The coin is lifted at least 8 cm.",
+      "**100 points:** The coin bounding box is inside the coin bank slot region, and the robot returns to origin."
+    ]
+  },
+  "fasten_screws": {
+    "name": "fasten_screws",
+    "description": "Identify the colors of the nuts and fixed bolts, and install each nut on the bolt of the same color. First seat the nut correctly on the threads, then screw it down while keeping it upright and aligned with the bolt. For each pair, screw the nut down until the top of the bolt’s bounding box is more than 9 mm above the bottom of the nut’s bounding box. Prevent it from tilting, falling off, or merely resting on the top of the bolt. Check that every color pairing is correct and every nut is securely seated, and complete any unfinished installation. Fully open both grippers and return both arms to their initial poses.",
+    "scoring": [
+      "**0 points:** No nut is fastened onto its matching bolt.",
+      "**20 points:** Any one nut is upright, aligned with its matching bolt, rotated onto the bolt to the required depth, and the gripper is open.",
+      "**50 points:** Any two matching nut-bolt pairs are fastened correctly.",
+      "**100 points:** All three nut-bolt pairs are fastened, the gripper is open, and the robot returns to origin."
+    ]
+  },
+  "insert_key": {
+    "name": "insert_key",
+    "description": "Insert the key into the lock and turn it clockwise after confirming that it is fully seated. Turn the key to an orientation approximately 60 degrees clockwise from the keyhole's reference orientation when viewed from above. Keep the key properly oriented and inside the keyhole throughout insertion and turning, avoiding slipping out, tilting, or turning only above the opening. Correct any misalignment before continuing. Finish with the key fully inserted and remaining in its turned position. Do not withdraw it. Returning both arms to their initial poses is not required.",
+    "scoring": [
+      "**0 points:** The key is not lifted.",
+      "**15 points:** The key is lifted at least 5 cm.",
+      "**100 points:** The key is inserted deep enough into the slot, aligned closely in x/y, kept upright, and successfully turned after insertion."
+    ]
+  },
+  "insert_tubes": {
+    "name": "insert_tubes",
+    "description": "Insert all tubes individually into available openings in the rack, keeping each tube upright and fully seated. Check that the tube actually enters the opening rather than stopping at the mouth, leaning against the rack, or becoming stuck at an angle. After release, confirm that the rack supports the tube stably, and correct any slipping, tilting, or incomplete insertion. Complete every tube, fully open both grippers and return both arms to their initial poses.",
+    "scoring": [
+      "**0 points:** No tube is inserted into a slot.",
+      "**20 points:** Any one tube is inside the slot, inserted to the required depth, upright, and the gripper is open.",
+      "**40 points:** Any two tubes are inserted correctly.",
+      "**100 points:** All three tubes are inserted correctly and the robot returns to origin."
+    ]
+  },
+  "play_Xylophone": {
+    "name": "play_Xylophone",
+    "description": "Use the mallet to strike every xylophone key in sequence from left to right. Between consecutive strikes, raise the mallet by more than 2.5 cm relative to its height at the preceding strike. The mallet head must actually contact the intended key for each strike and leave that key before the next strike, avoiding dragging across keys, missing keys, or merging adjacent strikes. Check the mallet head's actual state and correct any displacement so that every strike in the complete sequence is distinct. Finish after striking all keys. Returning both arms to their initial poses is not required.",
+    "scoring": [
+      "**0 points:** The full left-to-right strike sequence is not completed.",
+      "**100 points:** The mallet tip hits all xylophone keys from left to right, and after each hit the mallet is lifted by at least 0.025 m."
+    ]
+  },
+  "plug_in_charger": {
+    "name": "plug_in_charger",
+    "description": "Match the charger's prongs to the designated socket on the power strip and insert the charger completely. Keep the prongs matched to the socket, and correct any misalignment or stalled insertion rather than leaving the charger above the socket or leaning against the strip. Confirm that the charger is fully seated and remains correctly plugged in after release, then fully open both grippers and return both arms to their initial poses.",
+    "scoring": [
+      "**0 points:** The charger is not fully plugged into the socket.",
+      "**100 points:** The charger is inside the socket, inserted to the required depth, upright, and the robot returns to origin."
+    ]
+  },
+  "pour_balls_into_vase": {
+    "name": "pour_balls_into_vase",
+    "description": "Pour all balls from the cup into the vase, ensuring that they pass through the opening into the interior rather than falling outside or becoming stuck near the mouth. Once the cup is empty, bring it upright, set it down securely on the tabletop, then fully open both grippers and return both arms to their initial poses.",
+    "scoring": []
+  },
+  "classify_objects": {
+    "name": "classify_objects",
+    "description": "Identify the category of every object in the current scene and place all objects of the same category into one basket, using separate baskets for different categories. Choose any basket-to-category assignment, keep it consistent throughout the task, and complete the placements in basket order from left to right. Confirm that every object lands fully inside its basket rather than resting on an edge, falling outside, or mixing with another category, and correct any errors. Once all objects are classified, fully open both grippers and return both arms to their initial poses.",
+    "scoring": [
+      "**0 points:** No category basket is completed.",
+      "**15 points:** One basket contains exactly one complete object category, with no objects from other categories, and the gripper is open.",
+      "**40 points:** Two baskets each contain exactly one complete category.",
+      "**100 points:** All three categories are separated into three baskets, the objects are settled inside the baskets, and the robot returns to origin."
+    ]
+  },
+  "fill_egg_holder": {
+    "name": "fill_egg_holder",
+    "description": "Transfer every egg from the basket into the egg holder, ensuring that each egg is fully inside and resting stably before closing the lid. Keep the holder open until loading is complete. If the lid closes early or an egg is displaced or pushed out, restore the holder and eggs before continuing. Confirm that all eggs are inside and that the lid is completely closed without being propped open by an egg. Fully open both grippers and return both arms to their initial poses.",
+    "scoring": [
+      "**0 points:** No egg is placed into the egg holder.",
+      "**10 points:** Any one egg is inside the egg holder and close to the holder bottom, with the gripper open.",
+      "**25 points:** Any two eggs are placed correctly into the egg holder.",
+      "**40 points:** Any three eggs are placed correctly into the egg holder.",
+      "**90 points:** All four eggs are placed in the holder, but the lid is not fully closed yet.",
+      "**100 points:** All four eggs are in the holder, the holder lid is correctly and fully closed, and the robot returns to origin."
+    ]
+  },
+  "fill_pen_holder": {
+    "name": "fill_pen_holder",
+    "description": "Place every pen in the scene into the pen holder, one at a time. For the black pen with a white conical nose and the slim white pen, the writing tip is the small exposed dark point; place that tip downward. For the black-and-gold pen, identify the capped writing end by its gold pocket clip; keep this end upward and place the opposite plain, closed barrel tail downward. For each colored highlighter, the capped writing end is the shorter, slightly tapered section separated from the long barrel by a visible seam; keep this capped end upward and the flat barrel tail downward. Check that each pen rests inside the holder rather than remaining above the opening, lying across the rim, or falling outside, and correct any wrong orientation or unstable placement. Finish with the holder upright on the table, release it, fully open both grippers and return both arms to their initial poses.",
+    "scoring": [
+      "**0 points:** No pen is correctly inserted into the pen holder.",
+      "**10 points:** Any one pen is correctly inserted tip-up into the upright pen holder.",
+      "**25 points:** Any two pens are correctly inserted into the pen holder.",
+      "**40 points:** Any three pens are correctly inserted into the pen holder.",
+      "**90 points:** All four pens are inserted into the upright pen holder, but the robot has not returned to origin yet.",
+      "**100 points:** All four pens are inserted, the pen holder is upright, and the robot returns to origin."
+    ]
+  },
+  "make_kong": {
+    "name": "make_kong",
+    "description": "Wait for the opponent to discard a Mahjong tile and return its arm to its initial pose before beginning any manipulation. Identify the discard and find the matching triplet among your tiles. Turn only that matching group face-up to declare the kong, leaving all other tiles standing and undisturbed. Then draw the replacement tile from the end of the wall and stand it upright at the far right of all your tiles, flush against the adjacent standing tile. Match the face direction and top-to-bottom orientation of the neighboring standing tiles. Check that the declared group and replacement tile are in their correct states. Leave both grippers fully open. Returning both arms to their initial poses is not required.",
+    "scoring": [
+      "**0 points:** The kong declaration state is not completed.",
+      "**100 points:** The three matching Mahjong tiles are pushed down, the non-matching tiles remain upright on the table, the target tile is correctly grasped and placed at the required position, the gripper is open, and no invalid robot motion is detected."
+    ]
+  },
+  "organize_table": {
+    "name": "organize_table",
+    "description": "Place the alarm clock upright on top of the cabinet, the figurine upright at the center of the gray square base beside the cabinet, the mouse on its mouse pad, and the keyboard flat and centered over its marked frame so that it covers the marked area. Orient both the mouse and the keyboard toward the computer screen. Complete the placements in any order while checking each object's position, orientation, and stability. Fully open both grippers and return both arms to their initial poses.",
+    "scoring": [
+      "**0 points:** No target item is organized correctly.",
+      "**25 points:** Any one target item is organized correctly: mouse on mouse pad, keyboard in the frame, figurine on its stand, or alarm clock on the drawer, with the gripper open.",
+      "**50 points:** Any two target items are organized correctly.",
+      "**75 points:** Any three target items are organized correctly.",
+      "**100 points:** All four target items are organized correctly and the robot returns to origin."
+    ]
+  },
+  "play_stacking_toy": {
+    "name": "play_stacking_toy",
+    "description": "Assign each group of stacking-toy pieces to the appropriate peg according to the number of pieces in the group and the peg's length. Place each group on its corresponding peg so that the group size matches the length of the peg. Every piece must fit fully onto the peg and settle into place rather than leaning against its side, resting on its top, or remaining suspended above it. Check that each peg holds the correct number of fully seated pieces, including any pieces that are obscured or omitted. Once assembly is complete, fully open both grippers and return both arms to their initial poses.",
+    "scoring": [
+      "**0 points:** No peg group is completed.",
+      "**10 points:** One peg group is completed with its pieces aligned on the correct peg and inserted into the base, with the gripper open.",
+      "**30 points:** Two peg groups are completed.",
+      "**60 points:** Three peg groups are completed.",
+      "**100 points:** All four peg groups are completed and the robot returns to origin."
+    ]
+  },
+  "play_tic_tac_toe": {
+    "name": "play_tic_tac_toe",
+    "description": "Play first and alternate turns with the opponent until every board cell is filled. On each turn, choose an unoccupied cell, place your piece near its center, and release it, then fully open both grippers and return both arms to their initial poses to hand over the turn. Wait until the opponent has completed its move and returned before starting the next turn, without handling the next piece early. Moving your arms while the opponent's arm is moving results in a score of 0. Track occupied cells and avoid placing a piece in an already occupied cell. Leave both grippers fully open after the final placement. Returning both arms to their initial poses is not required after the final placement.",
+    "scoring": [
+      "**0 points:** No player piece reaches a board cell, or the policy robot moves while the opponent robot arm is moving.",
+      "**10 points:** Any one player piece is placed on a board cell and the gripper is open.",
+      "**30 points:** Any two player pieces are placed on board cells.",
+      "**50 points:** Any three player pieces are placed on board cells.",
+      "**75 points:** Any four player pieces are placed on board cells.",
+      "**100 points:** All five player pieces are on board cells at the correct height and the gripper is open."
+    ]
+  },
+  "put_bottles_into_dustbin": {
+    "name": "put_bottles_into_dustbin",
+    "description": "Place every target bottle in the scene into the dustbin, including bottles that begin lying on their sides. Each bottle must pass completely through the opening and settle inside rather than lying across the rim, hanging at the entrance, or remaining outside. Check for bottles still left in the scene and confirm that the deposited bottles stay inside, correcting any problems. Once all bottles are contained, fully open both grippers and return both arms to their initial poses.",
+    "scoring": []
+  },
+  "cover_blocks": {
+    "name": "cover_blocks",
+    "description": "Observe and remember the color of the block at every position, then cover all blocks from left to right with inverted cups. Once all blocks are covered, recall the color beneath each cup and uncover the blocks in the order red, green, then blue. Keep the cups inverted and avoid moving the blocks or changing the association between colors and positions. Confirm the correct object at each stage before proceeding. Fully open both grippers and return both arms to their initial poses.",
+    "scoring": [
+      "**0 points:** No block-covering step is completed.",
+      "**5 points:** All three blocks are covered by cups from left to right.",
+      "**15 points:** After all blocks are covered, the red block is uncovered first while the green and blue blocks remain covered.",
+      "**30 points:** The red and green blocks are uncovered in order while the blue block remains covered.",
+      "**100 points:** All three blocks are first covered from left to right, then uncovered in red, green, and blue order; cup orientation remains valid and the robot returns to origin."
+    ]
+  },
+  "imitate_sorting_sequence": {
+    "name": "imitate_sorting_sequence",
+    "description": "Watch the demonstrator place its objects into its basket and remember the complete order. Remain still throughout the demonstration without starting your own manipulation; moving during the demonstration results in a score of 0. Record the observed object sequence in task notes so that the complete order remains available for reference even when earlier visual frames fall out of context. After the demonstrator finishes and returns, place your corresponding objects into your basket in the same order. Release each object before proceeding to the next, keep later objects outside the basket until their turn, and leave the demonstration objects unchanged. Once the complete sequence has been reproduced, fully open both grippers and return both arms to their initial poses.",
+    "scoring": [
+      "**0 points:** The first sequence step is not completed, or the policy robot moves before the opposite robot arm finishes.",
+      "**5 points:** The first target object is placed into the policy basket, later target objects are still outside it, all demonstration objects remain in the demo basket, and the gripper is open.",
+      "**15 points:** The first two target objects are placed in the correct sequence.",
+      "**30 points:** The first three target objects are placed in the correct sequence.",
+      "**50 points:** The first four target objects are placed in the correct sequence.",
+      "**100 points:** All five target objects are placed in sequence, all demonstration objects remain in the demo basket, the gripper is open, and the robot returns to origin."
+    ]
+  },
+  "match_and_pick_from_conveyor": {
+    "name": "match_and_pick_from_conveyor",
+    "description": "The conveyor moves continuously at a constant speed. Observe the first object that appears on the conveyor and remember its appearance without picking it up. Continue observing later objects until a target matching the first object appears, then pick up that later matching object. When planning the grasp, you may consider estimating the object's movement speed from your observations. Raise the target by more than 10 cm relative to its initial height. Match based on the actual appearance and objects currently present, avoiding the first object and any nonmatching object. Finish with the target clearly lifted off the conveyor and securely held. Returning both arms to their initial poses is not required.",
+    "scoring": [
+      "**0 points:** The matching target object is not lifted high enough.",
+      "**100 points:** The matching target object is lifted at least 10 cm."
+    ]
+  },
+  "press_by_number": {
+    "name": "press_by_number",
+    "description": "Read the number cards and remember the required press count for each red button. Read each digit exactly as displayed in its normal upright orientation; do not rotate, flip, or reinterpret a number card from another direction, and leave both cards in their original positions and orientations. Complete the required presses on the left red button, then press the blue button to confirm that group. Next complete the required presses on the middle red button and confirm again with the blue button. Every press must include a full depression and complete release; count complete cycles and avoid missed presses, extra presses, or repeated confirmations. Fully open both grippers and return both arms to their initial poses after completing the entire sequence.",
+    "scoring": [
+      "**0 points:** The required press counts or confirm sequence is not completed exactly.",
+      "**100 points:** Button `0` is pressed exactly the number shown by `num0`, the blue confirm button is pressed, button `1` is pressed exactly the number shown by `num1`, the blue confirm button is pressed again, and the robot returns to origin."
+    ]
+  },
+  "swap_T": {
+    "name": "swap_T",
+    "description": "Observe and remember the initial position and orientation of both T-shaped blocks, then exchange them so that each block occupies the other's original pose. Match both the location and the direction of the stem and crossbar rather than merely exchanging approximate areas. Keep the same original upper face facing upward throughout the exchange; do not flip either block over. After release, check that both blocks remain in their correct positions and orientations, and correct any displacement or rotation. Fully open both grippers and return both arms to their initial poses.",
+    "scoring": [
+      "**0 points:** The two T blocks are not swapped with the required pose accuracy.",
+      "**100 points:** The two T-shaped blocks swap their original xy positions, their orientations match the swapped targets, and the robot returns to origin."
+    ]
+  },
+  "swap_blocks": {
+    "name": "swap_blocks",
+    "description": "Use the empty mat as a temporary position: place one block on it, move the other block to the newly freed mat, then move the temporarily stored block to the remaining destination mat. For each of the three transfers, first lift the block by more than 3 cm above its current placement height. After each placement, fully press and release the confirmation button. Before confirming, check that the block is centered on the correct mat, and do not add extra confirmations. Finish with the blocks on each other's original mats, fully open both grippers and return both arms to their initial poses.",
+    "scoring": []
+  },
+  "align_blocks": {
+    "name": "align_blocks",
+    "description": "Use the set square to push all target blocks on the table into a straight row with consistent orientation. Keep every block supported by the tabletop throughout the task and do not pick up the blocks. Check whether the row is straight and whether any individual block is rotated or protruding, and correct the remaining differences. Once all blocks are stably aligned, fully open both grippers and return both arms to their initial poses.",
+    "scoring": [
+      "**0 points:** The alignment, reset, or no-lift condition is not satisfied.",
+      "**100 points:** The three cubes are in one straight aligned row, the robot returns to origin, and no cube has been lifted above the allowed height during the episode."
+    ]
+  },
+  "classify_objects_by_language": {
+    "name": "classify_objects_by_language",
+    "description": "Read the current language instruction to determine which object category belongs in the left, middle, and right baskets, then place every object into its assigned basket. Follow the instruction rather than assuming a category assignment from basket colors. Check that each object is fully inside the correct basket and correct any mixing, omission, or object resting on a rim. Fully open both grippers and return both arms to their initial poses.",
+    "scoring": [
+      "**0 points:** No specified category is placed into its assigned basket.",
+      "**10 points:** One specified category is placed into its assigned basket, no other objects are in that basket, and the gripper is open.",
+      "**40 points:** Two specified categories are placed into their assigned baskets, with no extra objects in those baskets.",
+      "**100 points:** All three specified categories are placed into the left, middle, and right baskets as instructed, no basket contains objects from another category, and the robot returns to origin."
+    ]
+  },
+  "general_pickup": {
+    "name": "general_pickup",
+    "description": "Read the current language instruction, identify the designated target among the objects in the scene, and pick it up. Use the current instruction and actual objects rather than assuming a fixed target, and confirm that the object taken is the requested one rather than a nearby distractor. Lift the target clearly above its initial supporting surface and keep it under stable control. Raise the target by more than 10 cm relative to its initial height. Finish with the target still held in the gripper, without releasing it. Returning both arms to their initial poses is not required.",
+    "scoring": [
+      "**0 points:** The target object is not lifted high enough.",
+      "**100 points:** The target object is lifted at least 10 cm."
+    ]
+  },
+  "pick_from_conveyor_by_image": {
+    "name": "pick_from_conveyor_by_image",
+    "description": "Identify the target object from the image on the display board, first raise the basket by 8 cm from its initial height and keep it level, then take the matching object from the conveyor and place it into the raised basket. Use the image and the objects actually present rather than selecting a nonmatching object. Confirm that the target has been released and rests completely inside the basket rather than on the rim or outside. Finish with the basket still raised and level. Returning both arms to their initial poses is not required.",
+    "scoring": [
+      "**0 points:** The target object is not placed into the lifted basket.",
+      "**100 points:** The image-specified target object is in the basket and lifted at least 8 cm."
+    ]
+  },
+  "pour_by_language": {
+    "name": "pour_by_language",
+    "description": "Read the current language instruction to identify the destination bowl for each bottle and the required order of the bottle-and-bowl pairs. Pour the liquid into the corresponding bowls in that order, without using the wrong container or skipping an unfinished pair. Complete each transfer, wait for the liquid to settle, and bring the bottle upright before starting the next pair. Once the entire instructed sequence is complete, fully open both grippers and return both arms to their initial poses.",
+    "scoring": [
+      "**0 points:** The first target pour is not completed.",
+      "**20 points:** The liquid from the first specified bottle is poured into its specified bowl, and the other two liquids have not been poured into their bowls.",
+      "**50 points:** The first two specified liquids are poured into their bowls, and the third liquid has not yet been poured.",
+      "**100 points:** All three specified liquids are poured into their corresponding bowls."
+    ]
+  },
+  "solve_equation": {
+    "name": "solve_equation",
+    "description": "Read the equation in the current scene, determine the missing number or operator, and select the candidate that makes the equation correct. Use the equation actually displayed rather than assuming a fixed answer. Place the correct piece at the center of the answer pad with the proper orientation so that the completed equation is clearly readable. In the final arrangement, every digit and mathematical symbol must lie flat and follow the normal upright reading direction of the existing equation. Correct any initial skew; do not leave a digit or symbol skewed, sideways, or upside down, even when rotation leaves its appearance unchanged. After release, check for displacement or rotation and correct it. Fully open both grippers and return both arms to their initial poses.",
+    "scoring": [
+      "**0 points:** The missing equation piece is not placed correctly.",
+      "**100 points:** The correct missing number/operator piece is placed on the missing mat and the robot returns to origin."
+    ]
+  },
+  "stack_blocks_by_language": {
+    "name": "stack_blocks_by_language",
+    "description": "Read the current language instruction to determine the required bottom-to-top color order, then stack all specified blocks into one tower in that order. Keep the bottom block supported by the table and center each upper block on the one below. Check the color sequence and structural stability as each layer is completed, correcting any wrong order, displacement, or collapse before continuing. Confirm that the tower remains stable and matches the instruction after release. Fully open both grippers and return both arms to their initial poses.",
+    "scoring": [
+      "**0 points:** The first ordered stack is not completed.",
+      "**20 points:** The first two specified blocks are stacked in the instructed order, the bottom block remains on the table, and the gripper is open.",
+      "**100 points:** All three specified blocks are stacked in order and the robot returns to origin."
+    ]
+  },
+  "store_tools_in_toolbox": {
+    "name": "store_tools_in_toolbox",
+    "description": "Identify each tool's shape and orientation, find its matching recess in the toolbox, and place every tool in its corresponding position. Each tool must lie flat and fully seated in its recess rather than resting on an edge, crossing over another tool, or protruding outside the box. Check for omitted, misplaced, or incompletely seated tools and correct them. Finish with every tool inside the box and below the rim, fully open both grippers and return both arms to their initial poses.",
+    "scoring": [
+      "**0 points:** No tool is placed into its matching toolbox slot.",
+      "**25 points:** Any one tool is placed in its matching toolbox slot with the gripper open.",
+      "**50 points:** Any two tools are placed into their matching toolbox slots.",
+      "**75 points:** Any three tools are placed into their matching toolbox slots.",
+      "**100 points:** All four tools are placed in their matching slots, covered by the toolbox, and the robot returns to origin."
+    ]
+  }
+}
