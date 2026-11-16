@@ -77,8 +77,8 @@ def test_two_official_episodes():
             "stack_blocks",
             "--seed",
             "1",
-            "--episodes",
-            "2",
+            "--layouts",
+            "2,7",
             "--am-endpoint",
             os.environ["RPENT_ROBODOJO_VLA_ENDPOINT"],
             "--memory-dir",
@@ -104,7 +104,7 @@ def test_two_official_episodes():
         json.loads(p.read_text())
         for p in sorted((output / "episodes").glob("*/report.json"))
     ]
-    assert [r["episode"]["layout"] for r in reports] == [0, 1]
+    assert [r["episode"]["layout"] for r in reports] == [2, 7]
     assert all(r["status"] == "completed" for r in reports)
     assert all(r["native_steps"] == r["history_steps"] == 33 for r in reports)
     assert all(r["inference_count"] == 1 for r in reports)
@@ -118,7 +118,10 @@ def test_two_official_episodes():
     entries = summary.load_entries(str(result_dir))
     cameras, count = summary.video_inventory(str(result_dir))
     assert len(entries) == 2
+    details = json.loads((result_dir / "_result.json").read_text())["details"]
+    assert {entry["layout_id"] for entry in details.values()} == {2, 7}
+    # Official video names use record IDs; details map them to original layouts.
     assert count == 6 and all(
-        cameras[str(i)] == summary.EXPECTED_CAMERAS for i in range(2)
+        cameras[str(int(record))] == summary.EXPECTED_CAMERAS for record in details
     )
     assert any(server.image_digests), "planner must receive camera images"

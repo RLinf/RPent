@@ -45,6 +45,7 @@ def prepare(args: argparse.Namespace) -> tuple[dict, dict[str, str], Path]:
     if shutil.which("ffmpeg") is None:
         raise RuntimeError("ffmpeg is required on PATH for official episode videos")
     root, output = args.runtime_root.resolve(), args.output_dir.resolve()
+    layouts = selected_layouts(root, args.task, args.layouts, args.episodes)
     repo = get_repo_root()
     observations = yaml.safe_load((root / "env_cfg/arx_x5.yml").read_text())[
         "observation"
@@ -153,7 +154,8 @@ def prepare(args: argparse.Namespace) -> tuple[dict, dict[str, str], Path]:
             "sha256": hashes,
             "task": args.task,
             "seed": args.seed,
-            "episodes": args.episodes,
+            "episodes": len(layouts),
+            "layouts": layouts,
             "run_id": run_id,
             "result_dir": str(result_root / run_id),
             "env_cuda_device": args.env_cuda_device,
@@ -164,7 +166,8 @@ def prepare(args: argparse.Namespace) -> tuple[dict, dict[str, str], Path]:
         os.environ,
         RPENT_REPO_ROOT=str(repo),
         ROBODOJO_RUN_ID=run_id,
-        EVAL_NUM=str(args.episodes) if args.episodes else "native",
+        EVAL_NUM=str(len(layouts)),
+        RPENT_XPL_LAYOUTS=json.dumps(layouts),
         PYTHONUNBUFFERED="1",
     )
     env["PYTHONPATH"] = os.pathsep.join(
@@ -201,7 +204,7 @@ def run(args: argparse.Namespace) -> None:
             sys.executable,
             "-u",
             "-m",
-            "src.eval_client.main",
+            "robots.robodojo.xpolicylab.evaluator",
             "--task_name",
             args.task,
             "--num_envs",
@@ -260,9 +263,7 @@ def run(args: argparse.Namespace) -> None:
             time.sleep(1)
         if evaluator.poll() != 0:
             raise RuntimeError(f"Evaluation stopped; see {output / 'environment.log'}")
-        verify_results(
-            root, result_dir, output, episode_count(root, args.task, args.episodes)
-        )
+        verify_results(root, result_dir, output, json.loads(env["RPENT_XPL_LAYOUTS"]))
         if not os.environ.get("RPENT_XPL_BATCH"):
             with (output / "summarize.log").open("w") as summary_log:
                 subprocess.run(
@@ -288,8 +289,29 @@ def episode_count(root: Path, task: str, requested: int | None) -> int:
     return min(native, requested) if requested is not None else native
 
 
+def selected_layouts(
+    root: Path, task: str, selection: str | None, episodes: int | None = None
+) -> list[int]:
+    """Resolve explicit layout IDs within the official evaluation range."""
+    native = episode_count(root, task, None)
+    if selection in (None, "all"):
+        return list(range(episode_count(root, task, episodes)))
+    layouts = []
+    for part in selection.split(","):
+        bounds = part.split("-")
+        if len(bounds) not in (1, 2) or not all(b.isdigit() for b in bounds):
+            raise ValueError("Use --layouts all, 0-9, or 2,7,9")
+        first, last = int(bounds[0]), int(bounds[-1])
+        if not 0 <= first <= last < native:
+            raise ValueError(f"{task}: layout range must be within 0–{native - 1}")
+        layouts.extend(range(first, last + 1))
+    if len(layouts) != len(set(layouts)):
+        raise ValueError("Duplicate layout IDs")
+    return sorted(layouts)
+
+
 def verify_results(
-    root: Path, result_dir: Path, output: Path, expected: int | None = None
+    root: Path, result_dir: Path, output: Path, expected: list[int] | None = None
 ) -> None:
     """Check native results and video completeness using the official parser."""
     spec = importlib.util.spec_from_file_location(
@@ -307,10 +329,10 @@ def verify_results(
     cameras, _ = summary.video_inventory(str(result_dir))
     details = json.loads((result_dir / "_result.json").read_text())["details"]
     if expected is not None and (
-        len(entries) != expected
-        or {entry["layout_id"] for entry in details.values()} != set(range(expected))
+        len(entries) != len(expected)
+        or {entry["layout_id"] for entry in details.values()} != set(expected)
     ):
-        raise RuntimeError(f"Expected layouts 0–{expected - 1}; results are incomplete")
+        raise RuntimeError(f"Expected layouts {expected}; results are incomplete")
     reports = {}
     for path in (output / "episodes").glob("*/report.json"):
         report = json.loads(path.read_text())
@@ -372,7 +394,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="Resume unstarted tasks with unchanged inputs",
     )
     parser.add_argument("--seed", type=int, default=1)
-    parser.add_argument(
+    layouts = parser.add_mutually_exclusive_group()
+    layouts.add_argument(
+        "--layouts", help="Layout IDs: all, 0-49, or 2,7,9 (default: all)"
+    )
+    layouts.add_argument(
         "--episodes",
         type=int,
         help="Run the first N layouts; omitted uses official task count",

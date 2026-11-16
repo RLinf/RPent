@@ -419,10 +419,14 @@ def test_official_task_counts_and_worker_arguments(tmp_path, monkeypatch):
     with pytest.raises(ValueError, match="outside selected dimensions"):
         batch.task_plan(args)
     args.tasks = None
+    args.episodes = None
+    args.layouts = "2,7,9"
+    assert [t["layouts"] for t in batch.task_plan(args)] == [[2, 7, 9]] * 2
     command = batch.task_command(args, "swap_T", tmp_path / "out", "1:3")
     single = build_parser().parse_args(command[3:])
     assert (single.task, single.seed, single.model) == ("swap_T", 1, "test-model")
     assert (single.env_cuda_device, single.policy_cuda_device) == ("1", "3")
+    assert single.layouts == "2,7,9"
     assert single.am_endpoint == args.am_endpoint
     assert single.reasoning_effort == args.reasoning_effort
 
@@ -451,7 +455,10 @@ def test_batch_resume_does_not_rerun_failed_or_completed_tasks(tmp_path, monkeyp
         ]
     )
     (tmp_path / "XPolicyLab/policy").mkdir(parents=True)
-    tasks = [{"task": t, "dimension": "memory", "episodes": 1} for t in ("a", "b", "c")]
+    tasks = [
+        {"task": t, "dimension": "memory", "episodes": 1, "layouts": [0]}
+        for t in ("a", "b", "c")
+    ]
     monkeypatch.setattr(batch, "task_plan", lambda _: tasks)
     monkeypatch.setattr(batch, "fingerprint", lambda _: "fixed-inputs")
     batch.run_batch(args)
@@ -492,3 +499,35 @@ def test_batch_resume_does_not_rerun_failed_or_completed_tasks(tmp_path, monkeyp
     monkeypatch.setattr(batch, "fingerprint", lambda _: "changed-inputs")
     with pytest.raises(ValueError, match="inputs changed"):
         batch.run_batch(args)
+
+
+def test_layout_selection_preserves_official_ids_and_resume_exclusions(tmp_path):
+    from types import SimpleNamespace
+
+    from robots.robodojo.xpolicylab.__main__ import selected_layouts
+    from robots.robodojo.xpolicylab.evaluator import select_seed_queue
+
+    cfg = tmp_path / "task/RoboDojo/config/_task.yml"
+    cfg.parent.mkdir(parents=True)
+    cfg.write_text(
+        "common:\n  eval_nums: 50\ntasks:\n  stack_blocks:\n    eval_nums: 25\n"
+    )
+    assert selected_layouts(tmp_path, "stack_blocks", "all") == list(range(25))
+    assert selected_layouts(tmp_path, "swap_T", "all") == list(range(50))
+    assert selected_layouts(tmp_path, "stack_blocks", "7,2-3") == [2, 3, 7]
+    for invalid in ("", "-1", "2,2", "3-2", "0-25", "x", "0-999999999"):
+        with pytest.raises(ValueError):
+            selected_layouts(tmp_path, "stack_blocks", invalid)
+    mapping = {i: {"scene_layout": f"scene_{i}.json"} for i in range(10)}
+    manager = SimpleNamespace(seed_info=mapping, seed_list=list(range(10)))
+    select_seed_queue(manager, [2, 7])
+    assert manager.seed_list == [2, 7]
+    assert manager.ed_idx == 2 and manager.idx == 0
+    assert manager.seed_info is mapping
+    assert manager.seed_info[7]["scene_layout"] == "scene_7.json"
+    # The official resume filter has already excluded completed layout 2.
+    manager.seed_list = [i for i in range(10) if i != 2]
+    select_seed_queue(manager, [2, 7])
+    assert manager.seed_list == [7]
+    with pytest.raises(ValueError, match="unavailable"):
+        select_seed_queue(manager, [10])

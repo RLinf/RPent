@@ -610,13 +610,14 @@ Batch evaluation
 
 Use ``--dimensions`` instead of ``--task`` to select the official task groups.
 Each ``--worker ENV_GPU:POLICY_GPU`` runs one task at a time, using the same
-planner, memory and VPP2/SAM3 endpoints. Reserve GPUs for these services as well.
+planner, memory and VPP2/SAM3 endpoints. Add or remove workers to match your
+hardware; omitting them runs serially on GPU 0. Reserve GPUs for these services as well.
 
 .. code-block:: bash
 
    python -m robots.robodojo.xpolicylab \
      --runtime-root /path/to/RoboDojo \
-     --dimensions generalization memory long-horizon precision --seed 1 \
+     --dimensions generalization memory long-horizon precision --seed 1 --layouts all \
      --worker 0:0 --worker 1:1 --worker 2:2 --worker 3:3 \
      --am-endpoint socket://127.0.0.1:9100 \
      --sam3-endpoint socket://127.0.0.1:9200 \
@@ -628,11 +629,16 @@ planner, memory and VPP2/SAM3 endpoints. Reserve GPUs for these services as well
 ``--dry-run`` writes ``batch-plan.json`` without starting a simulator or model.
 At the revisions above, the four groups contain 46 task variants and 1,700
 seed-1 episodes: Generalization 600 (25 standard + 25 Random per base task),
-Memory 300, Long Horizon 400 and Precision 400. Omit ``--episodes`` to retain
+Memory 300, Long Horizon 400 and Precision 400. ``--layouts all`` selects
 these official counts. Open tasks are not selected.
 
 Use ``--tasks stack_blocks swap_T`` to restrict a batch to named tasks within
-the selected groups, and ``--episodes 1`` for a short integration run.
+the selected groups. ``--layouts 0-9`` selects an inclusive range;
+``--layouts 2,7,9`` selects individual scenes without renumbering them.
+Generalization variants use IDs 0–24; the other three groups use 0–49.
+For recovery, select only the affected layouts and use a fresh output directory
+to preserve the original results. ``--episodes N`` remains available for the
+first N layouts and cannot be combined with ``--layouts``.
 
 After reviewing the plan, repeat the command with ``--resume`` instead of
 ``--dry-run``. Resume rejects changed code, configuration or memory, checks

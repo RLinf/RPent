@@ -455,13 +455,14 @@ RPent 在 ``--output-dir`` 保存配置、代码版本与补丁、prompt／guide
 
 用 ``--dimensions`` 替代 ``--task`` 选择官方任务类别。
 每个 ``--worker ENV_GPU:POLICY_GPU`` 同时运行一个任务，所有 worker 使用相同的
-规划器、memory 和 VPP2／SAM3 服务地址。分配资源时也需为这些服务预留 GPU。
+规划器、memory 和 VPP2／SAM3 服务地址。按机器资源增减 worker；省略时默认在
+GPU 0 上串行运行。分配资源时也需为这些服务预留 GPU。
 
 .. code-block:: bash
 
    python -m robots.robodojo.xpolicylab \
      --runtime-root /path/to/RoboDojo \
-     --dimensions generalization memory long-horizon precision --seed 1 \
+     --dimensions generalization memory long-horizon precision --seed 1 --layouts all \
      --worker 0:0 --worker 1:1 --worker 2:2 --worker 3:3 \
      --am-endpoint socket://127.0.0.1:9100 \
      --sam3-endpoint socket://127.0.0.1:9200 \
@@ -473,10 +474,13 @@ RPent 在 ``--output-dir`` 保存配置、代码版本与补丁、prompt／guide
 ``--dry-run`` 只写出 ``batch-plan.json``，不启动仿真器或模型。
 上述版本的四类共 46 个任务版本，在 seed 1 上共 1,700 回合：泛化 600 回合
 （每个基础任务普通版与 Random 版各 25 回合）、Memory 300 回合、长程 400 回合、
-精确操作 400 回合。省略 ``--episodes`` 保留官方回合数；不选择 Open 类任务。
+精确操作 400 回合。``--layouts all`` 选择上述完整范围；不选择 Open 类任务。
 
-可用 ``--tasks stack_blocks swap_T`` 限定所选类别中的任务，并配合
-``--episodes 1`` 进行少量回合的接入检查。
+可用 ``--tasks stack_blocks swap_T`` 限定所选类别中的任务。
+``--layouts 0-9`` 选择包含两端的连续范围，``--layouts 2,7,9`` 选择指定场景，
+保留原始编号。泛化的每个任务版本使用 0–24，其他三类使用 0–49。
+补跑时只选择受影响的 layout，并使用新的输出目录，保留原结果。
+仍可用 ``--episodes N`` 选择前 N 个 layout，但不能与 ``--layouts`` 同时使用。
 
 检查清单后，将命令中的 ``--dry-run`` 换成 ``--resume`` 执行。
 续跑会拒绝代码、配置或 memory 已变化的批次，核验已完成任务的结果及录像，

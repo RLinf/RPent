@@ -26,7 +26,7 @@ import time
 from collections import Counter, deque
 from pathlib import Path
 
-from robots.robodojo.xpolicylab.__main__ import episode_count, verify_results
+from robots.robodojo.xpolicylab.__main__ import selected_layouts, verify_results
 from rpent.evaluation import write_json_atomic
 from rpent.utils.config import get_repo_root
 from rpent.utils.daemon import ProcessDaemon
@@ -60,14 +60,20 @@ def task_plan(args: argparse.Namespace) -> list[dict]:
         raise ValueError(
             "Official task inventory contains missing task implementations/configs"
         )
-    return [
-        {
-            "task": t["name"],
-            "dimension": t["dimension"],
-            "episodes": episode_count(args.runtime_root, t["name"], args.episodes),
-        }
-        for t in tasks
-    ]
+    plan = []
+    for t in tasks:
+        layouts = selected_layouts(
+            args.runtime_root, t["name"], args.layouts, args.episodes
+        )
+        plan.append(
+            {
+                "task": t["name"],
+                "dimension": t["dimension"],
+                "episodes": len(layouts),
+                "layouts": layouts,
+            }
+        )
+    return plan
 
 
 def fingerprint(args: argparse.Namespace) -> str:
@@ -118,6 +124,7 @@ def task_command(
         "runtime_root",
         "seed",
         "episodes",
+        "layouts",
         "am_endpoint",
         "sam3_endpoint",
         "memory_dir",
@@ -184,7 +191,7 @@ def run_batch(args: argparse.Namespace) -> None:
         if statuses[t["task"]] == "complete":
             manifest = json.loads((task_output / "manifest.json").read_text())
             verify_results(
-                root, Path(manifest["result_dir"]), task_output, t["episodes"]
+                root, Path(manifest["result_dir"]), task_output, t["layouts"]
             )
         elif task_output.exists():
             statuses[t["task"]] = "interrupted"
