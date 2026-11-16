@@ -96,8 +96,11 @@ RPent automatically uses Raw instead.
 
 Some tasks allow another attempt. For those tasks, the model can call
 ``efe_reset`` to abandon the current episode (one attempt), return to the same
-initial scene, and spend one reset from the task's budget. Only the last
-episode is graded; RPent does not reset automatically.
+initial scene, and spend one reset from the task's budget. When
+``explore_sessions`` is greater than 1, RPent also resets on its own between
+planner sessions: a session that ends the episode hands off by spending one
+reset, and the next session starts a fresh attempt. Only the last episode is
+graded.
 
 Other tasks withhold the success signal from the agent. For those tasks,
 RPent provides ``efe_end_episode`` so the model can declare that it has finished
@@ -208,7 +211,8 @@ timestamped job directory below it.
        │   ├── setup/           # Agent install log
        │   └── rpent/
        │       ├── session.json # Agent execution metrics, errors, per-session stats
-       │       ├── codex*.txt   # Planner transcript
+       │       ├── codex*.txt   # Planner transcript (under sessions/ when explore_sessions > 1)
+       │       ├── sessions/    # Per-session artifacts when explore_sessions > 1
        │       ├── codex-home/  # CODEX_HOME for this trial
        │       └── memory/      # Memory root for this trial
        ├── verifier/            # Verifier logs and reward.json
@@ -285,9 +289,11 @@ Task Memory and Exploration
 
 - ``--agent-kwarg memory_source=/path``: uploads an existing RPent memory
   directory for the trial. Without it, the trial starts with an empty ``memory/``.
-- ``--agent-kwarg explore_sessions=N``: runs up to ``N`` planner sessions in
-  the same episode, stopping early if the task ends or time runs out. Later
-  sessions can read working notes from earlier sessions.
+- ``--agent-kwarg explore_sessions=N``: runs up to ``N`` planner sessions,
+  stopping early when the reset budget is spent or time runs out. A session
+  that ends the episode hands off by resetting while the reset budget remains,
+  so the next session starts a fresh attempt and only the final episode is
+  graded. Later sessions can read working notes from earlier sessions.
 - Each trial uses its own ``codex-home/``; the model is selected by ``--model``,
   and credentials come from the forwarded environment variables.
 

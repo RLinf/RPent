@@ -66,9 +66,11 @@ class RobotSpec:
     ]
     #: Refine prompt variables after ``init_runtime`` when the prompt depends on
     #: the connected runtime, such as the tools the task actually registers.
-    #: The returned values are merged over ``RunConfig.prompt_vars`` for the
-    #: system-prompt render. A robot that also reads one of these values in
-    #: ``get_toolkit`` must derive it from the same connected-runtime facts.
+    #: The returned values are merged over ``RunConfig.prompt_vars`` for both
+    #: the user- and system-prompt renders; the interactive CLI keeps its
+    #: earlier user render as the editable default of the first prompt. A robot
+    #: that also reads one of these values in ``get_toolkit`` must derive it
+    #: from the same connected-runtime facts.
     prepare_prompt_vars: (
         Callable[[argparse.Namespace, RunConfig, dict[str, Any]], dict[str, Any]] | None
     ) = None

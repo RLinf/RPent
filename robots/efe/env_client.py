@@ -28,10 +28,11 @@ skipped the action. After a connection error the caller must call
 
 The wrapped client publishes ``spec``, ``get_obs``, ``submit``, ``status``,
 ``wait_ready``, and ``ik``. It publishes no reset or finish method, so the
-adapter calls ``/reset`` through its RCB1 helper
-``_post(path, meta, parts, timeout)``, the same path ``submit`` takes, and
-calls ``/finish`` as a JSON request. Both live behind one adapter method each,
-so a change in either contract fails in one place.
+adapter relies on two further attributes: it calls ``/reset`` through the RCB1
+helper ``_post(path, meta, parts, timeout)``, the same path ``submit`` takes,
+and builds ``/finish`` from the client's base URL (``base``), falling back to
+the ``base_url`` it was constructed with. Both live behind one adapter method
+each, so a change in either contract fails in one place.
 """
 
 from __future__ import annotations
@@ -63,7 +64,8 @@ class EfeEnvClient:
 
     Args:
         base_url: Service URL. The service client probes ``sim:8000`` and then
-            ``localhost:8000`` when this is unset.
+            ``localhost:8000`` when this is unset. The resolved endpoint is
+            kept for ``/finish``.
         connect_timeout_s: How long to wait for a simulator that is still
             starting. This wait counts against the episode's wall clock.
         robot: An existing ``rcb_client.Robot`` for tests. Do not combine it
@@ -85,6 +87,9 @@ class EfeEnvClient:
 
             robot = Robot(base_url, timeout=connect_timeout_s)
         self._robot = robot
+        client_base = getattr(robot, "base", None)
+        resolved_base = client_base or base_url
+        self._base_url = resolved_base.rstrip("/") if resolved_base else None
         self._spec = robot.spec()
         self._validate_spec(self._spec)
         self._done = False
@@ -273,10 +278,9 @@ class EfeEnvClient:
                 f"Cannot finish: the episode ended "
                 f"({self.done_reason or 'no reason reported'})"
             )
-        base = getattr(self._robot, "base", None)
-        if base is None:
+        if self._base_url is None:
             raise RuntimeError("The service client has no base URL")
-        status = self._post_json(f"{base}/finish", {})
+        status = self._post_json(f"{self._base_url}/finish", {})
         self.finish_calls += 1
         self._done = True
         self.done_reason = status.get("reason") or "finished"

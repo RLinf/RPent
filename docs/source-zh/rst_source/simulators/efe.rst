@@ -72,7 +72,7 @@ RPent 提供两种控制方式。默认使用 **Skills**：模型通过 ``move_t
    * - 任务指令
      - Harbor 将任务原始指令传给 RPent。
 
-部分任务允许重新尝试。这类任务提供 ``efe_reset`` 工具：放弃当前 Episode（一次尝试），回到相同的初始场景，并消耗一次任务允许的重置次数。只有最后一个 Episode 参与评分，RPent 不会自动重置。
+部分任务允许重新尝试。这类任务提供 ``efe_reset`` 工具：放弃当前 Episode（一次尝试），回到相同的初始场景，并消耗一次任务允许的重置次数。当 ``explore_sessions`` 大于 1 时，RPent 也会在规划会话之间自行重置：结束了 Episode 的会话交接时消耗一次重置，下一个会话从新的尝试开始。只有最后一个 Episode 参与评分。
 
 另一些任务不向 Agent 返回是否成功的信号。对这类任务，RPent 提供 ``efe_end_episode`` 工具，让模型主动结束动作执行，再由评分程序检查结束时的状态。调用这个工具不代表成功；目标尚未完成就结束，可能被判定为失败。
 
@@ -151,7 +151,8 @@ RPent 提供两种控制方式。默认使用 **Skills**：模型通过 ``move_t
        │   ├── setup/           # Agent 安装日志
        │   └── rpent/
        │       ├── session.json # Agent 执行指标、错误、各 Session 统计
-       │       ├── codex*.txt   # Planner 对话
+       │       ├── codex*.txt   # Planner 对话（explore_sessions > 1 时位于 sessions/ 下）
+       │       ├── sessions/    # explore_sessions > 1 时各会话的产物
        │       ├── codex-home/  # 本次 Trial 的 CODEX_HOME
        │       └── memory/      # 本次 Trial 的 Memory 根目录
        ├── verifier/            # Verifier 日志和 reward.json
@@ -199,7 +200,7 @@ RPent 提供两种控制方式。默认使用 **Skills**：模型通过 ``move_t
 ------------------
 
 - ``--agent-kwarg memory_source=/path``：上传已有 RPent 记忆目录供本次 Trial 使用；未指定时，Trial 从空的 ``memory/`` 开始。
-- ``--agent-kwarg explore_sessions=N``：在同一次任务尝试中最多运行 ``N`` 个规划会话；任务结束或时间耗尽时提前停止。后续会话可读取前序会话的工作笔记。
+- ``--agent-kwarg explore_sessions=N``：最多运行 ``N`` 个规划会话；重置次数耗尽或时间耗尽时提前停止。结束了 Episode 的会话在重置次数仍有剩余时交接并消耗一次重置，下一个会话从新的尝试开始，只有最后一个 Episode 参与评分。后续会话可读取前序会话的工作笔记。
 - 每个 Trial 使用独立的 ``codex-home/``；模型由 ``--model`` 指定，认证信息来自转发的环境变量。
 
 对照 Skills 与 Raw

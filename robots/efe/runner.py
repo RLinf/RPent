@@ -162,9 +162,10 @@ def run_efe(
     """Run one EFE trial with RPent's planner and the EFE robot tools.
 
     The session uses RPent's prompt, memory corpus, and the EFE toolkit. It may
-    hand off across sessions; all sessions share the one episode. Without
-    ``memory_dir`` the corpus starts empty, so the run measures RPent without
-    prior experience.
+    hand off across sessions. When a session ends the episode and the task's
+    reset budget remains, the next session starts a fresh attempt, spending
+    one reset; only the final episode is graded. Without ``memory_dir`` the
+    corpus starts empty, so the run measures RPent without prior experience.
 
     Args:
         instruction: The task instruction supplied by Harbor.
@@ -175,7 +176,9 @@ def run_efe(
         max_turns: Maximum model responses per session.
         reasoning_effort: A reasoning level supported by the planner.
         memory_dir: An existing RPent memory corpus.
-        explore_sessions: Number of independent planner sessions.
+        explore_sessions: Number of independent planner sessions. A session
+            that ends the episode hands off by resetting when the reset budget
+            allows it, so later sessions may run on fresh attempts.
         skills: Replace the joint-level submit tool with the high-level skills.
         sandbox: Codex shell sandbox. ``read-only`` keeps shell commands away
             from the simulator, so only RPent tools act on the episode;
