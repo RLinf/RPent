@@ -158,8 +158,13 @@ def test_cli_factory_gates_tool_and_preserves_action_records(
     if enabled:
         args.append("--enable-direct-action")
     config = spec._parse_config(parser.parse_args(args))
+    runtime_kwargs = {}
+    if robot == "robotwin":
+        runtime_kwargs["env"] = primitive.env
+    elif robot == "libero":
+        runtime_kwargs["sam3_client"] = Mock()
     toolkit = spec.get_toolkit(
-        runtime_kwargs={"env": primitive.env} if robot == "robotwin" else {},
+        runtime_kwargs=runtime_kwargs,
         dashboard_events=NullDashboardEventSink(),
         config=config,
     )

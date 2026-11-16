@@ -90,7 +90,9 @@ def _resolve_dashboard(args: argparse.Namespace) -> DashboardSpec:
                 "name": "molmo",
                 "label": "Molmo",
                 "scope": "shared",
-                "planners": ("flash",),
+                **(
+                    {} if getattr(args, "geometry", False) else {"planners": ("flash",)}
+                ),
             },
         ),
         "primitives": (
@@ -182,8 +184,12 @@ def get_toolkit(
         memory_access="inbox_write" if explore else "read_only",
         inbox_cell_tag=config.recipe_tag if explore else None,
     )
+    primitive_kwargs = dict(runtime_kwargs)
+    geometry_grounder = primitive_kwargs.pop("geometry_grounder", None)
     return LiberoToolkit(
-        runtime_kwargs=runtime_kwargs,
+        runtime_kwargs=primitive_kwargs,
+        generic_tools=config.prompt_vars.get("generic_tools", False),
+        geometry_grounder=geometry_grounder,
         dashboard_events=dashboard_events,
         memory=memory,
         enable_direct_action=config.enable_direct_action,
@@ -259,11 +265,18 @@ def _add_cli_args(parser: argparse.ArgumentParser, use_dashboard: bool) -> None:
         "If unset, a local env_server is spawned.",
     )
     parser.add_argument(
+        "--geometry",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help="Enable local geometry alongside generic back_project and segment. "
+        "Defaults to disabled.",
+    )
+    parser.add_argument(
         "--molmo-endpoint",
         default=None,
         help="[protocol://]host:port of an existing Molmo server "
         "(protocol=http|socket, defaults to http). "
-        "Required by --planner flash.",
+        "Required by --planner flash or --geometry.",
     )
     parser.add_argument(
         "--sam3-endpoint",
@@ -325,8 +338,11 @@ def _parse_config(args: argparse.Namespace) -> RunConfig:
             )
         if args.molmo_endpoint is None:
             raise ValueError("--planner flash requires --molmo-endpoint")
+    elif getattr(args, "geometry", False):
+        if args.molmo_endpoint is None:
+            raise ValueError("--geometry requires --molmo-endpoint")
     elif args.molmo_endpoint is not None:
-        raise ValueError("--molmo-endpoint requires --planner flash")
+        raise ValueError("--molmo-endpoint requires --planner flash or --geometry")
 
     recipe_tag = f"{args.suite.replace('libero_', '')}_t{args.task}_s{args.seed}"
     explore = bool(getattr(args, "explore", False))
@@ -377,6 +393,8 @@ def _parse_config(args: argparse.Namespace) -> RunConfig:
                 "run exploration first or use --memory-profile hf"
             )
     prompt_vars = {
+        "generic_tools": planner != "flash" or getattr(args, "geometry", False),
+        "geometry": getattr(args, "geometry", False),
         "policy_backend": policy_backend,
         "policy_kind": policy_kind,
         "suite": args.suite,
@@ -557,6 +575,21 @@ def _connect_molmo_server(
     return None, make_rpc_client(args.molmo_endpoint)
 
 
+def _molmo_clients(args: argparse.Namespace, rpc: RpcClient) -> dict[str, Any]:
+    from rpent.robots.components.molmo_client import MolmoClient
+
+    clients = {}
+    if getattr(args, "planner", None) == "flash":
+        clients["molmo_client"] = MolmoClient(rpc)
+    if getattr(args, "geometry", False):
+        from toolkits.geometry.local_point_agent import LocalPointAgent
+
+        clients["geometry_grounder"] = LocalPointAgent(
+            MolmoClient(rpc, point_mode="native")
+        )
+    return clients
+
+
 def _init_runtime(
     args: argparse.Namespace,
     output_dir: Path,
@@ -565,7 +598,6 @@ def _init_runtime(
 ) -> tuple[list[ProcessDaemon], dict[str, Any]]:
     """Initialize every LIBERO component, or only ``components`` when given."""
     from robots.libero.env_client import LiberoEnvClient
-    from rpent.robots.components.molmo_client import MolmoClient
     from rpent.robots.components.sam3_client import Sam3Client
 
     am = select_am(args, "libero")
@@ -595,10 +627,12 @@ def _init_runtime(
         },
         policy_kind: lambda rpc: {"model": _make_model_client(rpc, wam)},
         "sam3": lambda rpc: {"sam3_client": Sam3Client(rpc)},
-        "molmo": lambda rpc: {"molmo_client": MolmoClient(rpc)},
+        "molmo": lambda rpc: _molmo_clients(args, rpc),
     }
     selected = set(starters) if components is None else set(components)
-    if getattr(args, "planner", None) != "flash":
+    if getattr(args, "planner", None) != "flash" and not getattr(
+        args, "geometry", False
+    ):
         selected.discard("molmo")
     unknown = selected.difference(starters)
     if unknown:

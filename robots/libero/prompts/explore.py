@@ -428,7 +428,8 @@ WORKFLOW_STEPS = (
 
 def system_prompt(variables: Mapping[str, object] | None = None) -> PromptNode:
     """Assemble the LIBERO exploration system prompt."""
-    enabled = bool((variables or {}).get("enable_direct_action", False))
+    variables = variables or {}
+    enabled = bool(variables.get("enable_direct_action", False))
     steps = tuple(
         base.allowed_primitives(enabled) + step if step == STEP_PRIMITIVES else step
         for step in WORKFLOW_STEPS
@@ -442,10 +443,10 @@ def system_prompt(variables: Mapping[str, object] | None = None) -> PromptNode:
         "YOUR GOAL": GOAL,
         "RULES (NON-NEGOTIABLE)": _rules(),
         "LOCALIZATION — how to get an object's world xyz WITHOUT GT coords": (
-            base.LOCALIZATION
+            base.sampling_instructions(variables) + "\n\n" + base.SURFACE_SAMPLING
         ),
         "FIRST-STEP ALGORITHM — agentview = IDENTITY, wrist = GEOMETRY": (
-            base.PERCEPTION_ALGORITHM
+            base.perception_algorithm(variables)
         ),
         "WORKFLOW": Numbered(steps),
         "KEY HYPERPARAMETERS": base.KEY_HYPERPARAMETERS,

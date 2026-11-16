@@ -28,6 +28,7 @@ import numpy as np
 import pytest
 
 from robots.libero import robot_spec, toolkit
+from robots.libero.observations import LiberoGeometryObservations, view_geometry_state
 from rpent.dashboard.events import NullDashboardEventSink
 from rpent.memory import MemoryManager
 from rpent.robots import RunConfig
@@ -169,6 +170,181 @@ def test_toolkit_factory_configures_memory_access_by_mode(
     assert captured[0]["mode"] == "evaluation"
     assert captured[1]["mode"] == "exploration"
     assert captured[1]["attempts_per_session"] == 2
+
+
+@pytest.mark.parametrize("enabled", [False, True])
+def test_generic_localization_is_registered_with_libero_observations(
+    tmp_path, monkeypatch, fake_single_arm_primitives, enabled
+):
+    fake = fake_single_arm_primitives.for_robot(toolkit.libero_tools.LiberoPrimitives)
+    monkeypatch.setattr(toolkit.libero_tools, "LiberoPrimitives", fake)
+    monkeypatch.setattr(toolkit.libero_tools, "dump_state", lambda *a, **kw: _record())
+    monkeypatch.setattr(
+        templates, "default_variables", lambda: {"output_dir": str(tmp_path)}
+    )
+    mask = np.ones((4, 4), dtype=bool)
+    sam = SimpleNamespace(
+        segment=lambda *a, **kw: Sam3Result(found=True, mask=mask, score=0.9)
+    )
+    tk = toolkit.LiberoToolkit(
+        runtime_kwargs={"env": object(), "sam3_client": sam},
+        generic_tools=True,
+        geometry_grounder=object() if enabled else None,
+        dashboard_events=NullDashboardEventSink(),
+        memory=MemoryManager(tmp_path / "memory"),
+        state_output_dir=tmp_path / "state",
+    )
+    assert _tool_names(tk) == EVALUATION_TOOLS | ({"geometry"} if enabled else set())
+    assert {"back_project", "segment"} <= _readonly_names(tk)
+    if enabled:
+        assert "geometry" in _readonly_names(tk)
+        schema = tk._tools["geometry"].input_schema["properties"]
+        assert set(schema) == {
+            "query",
+            "camera",
+            "step",
+            "measurement",
+            "required_geometry",
+        }
+
+    with tk.state.record_step(state={}) as step:
+        tk.state.save("agentview_high.png", np.zeros((4, 4, 3), np.uint8), step=step)
+        points = np.ones((4, 4, 3))
+        points[3, 1] = [0.25, 0.5, 0.75]
+        tk.state.save("agentview_world_high.npz", points, step=step)
+        tk.state.save(
+            "agentview_metadata.json",
+            {
+                "height": 4,
+                "width": 4,
+                "intrinsic_K": np.eye(3).tolist(),
+                "extrinsic_cam2world": np.eye(4).tolist(),
+            },
+            step=step,
+        )
+    selected = tk.execute_tool(
+        "back_project",
+        {
+            "camera": "agentview",
+            "step": step,
+            "selection": {"image_shape": [2, 2], "points_rc": [[1, 0]]},
+        },
+    )
+    assert selected.data["samples_xyz"] == [[0.25, 0.5, 0.75]]
+    segmented = tk.execute_tool(
+        "segment", {"camera": "agentview", "step": step, "prompt": "cup"}
+    )
+    assert (
+        segmented.data["found"]
+        and segmented.data["evidence_status"] == "identity_unchecked"
+    )
+    assert tk.state.latest_step == step
+
+
+def test_preview_and_saved_image_label_their_own_pixel_grids(tmp_path):
+    state = EnvState(tmp_path)
+    with state.record_step(state={}) as step:
+        state.save("agentview_high.png", np.zeros((600, 800, 3), np.uint8), step=step)
+    view = view_geometry_state(step, state=state).data["views"][0]
+    assert view["image_shape"] == [384, 512]
+    assert view["full_image_shape"] == [600, 800]
+    assert view["full_image"] == "agentview_high.png"
+
+
+def test_pinned_wrist_sample_uses_its_own_calibration(tmp_path):
+    state = EnvState(tmp_path)
+    for x in (0.0, 0.1):
+        pose = np.eye(4)
+        pose[0, 3] = x
+        with state.record_step(state={}) as step:
+            state.save("wrist_high.png", np.zeros((8, 8, 3), dtype=np.uint8), step=step)
+            xyz = np.ones((8, 8, 3))
+            state.save("wrist_world_high.npz", xyz, step=step)
+            state.save(
+                "wrist_metadata.json",
+                {
+                    "width": 4,
+                    "height": 4,
+                    "intrinsic_K": [[4, 0, 2], [0, 4, 2], [0, 0, 1]],
+                    "extrinsic_cam2world": pose.tolist(),
+                },
+                step=step,
+            )
+    obs = LiberoGeometryObservations(state)
+    historical = obs.get_observation(camera="wrist", step=0)
+    latest = obs.get_observation(camera="wrist", step=-1)
+    assert historical.camera_to_world[0, 3] == 0.0
+    assert latest.camera_to_world[0, 3] == 0.1
+    assert historical.world_frame_id == latest.world_frame_id
+    np.testing.assert_array_equal(latest.intrinsics, [[8, 0, 4], [0, 8, 4], [0, 0, 1]])
+    with pytest.raises(ValueError, match="calibrated RGB-D pair"):
+        obs.get_observation(camera="agentview", step=0)
+
+
+def test_default_api_uses_generic_tools_with_geometry_opt_in(tmp_path):
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--planner", default="api")
+    parser.add_argument("--memory-profile")
+    parser.add_argument("--memory-dir")
+    parser.add_argument("--output-dir")
+    spec = robot_spec.get_robot_spec()
+    spec.add_cli_args(parser, False)
+    arguments = [
+        "--suite",
+        "libero_spatial_task",
+        "--task",
+        "0",
+        "--output-dir",
+        str(tmp_path / "run"),
+    ]
+    for flags, enabled in [
+        ([], False),
+        (["--no-geometry"], False),
+        (["--geometry", "--molmo-endpoint", "http://localhost:8118"], True),
+    ]:
+        args = parser.parse_args(arguments + flags)
+        config = spec.parse_config(args)
+        assert config.prompt_vars["generic_tools"]
+        assert config.prompt_vars["geometry"] is enabled
+        assert args.geometry is enabled
+        prompt = spec.prompts.render(
+            "system", variables={**config.prompt_vars, "output_dir": str(tmp_path)}
+        )
+        assert "points_rc" in prompt and "box_rc" in prompt
+        assert (
+            'back_project({"row":' not in prompt and "mutually exclusive" not in prompt
+        )
+        assert ("For geometry, give query" in prompt) is enabled
+        assert ("insufficient_evidence" in prompt) is enabled
+        assert ("nudge and re-observe" in prompt) is not enabled
+
+
+@pytest.mark.parametrize(
+    "settings",
+    [
+        {"mode": "eval", "memory_profile": "hf"},
+        {"mode": "eval", "memory_profile": "local"},
+        {"mode": "explore"},
+        {"policy_kind": "wam"},
+    ],
+)
+def test_rgbd_menu_preserves_the_planners_task_and_memory_instructions(settings):
+    prompts = robot_spec.get_robot_spec().prompts
+    baseline = prompts.system(settings)
+    original_user = prompts.user(settings)
+
+    def task_sections(prompt):
+        return {
+            key: value
+            for key, value in prompt.items()
+            if not key.startswith(("LOCALIZATION", "FIRST-STEP ALGORITHM"))
+        }
+
+    for enabled in (False, True):
+        variables = {**settings, "generic_tools": True, "geometry": enabled}
+        actual = prompts.system(variables)
+        assert task_sections(actual) == task_sections(baseline)
+        assert prompts.user(variables) == original_user
 
 
 def test_toolkit_modes_construct_with_fake_primitives(
