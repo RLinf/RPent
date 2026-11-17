@@ -20,11 +20,9 @@ Run on the robot's computer, with the ``lekiwi`` extra installed:
 
 Nothing moves: the wheel bus is only pinged (lerobot's
 ``FeetechMotorsBus.scan_port`` broadcasts a ping at every baud rate) and each
-camera is opened through the RLinf ``WebcamCamera`` driver to confirm it
-produces a frame. Camera discovery and probing follow the same contract as
-RLinf's own webcam smoke test (``toolkits/lekiwi/test_webcam.py``):
-``WebcamCamera.discover()`` names the devices and a short-lived
-``WebcamCamera`` connection decides which one delivers frames. Geometry and
+camera is opened through the RLinf ``UVCCamera`` driver to confirm it
+produces a frame. ``UVCCamera.discover()`` names the devices and a short-lived
+``UVCCamera`` connection decides which one delivers frames. Geometry and
 drive limits are policy, not discovery, so they are written as conservative
 defaults and named in the report as fields to review.
 """
@@ -95,32 +93,31 @@ def pick_wheel_port(
 
 
 def discover_cameras() -> list[str]:
-    """Camera serials from the RLinf webcam driver's own discovery.
+    """Camera serials from the RLinf UVC driver's own discovery.
 
-    ``WebcamCamera.discover()`` returns serials the driver itself resolves
+    ``UVCCamera.discover()`` returns serials the driver itself resolves
     (``video0``-style names on Linux, numeric indices elsewhere), so whatever
     it lists here is a valid ``serial`` value in the site YAML. The list can
     include metadata nodes that carry no frames; :func:`probe_camera` filters
     those out.
     """
-    from rlinf.robotics.parts.cameras.webcam import WebcamCamera
+    from rlinf.robotics.parts.cameras.uvc import UVCCamera
 
-    return sorted(WebcamCamera.discover())
+    return sorted(UVCCamera.discover())
 
 
 def probe_camera(serial: str) -> dict[str, Any]:
     """Open one camera through the RLinf driver and confirm it delivers a frame.
 
-    Follows the smoke-test contract in ``toolkits/lekiwi/test_webcam.py``:
-    connect, wait for a frame within 3 s, read one observation, disconnect.
+    Connect, wait for a frame within 3 s, read one observation, disconnect.
     An error is reported with its text: a missing ``libGL`` or an unopenable
     device reads differently from a node that opens but never frames.
     """
     from rlinf.robotics.parts.cameras import CameraInfo
-    from rlinf.robotics.parts.cameras.webcam import WebcamCamera
+    from rlinf.robotics.parts.cameras.uvc import UVCCamera
 
-    camera = WebcamCamera(
-        CameraInfo(name="detect", serial_number=serial, camera_type="webcam")
+    camera = UVCCamera(
+        CameraInfo(name="detect", serial_number=serial, camera_type="uvc")
     )
     try:
         camera.connect()
@@ -213,7 +210,7 @@ def main(argv: list[str] | None = None) -> int:
                     print(f"camera {report['serial']}: failed ({error})")
         else:
             print(
-                "no cameras found by WebcamCamera.discover(); plug the camera in "
+                "no cameras found by UVCCamera.discover(); plug the camera in "
                 "and retry, or fill cameras.devices.front.serial by hand"
             )
 

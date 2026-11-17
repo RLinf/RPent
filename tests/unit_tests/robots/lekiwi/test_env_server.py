@@ -377,10 +377,9 @@ def test_stereo_rpc_recovers_after_a_missing_frame():
 
     from robots.lekiwi.env_server import LeKiwiEnvBackend
 
-    stamp = time.monotonic()
     frame = np.full((2, 4, 3), 42, np.uint8)
     camera = Mock()
-    camera.get_frame.side_effect = [queue.Empty, (stamp, frame)]
+    camera.get_frame.side_effect = [queue.Empty, frame]
     backend = LeKiwiEnvBackend.__new__(LeKiwiEnvBackend)
     backend.camera = camera
     facade = LeKiwiEnvFacade(backend)
@@ -390,14 +389,14 @@ def test_stereo_rpc_recovers_after_a_missing_frame():
     client = HttpRpcClient(f"http://127.0.0.1:{server.server_port}")
     try:
         assert client.call("env.get_stereo_frame", timeout_s=3) is None
+        before = time.monotonic()
         recovered = client.call("env.get_stereo_frame", timeout_s=3)
-        assert recovered["source_stamp"] == stamp
+        assert before <= recovered["source_stamp"] <= time.monotonic()
         np.testing.assert_array_equal(recovered["frame"], frame)
         assert recovered["clock_domain"] == "host_monotonic"
+        assert recovered["timestamp_kind"] == "env_read_complete"
         assert camera.get_frame.call_count == 2
-        camera.get_frame.assert_called_with(
-            timeout=0.5, max_age=0.5, return_timestamp=True
-        )
+        camera.get_frame.assert_called_with(timeout=0.5, max_age=0.5)
     finally:
         client.close()
         server.shutdown()

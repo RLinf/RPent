@@ -25,7 +25,7 @@ import pytest
 from robots.lekiwi.recording import StereoRecording
 
 
-def test_recording_preserves_pair_pixels_and_capture_timestamp(tmp_path, monkeypatch):
+def test_recording_preserves_pair_pixels_and_stamps_env_read(tmp_path, monkeypatch):
     from robots.lekiwi import recording
 
     monkeypatch.setattr(recording.time, "time_ns", lambda: 1_700_000_000_000_000_000)
@@ -37,10 +37,9 @@ def test_recording_preserves_pair_pixels_and_capture_timestamp(tmp_path, monkeyp
     image[:, :4] = 31
     image[:, 4:] = 127
 
-    def get_frame(*, timeout, max_age, return_timestamp):
-        assert return_timestamp
+    def get_frame(*, timeout, max_age):
         capture.ending.set()
-        return 10.25, image
+        return image
 
     camera = SimpleNamespace(
         camera_info=SimpleNamespace(resolution=(8, 2)), get_frame=get_frame
@@ -60,7 +59,7 @@ def test_recording_preserves_pair_pixels_and_capture_timestamp(tmp_path, monkeyp
     assert capture.state["phase"] == "recorded"
     assert capture.state["frames"] == 1
     directory = Path(capture.state["path"])
-    name = "1700000000.250000000.png"
+    name = "1700000001.000000000.png"
     np.testing.assert_array_equal(
         cv2.imread(str(directory / "left" / name)), image[:, :4]
     )
@@ -69,6 +68,7 @@ def test_recording_preserves_pair_pixels_and_capture_timestamp(tmp_path, monkeyp
     )
     metadata = json.loads((directory / "stereo.json").read_text())
     assert metadata["eye_size"] == [4, 2]
+    assert metadata["timestamp_kind"] == "env_read_complete"
     assert (directory / metadata["calibration"]).read_text() == calibration.read_text()
 
 

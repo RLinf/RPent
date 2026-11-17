@@ -436,14 +436,17 @@ class LeKiwiEnvBackend:
         self.runtime = NavigationRuntime(settings, self.control)
 
     def get_stereo_frame(self) -> dict | None:
-        """Return a recent stereo frame, or None while capture recovers."""
+        """Return a recent stereo frame stamped at Env read completion."""
         try:
-            stamp, frame = self.camera.get_frame(
-                timeout=0.5, max_age=0.5, return_timestamp=True
-            )
+            frame = self.camera.get_frame(timeout=0.5, max_age=0.5)
         except queue.Empty:
             return None
-        return {"frame": frame, "source_stamp": stamp, "clock_domain": "host_monotonic"}
+        return {
+            "frame": frame,
+            "source_stamp": time.monotonic(),
+            "clock_domain": "host_monotonic",
+            "timestamp_kind": "env_read_complete",
+        }
 
     def start_navigation(self) -> dict:
         with self._services_lock:
@@ -611,8 +614,11 @@ def main(
                 {
                     "rlinf": OmegaConf.to_container(runtime.rlinf, resolve=True),
                     "hardware": {
-                        key: hardware[key]
-                        for key in ("port", "wheel_radius", "base_radius", "max_raw")
+                        "port": hardware.serial_port,
+                        **{
+                            key: hardware[key]
+                            for key in ("wheel_radius", "base_radius", "max_raw")
+                        },
                     },
                     "control": settings,
                     "simulated": simulated,

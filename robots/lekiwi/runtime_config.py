@@ -150,6 +150,7 @@ def load_runtime_config(path: str | Path | None) -> LeKiwiRuntimeConfig:
     robot = raw["robot"]
     camera_name, camera = _camera_config(raw)
     serial = str(camera["serial"])
+    camera_type = camera.get("type", "uvc")
     drive = raw.get("drive") or {}
     unknown = drive.keys() - {
         field.name for field in dataclasses.fields(LeKiwiEnvConfig)
@@ -161,12 +162,12 @@ def load_runtime_config(path: str | Path | None) -> LeKiwiRuntimeConfig:
     if type(max_raw) is not int or max_raw <= 0:
         raise ValueError("robot.max_raw must be a positive integer")
     hardware = {
-        "port": str(robot["port"]),
+        "serial_port": str(robot["port"]),
         "wheel_radius": _positive(robot.get("wheel_radius", 0.05), "wheel_radius"),
         "base_radius": _positive(robot.get("base_radius", 0.125), "base_radius"),
         "max_raw": max_raw,
         "camera_serials": [serial],
-        "camera_type": camera.get("type", "webcam"),
+        "camera_type": "uvc" if camera_type == "webcam" else camera_type,
         "node_rank": 0,
     }
     override_cfg = {

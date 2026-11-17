@@ -47,7 +47,7 @@ class RPentLeKiwiEnv(LeKiwiDriveEnv):
             CameraInfo(
                 name=infos[0].name,
                 serial_number=devices["device"],
-                camera_type="webcam",
+                camera_type="uvc",
                 resolution=(devices["eye_size"][0] * 2, devices["eye_size"][1]),
                 fps=15,
             )
@@ -97,21 +97,28 @@ class RPentLeKiwiEnv(LeKiwiDriveEnv):
 
     def _get_camera_frames(self) -> dict[str, np.ndarray]:
         """Use left-eye RGB for observations and keep raw stereo in RLinf's cache."""
-        from rlinf.envs.real.utils.image import crop_and_resize
+        import cv2
 
         frames = {}
         for camera in self._cameras:
-            stamp, stereo = camera.get_frame(
-                max_age=self.config.camera_max_age, return_timestamp=True
-            )
+            stereo = camera.get_frame(max_age=self.config.camera_max_age)
+            stamp = time.monotonic()
             height, width = stereo.shape[:2]
             left_rgb = stereo[:, : width // 2, ::-1].copy()
             size = self.observation_space["frames"][camera.name].shape[:2][::-1]
-            frames[camera.name] = crop_and_resize(left_rgb, size)
+            scale = min(left_rgb.shape[1] / size[0], height / size[1])
+            crop_width, crop_height = (int(dimension * scale) for dimension in size)
+            top = (height - crop_height) // 2
+            left = (left_rgb.shape[1] - crop_width) // 2
+            frames[camera.name] = cv2.resize(
+                left_rgb[top : top + crop_height, left : left + crop_width],
+                size,
+                interpolation=cv2.INTER_AREA,
+            )
             self._camera_metadata[camera.name] = {
                 "source_stamp": stamp,
                 "clock_domain": "host_monotonic",
-                "timestamp_kind": "uvc_read_complete",
+                "timestamp_kind": "env_read_complete",
                 "encoding": "rgb8",
                 "width": width // 2,
                 "height": height,

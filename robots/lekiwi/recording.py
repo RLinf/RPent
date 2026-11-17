@@ -67,6 +67,7 @@ class StereoRecording:
                 "eye_size": [width // 2, height],
                 "serial": self.config["serial"],
                 "calibration": "calibration.conf",
+                "timestamp_kind": "env_read_complete",
             }
             (directory / "stereo.json").write_text(json.dumps(metadata, indent=2))
             self.state["path"] = str(directory)
@@ -78,9 +79,8 @@ class StereoRecording:
                 < self.config["maximum_recording_seconds"]
             ):
                 try:
-                    stamp, image = self.camera.get_frame(
-                        timeout=0.5, max_age=0.5, return_timestamp=True
-                    )
+                    image = self.camera.get_frame(timeout=0.5, max_age=0.5)
+                    stamp = time.monotonic()
                 except queue.Empty:
                     if time.monotonic() - last_received > 3:
                         raise RuntimeError("Stereo frame stream stopped")

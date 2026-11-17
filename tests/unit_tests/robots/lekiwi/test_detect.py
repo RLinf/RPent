@@ -129,10 +129,8 @@ def test_probe_camera_reports_why_it_failed(monkeypatch) -> None:
     )
     monkeypatch.setitem(
         sys.modules,
-        "rlinf.robotics.parts.cameras.webcam",
-        _fake_module(
-            "rlinf.robotics.parts.cameras.webcam", WebcamCamera=MissingLibGLCamera
-        ),
+        "rlinf.robotics.parts.cameras.uvc",
+        _fake_module("rlinf.robotics.parts.cameras.uvc", UVCCamera=MissingLibGLCamera),
     )
 
     report = detect.probe_camera("usb-USB_Camera_USB_Camera_2505280051-video-index0")
@@ -181,7 +179,7 @@ def test_main_writes_a_config_loadable_by_runtime_config(
     runtime = load_runtime_config(output)
     assert runtime.rlinf.env.eval.main_image_key == "front"
     hardware = runtime.rlinf.cluster.node_groups[0].hardware.configs[0]
-    assert hardware["port"] == "/dev/ttyACM0"
+    assert hardware["serial_port"] == "/dev/ttyACM0"
     assert hardware["camera_serials"] == ["video0"]
 
 

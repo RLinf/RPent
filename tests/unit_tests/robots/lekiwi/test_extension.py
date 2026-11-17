@@ -40,9 +40,9 @@ def test_lekiwi_uses_rpent_owned_robot_config(fake_rlinf_realworld_modules):
     # Camera timing follows RLinf defaults unless the site YAML overrides it.
     assert "camera_max_age" not in cfg.env.eval.override_cfg
     hardware = cfg.cluster.node_groups[0].hardware.configs[0]
-    assert hardware["port"] == "/dev/ttyACM0"
+    assert hardware["serial_port"] == "/dev/ttyACM0"
     assert hardware["camera_serials"] == ["<front-camera-serial>"]
-    assert hardware["camera_type"] == "webcam"
+    assert hardware["camera_type"] == "uvc"
     assert hardware["wheel_radius"] == 0.05
     assert cfg.cluster.node_groups[0].hardware["type"] == "LeKiwi"
     assert cfg.cluster.component_placement.env.node_group == "lekiwi"
@@ -114,9 +114,7 @@ def test_camera_config_preserves_device_aliases_and_resolves_calibration(
     runtime = load_runtime_config(config)
     devices = load_device_config(config)
     assert runtime.rlinf.env.eval.main_image_key == "front"
-    assert (
-        runtime.rlinf.cluster.node_groups[0].hardware.configs[0].camera_type == "webcam"
-    )
+    assert runtime.rlinf.cluster.node_groups[0].hardware.configs[0].camera_type == "uvc"
     assert devices["device"] == expected
     assert devices["serial"] == camera["zed_serial"]
     assert devices["calibration"] == str(tmp_path / "calibration/zed.conf")

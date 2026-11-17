@@ -93,7 +93,7 @@ def image_bgr(message: Any) -> np.ndarray:
 def frame_to_message(
     packet: dict, message: Any, *, offset_ns: int, after: float, max_age: float
 ) -> float:
-    """Preserve capture time and reject stale or repeated local frames."""
+    """Use Env read time and reject stale or repeated local packets."""
     stamp = packet["source_stamp"]
     frame = packet["frame"]
     if packet["clock_domain"] != "host_monotonic":
