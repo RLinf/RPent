@@ -91,13 +91,14 @@ class EfeEnvClient:
             robot = Robot(base_url, timeout=connect_timeout_s)
         self._robot = robot
         self._deadline: float | None = None
-        self._robot_post = getattr(robot, "_post", None)
-        if callable(self._robot_post):
-            # rcb_client's action methods use fixed 600–1800 s HTTP read
-            # timeouts. Clamp those requests too, so a nearly expired trial
-            # does not leave the EFE service executing a long chunk.
-            robot._post = self._post_with_deadline
-        client_base = getattr(robot, "base", None)
+        # rcb_client exposes no public reset/finish endpoint or request-timeout
+        # hook. Keep its private RCB1 post method as the narrow adapter point.
+        self._robot_post = robot._post
+        # Its action methods use fixed 600–1800 s HTTP read timeouts. Clamp
+        # those requests too, so a nearly expired trial cannot keep executing
+        # a long chunk after RPent has handed off.
+        robot._post = self._post_with_deadline
+        client_base = robot.base
         resolved_base = client_base or base_url
         self._base_url = resolved_base.rstrip("/") if resolved_base else None
         self._spec = robot.spec()
@@ -439,12 +440,6 @@ class EfeEnvClient:
         ``_post`` keeps one dependency instead of two: the same helper that
         carries ``submit`` also carries these endpoint calls.
         """
-        post = getattr(self._robot, "_post", None)
-        if post is None:
-            raise RuntimeError(
-                "The service client exposes no _post path; reset needs "
-                "rcb_client.Robot._post(path, meta, parts, timeout)"
-            )
         timeout = _SERVICE_POST_TIMEOUT_S if timeout_s is None else timeout_s
         remaining = self.remaining_s
         if remaining is not None:
@@ -453,14 +448,12 @@ class EfeEnvClient:
                     "The trial budget is exhausted; no further service call can run."
                 )
             timeout = min(timeout, remaining)
-        return post(path, meta, parts, timeout)
+        return self._robot_post(path, meta, parts, timeout)
 
     def _post_with_deadline(
         self, path: str, meta: dict[str, Any], parts: list[Any], timeout: float
     ) -> Any:
         """Limit the wrapped RCB1 request to the remaining trial time."""
-        if not callable(self._robot_post):
-            raise RuntimeError("The service client exposes no _post path")
         remaining = self.remaining_s
         if remaining is not None:
             if remaining <= 0:

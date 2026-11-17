@@ -325,28 +325,12 @@ class EfeSkills:
             gripper: Finger opening in metres. Default: keep the current command.
             max_iterations: Bounded correction steps.
         """
-        orientation = (
+        target_orientation = (
             None
             if orientation_wxyz is None
             else _unit_quaternion(orientation_wxyz, name="Target orientation")
         )
-        return self._move_to_target(
-            [x, y, z],
-            target_orientation=orientation,
-            gripper=gripper,
-            max_iterations=max_iterations,
-        )
-
-    def _move_to_target(
-        self,
-        target_position: list[float],
-        *,
-        target_orientation: np.ndarray | None,
-        gripper: float | None,
-        max_iterations: int,
-    ) -> ToolResult:
-        """Close the loop on a Cartesian position and optional orientation."""
-        target = np.asarray(target_position, dtype=np.float64)
+        target = np.asarray([x, y, z], dtype=np.float64)
         if not np.isfinite(target).all():
             raise ValueError(f"Target must be finite, got {target.tolist()}")
         submit_calls = 0

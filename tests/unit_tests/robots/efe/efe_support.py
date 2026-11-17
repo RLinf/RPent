@@ -117,6 +117,7 @@ class FakeResult:
         self.meta = meta
         self.last = last or {}
         self.last_depth = last_depth or {}
+        self.extrinsic_cv: dict[str, Any] = {}
 
 
 class FakeEfeClient:

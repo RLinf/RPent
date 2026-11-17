@@ -202,7 +202,7 @@ class EfeTools:
         calibration = meta.get("cameras")
         if isinstance(calibration, dict) and calibration:
             camera_geometry["camera_calibration"] = calibration
-        extrinsics = getattr(result, "extrinsic_cv", None) or {}
+        extrinsics = result.extrinsic_cv or {}
         frame_extrinsics = {
             name: np.asarray(value, dtype=np.float64).tolist()
             for name, value in extrinsics.items()
