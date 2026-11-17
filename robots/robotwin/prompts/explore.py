@@ -95,16 +95,18 @@ Working notes belong in {{memory_inbox}}/wip/; publishable memory proposals
 belong directly in {{memory_inbox}}/."""
 
 
-def system_prompt() -> dict[str, PromptNode]:
+def system_prompt(
+    *, transfer: str = base.TRANSFER, control: str = base.CONTROL
+) -> dict[str, PromptNode]:
     """Return the exploration prompt while reusing RoboTwin control guidance."""
     return {
         "ROLE": ROLE,
         "READ ORDER": READ_ORDER,
         "MEMORY": MEMORY,
-        "CLEAN-TO-RANDOMIZED TRANSFER": base.TRANSFER,
+        "CLEAN-TO-RANDOMIZED TRANSFER": transfer,
         "ACCURACY-FIRST LOOP": base.ACCURACY_LOOP,
         "CONDITIONAL TASK-FAMILY PLAYBOOKS": base.TASK_FAMILIES,
-        "VLA AND PRIMITIVE CONTROL": base.CONTROL,
+        "VLA AND PRIMITIVE CONTROL": control,
         "PERCEPTION": base.PERCEPTION,
         "RUNTIME": RUNTIME,
         "BUDGET AND SUCCESS": BUDGET_AND_SUCCESS,
