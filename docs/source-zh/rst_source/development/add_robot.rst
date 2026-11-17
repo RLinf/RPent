@@ -242,7 +242,7 @@ toolkit 模块通常包含四部分：
 
 ``runtime_kwargs`` 由 ``robot_spec.py:get_toolkit`` 转发给 toolkit，再原样传入 primitives 的 ``__init__``。其中通常包含 ``{"env": MyEnvClient(...), "model": VLAClient(...), ...}``。
 
-如果执行循环必须与站点 MCP 服务暴露的某个设备协调，应把这些工具采纳为 Toolkit 的一等工具，而不是把服务挂到 planner 上。``get_toolkit`` 会收到本次运行的 ``config``，因此采纳范围同时覆盖站点服务和 robot 自有服务：
+如果执行循环必须与站点 MCP 服务暴露的设备协调，应把这些工具采纳为 Toolkit 的一等工具。不要把它们挂到规划器上。``get_toolkit`` 会收到本次运行的 ``config``，因此站点服务和 robot 自有服务都能采纳：
 
 .. code-block:: python
 
@@ -260,9 +260,12 @@ toolkit 模块通常包含四部分：
        )
        return toolkit
 
-采纳时会在构造 toolkit 的阶段对照服务端工具列表校验名称，保留远端输入 schema，并在服务设置 ``readOnlyHint`` 时把工具标为 ``readonly``。列出的工具名若服务端并不存在，构造阶段就会抛出 ``ValueError``，拼写错误因此会在启动时报出，而不是等到第一次调用。被采纳的工具会成为普通 Toolkit 工具：``claude_code`` 和 ``codex`` 将其显示为 ``mcp__rpent__<name>``，``api`` 则使用工具自身的名称；它们参与观测记录。无需协调的工具应放入 ``planner_tools``。参见 :ref:`external-mcp-servers`。
+构建 Toolkit 时，采纳会对照服务端的工具列表校验名称。名字写错会在启动时报 ``ValueError``，不会拖到第一次调用。远端输入 schema 原样保留；服务返回 ``readOnlyHint`` 时，工具标为 ``readonly``。采纳后的工具与本地工具一样参与观测记录。``claude_code`` 和 ``codex`` 显示为 ``mcp__rpent__<name>``，``api`` 使用原名。无需协调的工具请放进 ``planner_tools``，见 :ref:`external-mcp-servers`。
 
-有两个限制来自 Toolkit 契约之下的 MCP 客户端：远端调用在 toolkit 的操作槽上同步执行，受 60 秒响应时限（``MCP_CALL_TIMEOUT_S``）约束，而不受 RPent 的取消机制约束；因此取消一次运行时，最多还要等正在执行的采纳调用到期。只有 ``image/png`` 块会变成原生图片，其他类型的块只带元数据、不带载荷。
+MCP 客户端给采纳的工具带来两个限制：
+
+- 调用在 Toolkit 的操作槽上同步执行，不受 RPent 的取消机制控制。取消一次运行时，最多要等正在执行的调用到期。单次请求的响应时限见 :ref:`external-mcp-servers`。
+- 只有 ``image/png`` 块会变成原生图片。其他类型的块只带元数据，不带载荷。
 
 建议遵循的约定
 --------------
@@ -289,7 +292,7 @@ toolkit 模块通常包含四部分：
 - ``output_dir`` —— 单次运行的临时目录路径。main.py 随后调用 ``init_output_dir`` 创建目录并配置日志。
 - ``prompt_vars`` —— 传给 ``PromptBundle.render`` 的字典，通常包含运行标识和 prompt 引用的其他变量。
 - ``task_desc`` —— 机器人特定的任务标识字典，会原样写入 transcript JSON 记录（LIBERO 使用 ``{"suite": ..., "task": ..., "seed": ...}``）。
-- ``mcp_servers`` —— 可选的元组，列出该 robot 贡献的 MCP 服务，由 robot config 的 ``mcp_servers`` 段经 :func:`~rpent.utils.mcp_servers.parse_mcp_servers` 解析得到。CLI 会合并部署级的站点服务，因此 robot 没有自有服务时留空即可。只有声明了 ``planner_tools`` 的条目会进入 planner；Env/Toolkit 层通过 :meth:`~rpent.tools.toolkit.Toolkit.add_mcp_tools` 采纳需要协调的工具。参见 :ref:`external-mcp-servers`。
+- ``mcp_servers`` —— 可选的元组，列出该 robot 贡献的 MCP 服务，由 robot config 的 ``mcp_servers`` 段经 :func:`~rpent.utils.mcp_servers.parse_mcp_servers` 解析得到。CLI 会合并部署级的站点服务，因此 robot 没有自有服务时留空即可。只有声明了 ``planner_tools`` 的条目会进入规划器；Env/Toolkit 层通过 :meth:`~rpent.tools.toolkit.Toolkit.add_mcp_tools` 采纳需要协调的工具。参见 :ref:`external-mcp-servers`。
 
 .. code-block:: python
 

@@ -338,42 +338,46 @@ Attach External MCP Servers
 ---------------------------
 
 A site or a robot can attach third-party MCP servers it does not own, so the
-model calls their tools alongside RPent's own. MCP is only the transport: the
-layer a server belongs to is decided by whether RPent's control loop must
-coordinate with the device, not by the fact that it speaks MCP.
+model calls their tools alongside RPent's own. MCP is only the transport. The
+layer a server belongs to depends on whether RPent's control loop must
+coordinate with the device.
+
+This section covers declaring servers, filling in each field, and how a run
+fails. Adopting tools is robot development; see :ref:`add-robot-toolkit` for the
+rules and limits.
+
+Prerequisites:
+
+- The service uses Streamable HTTP (``http://`` or ``https://``). RPent does not
+  support stdio servers (``command``).
+- You know the tool names to expose. When a name is wrong, the preflight error
+  lists the tools the server actually exposes.
+- The planner is ``api``, ``claude_code``, or ``codex``. ``gemini_cli`` does not
+  attach planner-layer servers.
 
 Two layers
 ~~~~~~~~~~
 
-- **Env/robot layer.** Devices the execution loop must coordinate with — safety
-  interlocks, a charging dock whose state changes motion limits, battery or task
-  scheduling, lighting that changes camera exposure — become first-class
-  Toolkit tools. The robot adopts them with
-  :meth:`~rpent.tools.toolkit.Toolkit.add_mcp_tools`. They become ordinary
-  Toolkit tools: ``claude_code`` and ``codex`` expose them as
-  ``mcp__rpent__<name>``, while ``api`` calls them by their own names. They
-  capture observations and honor the ``readonly`` marker derived from the
-  server's ``readOnlyHint``. An adopted call runs synchronously, so it holds the
-  Toolkit's operation slot until it returns or the request deadline expires (60
-  seconds by default; see below), and only ``image/png`` results reach the
-  planners as native images.
-  See :ref:`add-robot-toolkit`.
-- **Planner layer.** Independent tools that need no coordination — decorative
-  lighting, unrelated site outlets or electronics — attach directly to the
-  selected planner. A single server may serve both layers: split it at the tool
-  boundary, adopting the tools that need coordination and listing the rest
-  under ``planner_tools``. A tool belongs to exactly one layer: adopting a tool
-  that ``planner_tools`` also attaches is rejected when the toolkit is built,
-  because the model could otherwise call it out of band.
+- **Env/Toolkit layer.** Devices the control loop must coordinate with become
+  Toolkit tools. Examples are safety interlocks, a charging dock whose state
+  changes motion limits, and lighting that affects camera exposure. The robot
+  adopts them with :meth:`~rpent.tools.toolkit.Toolkit.add_mcp_tools` in
+  ``get_toolkit``. See :ref:`add-robot-toolkit` for adoption rules and call
+  limits.
+- **Planner layer.** Tools that need no coordination attach directly to the
+  planner, such as decorative lighting or a site outlet unrelated to the task.
+  List them under the server's ``planner_tools``.
 
-Both layers accept only Streamable HTTP servers; stdio servers (``command``)
-are not supported.
+One server can serve both layers. Split it at the tool boundary: adopt the tools
+that need coordination and list the rest. A tool belongs to exactly one layer.
+Adopting a tool that ``planner_tools`` also attaches is rejected when the toolkit
+is built.
 
 Deployment-level configuration
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-Facility services belong to the site rather than to any single robot, so
-declare them in a shared YAML and pass it with ``--site-config``:
+Facility services belong to the site, not to one robot. Declare them in a shared
+YAML and pass it with ``--site-config``:
 
 .. code-block:: yaml
 
@@ -387,77 +391,102 @@ declare them in a shared YAML and pass it with ``--site-config``:
        url: https://docs.example.com/mcp
        planner_tools: "*"
 
-The server and tool names above are illustrative; declare the services your
-site actually runs.
+The server and tool names are examples; replace them with what your site runs.
+The command below uses LIBERO. Replace ``/path/to/site.yaml`` with your site
+configuration path:
 
 .. code-block:: bash
 
-   rpent --robot myrobot --site-config /path/to/site.yaml --planner claude_code ...
+   rpent --robot libero --site-config /path/to/site.yaml \
+     --suite libero_goal_task --task 1 --seed 0 --planner claude_code
 
-The CLI merges site servers into every run, for every robot, without editing
-the robot. A robot can also own a service: its ``parse_config`` parses its own
+The CLI merges site servers into every run, for every robot, without editing the
+robot. A robot can also declare its own service. Its ``parse_config`` parses the
 config YAML's ``mcp_servers`` section with
 :func:`~rpent.utils.mcp_servers.parse_mcp_servers` and returns the specs on
-``RunConfig``. No shipped robot wires this yet, so use ``--site-config`` for
-services every robot at the site shares; names must be unique across both
-sources. Only the ``mcp_servers`` section is resolved when the file is loaded,
-so an unset ``${oc.env:...}`` in another section does not block startup.
+``RunConfig``. No shipped robot wires this path, so use ``--site-config`` for
+services shared by the site. Names must be unique across both sources. Loading
+the file resolves only the ``mcp_servers`` section, so an unset
+``${oc.env:...}`` elsewhere does not block startup.
 
 Fields:
 
-- ``url`` — the server's Streamable HTTP endpoint. Only HTTP(S) servers are
-  supported.
+- ``url`` — the server's Streamable HTTP endpoint.
 - ``headers`` — optional literal request headers. In a site config,
-  ``${oc.env:...}`` resolves the value when the file is loaded. ``claude_code``
-  and ``codex`` pass these values on the child process command line, where
-  other local users can read them; keep credentials in ``env_http_headers``.
-- ``env_http_headers`` — optional mapping of header name to environment
-  variable name. Values are resolved when a request is made and sent verbatim:
-  for a bearer token, the variable itself must hold ``Bearer <token>``. ``codex``
-  receives the mapping itself, and ``claude_code`` passes ``${VAR}`` for the CLI
-  to expand, so the secret never appears on a child process command line. A
-  header cannot appear in both ``headers`` and ``env_http_headers``.
-- ``planner_tools`` — ``"*"`` admits every tool the server exposes; a list of
-  names admits only those tools; omit it to keep the server out of the planner
-  layer entirely (the Env/Toolkit layer may still adopt its tools). ``api``
-  and ``codex`` expose exactly the listed tools. ``claude_code`` mounts the
-  whole server and uses the list as its auto-approved set: the server's other
-  tools stay visible to the model, but a headless call to them is refused
-  because no interactive prompt can approve it. Declare a separate server entry
-  per permission boundary when that distinction matters. A list containing
-  ``"*"`` is rejected; write ``"*"`` on its own.
+  ``${oc.env:...}`` resolves each value when the file is loaded. ``claude_code``
+  and ``codex`` pass these values on the child process command line, where other
+  local users can read them. Keep credentials in ``env_http_headers``.
+- ``env_http_headers`` — optional mapping of header name to environment variable
+  name. Values are read when a request is made and sent verbatim: for a bearer
+  token, the variable itself must hold ``Bearer <token>``. ``codex`` receives the
+  mapping directly. ``claude_code`` passes ``${VAR}`` for the CLI to expand, so
+  the secret never appears on a child process command line. A header cannot
+  appear in both fields.
+- ``planner_tools`` — the planner-layer tool selection. It takes three forms:
 
-Every online planner (``api``, ``claude_code``, ``codex``) attaches the servers
-declared with ``planner_tools``. The server name becomes the tool namespace:
-``claude_code`` and ``codex`` show the tools as ``mcp__<server>__<tool>``; the
-``api`` planner shows them as ``<server>_<tool>``. The name must start with a
-letter or digit, may otherwise contain letters, digits, ``_``, and ``-``, and
-must not contain ``__`` (the namespace separator). It cannot be ``rpent``,
-which is reserved for RPent's own toolkit server.
+  * ``"*"``: admit every tool the server exposes.
+  * A list of tool names: admit only those tools. The list cannot contain
+    ``"*"``.
+  * Omitted: the server stays out of the planner layer, but the Env/Toolkit
+    layer can still adopt its tools.
 
-A declared server is part of the run, not an optional extra. ``api``,
-``claude_code``, and ``codex`` contact every planner-layer server before the
-first model request; if one is unreachable, a variable named in its
-``env_http_headers`` is unset, or a tool named in ``planner_tools`` is not
-exposed, the episode ends with a planner error instead of continuing with the
-remaining servers. A remote tool that still collides with an RPent tool name is
-reported the same way when the planner first runs. Keep facility servers that a
-run can survive without out of ``planner_tools``. ``gemini_cli`` does not
-attach planner-layer servers: a server with ``planner_tools`` ends the run with
-a planner error instead of running without the tools it promised the model.
+  ``api`` and ``codex`` expose exactly the listed tools. ``claude_code`` mounts
+  the whole server and uses the list only as its auto-approved set. Other tools
+  stay visible to the model, but a headless call is refused because no prompt can
+  approve it. Use one server entry per permission boundary.
 
-MCP requests made inside the RPent process — adopted Toolkit tools, the
-preflight above, and the ``api`` planner's server connections — have a
-60-second response deadline by default; set ``MCP_CALL_TIMEOUT_S`` (in seconds)
-to change it. The deadline also bounds how long cancellation waits for
-an adopted tool that is mid-call. ``claude_code`` and ``codex`` reach
-planner-layer servers from their own CLI processes, so those calls follow the
-CLIs' timeouts instead. The preflight runs before ``--planner-timeout-s`` starts
-counting, so an unreachable server can add up to the MCP deadline first.
+The server name becomes the tool namespace: ``claude_code`` and ``codex`` show
+``mcp__<server>__<tool>``, and ``api`` shows ``<server>_<tool>``. A name must
+start with a letter or digit, may otherwise contain letters, digits, ``_``, or
+``-``, and must not contain ``__``. ``rpent`` is reserved for RPent's own Toolkit
+server.
 
-The ``api`` planner attaches MCP servers through Pydantic AI's MCP client,
-installed by the ``pydantic-ai-slim[mcp]`` extra, which RPent lists by default.
-A run that attaches no MCP server never loads it.
+A server declared with ``planner_tools`` reaches every online planner (``api``,
+``claude_code``, ``codex``). The ``api`` planner attaches servers through
+Pydantic AI's MCP client, installed by the ``pydantic-ai-slim[mcp]`` extra that
+RPent lists by default. A run with no planner-layer server never imports it.
+
+Run behavior and deadlines
+~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+A server declared with ``planner_tools`` is part of the run, not an optional
+extra. ``api``, ``claude_code``, and ``codex`` contact it before the first model
+request.
+
+Any of the following ends the episode with a planner error instead of continuing
+with the remaining servers:
+
+- The server is unreachable.
+- A variable named in ``env_http_headers`` is unset.
+- ``planner_tools`` names a tool the server does not expose.
+- A remote tool collides with an RPent tool name. ``claude_code`` and ``codex``
+  use the ``mcp__`` prefix; only ``api`` can collide.
+
+If a run can continue without a facility service, keep it out of
+``planner_tools``.
+
+MCP requests made inside the RPent process have a 60-second response deadline by
+default. These requests include adopted tools, the preflight, and the ``api``
+planner's server connections. Set ``MCP_CALL_TIMEOUT_S`` (in seconds) to change
+it. The deadline also bounds how long cancellation waits for an adopted call in
+flight.
+
+``claude_code`` and ``codex`` reach planner-layer servers from their own CLI
+processes, so those calls follow the CLIs' timeouts. The preflight runs before
+``--planner-timeout-s`` starts counting, so an unreachable server can add up to
+one MCP deadline first.
+
+``gemini_cli`` does not attach planner-layer servers. A server with
+``planner_tools`` ends the episode with a planner error instead of running
+without the tools it promised the model.
+
+Confirm the attachment
+~~~~~~~~~~~~~~~~~~~~~~
+
+When the configuration is wrong, the episode ends before the first model request
+and the planner result states why. When a tool name is wrong, the error lists the
+tools the server actually exposes. A first model request means the preflight
+passed.
 
 .. _planner-check:
 

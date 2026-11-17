@@ -251,20 +251,28 @@ RPent 的 ``--model`` 必须与 vLLM 的 ``--served-model-name`` 保持一致。
 接入外部 MCP 服务
 -----------------
 
-站点或 robot 可以接入自己并不拥有的第三方 MCP 服务，让模型在调用 RPent 自身工具的同时调用这些服务的工具。MCP 只是传输协议：服务属于哪一层，取决于 RPent 的控制循环是否需要与设备协调，而不是因为它使用了 MCP。
+站点或 robot 可以接入第三方 MCP 服务，让模型在调用 RPent 工具的同时调用这些服务的工具。MCP 只是传输协议，不决定服务属于哪一层。分层取决于一点：RPent 的执行循环是否需要与设备协调。
+
+本节说明如何声明服务、填写字段，以及运行时的失败行为。采纳工具属于 robot 开发，规则与限制见 :ref:`add-robot-toolkit`。
+
+前置条件：
+
+- 服务使用 Streamable HTTP（``http://`` 或 ``https://``）。RPent 不支持 stdio 服务（``command``）。
+- 你知道要开放的工具名。名字写错时，启动预检的报错会列出该服务实际暴露的工具。
+- 规划器为 ``api``、``claude_code`` 或 ``codex``。``gemini_cli`` 不接入规划器层服务。
 
 两层归属
 ~~~~~~~~
 
-- **Env/robot 层。** 执行循环必须与之协调的设备——安全联锁、状态会改变运动限制的充电底座、电池或任务调度、影响相机曝光的照明——应成为 Toolkit 的一等工具。robot 通过 :meth:`~rpent.tools.toolkit.Toolkit.add_mcp_tools` 采纳这些工具；它们随后成为普通 Toolkit 工具，``claude_code`` 和 ``codex`` 将其显示为 ``mcp__rpent__<name>``，``api`` 则直接使用工具自身的名称。它们会记录观测，并按照服务返回的 ``readOnlyHint`` 被标为 ``readonly``。采纳的调用是同步执行的，会一直占用 Toolkit 的操作槽，直到调用返回或请求时限到期（默认 60 秒，见下文）；只有 ``image/png`` 结果会以原生图片形式到达规划器。参见 :ref:`add-robot-toolkit`。
-- **规划器层。** 无需协调的独立工具——装饰性照明、与任务无关的站点插座或电子设备——直接挂到所选规划器上。同一个服务可以同时服务两层：按工具边界拆分，把需要协调的工具采纳进 Toolkit，其余工具列入 ``planner_tools``。同一个工具只能属于一层：采纳一个同时被 ``planner_tools`` 挂载的工具会在构建 Toolkit 时被拒绝，否则模型可以绕过 Toolkit 直接调用它。
+- **Env/Toolkit 层。** 需要协调的设备应成为 Toolkit 工具。例如安全联锁、会改变运动限制的充电底座、影响相机曝光的照明。robot 在 ``get_toolkit`` 里用 :meth:`~rpent.tools.toolkit.Toolkit.add_mcp_tools` 采纳，采纳规则和调用限制见 :ref:`add-robot-toolkit`。
+- **规划器层。** 无需协调的工具直接挂到规划器上，例如装饰性照明、与任务无关的站点插座。把这类工具列进服务的 ``planner_tools``。
 
-两层都只接受 Streamable HTTP 服务，不支持 stdio 服务（``command``）。
+同一个服务可以同时服务两层。按工具边界拆分：需要协调的采纳进 Toolkit，其余列入 ``planner_tools``。一个工具只能属于一层。采纳一个同时被 ``planner_tools`` 挂载的工具，会在构建 Toolkit 时被拒绝。
 
 部署级配置
 ~~~~~~~~~~
 
-场地设施属于站点而非某个 robot，因此应有多个 robot 共享一份 YAML，并通过 ``--site-config`` 传入：
+场地设施属于站点而非某个 robot。把这类服务写进一份共享 YAML，用 ``--site-config`` 传给每次运行：
 
 .. code-block:: yaml
 
@@ -278,28 +286,56 @@ RPent 的 ``--model`` 必须与 vLLM 的 ``--served-model-name`` 保持一致。
        url: https://docs.example.com/mcp
        planner_tools: "*"
 
-上面的服务名和工具名只是示例，请声明站点实际运行的服务。
+服务名和工具名只是示例，请换成站点实际运行的值。下面的命令以 LIBERO 为例；把 ``/path/to/site.yaml`` 换成你的站点配置路径：
 
 .. code-block:: bash
 
-   rpent --robot myrobot --site-config /path/to/site.yaml --planner claude_code ...
+   rpent --robot libero --site-config /path/to/site.yaml \
+     --suite libero_goal_task --task 1 --seed 0 --planner claude_code
 
-CLI 会把站点服务合并进每次运行，对所有 robot 生效，无需改动 robot 本身。robot 也可以拥有自己的服务：由其 ``parse_config`` 调用 :func:`~rpent.utils.mcp_servers.parse_mcp_servers` 解析自身 config YAML 的 ``mcp_servers`` 段，并把结果放到 ``RunConfig`` 上。当前没有 robot 接线这条路径，因此站点共享的服务请使用 ``--site-config``；两个来源之间的服务名必须唯一。加载文件时只解析 ``mcp_servers`` 段，其他段中未设置的 ``${oc.env:...}`` 不会阻止启动。
+CLI 会把站点服务合并进所有 robot 的运行，不需要改动 robot 本身。robot 也可以声明自己的服务：``parse_config`` 用 :func:`~rpent.utils.mcp_servers.parse_mcp_servers` 解析 config YAML 的 ``mcp_servers`` 段，再把结果放到 ``RunConfig`` 上。发布的 robot 都未接入这条路径，站点共享的服务请用 ``--site-config``。两个来源的服务名必须唯一。加载文件时只解析 ``mcp_servers`` 段，其他段里未设置的 ``${oc.env:...}`` 不影响启动。
 
 字段：
 
-- ``url`` —— 服务的 Streamable HTTP 端点。只支持 HTTP(S) 服务。
-- ``headers`` —— 可选的固定请求头。在站点配置中，``${oc.env:...}`` 会在加载文件时解析。``claude_code`` 和 ``codex`` 会把这些值放进子进程命令行，同机其他用户可读取；凭据请使用 ``env_http_headers``。
-- ``env_http_headers`` —— 可选的映射，从请求头名指向环境变量名。值在发起请求时解析并原样发送：要发送 bearer token，变量本身必须包含 ``Bearer <token>``。``codex`` 直接接收该映射，``claude_code`` 只传入 ``${VAR}`` 交给 CLI 展开，因此密钥不会出现在子进程命令行中。同一个请求头不能同时出现在 ``headers`` 和 ``env_http_headers`` 中。
-- ``planner_tools`` —— ``"*"`` 放行服务暴露的全部工具；给出工具名列表则只放行这些工具；省略该项表示该服务不进入规划器层，但 Env/Toolkit 层仍可采纳其工具。``api`` 和 ``codex`` 只向模型暴露列出的工具；``claude_code`` 会挂载整个服务，并把该列表作为自动批准集合，服务中的其他工具仍对模型可见，但无头调用会因没有可应答的交互式授权而被拒绝。在意这一区别时，请按权限边界拆分服务条目。包含 ``"*"`` 的列表会被拒绝，请单独写 ``"*"``。
+- ``url`` —— 服务的 Streamable HTTP 端点。
+- ``headers`` —— 可选的固定请求头。站点配置里的 ``${oc.env:...}`` 在加载文件时解析。``claude_code`` 和 ``codex`` 会把这些值放进子进程命令行，同机其他用户可读取。凭据请放进 ``env_http_headers``。
+- ``env_http_headers`` —— 可选的映射，请求头名指向环境变量名。值在发起请求时读取，并原样发送：要发送 bearer token，变量本身必须写成 ``Bearer <token>``。``codex`` 直接接收该映射，``claude_code`` 只传 ``${VAR}`` 由 CLI 展开，因此密钥不会出现在子进程命令行里。同一个请求头不能同时出现在两个字段中。
+- ``planner_tools`` —— 规划器层的工具选择，有三种写法：
 
-所有在线规划器（``api``、``claude_code``、``codex``）都会接入声明了 ``planner_tools`` 的服务。服务名会成为工具的命名空间：``claude_code`` 和 ``codex`` 将工具显示为 ``mcp__<server>__<tool>``；``api`` 规划器显示为 ``<server>_<tool>``。服务名必须以字母或数字开头，其余字符可以是字母、数字、``_``、``-``，且不能包含 ``__`` （命名空间分隔符）；它也不能是 ``rpent``——该名字保留给 RPent 自身的 toolkit 服务。
+  * ``"*"``：放行服务暴露的全部工具。
+  * 工具名列表：只放行列表中的工具，不能包含 ``"*"``。
+  * 省略：服务不进入规划器层，但 Env/Toolkit 层仍可采纳它的工具。
 
-声明过的服务是这次运行的一部分，而不是可选项：``api``、``claude_code`` 和 ``codex`` 会在第一次模型请求之前连接每个规划器层服务；某个服务不可达、``env_http_headers`` 中引用的环境变量未设置，或 ``planner_tools`` 中的某个工具名并未被服务暴露时，本回合会以规划器错误结束，而不会带着剩余服务继续。与 RPent 工具重名的远程工具，也会在规划器首次运行时以同样的方式报错。运行缺了也能活的可选设施服务，就不要放进 ``planner_tools``。``gemini_cli`` 暂不接入规划器层服务：带 ``planner_tools`` 的服务会让本回合以规划器错误结束，而不是在缺少已向模型承诺的工具的情况下继续运行。
+  ``api`` 和 ``codex`` 只把列出的工具交给模型。``claude_code`` 挂载整个服务，只把列表当作自动批准集合。其他工具对模型可见，但无头调用会被拒绝，因为没有可应答的授权提示。需要按权限边界区分时，为每个边界写一个服务条目。
 
-在 RPent 进程内发出的 MCP 请求——采纳进 Toolkit 的工具、上述启动预检，以及 ``api`` 规划器的服务连接——默认有 60 秒的响应时限；用 ``MCP_CALL_TIMEOUT_S`` （单位：秒）可以修改。取消时等待正在调用的采纳工具，也以该时限为上界。``claude_code`` 和 ``codex`` 由各自的 CLI 子进程连接规划器层服务，这些调用遵循 CLI 自身的超时。启动预检在 ``--planner-timeout-s`` 开始计时之前执行，因此不可达的服务会先占用最多一个 MCP 时限。
+服务名会成为工具的命名空间：``claude_code`` 和 ``codex`` 显示为 ``mcp__<server>__<tool>``，``api`` 显示为 ``<server>_<tool>``。名字必须以字母或数字开头，其余字符可以是字母、数字、``_`` 或 ``-``，且不能包含 ``__``。``rpent`` 保留给 RPent 自带的 Toolkit 服务。
 
-``api`` 规划器通过 Pydantic AI 的 MCP 客户端接入 MCP 服务，该客户端由 ``pydantic-ai-slim[mcp]`` extra 安装，RPent 默认列出该 extra。未接入任何 MCP 服务的运行不会加载它。
+声明了 ``planner_tools`` 的服务会接入每个在线规划器（``api``、``claude_code``、``codex``）。``api`` 规划器通过 Pydantic AI 的 MCP 客户端接入服务，该客户端由 ``pydantic-ai-slim[mcp]`` extra 安装，RPent 默认列出这个 extra。没有规划器层服务的运行不会导入它。
+
+运行时行为与时限
+~~~~~~~~~~~~~~~~
+
+声明了 ``planner_tools`` 的服务是这次运行的一部分，不能当作可选设施。``api``、``claude_code`` 和 ``codex`` 在第一次模型请求前连接这些服务。
+
+以下任一情况会让本回合以规划器错误结束，而不是带着其余服务继续：
+
+- 服务不可达。
+- ``env_http_headers`` 引用的环境变量未设置。
+- ``planner_tools`` 里列了服务没有暴露的工具名。
+- 远程工具与 RPent 工具重名。``claude_code`` 和 ``codex`` 使用 ``mcp__`` 前缀，只有 ``api`` 会撞名。
+
+如果一次运行缺少某个设施服务仍能继续，就不要把它放进 ``planner_tools``。
+
+RPent 进程内发出的 MCP 请求默认有 60 秒响应时限。这类请求包括采纳的工具、启动预检和 ``api`` 规划器的服务连接。用环境变量 ``MCP_CALL_TIMEOUT_S`` 修改，单位为秒。取消一次运行时，等待正在执行的采纳调用也以该时限为上界。
+
+``claude_code`` 和 ``codex`` 在自己的 CLI 子进程里连接规划器层服务，这些调用遵循 CLI 自带的超时。预检在 ``--planner-timeout-s`` 开始计时之前执行，因此不可达的服务会先占用最多一个 MCP 时限。
+
+``gemini_cli`` 不接入规划器层服务。遇到带 ``planner_tools`` 的服务，本回合直接以规划器错误结束，不会在缺少已承诺工具的情况下继续。
+
+确认接入生效
+~~~~~~~~~~~~
+
+配置有问题时，本回合会在第一次模型请求之前结束，规划器结果里写明原因。工具名写错时，报错会列出该服务实际暴露的工具名。模型收到第一次请求，就表示预检已通过。
 
 .. _planner-check:
 

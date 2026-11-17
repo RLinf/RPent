@@ -338,10 +338,10 @@ filenames rather than maintaining a parallel observation index.
 the toolkit passes verbatim to your primitives' ``__init__`` — typically
 ``{"env": MyEnvClient(...), "model": VLAClient(...), ...}``.
 
-If the execution loop must coordinate with a device exposed by a site MCP
-server, adopt the selected tools as first-class Toolkit tools instead of
-attaching the server to a planner. ``get_toolkit`` receives the run's
-``config``, so the adopted tools include the site and robot servers:
+If the control loop must coordinate with a device exposed by a site MCP server,
+adopt the selected tools as first-class Toolkit tools. Do not attach that server
+to a planner. ``get_toolkit`` receives the run's ``config``, so both site and
+robot servers can be adopted:
 
 .. code-block:: python
 
@@ -359,22 +359,21 @@ attaching the server to a planner. ``get_toolkit`` receives the run's
        )
        return toolkit
 
-Adoption checks the names against the server's tool list when the toolkit is
-constructed, keeps the remote input schemas, and marks a tool ``readonly`` when
-the server sets ``readOnlyHint``. A listed name the server does not expose
-raises ``ValueError`` at construction, so a typo fails at startup rather than
-on the first call. Adopted tools become ordinary Toolkit tools:
-``claude_code`` and ``codex`` show them as ``mcp__rpent__<name>``, while
-``api`` uses their own names. They take part in observation capture. Tools
-that need no coordination belong under ``planner_tools`` instead. See
-:ref:`external-mcp-servers`.
+Adoption checks tool names against the server's tool list when the toolkit is
+built. A typo raises ``ValueError`` at startup, not on the first call. Remote
+input schemas are kept as they are, and a tool is marked ``readonly`` when the
+server sets ``readOnlyHint``. Adopted tools take part in observation capture like
+local tools. ``claude_code`` and ``codex`` show them as ``mcp__rpent__<name>``;
+``api`` uses their own names. Tools that need no coordination belong under
+``planner_tools``; see :ref:`external-mcp-servers`.
 
-Two limits come from the MCP client below the Toolkit contract. A remote call
-runs synchronously on the toolkit's operation slot and is bounded by a
-60-second response deadline (``MCP_CALL_TIMEOUT_S``), not by RPent's
-cancellation, so a cancelled run can wait up to that deadline for an adopted
-call in flight. Only ``image/png`` blocks become native images; other block
-types arrive as metadata without their payload.
+The MCP client that backs Toolkit adoption adds two limits:
+
+- A call runs synchronously on the Toolkit's operation slot and ignores RPent's
+  cancellation. A cancelled run waits for a call in flight, bounded by the
+  request deadline; see :ref:`external-mcp-servers`.
+- Only ``image/png`` blocks become native images. Other block types arrive as
+  metadata without their payload.
 
 Conventions Worth Keeping
 -------------------------
