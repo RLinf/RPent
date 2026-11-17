@@ -125,6 +125,17 @@ Choose an environment: :doc:`LIBERO <rst_source/simulators/libero>`, :doc:`RoboC
    :includehidden:
    :titlesonly:
    :hidden:
+   :caption: Toolkits
+
+   Map Construction <rst_source/toolkits/mapping>
+   Object Grounding <rst_source/toolkits/grounding>
+   Localization and Clearance <rst_source/toolkits/localization>
+
+.. toctree::
+   :maxdepth: 2
+   :includehidden:
+   :titlesonly:
+   :hidden:
    :caption: Concepts & Development
 
    Architecture and Execution <rst_source/development/architecture>

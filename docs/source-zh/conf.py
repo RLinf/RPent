@@ -36,6 +36,7 @@ extensions = [
 
 # Relative targets keep old links within the same language and build version.
 redirects = {
+    "rst_source/guides/workspace_mapping": "../toolkits/mapping.html",
     "rst_source/resources/release_notes": "release_v0.1.html",
     "rst_source/simulators/robocasa_reference": "robocasa.html#reproduce-target50",
     "rst_source/benchmarks": "leaderboard/index.html",
