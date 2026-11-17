@@ -71,7 +71,7 @@ def get_toolkit(
     from robots.efe.toolkit import EfeToolkit
 
     memory = MemoryManager(
-        root=config.prompt_vars.get("memory_dir") or get_memory_dir("efe"),
+        root=config.prompt_vars["memory_dir"],
         memory_access="inbox_write" if mode == "exploration" else "read_only",
         inbox_cell_tag=config.recipe_tag if mode == "exploration" else None,
     )
@@ -80,7 +80,7 @@ def get_toolkit(
         dashboard_events=dashboard_events,
         memory=memory,
         state_output_dir=state_output_dir or config.output_dir,
-        enable_skills=bool(config.prompt_vars.get("skills", True)),
+        enable_skills=config.prompt_vars["skills"],
     )
 
 
@@ -94,14 +94,20 @@ def _prepare_prompt_vars(
     The generic CLI renders the system prompt after this hook, so the prompt
     lists the tools the session actually registers: an unsupported joint
     layout keeps the raw submit tool, and the service spec decides reset and
-    hidden success.
+    hidden success. It also carries the Codex shell restriction, because a
+    read-only or workspace-write sandbox cannot reach the service over the
+    network.
     """
     from robots.efe.toolkit import tool_capabilities
 
-    return tool_capabilities(
+    variables = tool_capabilities(
         runtime_kwargs["client"],
-        enable_skills=bool(config.prompt_vars.get("skills", True)),
+        enable_skills=config.prompt_vars["skills"],
     )
+    variables["restricted_shell"] = (
+        args.planner == "codex" and args.codex_sandbox != "full-access"
+    )
+    return variables
 
 
 def _add_cli_args(parser: argparse.ArgumentParser, use_dashboard: bool) -> None:
@@ -116,6 +122,15 @@ def _add_cli_args(parser: argparse.ArgumentParser, use_dashboard: bool) -> None:
         type=Path,
         required=not use_dashboard,
         help="File holding the task instruction supplied by EFE.",
+    )
+    parser.add_argument(
+        "--task-name",
+        default=None,
+        help=(
+            "Task identity for results and artifact names. Default: the "
+            "instruction file's parent directory, which is the task directory "
+            "only for local runs."
+        ),
     )
     parser.add_argument(
         "--workdir",
@@ -153,11 +168,11 @@ def _validate_args(args: argparse.Namespace) -> None:
     # EFE does not declare ``supports_exploration``, so the generic CLI rejects
     # ``--explore`` before robot hooks run. Keep the guard for callers that
     # invoke this hook directly. This CLI runs one evaluation session.
-    if getattr(args, "explore", False):
+    if args.explore:
         raise ValueError(
             "The EFE CLI runs one evaluation session and does not support --explore"
         )
-    if getattr(args, "memory_repo", None) is not None:
+    if args.memory_repo is not None:
         raise ValueError(
             "--memory-repo is not supported for EFE; use --memory-profile local "
             "with --memory-dir, or pass memory_source to RPentEfeAgent"
@@ -168,7 +183,7 @@ def _validate_args(args: argparse.Namespace) -> None:
         )
     if not math.isfinite(args.efe_connect_timeout_s) or args.efe_connect_timeout_s <= 0:
         raise ValueError("--efe-connect-timeout-s must be positive")
-    trial_timeout_s = getattr(args, "efe_trial_timeout_s", None)
+    trial_timeout_s = args.efe_trial_timeout_s
     if trial_timeout_s is not None and (
         not math.isfinite(trial_timeout_s) or trial_timeout_s <= 0
     ):
@@ -181,12 +196,15 @@ def _parse_config(args: argparse.Namespace) -> RunConfig:
         raise ValueError("--instruction-file is required")
     instruction_path = Path(args.instruction_file).expanduser().resolve(strict=True)
     instruction = instruction_path.read_text(encoding="utf-8")
-    task_name = instruction_path.parent.name or "efe"
+    # An agent harness may upload the instruction away from the task directory,
+    # so it passes the identity explicitly instead of letting the upload
+    # location name the run.
+    task_name = args.task_name or instruction_path.parent.name or "efe"
     tag = session_vars.recipe_tag(task_name, instruction)
     workdir = Path(args.workdir or Path.cwd()).expanduser().resolve()
     memory_dir = (
         Path(args.memory_dir).expanduser().resolve()
-        if getattr(args, "memory_dir", None)
+        if args.memory_dir is not None
         else get_memory_dir("efe")
     )
     output_dir = (
@@ -207,7 +225,7 @@ def _parse_config(args: argparse.Namespace) -> RunConfig:
             workdir=workdir,
             output_dir=output_dir,
             memory_dir=memory_dir,
-            skills=bool(getattr(args, "efe_skills", True)),
+            skills=args.efe_skills,
         ),
         "recipe_tag": tag,
         "mode": "eval",
@@ -226,7 +244,7 @@ def _prepare_memory(args: argparse.Namespace, config: RunConfig) -> None:
     """Create the run's memory and planner state roots without downloads."""
     memory_dir = Path(config.prompt_vars["memory_dir"])
     memory_dir.mkdir(parents=True, exist_ok=True)
-    if getattr(args, "planner", None) == "codex":
+    if args.planner == "codex":
         (config.output_dir / "codex-home").mkdir(parents=True, exist_ok=True)
 
 
@@ -266,7 +284,7 @@ def _init_runtime(
     """Connect to the existing simulator service. This starts no subprocess."""
     from robots.efe.env_client import EfeEnvClient
 
-    trial_timeout_s = getattr(args, "efe_trial_timeout_s", None)
+    trial_timeout_s = args.efe_trial_timeout_s
     deadline = (
         time.monotonic() + trial_timeout_s if trial_timeout_s is not None else None
     )

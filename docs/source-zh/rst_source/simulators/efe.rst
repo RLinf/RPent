@@ -1,23 +1,31 @@
 Embodied First Exam
 ===================
 
-使用 RPent 运行一个仿真机器人任务，再检查机器人是否完成了目标。本指南以不需要 GPU 的 AutoBio 实验室任务为例。你需要一台可运行 Docker 的 Linux 主机，以及模型 API Key。
+本页用 AutoBio 的一个实验室任务，演示如何通过 Harbor 用 RPent 运行 EFE\
+（Embodied First Exam）任务，以及如何读取评分结果。示例任务只用 CPU；\
+宿主机需要能运行 Docker，并配置好模型 API。
+
+「运行一个任务」给出单次评测的完整流程；之后的小节依次说明结果文件、\
+批量运行、工具配置、手动调试和常见故障。
 
 概览
 ----
 
-EFE（Embodied First Exam）是一组机器人任务，提供预先确定的场景和评分规则。RPent 根据相机图像和机器人观测，让语言模型选择下一步动作。Harbor 负责启动任务、运行 RPent、保存结果，并在结束后清理容器。Harbor 把一次任务运行称为 **Trial**。
+EFE 是一组带固定场景和评分规则的机器人任务。RPent 根据相机图像和机器人\
+观测，让语言模型逐步选择动作。Harbor 负责启动任务容器、运行 RPent、\
+保存结果，并在结束后清理容器。Harbor 把一次任务运行称为 **Trial**，\
+本页沿用这一说法。
 
 .. grid:: 2 4 4 4
    :gutter: 2
 
    .. grid-item-card:: 动作模型
 
-      使用 RPent 动作工具或任务原生控制指令。
+      使用 RPent 的运动工具（Skills），或任务原生的动作数值（Raw）。
 
    .. grid-item-card:: 规划器
 
-      本接入目前只支持 CodexPlanner。它连接模型 API 并选择工具调用。
+      Harbor 路径固定使用 Codex 规划器。它连接模型 API，并选择下一步工具调用。
 
    .. grid-item-card:: 任务
 
@@ -25,14 +33,19 @@ EFE（Embodied First Exam）是一组机器人任务，提供预先确定的场�
 
    .. grid-item-card:: 硬件
 
-      Linux 与 Docker。GPU 要求取决于任务；AutoBio 使用 CPU。
+      Linux 与 Docker。AutoBio 使用 CPU；其他任务的 GPU 要求见 EFE 文档。
 
-Harbor 把 RPent 和仿真器放在不同容器中运行。RPent 通过 EFE 提供的客户端库 ``rcb_client`` 向仿真器发送动作。EFE 的评分程序（Verifier）独立检查任务结果，不以模型的最终回答作为评分依据。
+RPent 和仿真器运行在两个容器里。RPent 通过 EFE 提供的客户端库 \
+``rcb_client`` 向仿真器发送动作；EFE 的评分程序（Verifier）独立检查任务\
+结果，不以模型的最终回答作为评分依据。
 
 任务
 ~~~~
 
-在 `EFE 任务浏览 <https://www.embodied-first-exam.ai/tasks/>`_ 中选择任务。任务文件位于 `EFE 仓库 <https://github.com/mll-lab-nu/embodied-first-exam>`_ 的 ``tasks/<benchmark>/<task>`` 中，benchmark 表示一组相关任务。下表保留本集成文档中的任务清单数量，不代表 RPent 已评测的任务数量；上游还可能新增任务。
+在 `EFE 任务浏览 <https://www.embodied-first-exam.ai/tasks/>`_ 中选择任务。\
+任务文件位于 `EFE 仓库 <https://github.com/mll-lab-nu/embodied-first-exam>`_ \
+的 ``tasks/<benchmark>/<task>`` 中，其中 benchmark 是一组相关任务。表中的\
+数量是集成时上游给出的清单，不代表 RPent 评测过的任务数；上游可能继续新增。
 
 .. list-table::
    :header-rows: 1
@@ -42,7 +55,7 @@ Harbor 把 RPent 和仿真器放在不同容器中运行。RPent 通过 EFE 提�
      - 行为
    * - ``standard``
      - 1066
-     - 当服务协议为 ``eai-standard/2.2`` 或 ``2.4`` 时支持。仿真器收到动作后推进仿真。
+     - 服务协议为 ``eai-standard/2.2`` 或 ``2.4`` 时可用。仿真器收到动作后推进仿真。
    * - ``standard-realtime``
      - 84
      - 暂不支持。这类任务使用 ``eai-standard/2.3`` 或 ``eai-standard-realtime/1.0``，本集成只处理 ``2.2`` 和 ``2.4``。
@@ -50,12 +63,18 @@ Harbor 把 RPent 和仿真器放在不同容器中运行。RPent 通过 EFE 提�
      - 959
      - 暂不支持。Agent 提交完整轨迹或策略，由评分程序评测。
 
-本集成处理服务协议为 ``eai-standard/2.2`` 或 ``2.4`` 的 standard 模式任务。选择 benchmark 前先查看任务 ``task.toml`` 中的 ``metadata.protocol``；使用其他协议的任务会在连接时直接给出明确报错。
+本集成只处理服务协议为 ``eai-standard/2.2`` 或 ``2.4`` 的 standard 模式任务。\
+选择 benchmark 前，先查看任务 ``task.toml`` 中的 ``metadata.protocol``；\
+使用其他协议的任务会在连接阶段直接报错，不会拖到运行中途才失败。
 
 观测与动作
 ~~~~~~~~~~
 
-RPent 有两种控制方式。默认使用 **Skills**：模型通过 ``move_to_pose`` 指定工具末端位姿，通过 ``set_gripper`` 指定夹爪开度。使用 **Raw** 时，模型通过 ``efe_submit`` 直接提交任务原生的动作数值。Skills 无法驱动的布局会保留 Raw 工具。下表概括两种方式；工具列表和对照命令见 `对照 Skills 与 Raw`_。
+RPent 有两种控制方式，由 ``skills`` 参数切换。默认使用 **Skills**：模型调用 \
+``move_to_pose`` 指定工具末端位姿，调用 ``set_gripper`` 指定夹爪开度。\
+设为 **Raw** 后，模型通过 ``efe_submit`` 直接提交任务原生的动作数值；\
+不受 Skills 支持的动作布局会保留 Raw 工具。两种方式的工具清单和对照命令见 \
+`对照 Skills 与 Raw`_。
 
 .. list-table::
    :header-rows: 1
@@ -68,31 +87,40 @@ RPent 有两种控制方式。默认使用 **Skills**：模型通过 ``move_to_p
    * - 动作
      - Skills 指定末端位置、可选朝向和夹爪开度；Raw 按任务规定的顺序提交原生动作数值。
    * - 奖励与成功判定
-     - EFE 的评分程序检查机器人的实际结果。读取 ``verifier/reward.json`` 或 Trial 的 ``result.json``，具体见 `查看结果`_。
+     - EFE 的评分程序按任务规则检查机器人的实际结果。读取 ``verifier/reward.json`` 或 Trial 的 ``result.json``，见 `查看结果`_。
    * - 任务指令
-     - Harbor 将任务原始指令传给 RPent。
+     - Harbor 把任务原始指令传给 RPent。
 
-如果服务提供相机标定信息，``efe_observe`` 会通过 ``camera_calibration``
-返回这些信息，并通过 ``frame_extrinsics_cv`` 返回逐帧的世界到相机变换。
-需要把像素位置与深度换算到世界坐标时，可使用这些数据。
+服务提供标定信息时，``efe_observe`` 在 ``camera_calibration`` 中返回标定\
+数据，在 ``frame_extrinsics_cv`` 中返回逐帧的世界到相机变换。需要把像素\
+位置与深度换算到世界坐标时，使用这两项数据。
 
-EFE 的可选重置预算允许任务提供最多 N 次尝试。这类任务注册 ``efe_reset``：放弃当前 Episode，回到冻结的初始状态，并消耗一次重置；只有最后一个 Episode 参与评分。具体规则见 EFE `standard-mode 协议 <https://github.com/mll-lab-nu/embodied-first-exam/blob/main/docs/protocol/standard_mode.md>`_。
+带重置预算的任务允许最多 N 次尝试。这类任务会注册 ``efe_reset``：模型\
+调用后放弃当前这次尝试，回到冻结的初始状态，并消耗一次重置；只有最后一次\
+尝试参与评分。规则见 EFE `standard 模式协议 <https://github.com/mll-lab-nu/embodied-first-exam/blob/main/docs/protocol/standard_mode.md>`_。
 
-另一些任务不向 Agent 返回是否成功的信号。对这类任务，RPent 提供 ``efe_end_episode`` 工具，让模型主动结束动作执行，再由评分程序检查结束时的状态。调用这个工具不代表成功；目标尚未完成就结束，可能被判定为失败。
+另一类任务不向 Agent 返回成功信号。RPent 为此注册 ``efe_end_episode``，\
+让模型主动结束动作执行，再由评分程序检查结束时的状态。调用它只表示动作\
+结束，不代表成功；目标尚未完成就结束，很可能被判为失败。
 
 安装与资源准备
 --------------
 
-以下命令均在 Linux 宿主机终端执行。需要 git、`uv <https://docs.astral.sh/uv/getting-started/installation/>`_ 和带有 Compose v2、BuildKit 的 Docker Engine。先按 EFE 的 `宿主要求与安装指南 <https://github.com/mll-lab-nu/embodied-first-exam#quick-start>`_ 准备环境。GPU 任务还需要 NVIDIA 驱动和 NVIDIA Container Toolkit。本集成面向 Harbor 0.23.0 和 Python 3.12。
+以下命令在 Linux 宿主机终端执行。需要 git、`uv <https://docs.astral.sh/uv/getting-started/installation/>`_，以及带 Compose \
+v2 和 BuildKit 的 Docker Engine。先按 EFE 的 `宿主机要求与安装指南 <https://github.com/mll-lab-nu/embodied-first-exam#quick-start>`_ 准备环境。\
+GPU 任务还需要 NVIDIA 驱动和 NVIDIA Container Toolkit。本集成适配 Harbor \
+0.23.0 与 Python 3.12。
 
-1. 获取两个仓库的源码。已有源码时无需重新克隆，在下一步使用它们的绝对路径。
+1. 克隆两个仓库。已有源码时跳过这一步，下一步直接填绝对路径。
 
    .. code-block:: bash
 
       git clone https://github.com/RLinf/RPent.git
       git clone --recurse-submodules https://github.com/mll-lab-nu/embodied-first-exam.git
 
-2. 设置两个仓库的源码路径，并安装 EFE 项目依赖（其中包含 Harbor）。将前两个路径替换为实际路径。``RPENT_ROOT`` 指 RPent 仓库根目录，``EFE_ROOT`` 指 Embodied First Exam 仓库根目录。
+2. 设置两个仓库的路径，并安装 EFE 的依赖（其中包含 Harbor）。把前两行换成\
+   实际路径：``RPENT_ROOT`` 指向 RPent 仓库根目录，``EFE_ROOT`` 指向 EFE \
+   仓库根目录。
 
    .. code-block:: bash
 
@@ -103,9 +131,12 @@ EFE 的可选重置预算允许任务提供最多 N 次尝试。这类任务注�
       uv run --project "$EFE_ROOT" harbor --version
       test -f "$RPENT_ROOT/robots/efe/harbor_agent.py"
 
-   Docker 应显示服务正在运行，Harbor 应显示版本 0.23.0，文件检查应正常退出。首次 Trial 会构建或拉取任务镜像并下载资源。
+   ``docker info`` 应显示 Docker 服务正常，``harbor --version`` 应输出 \
+   0.23.0，``test -f`` 应无报错退出。首次 Trial 还要构建或拉取任务镜像并\
+   下载资源，准备阶段会更长。
 
-3. 选择示例任务并配置模型。这个任务要求机器人把试管放入离心机转子。将 ``your-model`` 替换为 API 提供方和 CodexPlanner 支持的模型标识。
+3. 选择示例任务并配置模型。该任务要求机器人把试管放入离心机转子。把 \
+   ``your-model`` 换成 API 提供方和 Codex 规划器都支持的模型标识。
 
    .. code-block:: bash
 
@@ -116,14 +147,26 @@ EFE 的可选重置预算允许任务提供最多 N 次尝试。这类任务注�
       export MODEL_HOST=api.openai.com
       test -f "$EFE_TASK/task.toml"
 
-   ``MODEL_HOST`` 指定允许任务容器访问的模型 API 主机，供运行命令中的 ``--allow-agent-host`` 使用。使用兼容的自定义 API 时，同时替换 ``OPENAI_BASE_URL`` 和 ``MODEL_HOST``。``MODEL_HOST`` 只填写主机名，不含 ``https://`` 或路径。例如，API 地址为 ``https://api.example.com/v1`` 时，填写 ``api.example.com``。不要把 API key 写入版本控制。已有的 ``CODEX_API_KEY``、``CODEX_BASE_URL`` 会覆盖对应的 ``OPENAI_*`` 变量；若要使用上述配置，先取消旧的 ``CODEX_*`` 设置。
+   ``MODEL_HOST`` 是任务容器允许访问的模型 API 主机，运行命令会把它传给 \
+   ``--allow-agent-host``。使用兼容的自定义 API 时，``OPENAI_BASE_URL`` 和 \
+   ``MODEL_HOST`` 要一起改。``MODEL_HOST`` 只写主机名，不带 ``https://`` \
+   和路径：API 地址为 ``https://api.example.com/v1`` 时，填 \
+   ``api.example.com``。
 
-.. _run-a-trial:
+   API Key 不要写入版本控制。已设置的 ``CODEX_API_KEY``、``CODEX_BASE_URL`` \
+   会覆盖对应的 ``OPENAI_*`` 变量；要使用上面的配置，先取消这些 ``CODEX_*`` \
+   设置。
+
+   如果想先确认密钥和端点可用，可以在宿主机运行 ``rpent-check-llm --planner codex --model <模型> --json``。\
+   宿主机上的 Codex 规划器读取 ``CODEX_API_KEY``，不会自动使用 ``OPENAI_API_KEY``；\
+   容器内则由适配器完成映射。
 
 运行一个任务
 ------------
 
-继续使用同一个终端，以保留上面设置的变量。以下命令用默认 Skills 工具运行一个 Trial。Harbor 会自动在任务容器中安装 RPent，无需手动进入容器安装。
+继续在同一个终端里执行，上面设置的变量才有效。下面的命令用默认的 Skills \
+配置运行一次 Trial。RPent 由 Harbor 自动安装到任务容器，不需要手动进入\
+容器操作。
 
 .. code-block:: bash
 
@@ -137,44 +180,65 @@ EFE 的可选重置预算允许任务提供最多 N 次尝试。这类任务注�
      --yes \
      --jobs-dir "$RPENT_ROOT/logs/efe-rpent"
 
-``--agent`` 指定 Harbor 加载 RPent 的入口，保留示例值即可。``PYTHONPATH`` 让 Harbor 能从 RPent 源码目录找到它。``--n-concurrent 1`` 表示同时只运行一个任务，``--yes`` 跳过 Harbor 的确认提示。首次运行需要安装依赖，准备阶段可能较长。执行和评分结束后，到 ``logs/efe-rpent`` 查看结果；失败时先检查 ``trial.log`` 和 ``agent/rpent/run.log``。
+``--agent`` 指定 Harbor 加载的 RPent 入口，保持原样即可；``PYTHONPATH`` \
+让 Harbor 从 RPent 源码目录找到它。``--n-concurrent 1`` 表示同时只运行\
+一个任务，``--yes`` 跳过 Harbor 的确认提示。首次运行需要安装依赖，准备\
+阶段可能较长。运行和评分结束后，到 ``logs/efe-rpent`` 下查看结果；失败时\
+先看 ``trial.log`` 和 ``agent/rpent/run.log``。
 
 查看结果
 --------
 
-在宿主机上查看 ``$RPENT_ROOT/logs/efe-rpent``。
-``--jobs-dir`` 是 Harbor 的 Job 根目录；默认每次 ``harbor run`` 在下面新建一个以时间命名的 Job 目录。
+结果写在宿主机的 ``$RPENT_ROOT/logs/efe-rpent`` 下。``--jobs-dir`` 是 \
+Harbor 的 Job 根目录，每次 ``harbor run`` 默认在下面新建一个按时间命名的 \
+Job 目录。
 
 .. code-block:: text
 
    <jobs-dir>/<job_name>/
    ├── result.json              # Job 汇总
    └── <trial_name>/
-       ├── result.json          # Verifier 结果、Token、耗时
+       ├── result.json          # 评分程序结果、Token、耗时
        ├── agent/
        │   ├── setup/           # Agent 安装日志
        │   └── rpent/
-       │       ├── transcript_*.json # 通用 CLI 对话与 Planner 统计
+       │       ├── transcript_*.json # 通用 CLI 对话与规划器统计
        │       ├── efe-result.json   # EFE 指标与收尾结果
-       │       ├── codex_*.txt       # Planner 对话
+       │       ├── codex_*.txt       # 规划器对话
        │       ├── codex-home/  # 本次 Trial 的 CODEX_HOME
-       │       └── memory/      # 本次 Trial 的 Memory 根目录
-       ├── verifier/            # Verifier 日志和 reward.json
+       │       └── memory/      # 本次 Trial 的记忆根目录
+       ├── verifier/            # 评分程序日志和 reward.json
        ├── artifacts/           # 收集的产物
        ├── config.json
        ├── lock.json
        └── trial.log
 
-容器内的 ``/logs/agent/rpent/`` 对应宿主机上的 ``<trial_name>/agent/rpent/``。EFE 的 Verifier 写出 ``verifier/reward.json``，Harbor 将它记录为 ``result.json`` 的 ``verifier_result.rewards``。Planner 统计在 ``agent/rpent/transcript_*.json``，EFE 指标在 ``agent/rpent/efe-result.json``。Trial 未完成时可能没有最终结果或 transcript，先看 ``trial.log`` 和 ``agent/rpent/run.log``。
+容器内的 ``/logs/agent/rpent/`` 对应宿主机的 \
+``<trial_name>/agent/rpent/``。EFE 的评分程序把分数写入 \
+``verifier/reward.json``，Harbor 再把它记到 ``result.json`` 的 \
+``verifier_result.rewards``。规划器统计在 ``agent/rpent/transcript_*.json``，\
+EFE 指标在 ``agent/rpent/efe-result.json``。Trial 没有跑完时，这些文件可能\
+缺失，先查 ``trial.log`` 和 ``agent/rpent/run.log``。
 
-判断任务是否成功，读取 Trial 的 ``verifier_result.rewards.success``。任务允许重试时，``first_success`` 表示首次尝试的结果。模型返回 ``finish(status="completed")`` 只表示 Agent 停止工作；CLI 正常退出只表示执行代码没有报告错误，两者都不代表评分成功。
+成功判定
+~~~~~~~~
+
+任务是否成功，只看 Trial 的 ``result.json`` 中的 \
+``verifier_result.rewards.success``。支持重试的任务还会记录 \
+``first_success``，表示首次尝试的结果；最终得分以最后一个尝试为准。
+
+模型调用 ``finish(status="completed")`` 只表示它停止工作，CLI 退出码为 0 \
+只表示执行代码没有报错，二者都不是评分结果。
 
 批量运行 benchmark
 ------------------
 
-要批量运行 benchmark，请将下方 ``<benchmark>`` 替换为所选 benchmark 的名称。先确认目录中只有受支持的 standard 模式任务，不要混入 realtime 或 privileged 任务。
-
-``--path`` 指向 benchmark 目录，其中每个子目录是一项任务，合起来就是要运行的任务集。``-d embodied-first-exam@all`` 表示 EFE 注册的全部任务。例如，EFE 文档中的 ``harbor run -d embodied-first-exam@all -p tasks/roboarc`` 只运行 RoboARC 任务集。
+把下面的 ``<benchmark>`` 换成要运行的 benchmark 名称。``--path`` 指向 \
+benchmark 目录，其中每个子目录是一项任务，合起来就是要运行的任务集；\
+运行前先确认目录里只有受支持的 standard 模式任务，不要混入 realtime 或 \
+privileged 任务。``-d embodied-first-exam@all`` 表示 EFE 注册的全部任务，\
+例如 EFE 文档中的 ``harbor run -d embodied-first-exam@all -p tasks/roboarc`` \
+只运行 RoboARC 任务集。
 
 .. code-block:: bash
 
@@ -188,29 +252,66 @@ EFE 的可选重置预算允许任务提供最多 N 次尝试。这类任务注�
      --yes \
      --jobs-dir "$RPENT_ROOT/logs/efe-benchmark"
 
-每个任务对应一个 Trial 和一份 ``result.json``；``--n-concurrent`` 默认 4。先跑通一个 Trial，再批量运行，并固定模型、端点、任务版本和超时后再比较结果。
+每个任务对应一次 Trial 和一份 ``result.json``。``--n-concurrent`` 默认 4。\
+先跑通单个 Trial，再批量运行；比较结果前，固定模型、端点、任务版本和\
+时间上限。
 
 常用参数
 --------
 
-- ``--agent-kwarg source_root=/path``：指定用于构建 Wheel 的 RPent 源码目录；默认使用 RPentEfeAgent 所在的仓库。从已安装的 Wheel 导入时，需要显式指定该路径。
-- ``--agent-kwarg workdir=/path``：任务的工作目录；默认 ``/app``。
-- ``--agent-kwarg timeout_s=N``：可选的 RPent Trial 时间上限。默认情况下，RPent 会从 Harbor Trial 配置读取实际超时；对于本地任务，也会读取 ``task.toml``。RPent 会为 Planner 关闭和 CLI 收尾预留时间。
-- ``--agent-kwarg connect_timeout_s=N``：等待 EFE 服务的最长时间，默认 60 秒；这段时间会从 RPent Trial 预算中扣除，剩余时间才分配给 Planner。
-- ``--agent-kwarg agent_timeout_s=N``：手动指定 Harbor 的实际超时，覆盖自动读取的值。任务配置无法通过本地任务目录访问时使用此参数，并确保数值与 Harbor 实际采用的超时一致。Harbor 0.23 在内部解析该超时，但不会传给 Installed Agent，因此适配层会读取 Trial 配置和本地任务的 ``task.toml``。
-- ``--agent-kwarg max_turns=N``：Planner 的模型响应次数上限，不等于 Shell 命令数。
-- ``--agent-kwarg sandbox=full-access``：允许 Planner 用 Shell 直接编写脚本操作 Simulator。默认 ``read-only`` 让 Shell 无法访问 Simulator，只有 RPent 工具会作用于 Episode。
+以下参数都通过 ``--agent-kwarg key=value`` 传给适配器。
+
+.. list-table::
+   :header-rows: 1
+   :widths: 24 14 62
+
+   * - 参数
+     - 默认值
+     - 说明
+   * - ``source_root=/path``
+     - RPentEfeAgent 所在仓库
+     - 构建 Wheel 用的 RPent 源码目录。从已安装的 Wheel 导入 Agent 时必须显式指定。
+   * - ``workdir=/path``
+     - ``/app``
+     - 任务容器内的工作目录。
+   * - ``timeout_s=N``
+     - 自动读取
+     - RPent Trial 的时间上限。默认从 Harbor Trial 配置读取，本地任务还会读 ``task.toml``；无论哪种来源，都会给规划器关闭和 CLI 收尾留出时间。
+   * - ``connect_timeout_s=N``
+     - 60
+     - 等待 EFE 服务的最长秒数。这段时间从 RPent Trial 预算里扣除，剩余部分才分配给规划器。
+   * - ``agent_timeout_s=N``
+     - 自动读取
+     - 手动指定 Harbor 实际使用的超时，用于任务配置无法作为本地目录读取的情况，取值要与 Harbor 一致。Harbor 0.23 在内部解析这个超时，但不传给 Installed Agent，所以适配层自己读 Trial 配置和 ``task.toml``。
+   * - ``max_turns=N``
+     - 200
+     - 规划器的模型回复次数上限，不是 Shell 命令数。
+   * - ``sandbox=full-access``
+     - ``read-only``
+     - 设为 ``full-access`` 后，规划器可以用 Shell 脚本直接操作仿真器；默认的 ``read-only`` 让 Shell 无法访问服务，只有 RPent 工具作用于当前这次尝试。
+   * - ``skills=false``
+     - ``true``
+     - 只注册 ``efe_submit`` 等原始工具，见 `对照 Skills 与 Raw`_。
+   * - ``memory_source=/path``
+     - 未设置
+     - 上传已有记忆目录供本次 Trial 使用；不设置时，Trial 从空的 ``memory/`` 开始。
+   * - ``reasoning_effort=low``
+     - ``none``
+     - 传给 Codex 规划器的推理强度，可选 ``none``、``low``、``medium``、``high``、``xhigh``。
 
 任务记忆
 --------
 
-- ``--agent-kwarg memory_source=/path``：上传已有 RPent 记忆目录供本次 Trial 使用；未指定时，Trial 从空的 ``memory/`` 开始。
-- 每个 Trial 使用独立的 ``codex-home/``；模型由 ``--model`` 指定，认证信息来自转发的环境变量。
+- ``--agent-kwarg memory_source=/path``：上传已有记忆目录供本次 Trial 使用；\
+  不指定时，Trial 从空的 ``memory/`` 开始。
+- 每次 Trial 使用独立的 ``codex-home/``；模型由 ``--model`` 指定，认证信息\
+  来自转发的环境变量。
 
 对照 Skills 与 Raw
 ------------------
 
-对同一个任务分别使用 Skills 与 Raw，比较两种工具配置的效果。模型和执行预算保持一致，只改变动作工具。
+对同一个任务分别使用 Skills 与 Raw，比较两种工具配置的效果。模型和执行\
+预算保持一致，只改变动作工具。
 
 .. list-table::
    :header-rows: 1
@@ -220,24 +321,35 @@ EFE 的可选重置预算允许任务提供最多 N 次尝试。这类任务注�
      - 默认（``skills=true``）
      - Raw（``skills=false``）
    * - 读取与控制
-     - ``efe_spec``、``efe_observe``、``efe_status``、``efe_recover``、
-       ``view_env_state``
+     - ``efe_spec``、``efe_observe``、``efe_status``、``efe_recover``、``view_env_state``
      - 同左
    * - 动作
      - ``move_to_pose``、``set_gripper``
      - ``efe_submit``
    * - 条件工具
-     - 任务有 Reset 预算时注册 ``efe_reset``；隐藏成功信号时注册 ``efe_end_episode``
+     - 任务有重置预算时注册 ``efe_reset``；隐藏成功信号时注册 ``efe_end_episode``
      - 同左
 
 默认组用两个高层技能代替直接提交关节目标：
 
-- ``move_to_pose(x, y, z, orientation_wxyz=None)`` 将末端移动到世界坐标系中的目标位置，并可选指定朝向。四元数顺序为 ``w, x, y, z``；省略朝向时保持当前朝向。技能用逆运动学（IK）计算关节位置、提交短动作块并读回位置和朝向进行修正；位置误差不超过 1 cm、朝向误差不超过 0.05 rad 时停止，也可能因迭代上限、求解失败或任务结束而提前停止。
-- ``set_gripper(opening)`` 设置夹爪开合。
+- ``move_to_pose(x, y, z, orientation_wxyz=None)`` 把工具末端移动到世界\
+  坐标系中的目标位置，并可选指定朝向。四元数顺序为 ``w, x, y, z``；\
+  省略朝向时保持当前朝向。技能用逆运动学（IK）计算关节位置，提交短动作\
+  块，再读回位姿修正。位置误差不超过 1 cm、朝向误差不超过 0.05 rad \
+  时停止；也可能因迭代次数用尽（默认 20 次，上限 50 次）、求解失败或任务\
+  结束而提前停止。
+- ``set_gripper(opening)`` 设置夹爪开度。
 
-Raw 组直接使用服务接口：``efe_spec`` 返回每个动作向量的列含义和顺序（即动作布局），Planner 再按该布局用 ``efe_submit`` 发送关节目标动作块。
+Raw 组直接调用服务接口。``efe_spec`` 返回动作向量每一列的含义和顺序，\
+也就是动作布局；规划器据此用 ``efe_submit`` 发送关节目标动作块。
 
-动作布局定义一行动作里每个数的含义。技能只支持一种布局：前几列是各关节的目标角度，顺序与 ``spec.kinematics.joint_names`` 一致；最后一列是夹爪开度。布局换序、缺列或多列时技能不注册：工具集保留 ``efe_submit``，把原因写入 ``efe-result.json`` 的 ``skills_error``，Prompt 只列出当前 Session 实际注册的工具。
+技能只支持一种布局：前面各列是关节目标，顺序与 \
+``spec.kinematics.joint_names`` 一致，最后一列是夹爪开度。任务的 \
+``tcp_frames`` 中，还要有一个坐标系出现在 ``ik_targets`` 里。本体感知\
+必须包含该坐标系的位姿列和所有关节列。布局换序、缺列、多列，或缺少可用\
+的工具坐标系时，Skills 不会注册。工具集保留 ``efe_submit``，原因写入 \
+``efe-result.json`` 的 ``skills_error``；Prompt 也只列出当前 Session \
+实际注册的工具。
 
 .. code-block:: bash
 
@@ -262,37 +374,137 @@ Raw 组直接使用服务接口：``efe_spec`` 返回每个动作向量的列含
      --yes \
      --jobs-dir "$RPENT_ROOT/logs/efe-skills"
 
-两组必须固定模型、端点、推理强度、任务版本、时间上限和尝试次数。单次 Trial 不构成对照。
+两组必须固定模型、端点、推理强度、任务版本、时间上限和尝试次数。单次 \
+Trial 不构成对照。
 
-运行隔离与测量模式
+手动运行（调试）
+----------------
+
+不经过 Harbor 时，可以直接调用通用 CLI 调试工具调用或 Prompt。这个入口\
+只连接已经运行的任务服务，不启动仿真器，也不负责评分。
+
+.. code-block:: bash
+
+   rpent --robot efe \
+     --instruction-file "$EFE_TASK/instruction.md" \
+     --planner codex --model <模型> --reasoning-effort low \
+     --codex-sandbox read-only \
+     --memory-profile local --memory-dir ./memory/efe \
+     --output-dir logs/efe-manual
+
+``--instruction-file`` 必填，指向任务的说明文件。``--task-name`` 不填时，\
+任务名取该文件所在目录的名字；Harbor 路径会把说明文件放到别的目录，因此\
+显式传入任务目录名。``--efe-base-url`` 指定服务地址，不填时先探测 \
+``sim:8000``，再探测 ``localhost:8000``。``--efe-connect-timeout-s`` 默认 \
+3600 秒；``--efe-trial-timeout-s`` 给整个 Trial 设截止时间，包含最初的\
+连接等待。``--efe-no-skills`` 只注册原始工具。``--memory-repo`` 不受支持，\
+需要使用记忆时改用 ``--memory-profile local`` 配合 ``--memory-dir``。
+
+Harbor 路径传给 ``rpent`` 的 ``--model`` 不带 ``openai/`` 前缀，适配器会\
+先去掉它；手动运行时同样只写模型名。
+
+运行隔离与测量方式
 ------------------
 
-- Harbor Runner 默认使用 Codex 的 ``read-only`` 沙箱。它限制 Shell，不限制 RPent 工具：Shell 不能写文件或访问网络；机器人动作通过 RPent 工具执行。
-- 使用 ``full-access`` 时，Agent 可以用 Shell 写脚本直接调用 ``rcb_client``，绕过 RPent 工具。这些调用不经过 RPent 的客户端，``efe-result.json`` 的 ``metrics`` 不会统计，因此这种运行不能与走工具的运行对比。
-- 通用 ``rpent --robot efe`` 支持 ``--codex-sandbox``。默认值为 ``full-access``；传入 ``--codex-sandbox read-only`` 可使用与 Harbor 相同的默认沙箱。
-- ``rpent`` 默认使用 ``--planner api``，它没有 Codex 的 Shell 沙箱。手动运行 ``rpent --robot efe`` 时若要复现 Harbor 的行为，需显式加上 ``--planner codex``。
+- Harbor 默认给 Codex 使用 ``read-only`` 沙箱。它限制的是 Shell，不是 \
+  RPent 工具：Shell 不能写文件或访问网络，机器人动作只能通过 RPent 工具\
+  执行。
+- 设为 ``full-access`` 后，Agent 可以用 Shell 写脚本直接调用 \
+  ``rcb_client``，绕过 RPent 工具。这些调用不经过 RPent 的客户端，\
+  ``efe-result.json`` 的 ``metrics`` 统计不到，因此不能与走工具的运行对比。
+- 通用 CLI 的 ``--codex-sandbox`` 默认 ``full-access``；手动复现 Harbor 的\
+  默认行为时，加上 ``--codex-sandbox read-only``。
+- ``rpent`` 默认使用 ``--planner api``，没有 Codex 的 Shell 沙箱。手动运行 \
+  ``rpent --robot efe`` 时，要同时加上 ``--planner codex`` 才与 Harbor \
+  一致。
+
+复现一次评测
+------------
+
+复现时固定两侧的代码版本：RPent 的 commit，以及提供任务定义与镜像的 EFE \
+仓库 commit。同时记录任务目录名、模型标识、推理强度、时间上限和尝试次数，\
+并保留 Harbor Job 目录中的 ``result.json`` 与 ``config.json``。
+
+比较不同配置时，这些设置必须完全一致，并且要说明结果的汇总方式。单次 \
+Trial 的差异不足以区分配置效果。
+
+常见问题
+--------
+
+.. list-table::
+   :header-rows: 1
+   :widths: 24 36 40
+
+   * - 现象
+     - 原因
+     - 处理
+   * - 连接阶段报协议不支持
+     - 任务使用 ``2.1``、``2.3`` 或 realtime 协议
+     - 换用 ``2.2`` 或 ``2.4`` 的 standard 任务；其他版本需要单独的适配层。
+   * - Trial 启动后很快失败，``run.log`` 报连接超时
+     - 任务服务没起来，或端口不对
+     - 查看 ``trial.log`` 和仿真器容器日志；必要时调大 ``connect_timeout_s``。
+   * - 模型请求返回 401 或无法连接
+     - 密钥、端点或主机白名单不对
+     - 检查 ``OPENAI_API_KEY``、``OPENAI_BASE_URL``、``MODEL_HOST``，并确认没有残留的 ``CODEX_*`` 覆盖。
+   * - 只有 ``efe_submit``，没有 Skills
+     - 动作布局或运动学不满足要求
+     - 查看 ``efe-result.json`` 的 ``skills_error``，按 `对照 Skills 与 Raw`_ 核对布局和工具坐标系。
+   * - Harbor 在预算用尽时终止 Trial
+     - 时间分配不够
+     - 调大 ``--agent-timeout-sec``，并用 ``agent_timeout_s`` 把同一数值传给适配器。
+   * - ``transcript_*.json`` 或 ``result.json`` 缺失
+     - Trial 没有跑完
+     - 先看 ``trial.log`` 和 ``agent/rpent/run.log``；``finish`` 和退出码都不是评分结果。
 
 开发者集成说明
 --------------
 
-Harbor 通过 ``--agent`` 加载 RPent 的 ``RPentEfeAgent``。该入口会从 RPent 源码构建 Wheel 并上传；Wheel 按 ``pyproject.toml`` 的包发现和包数据规则生成，不包含宿主机的 Git 数据、测试、缓存、API key 文件和运行日志。Harbor 再用任务镜像自带的 Python 把 Wheel 安装到 ``/opt/rpent-efe/venv``；容器不需要 ``uv``。``robots/`` 是 RPent 安装包的一部分，不会因此启动其他机器人服务。
+Harbor 通过 ``--agent`` 加载 ``RPentEfeAgent``。这个入口从 RPent 源码构建 \
+Wheel 并上传；Wheel 按 ``pyproject.toml`` 的包发现和包数据规则生成，不\
+包含宿主机的 Git 数据、测试、缓存、API Key 文件和运行日志。Harbor 再用\
+任务镜像自带的 Python 把 Wheel 安装到 ``/opt/rpent-efe/venv``，容器里不\
+需要 ``uv``。``robots/`` 是 RPent 安装包的一部分，安装它不会启动其他\
+机器人服务。
 
-Harbor 在容器内调用已安装的 ``rpent`` 命令，并传入 ``--robot efe --planner codex``。EFE 的 ``RobotSpec`` 将通用 CLI 接到 ``EfeEnvClient`` 和 ``EfeToolkit``。CLI 写入标准的 ``transcript_*.json``，并调用 EFE 的 ``finalize_run`` hook 写入 ``efe-result.json``。Harbor 适配器分配连接与 Planner 时间，为 Planner 关闭和 CLI 收尾留出余量；遇到 transcript 记录的 Planner 预算耗尽时，适配器按正常 Agent 退出处理，让 Harbor 继续评分。Harbor 管理容器隔离和清理。``solved()`` 只采信服务返回的结束原因。RPent 不启动仿真器、不读取特权状态，也不修改 EFE 的评分规则。
+适配器在容器内运行已安装的 ``rpent``，参数固定包含 ``--robot efe`` 和 \
+``--planner codex``，并显式传入 ``--memory-profile local``、\
+``--memory-dir``、``--task-name`` 等。EFE 的 ``RobotSpec`` 把通用 CLI 接到 \
+``EfeEnvClient`` 和 ``EfeToolkit``：CLI 生成 ``transcript_*.json``，\
+``finalize_run`` 钩子写出 ``efe-result.json``。适配器把 Trial 截止时间传给 \
+``EfeEnvClient``，并为规划器关闭和 CLI 收尾留出时间；transcript 记录规划器\
+预算耗尽时，按 Agent 正常退出处理，交给 Harbor 评分。``solved()`` 只采信\
+服务返回的结束原因。RPent 不启动仿真器、不读取特权状态，也不修改 EFE 的\
+评分规则。
 
-适配器还会把 Trial 截止时间传给 ``EfeEnvClient``，避免服务请求超过 EFE 预算。
-
-RPentEfeAgent 会转发模型环境变量和显式的 Harbor ``--agent-env`` 设置。若尚未设置 ``CODEX_API_KEY``、``CODEX_BASE_URL``，则分别从 ``OPENAI_API_KEY``、``OPENAI_BASE_URL`` 映射。宿主机的 ``CODEX_HOME`` 不会转发，每个 Trial 都会新建独立目录。
+RPentEfeAgent 会转发模型环境变量，以及 Harbor ``--agent-env`` 显式设置的变量。\
+未设置 ``CODEX_API_KEY``、``CODEX_BASE_URL`` 时，分别从 \
+``OPENAI_API_KEY``、``OPENAI_BASE_URL`` 映射。宿主机的 ``CODEX_HOME`` 不\
+转发，每次 Trial 新建独立目录。
 
 .. code-block:: text
 
    Harbor Trial
    ├── Agent 容器（main）
-   │   └── RPent / CodexPlanner ── rcb_client ──▶ sim:8000
+   │   └── RPent / Codex 规划器 ── rcb_client ──▶ sim:8000
    └── 仿真器容器（sim）
        └── EFE 任务服务
 
-支持的服务版本为 standard 模式的 ``eai-standard/2.2`` 与 ``2.4``。
+支持的服务版本是 standard 模式的 ``eai-standard/2.2`` 和 ``2.4``。``2.1`` \
+和 ``2.3`` 在 ``/spec`` 中发布 ``control_dt`` 而不是 ``control_hz``，\
+``rcb_client`` 也不同（``get_obs(include_depth=...)``、``Result.depth``、\
+没有 ``wait_ready``）。``EfeEnvClient`` 遇到这些版本会直接报错，而不是等到\
+缺少 spec 字段才失败；接入它们需要单独的适配层，``2.3`` 及其 \
+``standard-realtime`` 任务同样如此。
 
-``2.1`` 和 ``2.3`` 在 ``/spec`` 中发布 ``control_dt`` 而非 ``control_hz``，并带有不同的 ``rcb_client``（``get_obs(include_depth=...)``、``Result.depth``、没有 ``wait_ready``）。``EfeEnvClient`` 会直接给出明确报错，而不是在后面才因为缺少 spec 字段失败。接入这两个版本需要单独的适配层，``2.3`` 及其 standard-realtime 任务同样如此。
+``privileged`` 任务要求提交可重放的 ``trajectory.npz``，或策略程序、模型；\
+评分程序通过重放轨迹或运行策略来评测。这种评测方式与 RPent 逐步观测、\
+逐步执行动作的流程不匹配。
 
-privileged 任务要求提交可重放的 ``trajectory.npz``，或策略程序、模型。评分程序通过重放轨迹或运行策略来评测，与本集成逐步观测和执行动作的方式不匹配。
+下一步
+------
+
+- 选择并配置模型与规划器：:doc:`../guides/configure_planner`
+- 通用 CLI 的完整参数：:doc:`../guides/cli`
+- 任务记忆与探索模式：:doc:`../guides/memory`
+- 接入新的机器人：:doc:`../development/add_robot`

@@ -103,10 +103,14 @@ for setup and test prerequisites.
 
 ## EFE task runs
 
-`tests/unit_tests/robots/efe/test_runner_loopback.py` covers the standalone EFE
-runner's call chain offline: the real MCP HTTP transport on loopback, a scripted
-planner, the EFE toolkit, and its session report. It needs no simulator,
-container, or model.
+The EFE unit tests under `tests/unit_tests/robots/efe/` run offline. They cover
+the service client, tools and skills, the prompt bundle, the robot spec, the
+Harbor adapter contract (`test_harbor_contracts.py`), and the standalone
+runner's call chain (`test_runner_contracts.py` and `test_runner_loopback.py`).
+The loopback case drives the real MCP HTTP transport on loopback with a
+scripted planner and needs no simulator, container, or model. The standalone
+runner is not installed as a console script; Harbor is the supported entry
+point for real runs.
 
 `tests/e2e_tests/efe/test_policy_chain.py` runs one real EFE trial through
 Harbor and Docker. It needs one task directory, a reachable model endpoint, and

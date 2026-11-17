@@ -173,6 +173,24 @@ class RPentEfeAgent(BaseInstalledAgent):
         resolved = min(float(timeout_s), float(max_timeout_s or float("inf")))
         return int(resolved * float(multiplier))
 
+    def _resolve_task_name(self) -> str | None:
+        """Return the task directory's name from this trial's saved configuration.
+
+        The adapter uploads the instruction into the agent log directory, so
+        the instruction file names the logs rather than the task. Results and
+        artifact names need the task identity, which Harbor records in the
+        trial configuration.
+        """
+        trial_config_path = self.logs_dir.parent / "config.json"
+        if not trial_config_path.is_file():
+            return None
+
+        with trial_config_path.open(encoding="utf-8") as config_file:
+            task_path = json.load(config_file).get("task", {}).get("path")
+        if not task_path:
+            return None
+        return Path(task_path).expanduser().name
+
     def _apply_agent_timeout(self, agent_timeout_s: int) -> None:
         """Keep connection, planning, and finalization inside Harbor's timeout."""
         if agent_timeout_s <= 2 * _TIMEOUT_MARGIN_S:
@@ -366,6 +384,9 @@ class RPentEfeAgent(BaseInstalledAgent):
         ]
         if not self.skills:
             arguments.append("--efe-no-skills")
+        task_name = self._resolve_task_name()
+        if task_name:
+            arguments += ["--task-name", task_name]
         command = shlex.join(arguments)
         forwarded = {
             name: os.environ[name]
