@@ -1002,25 +1002,31 @@ def write_recipe_from_states(
             command_events.append(((record.step_idx, -1), command))
 
         for name in sorted(record.artifacts):
-            if not (name.startswith("segment_") and name.endswith(".json")):
+            if not name.endswith(".json") or not name.startswith(
+                ("segment_", "geometry_segment_")
+            ):
                 continue
             segment = state.load(name, step=record.step_idx)
-            if segment.get("error"):
+            if segment.get("error") or segment.get("found") is False:
                 continue
-            if segment["mode"] == "text":
-                segment_command = {
-                    "action": "segment",
-                    "prompt": segment["prompt"],
-                    "camera": segment["camera"],
-                }
+            if name.startswith("geometry_segment_"):
+                # Only the public tool saves a summary with the native image shape.
+                # Geometry also saves intermediate masks under this prefix.
+                if "image_shape" not in segment:
+                    continue
+                index = int(Path(name).stem.rsplit("_", 1)[1])
             else:
-                segment_command = {
-                    "action": "segment",
-                    "point": segment["point"],
-                    "camera": segment["camera"],
-                }
-            event_order = (record.step_idx, int(segment["segment_index"]))
-            command_events.append((event_order, segment_command))
+                index = int(segment["segment_index"])
+            segment_command = {"action": "segment", "camera": segment["camera"]}
+            if segment.get("prompt"):
+                segment_command["prompt"] = segment["prompt"]
+            if segment.get("point") is not None:
+                segment_command["point"] = segment["point"]
+                if "image_shape" in segment:
+                    segment_command["image_shape"] = segment["image_shape"]
+            if segment.get("min_score", 0.2) != 0.2:
+                segment_command["min_score"] = segment["min_score"]
+            command_events.append(((record.step_idx, index), segment_command))
 
     # Never publish a failed trajectory as a recipe. The environment trace is
     # authoritative; an agent's self-reported finish status is not.
