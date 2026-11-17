@@ -173,7 +173,7 @@ def test_toolkit_is_built_from_the_configured_memory_and_skills(tmp_path):
     assert isinstance(toolkit, EfeToolkit)
     names = [declaration.name for declaration in toolkit.list_tools()]
     assert "efe_submit" in names
-    assert "move_to_xyz" not in names
+    assert "move_to_pose" not in names
 
 
 def test_prompt_variables_follow_the_connected_task_capabilities(tmp_path):
@@ -271,9 +271,9 @@ def test_generic_cli_renders_the_tools_the_session_registers(
     tools = captured["tools"]
     prompt = captured["system_prompt"]
     assert ("efe_submit" in tools) is (not skills_available)
-    assert ("move_to_xyz" in tools) is skills_available
+    assert ("move_to_pose" in tools) is skills_available
     assert ("efe_submit" in prompt) is (not skills_available)
-    assert ("move_to_xyz" in prompt) is skills_available
+    assert ("move_to_pose" in prompt) is skills_available
     assert ("efe_reset" in prompt) is ("efe_reset" in tools)
     assert ("efe_end_episode" in prompt) is ("efe_end_episode" in tools)
     assert ("efe_reset" in prompt) is (client.reset_budget > 0)

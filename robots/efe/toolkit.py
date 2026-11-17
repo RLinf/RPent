@@ -185,6 +185,7 @@ class EfeToolkit(Toolkit):
             result=result,
             elapsed_s=elapsed_s,
             frames=self._service.latest_frames(),
+            camera_geometry=self._service.latest_camera_geometry(),
         )
         out = ToolResult(data=record.to_blob())
         out.data["agent_elapsed_s"] = elapsed_s

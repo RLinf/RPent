@@ -41,7 +41,7 @@ READ_ONLY_EFE_TOOLS = [
 
 RAW_EFE_TOOLS = [*READ_ONLY_EFE_TOOLS, "efe_submit"]
 
-SKILL_TOOLS = ["move_to_xyz", "set_gripper"]
+SKILL_TOOLS = ["move_to_pose", "set_gripper"]
 
 
 @pytest.fixture
@@ -92,6 +92,7 @@ def test_runner_preserves_task_budget_and_external_scoring(
     assert planner_calls["options"]["model"] == "test-model"
     assert planner_calls["options"]["reasoning_effort"] == "high"
     assert planner_calls["options"]["sandbox"] == "read-only"
+    assert efe_client.deadline is not None
     assert report["codex_sandbox"] == "read-only"
     assert instruction.strip() in planner_calls["solve"]["user_message"]
     assert planner_calls["solve"]["max_turns"] == 7
@@ -328,9 +329,9 @@ def test_incompatible_layout_skips_skills_and_records_the_reason(tmp_path, efe_c
 
     assert toolkit.skills_enabled is False
     assert "efe_submit" in names
-    assert "move_to_xyz" not in names
+    assert "move_to_pose" not in names
     assert "set_gripper" not in names
-    assert "move_to_xyz" in toolkit.metrics()["skills_error"]
+    assert "move_to_pose" in toolkit.metrics()["skills_error"]
 
 
 def test_tool_descriptions_do_not_describe_coding_artifacts(tmp_path, efe_client):
@@ -381,7 +382,7 @@ def test_metrics_count_session_calls_and_service_progress(tmp_path, efe_client):
     toolkit = _toolkit(tmp_path, efe_client)
 
     toolkit.execute_tool("set_gripper", {"opening": 0.02})
-    toolkit.execute_tool("move_to_xyz", {"x": 0.0, "y": 0.0, "z": 0.3})
+    toolkit.execute_tool("move_to_pose", {"x": 0.0, "y": 0.0, "z": 0.3})
 
     metrics = toolkit.metrics()
 

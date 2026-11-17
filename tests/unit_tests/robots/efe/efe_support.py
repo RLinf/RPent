@@ -138,6 +138,10 @@ class FakeEfeClient:
         self.observe_requests: list[dict[str, Any]] = []
         self.reset_calls = 0
         self.finish_calls = 0
+        self.deadline: float | None = None
+
+    def set_deadline(self, deadline: float | None) -> None:
+        self.deadline = deadline
 
     @property
     def reset_budget(self) -> int:

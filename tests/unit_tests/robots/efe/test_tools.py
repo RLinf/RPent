@@ -64,6 +64,44 @@ def test_observe_returns_images_and_named_proprioception(tools):
     assert client.observe_calls == 1
 
 
+def test_observe_returns_and_records_camera_geometry(tmp_path):
+    client = FakeEfeClient()
+    state = EnvState(tmp_path)
+    service = EfeTools(client=client, state=state)
+    calibration = {"wrist_cam": {"intrinsic_cv": [[10.0, 0.0, 2.0]]}}
+    extrinsics = {"wrist_cam": np.asarray([[[1.0, 0.0, 0.0, 0.1]]])}
+    observe = client.observe
+
+    def calibrated_observe(cameras=None, *, depth=False, video="frames"):
+        result = observe(cameras=cameras, depth=depth, video=video)
+        result.meta["cameras"] = calibration
+        result.extrinsic_cv = extrinsics
+        return result
+
+    client.observe = calibrated_observe
+
+    result = service.efe_observe(cameras=["wrist_cam"], depth=True)
+
+    assert result.data["camera_calibration"] == calibration
+    assert result.data["frame_extrinsics_cv"] == {
+        "wrist_cam": extrinsics["wrist_cam"].tolist()
+    }
+    dump_state(
+        client,
+        state,
+        command={},
+        result={},
+        elapsed_s=0.1,
+        frames=service.latest_frames(),
+        camera_geometry=service.latest_camera_geometry(),
+    )
+    view = view_env_state(-1, state=state)
+    assert view.data["state"]["camera_calibration"] == calibration
+    assert (
+        view.data["state"]["frame_extrinsics_cv"] == result.data["frame_extrinsics_cv"]
+    )
+
+
 def test_observe_depth_is_saved_as_an_artifact(tools, tmp_path):
     service, _ = tools
 

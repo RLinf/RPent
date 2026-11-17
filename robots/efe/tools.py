@@ -137,10 +137,18 @@ class EfeTools:
         # images the agent actually saw. A reset restarts the simulator step,
         # so the binding carries the episode index of the capture.
         self._frames: dict[str, str] = {}
+        self._camera_geometry: dict[str, Any] = {}
+        self._camera_geometry_episode = client.reset_calls
 
     def latest_frames(self) -> dict[str, str]:
         """Return the artifact names saved by the last observation."""
         return dict(self._frames)
+
+    def latest_camera_geometry(self) -> dict[str, Any]:
+        """Return calibration for the latest observation in this episode."""
+        if self._camera_geometry_episode != self.client.reset_calls:
+            return {}
+        return dict(self._camera_geometry)
 
     @tool(readonly=True)
     def efe_spec(self) -> ToolResult:
@@ -157,7 +165,7 @@ class EfeTools:
         depth: bool = False,
         resolution: Literal["full", "low"] = "full",
     ) -> ToolResult:
-        """Return current camera frames and proprioception. Does not move the robot or advance time.
+        """Return camera frames, calibration, and proprioception without moving the robot.
 
         Args:
             cameras: Camera names from efe_spec. Default: the task's default cameras.
@@ -190,10 +198,24 @@ class EfeTools:
             "image_downsample": factor,
             "proprio": proprio_map(self.client.spec, meta.get("proprio") or {}),
         }
+        camera_geometry: dict[str, Any] = {}
+        calibration = meta.get("cameras")
+        if isinstance(calibration, dict) and calibration:
+            camera_geometry["camera_calibration"] = calibration
+        extrinsics = getattr(result, "extrinsic_cv", None) or {}
+        frame_extrinsics = {
+            name: np.asarray(value, dtype=np.float64).tolist()
+            for name, value in extrinsics.items()
+        }
+        if frame_extrinsics:
+            camera_geometry["frame_extrinsics_cv"] = frame_extrinsics
+        data.update(camera_geometry)
         # Persist the full-resolution frames so a later view_env_state call,
         # or a post-run review, can inspect what the agent saw. ``resolution``
         # only affects the payload returned to the model.
         episode = self.client.reset_calls
+        self._camera_geometry = camera_geometry
+        self._camera_geometry_episode = episode
         frame_paths: dict[str, str] = {}
         self._frames = {}
         for name, frame in frames.items():
@@ -303,6 +325,8 @@ class EfeTools:
         # The new episode restarts at step 0. Earlier frames stay bound to the
         # records that captured them and must not attach to the new episode.
         self._frames = {}
+        self._camera_geometry = {}
+        self._camera_geometry_episode = self.client.reset_calls
         return ToolResult(
             data={
                 key: meta.get(key)
@@ -350,6 +374,7 @@ def dump_state(
     result: dict[str, Any],
     elapsed_s: float,
     frames: Mapping[str, str] | None = None,
+    camera_geometry: dict[str, Any] | None = None,
 ) -> StepRecord:
     """Record the current proprioception without requesting camera frames.
 
@@ -375,6 +400,7 @@ def dump_state(
         "cameras": sorted((client.spec.get("cameras") or {}).keys()),
         "frames": dict(frames or {}),
     }
+    state_data.update(camera_geometry or {})
     with state.record_step(
         state=state_data,
         command=command,

@@ -23,7 +23,7 @@ Harbor calls one task run a **trial**.
 
    .. grid-item-card:: Planners
 
-      CodexPlanner connects to your model API and selects the next tool call.
+      This adapter currently supports CodexPlanner. CodexPlanner connects to your model API and selects the next tool call.
 
    .. grid-item-card:: Tasks
 
@@ -72,12 +72,12 @@ Observation and Action
 ~~~~~~~~~~~~~~~~~~~~~~
 
 RPent provides two ways for the model to control the robot. **Skills** is the
-default: the model requests a tool-tip position with ``move_to_xyz`` or a
-gripper opening with ``set_gripper``. RPent converts these requests into robot
-joint commands. **Raw** lets the model send the task's native action values
-directly with ``efe_submit``. Start with the default; see `Compare Skills and Raw`_ for limits
-and comparison commands. If a robot's controls are unsupported by Skills,
-RPent automatically uses Raw instead.
+default. The model requests a tool pose with ``move_to_pose`` or a gripper
+opening with ``set_gripper``. It can omit orientation to keep the current one.
+RPent converts these requests into robot joint commands. **Raw** lets the model
+send the task's native action values directly with ``efe_submit``. Start with
+the default; see `Compare Skills and Raw`_ for limits and comparison commands.
+If a robot's controls are unsupported by Skills, RPent automatically uses Raw.
 
 .. list-table::
    :header-rows: 1
@@ -86,13 +86,20 @@ RPent automatically uses Raw instead.
    * - Item
      - Description
    * - Observation
-     - Camera RGB images, optional depth, robot joint positions, tool pose, gripper opening, and a description of the available controls.
+     - Camera RGB images, optional depth, camera calibration, robot joint
+       positions, tool pose, gripper opening, and a description of the controls.
    * - Action
-     - Skills requests tool-tip motion and gripper opening. Raw submits native action values in the order specified by the task.
+     - Skills requests tool position, optional tool orientation, and gripper
+       opening. Raw submits native action values in the task's specified order.
    * - Reward / success
      - EFE's verifier grades the robot's outcome. Read ``verifier/reward.json`` or the trial's ``result.json`` as described in `View Results`_.
    * - Task instruction
      - Harbor passes the task's original instruction to RPent.
+
+When the service provides calibration, ``efe_observe`` returns it in
+``camera_calibration``. It returns per-frame world-to-camera transforms in
+``frame_extrinsics_cv``. Use these values with the depth image when you need
+to relate a pixel to the world frame.
 
 Some tasks allow another attempt. For those tasks, the model can call
 ``efe_reset`` to abandon the current episode (one attempt), return to the same
@@ -101,7 +108,8 @@ initial scene, and spend one reset from the task's budget. When
 planner sessions: a session that ended early hands off by spending one reset,
 and the next session starts a fresh attempt. An episode the agent ends with
 ``efe_end_episode`` is graded as it stands and is not reset. Only the last
-episode is graded.
+episode is graded. This follows EFE's standard-mode reset budget rules in the
+`official protocol <https://github.com/mll-lab-nu/embodied-first-exam/blob/main/docs/protocol/standard_mode.md>`_.
 
 Other tasks withhold the success signal from the agent. For those tasks,
 RPent provides ``efe_end_episode`` so the model can declare that it has finished
@@ -317,7 +325,7 @@ Keep the model and execution budget the same; only the action tools change.
        ``view_env_state``
      - Same
    * - Action
-     - ``move_to_xyz``, ``set_gripper``
+     - ``move_to_pose``, ``set_gripper``
      - ``efe_submit``
    * - Conditional
      - ``efe_reset`` with a reset budget, ``efe_end_episode`` when success is hidden
@@ -325,12 +333,12 @@ Keep the model and execution budget the same; only the action tools change.
 
 The Skills configuration provides two high-level motion tools:
 
-- ``move_to_xyz(x, y, z)`` moves the tool tip toward a target in world
-  coordinates: it uses inverse kinematics (IK) to calculate joint positions,
-  sends short action sequences, and re-reads the tool position for corrections.
-  It stops when the position error is at most 1 cm, or earlier if it reaches the
-  iteration limit, the solver fails, or the task ends. It keeps the current
-  orientation, so the planner can reason in Cartesian space.
+- ``move_to_pose(x, y, z, orientation_wxyz=None)`` moves the tool tip to a world
+  position and, when supplied, a world orientation. The quaternion order is
+  ``w, x, y, z``. Omit the orientation to keep the current one. The skill uses
+  inverse kinematics (IK), sends short action chunks, and checks both position
+  and orientation error. It stops at 1 cm position error and 0.05 rad orientation
+  error, or earlier if the iteration limit, IK solver, or task ends the move.
 - ``set_gripper(opening)`` sets the gripper opening.
 
 The Raw configuration uses the service interface directly. ``efe_spec`` reports the
@@ -358,7 +366,7 @@ session registers.
      --yes \
      --jobs-dir "$RPENT_ROOT/logs/efe-raw"
 
-   # Skills: the Skills configuration, with move_to_xyz and set_gripper
+   # Skills: the Skills configuration, with move_to_pose and set_gripper
    PYTHONPATH="$RPENT_ROOT${PYTHONPATH:+:$PYTHONPATH}" \
    uv run --project "$EFE_ROOT" harbor run \
      --path "$EFE_TASK" \

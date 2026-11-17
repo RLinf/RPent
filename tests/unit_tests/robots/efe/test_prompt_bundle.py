@@ -36,8 +36,8 @@ def test_prompt_guidance_matches_the_run_configuration():
     default = _render()
     restricted = _render(restricted_shell=True, write_notes=True)
 
-    assert "move_to_xyz" in default
-    assert "move_to_xyz" not in _render(skills=False)
+    assert "move_to_pose" in default
+    assert "move_to_pose" not in _render(skills=False)
     assert "no network access" not in default
     assert "no network access" in restricted
     assert "notes-session-" not in default
@@ -49,7 +49,7 @@ def test_skill_guidance_follows_the_run_variables():
 
     text = format_prompt(system_prompt(variables), variables=variables)
 
-    assert "move_to_xyz" not in text
+    assert "move_to_pose" not in text
 
 
 def test_capabilities_follow_the_run_variables_for_the_generic_entry():
@@ -63,7 +63,7 @@ def test_capabilities_follow_the_run_variables_for_the_generic_entry():
     text = format_prompt(system_prompt(variables), variables=variables)
 
     assert "efe_submit" in text
-    assert "move_to_xyz" not in text
+    assert "move_to_pose" not in text
     assert "efe_reset" in text
     assert "efe_end_episode" in text
     assert "no reset" not in text

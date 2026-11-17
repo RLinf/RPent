@@ -1,7 +1,7 @@
 Embodied First Exam
 ===================
 
-使用 RPent 运行一个仿真机器人任务，再检查机器人是否完成了目标。本指南以不需要 GPU 的 AutoBio 实验室任务为例。你需要一台可运行 Docker 的 Linux 主机，以及模型 API 的访问权限。
+使用 RPent 运行一个仿真机器人任务，再检查机器人是否完成了目标。本指南以不需要 GPU 的 AutoBio 实验室任务为例。你需要一台可运行 Docker 的 Linux 主机，以及模型 API Key。
 
 概览
 ----
@@ -17,7 +17,7 @@ EFE（Embodied First Exam）是一组机器人任务，提供预先确定的场�
 
    .. grid-item-card:: 规划器
 
-      CodexPlanner 连接模型 API，选择下一次工具调用。
+      本接入目前只支持 CodexPlanner。它连接模型 API 并选择工具调用。
 
    .. grid-item-card:: 任务
 
@@ -55,7 +55,7 @@ Harbor 把 RPent 和仿真器放在不同容器中运行。RPent 通过 EFE 提�
 观测与动作
 ~~~~~~~~~~
 
-RPent 提供两种控制方式。默认使用 **Skills**：模型通过 ``move_to_xyz`` 指定工具末端要到达的位置，通过 ``set_gripper`` 指定夹爪开度，RPent 再把请求转换为关节控制指令。使用 **Raw** 时，模型通过 ``efe_submit`` 直接提交任务原生的动作数值。首次运行保留默认配置即可；适用范围与对照命令见 `对照 Skills 与 Raw`_。如果机器人的控制方式超出 Skills 的支持范围，RPent 会自动改用 Raw。
+RPent 提供两种控制方式。默认使用 **Skills**：模型通过 ``move_to_pose`` 指定工具末端位置和可选朝向，再用 ``set_gripper`` 指定夹爪开度。省略朝向时，技能保持当前朝向。RPent 会把这些请求转换为关节控制指令。使用 **Raw** 时，模型通过 ``efe_submit`` 直接提交任务原生的动作数值。首次运行保留默认配置即可；适用范围与对照命令见 `对照 Skills 与 Raw`_。如果机器人的控制方式超出 Skills 的支持范围，RPent 会自动改用 Raw。
 
 .. list-table::
    :header-rows: 1
@@ -64,15 +64,19 @@ RPent 提供两种控制方式。默认使用 **Skills**：模型通过 ``move_t
    * - 项目
      - 说明
    * - 观测
-     - 相机 RGB 图像、可选深度图、关节位置、工具末端位姿、夹爪开度，以及可用控制指令的说明。
+     - 相机 RGB 图像、可选深度图、相机标定信息、关节位置、工具末端位姿、夹爪开度，以及可用控制指令的说明。
    * - 动作
-     - Skills 指定末端移动和夹爪开度；Raw 按任务规定的顺序提交原生动作数值。
+     - Skills 指定末端位置、可选朝向和夹爪开度；Raw 按任务规定的顺序提交原生动作数值。
    * - 奖励与成功判定
      - EFE 的评分程序检查机器人的实际结果。读取 ``verifier/reward.json`` 或 Trial 的 ``result.json``，具体见 `查看结果`_。
    * - 任务指令
      - Harbor 将任务原始指令传给 RPent。
 
-部分任务允许重新尝试。这类任务提供 ``efe_reset`` 工具：放弃当前 Episode（一次尝试），回到相同的初始场景，并消耗一次任务允许的重置次数。当 ``explore_sessions`` 大于 1 时，RPent 也会在规划会话之间自行重置：提前结束的会话交接时消耗一次重置，下一个会话从新的尝试开始。由 ``efe_end_episode`` 主动结束的 Episode 直接参与评分，不会被重置。只有最后一个 Episode 参与评分。
+如果服务提供相机标定信息，``efe_observe`` 会通过 ``camera_calibration``
+返回这些信息，并通过 ``frame_extrinsics_cv`` 返回逐帧的世界到相机变换。
+需要把像素位置与深度换算到世界坐标时，可使用这些数据。
+
+部分任务允许重新尝试。这类任务提供 ``efe_reset`` 工具：放弃当前 Episode（一次尝试），回到相同的初始场景，并消耗一次任务允许的重置次数。当 ``explore_sessions`` 大于 1 时，RPent 也会在规划会话之间自行重置：提前结束的会话交接时消耗一次重置，下一个会话从新的尝试开始。由 ``efe_end_episode`` 主动结束的 Episode 直接参与评分，不会被重置。只有最后一个 Episode 参与评分。具体规则见 EFE `standard-mode 协议 <https://github.com/mll-lab-nu/embodied-first-exam/blob/main/docs/protocol/standard_mode.md>`_。
 
 另一些任务不向 Agent 返回是否成功的信号。对这类任务，RPent 提供 ``efe_end_episode`` 工具，让模型主动结束动作执行，再由评分程序检查结束时的状态。调用这个工具不代表成功；目标尚未完成就结束，可能被判定为失败。
 
@@ -220,7 +224,7 @@ RPent 提供两种控制方式。默认使用 **Skills**：模型通过 ``move_t
        ``view_env_state``
      - 同左
    * - 动作
-     - ``move_to_xyz``、``set_gripper``
+     - ``move_to_pose``、``set_gripper``
      - ``efe_submit``
    * - 条件工具
      - 任务有 Reset 预算时注册 ``efe_reset``；隐藏成功信号时注册 ``efe_end_episode``
@@ -228,7 +232,7 @@ RPent 提供两种控制方式。默认使用 **Skills**：模型通过 ``move_t
 
 默认组用两个高层技能代替直接提交关节目标：
 
-- ``move_to_xyz(x, y, z)`` 将末端移动到世界坐标系中的目标位置：用逆运动学（IK）计算关节位置、提交短动作块，再读回末端位置进行修正。位置误差不超过 1 cm 时停止；也可能因迭代上限、求解失败或任务结束而提前停止。它保持当前姿态，Planner 因此可以在笛卡尔空间推理。
+- ``move_to_pose(x, y, z, orientation_wxyz=None)`` 将末端移动到世界坐标系中的目标位置，并可选指定朝向。四元数顺序为 ``w, x, y, z``；省略朝向时保持当前朝向。技能用逆运动学（IK）计算关节位置、提交短动作块并读回位置和朝向进行修正；位置误差不超过 1 cm、朝向误差不超过 0.05 rad 时停止，也可能因迭代上限、求解失败或任务结束而提前停止。
 - ``set_gripper(opening)`` 设置夹爪开合。
 
 Raw 组直接使用服务接口：``efe_spec`` 返回每个动作向量的列含义和顺序（即动作布局），Planner 再按该布局用 ``efe_submit`` 发送关节目标动作块。
@@ -248,7 +252,7 @@ Raw 组直接使用服务接口：``efe_spec`` 返回每个动作向量的列含
      --yes \
      --jobs-dir "$RPENT_ROOT/logs/efe-raw"
 
-   # Skills：默认组，注册 move_to_xyz 和 set_gripper
+   # Skills：默认组，注册 move_to_pose 和 set_gripper
    PYTHONPATH="$RPENT_ROOT${PYTHONPATH:+:$PYTHONPATH}" \
    uv run --project "$EFE_ROOT" harbor run \
      --path "$EFE_TASK" \

@@ -16,6 +16,8 @@
 
 import copy
 import sys
+import threading
+import time
 from types import SimpleNamespace
 
 import numpy as np
@@ -65,6 +67,7 @@ class FakeRobot:
         self.submit_calls = []
         self.observe_calls = []
         self.post_calls = []
+        self.post_timeouts = []
         self.post_result = SimpleNamespace(
             meta={"episode": 2, "resets_left": 4, "done": False}
         )
@@ -75,6 +78,7 @@ class FakeRobot:
 
     def _post(self, path, meta, parts, timeout):
         self.post_calls.append((path, meta, parts))
+        self.post_timeouts.append(timeout)
         return self.post_result
 
     def spec(self):
@@ -266,6 +270,37 @@ def test_status_recognizes_a_direct_agent_finish(robot):
     assert client.reset_calls == 0
 
 
+def test_service_call_does_not_block_past_the_trial_deadline():
+    started = threading.Event()
+    release = threading.Event()
+
+    class SlowRobot(FakeRobot):
+        def status(self):
+            self.status_calls += 1
+            started.set()
+            release.wait()
+            return self.status_result
+
+    robot = SlowRobot()
+    client = EfeEnvClient(robot=robot)
+    client.set_deadline(time.monotonic() + 0.05)
+    try:
+        with pytest.raises(TimeoutError, match="exceeded the remaining trial budget"):
+            client.status()
+        assert started.is_set()
+    finally:
+        release.set()
+
+
+def test_expired_trial_deadline_skips_the_service_call(client, robot):
+    client.set_deadline(time.monotonic() - 0.01)
+
+    with pytest.raises(TimeoutError, match="budget is exhausted"):
+        client.status()
+
+    assert robot.status_calls == 0
+
+
 def test_status_keeps_the_last_observation(client, robot):
     robot.observe_result = _result(proprio={"layout": [], "now": []}, step=4)
     client.observe()
@@ -396,6 +431,32 @@ def test_reset_starts_a_new_episode(robot):
     assert client.done is False
 
 
+def test_reset_http_timeout_is_limited_by_the_trial_deadline(robot):
+    spec = {**_SPEC, "budget": {"reset": 5}}
+    client = EfeEnvClient(robot=FakeRobot(spec))
+    robot = client._robot
+    client.set_deadline(time.monotonic() + 2.0)
+
+    client.reset()
+
+    assert 0 < robot.post_timeouts[0] <= 2.0
+
+
+def test_wrapped_rcb_post_accepts_keyword_timeout(robot):
+    class PostingRobot(FakeRobot):
+        def submit(self, action_type, actions, **kwargs):
+            self._post("/submit", {}, [], timeout=1800)
+            return super().submit(action_type, actions, **kwargs)
+
+    robot = PostingRobot()
+    client = EfeEnvClient(robot=robot)
+    client.set_deadline(time.monotonic() + 2.0)
+
+    client.submit("joint_position", _actions(1))
+
+    assert 0 < robot.post_timeouts[0] <= 2.0
+
+
 def test_finish_needs_agent_ended_episodes(client):
     with pytest.raises(ValueError, match="agent-ended"):
         client.finish()
@@ -407,7 +468,7 @@ def test_finish_ends_a_hidden_success_episode(monkeypatch):
     client = EfeEnvClient(robot=robot)
     calls = []
 
-    def fake_post(url, payload):
+    def fake_post(url, payload, timeout_s=60):
         calls.append((url, payload))
         return {"ok": True, "done": True, "reason": "finished"}
 
@@ -432,7 +493,7 @@ def test_finish_falls_back_to_the_configured_base_url(monkeypatch):
     client = EfeEnvClient(base_url="http://sim:8000/")
     calls = []
 
-    def fake_post(url, payload):
+    def fake_post(url, payload, timeout_s=60):
         calls.append((url, payload))
         return {"ok": True, "done": True, "reason": "finished"}
 

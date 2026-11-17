@@ -36,7 +36,7 @@ from rpent.tools import ToolResult, tool
 
 _JOINT_ACTION = "joint_position"
 _GRIPPER = "gripper"
-SKILL_NAMES = ("move_to_xyz", "set_gripper")
+SKILL_NAMES = ("move_to_pose", "set_gripper")
 # A skill chunk stays short so the loop can re-read proprioception often. The
 # service spec decides the real bound; this is only the preferred duration.
 _PREFERRED_CHUNK_S = 0.2
@@ -46,6 +46,7 @@ _PROTOCOL_MAX_DT_S = 0.5
 # opening. Ten percent of the declared travel keeps the check meaningful.
 _GRIPPER_TOLERANCE_FRACTION = 0.1
 _GRIPPER_TOLERANCE_FLOOR_M = 0.002
+_ORIENTATION_TOLERANCE_RAD = 0.05
 
 
 def chunk_duration(spec: dict[str, Any], chunk_s: float | None = None) -> float:
@@ -122,6 +123,25 @@ def _proprio_joint(proprio: dict[str, float], name: str) -> float:
     raise ValueError(f"Proprioception has no joint {name!r}")
 
 
+def _unit_quaternion(values: Any, *, name: str) -> np.ndarray:
+    """Validate and normalize one quaternion in wxyz order."""
+    quaternion = np.asarray(values, dtype=np.float64)
+    if quaternion.shape != (4,) or not np.isfinite(quaternion).all():
+        raise ValueError(f"{name} must be four finite values in wxyz order")
+    norm = float(np.linalg.norm(quaternion))
+    if norm <= 1e-12:
+        raise ValueError(f"{name} must not be the zero quaternion")
+    return quaternion / norm
+
+
+def _quaternion_error_rad(first: Any, second: Any) -> float:
+    """Return the shortest angular distance between two wxyz quaternions."""
+    first_q = _unit_quaternion(first, name="Current orientation")
+    second_q = _unit_quaternion(second, name="Target orientation")
+    cosine = float(np.clip(abs(np.dot(first_q, second_q)), 0.0, 1.0))
+    return 2.0 * math.acos(cosine)
+
+
 def default_gripper_opening(spec: dict[str, Any]) -> float:
     """Return the midpoint of the declared travel, or ``0`` when it declares none."""
     low, high = _gripper_bounds(spec)
@@ -154,7 +174,7 @@ def joint_layout(spec: dict[str, Any]) -> tuple[list[str], list[str]]:
     action = (spec.get("action_types") or {}).get(_JOINT_ACTION)
     if not joint_names or action is None:
         raise ValueError(
-            f"move_to_xyz needs kinematics joint names and a {_JOINT_ACTION!r} action"
+            f"move_to_pose needs kinematics joint names and a {_JOINT_ACTION!r} action"
         )
     layout = list(action["layout"])
     # The kinematics and the action layout may spell the same joint with or
@@ -163,12 +183,12 @@ def joint_layout(spec: dict[str, Any]) -> tuple[list[str], list[str]]:
     leading = [name.removeprefix("q_") for name in layout[: len(columns)]]
     if leading != columns:
         raise ValueError(
-            "move_to_xyz needs joint_position columns in kinematics order; "
+            "move_to_pose needs joint_position columns in kinematics order; "
             f"got {layout} for joints {joint_names}"
         )
     if layout[len(columns) :] != [_GRIPPER]:
         raise ValueError(
-            f"move_to_xyz needs one trailing {_GRIPPER!r} column; got {layout}"
+            f"move_to_pose needs one trailing {_GRIPPER!r} column; got {layout}"
         )
     return joint_names, layout
 
@@ -202,7 +222,7 @@ def skill_parameters(
     tcp = next((frame for frame in tcp_frames if frame in ik_targets), None)
     if tcp is None:
         raise ValueError(
-            "move_to_xyz needs a tool frame the service solves IK for; "
+            "move_to_pose needs a tool frame the service solves IK for; "
             f"tcp_frames={tcp_frames}, ik_targets={sorted(ik_targets)}"
         )
     _validate_proprio_layout(spec, tcp, joint_names)
@@ -233,7 +253,7 @@ def _validate_proprio_layout(
     missing += [name for name in joint_names if name.removeprefix("q_") not in bare]
     if missing:
         raise ValueError(
-            "move_to_xyz needs proprioception columns the task does not "
+            "move_to_pose needs proprioception columns the task does not "
             f"declare: {sorted(set(missing))}"
         )
 
@@ -278,45 +298,85 @@ class EfeSkills:
         self.tcp = parameters.tcp
 
     @tool
-    def move_to_xyz(
+    def move_to_pose(
         self,
         x: float,
         y: float,
         z: float,
+        orientation_wxyz: Annotated[
+            list[float] | None,
+            Field(
+                min_length=4,
+                max_length=4,
+                description="Target world orientation [qw, qx, qy, qz]; omit to keep the current orientation.",
+            ),
+        ] = None,
         gripper: float | None = None,
         max_iterations: Annotated[int, Field(ge=1, le=50)] = 20,
     ) -> ToolResult:
-        """Move the tool frame to a world position in metres, keeping its orientation.
-
-        The skill closes the loop: it reads proprioception, solves IK for a
-        bounded step, submits a short joint chunk, and repeats until the
-        position error is within tolerance. It stops early when the episode
-        ends. An explicit ``gripper`` target is applied even when the tool is
-        already at the position. The EFE verifier still decides task success.
+        """Move the tool frame to a world position and optional orientation.
 
         Args:
             x: Target world x in metres.
             y: Target world y in metres.
             z: Target world z in metres.
+            orientation_wxyz: Target world quaternion [qw, qx, qy, qz].
+                Default: keep the current orientation.
             gripper: Finger opening in metres. Default: keep the current command.
             max_iterations: Bounded correction steps.
         """
-        target = np.asarray([x, y, z], dtype=np.float64)
+        orientation = (
+            None
+            if orientation_wxyz is None
+            else _unit_quaternion(orientation_wxyz, name="Target orientation")
+        )
+        return self._move_to_target(
+            [x, y, z],
+            target_orientation=orientation,
+            gripper=gripper,
+            max_iterations=max_iterations,
+        )
+
+    def _move_to_target(
+        self,
+        target_position: list[float],
+        *,
+        target_orientation: np.ndarray | None,
+        gripper: float | None,
+        max_iterations: int,
+    ) -> ToolResult:
+        """Close the loop on a Cartesian position and optional orientation."""
+        target = np.asarray(target_position, dtype=np.float64)
         if not np.isfinite(target).all():
             raise ValueError(f"Target must be finite, got {target.tolist()}")
         submit_calls = 0
         control_steps = 0
         position = None
-        error = None
+        current_orientation: np.ndarray | None = None
+        position_error: np.ndarray | None = None
+        orientation_error: float | None = None
         for iteration in range(1, int(max_iterations) + 1):
             self._check_cancelled()
             if self.client.done:
                 break
             current = self._current_state()
             position = current["position"]
-            error = target - position
-            distance = float(np.linalg.norm(error))
-            if distance <= self.tolerance_m:
+            current_orientation = _unit_quaternion(
+                current["orientation"], name="Current orientation"
+            )
+            if target_orientation is None:
+                # Capture the initial orientation once, then hold it during the
+                # positional move.
+                target_orientation = current_orientation
+            position_error = target - position
+            distance = float(np.linalg.norm(position_error))
+            orientation_error = _quaternion_error_rad(
+                current_orientation, target_orientation
+            )
+            if (
+                distance <= self.tolerance_m
+                and orientation_error <= _ORIENTATION_TOLERANCE_RAD
+            ):
                 # The arm holds its pose, but a requested opening still runs:
                 # otherwise the same argument would apply or not depending on
                 # the starting position error.
@@ -328,8 +388,12 @@ class EfeSkills:
                     submit_calls += 1
                     control_steps += int(result.meta.get("control_steps_chunk") or 0)
                 break
-            step = error * min(1.0, self.max_step_m / distance)
-            pose = [*(position + step), *current["orientation"]]
+            step = (
+                position_error * min(1.0, self.max_step_m / distance)
+                if distance > 0
+                else np.zeros(3, dtype=np.float64)
+            )
+            pose = [*(position + step), *target_orientation]
             solution = self.client.ik({self.tcp: pose}, seed=current["joints"])
             if not solution.get("ok"):
                 detail = solution.get("error") or solution
@@ -338,23 +402,44 @@ class EfeSkills:
                         "error": f"IK did not converge for {pose[:3]}: {detail}",
                         "tcp": self.tcp,
                         "target": target.tolist(),
+                        "target_orientation_wxyz": target_orientation.tolist(),
                         "position": position.tolist(),
                         "position_error_m": distance,
                         "iterations": iteration - 1,
                     }
                 )
-            joint_error = solution.get("error") or {}
-            target_error = joint_error.get(self.tcp) or {}
-            position_error = target_error.get("pos_m")
-            if position_error is not None and float(position_error) > self.tolerance_m:
+            target_error = (solution.get("error") or {}).get(self.tcp) or {}
+            ik_position_error = target_error.get("pos_m")
+            if (
+                ik_position_error is not None
+                and float(ik_position_error) > self.tolerance_m
+            ):
                 return ToolResult(
                     data={
                         "error": (
                             f"Target is outside the reachable workspace: "
-                            f"IK error {float(position_error):.4f} m"
+                            f"IK error {float(ik_position_error):.4f} m"
                         ),
                         "tcp": self.tcp,
                         "target": target.tolist(),
+                        "ik_error": target_error,
+                        "iterations": iteration - 1,
+                    }
+                )
+            ik_orientation_error = target_error.get("rot_rad")
+            if (
+                ik_orientation_error is not None
+                and float(ik_orientation_error) > _ORIENTATION_TOLERANCE_RAD
+            ):
+                return ToolResult(
+                    data={
+                        "error": (
+                            "Target orientation is outside the reachable workspace: "
+                            f"IK error {float(ik_orientation_error):.4f} rad"
+                        ),
+                        "tcp": self.tcp,
+                        "target": target.tolist(),
+                        "target_orientation_wxyz": target_orientation.tolist(),
                         "ik_error": target_error,
                         "iterations": iteration - 1,
                     }
@@ -373,7 +458,15 @@ class EfeSkills:
         if self.client.last_meta.get("proprio"):
             current = self._state_from_meta(self.client.last_meta)
             position = current["position"]
-            error = target - position
+            current_orientation = _unit_quaternion(
+                current["orientation"], name="Current orientation"
+            )
+            position_error = target - position
+            if target_orientation is None:
+                target_orientation = current_orientation
+            orientation_error = _quaternion_error_rad(
+                current_orientation, target_orientation
+            )
         if position is None:
             if self.client.done:
                 # ``observe`` refuses a finished episode, and the end may have
@@ -384,6 +477,11 @@ class EfeSkills:
                     "ok": ended_in_success,
                     "tcp": self.tcp,
                     "target": target.tolist(),
+                    "target_orientation_wxyz": (
+                        None
+                        if target_orientation is None
+                        else target_orientation.tolist()
+                    ),
                     "submit_calls": submit_calls,
                     "control_steps": control_steps,
                     "done": True,
@@ -397,34 +495,54 @@ class EfeSkills:
                 return ToolResult(data=end_data)
             current = self._current_state()
             position = current["position"]
-            error = target - position
+            current_orientation = _unit_quaternion(
+                current["orientation"], name="Current orientation"
+            )
+            position_error = target - position
+            if target_orientation is None:
+                target_orientation = current_orientation
+            orientation_error = _quaternion_error_rad(
+                current_orientation, target_orientation
+            )
         # Reaching the pose is not the only way a move succeeds: the chunk that
         # crosses the goal can end the episode before the arm arrives within
         # tolerance. Report that as success instead of an error.
-        within_tolerance = bool(np.linalg.norm(error) <= self.tolerance_m)
+        distance = float(np.linalg.norm(position_error))
+        within_position_tolerance = distance <= self.tolerance_m
+        within_orientation_tolerance = (
+            orientation_error is not None
+            and orientation_error <= _ORIENTATION_TOLERANCE_RAD
+        )
         ended_in_success = (
             self.client.done and "success" in (self.client.done_reason or "").lower()
         )
         data: dict[str, Any] = {
-            "ok": within_tolerance or ended_in_success,
+            "ok": (within_position_tolerance and within_orientation_tolerance)
+            or ended_in_success,
             "tcp": self.tcp,
             "target": target.tolist(),
+            "target_orientation_wxyz": target_orientation.tolist(),
             "position": position.tolist(),
-            "position_error_m": float(np.linalg.norm(error)),
+            "orientation_wxyz": current_orientation.tolist(),
+            "position_error_m": distance,
+            "orientation_error_rad": orientation_error,
             "tolerance_m": self.tolerance_m,
+            "orientation_tolerance_rad": _ORIENTATION_TOLERANCE_RAD,
             "submit_calls": submit_calls,
             "control_steps": control_steps,
             "done": self.client.done,
             "reason": self.client.done_reason,
         }
-        if not within_tolerance:
+        if not within_position_tolerance or not within_orientation_tolerance:
             data["note"] = (
-                f"the move stopped {data['position_error_m']:.4f} m from the target"
+                f"the move stopped {distance:.4f} m and "
+                f"{orientation_error or 0.0:.4f} rad from the target pose"
                 + (" after the episode succeeded" if ended_in_success else "")
             )
         if not data["ok"]:
             data["error"] = (
-                f"Move stopped {data['position_error_m']:.4f} m from the target "
+                f"Move stopped {distance:.4f} m and "
+                f"{orientation_error or 0.0:.4f} rad from the target pose "
                 f"after {submit_calls} chunks"
             )
         return ToolResult(data=data)

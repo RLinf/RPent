@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""move_to_xyz closes the loop on public proprioception alone."""
+"""move_to_pose closes the loop on public proprioception alone."""
 
 from __future__ import annotations
 
@@ -31,6 +31,7 @@ class MovingClient(FakeEfeClient):
         self.position = np.array([0.0, 0.0, 0.3])
         self.orientation = (1.0, 0.0, 0.0, 0.0)
         self.pending: np.ndarray | None = None
+        self.pending_orientation: tuple[float, ...] | None = None
         self.ik_calls = 0
         self.ik_response: dict | None = None
         self.last_meta = {"proprio": proprio()}
@@ -49,6 +50,7 @@ class MovingClient(FakeEfeClient):
         if self.ik_response is not None:
             return self.ik_response
         self.pending = np.asarray(targets["tcp"][:3], dtype=np.float64)
+        self.pending_orientation = tuple(targets["tcp"][3:])
         return {
             "ok": True,
             "q": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
@@ -60,6 +62,13 @@ class MovingClient(FakeEfeClient):
         if self.pending is not None:
             self.position = self.pending
             self.pending = None
+        if self.pending_orientation is not None:
+            self.orientation = self.pending_orientation
+            self.pending_orientation = None
+        result.meta["proprio"] = proprio(
+            position=tuple(self.position), quaternion=self.orientation
+        )
+        self.last_meta = result.meta
         return result
 
 
@@ -93,10 +102,10 @@ def test_joint_layout_ignores_the_q_prefix_on_either_side():
     assert joint_names == [name.removeprefix("q_") for name in joints]
 
 
-def test_move_to_xyz_reaches_a_target_in_bounded_steps(skills):
+def test_move_to_pose_reaches_a_target_in_bounded_steps(skills):
     service, client = skills
 
-    result = service.move_to_xyz(0.0, 0.035, 0.3)
+    result = service.move_to_pose(0.0, 0.035, 0.3)
 
     assert not result.is_error, result.data
     assert result.data["ok"] is True
@@ -108,38 +117,53 @@ def test_move_to_xyz_reaches_a_target_in_bounded_steps(skills):
     assert all(request["video"] == "none" for request in client.observe_requests)
 
 
-def test_move_to_xyz_does_nothing_when_already_at_the_target(skills):
+def test_move_to_pose_rotates_the_tool_at_a_fixed_position(skills):
+    service, client = skills
+    half = np.sqrt(0.5)
+
+    result = service.move_to_pose(
+        0.0, 0.0, 0.3, orientation_wxyz=[half, 0.0, 0.0, half]
+    )
+
+    assert result.data["ok"] is True
+    assert client.ik_calls == 1
+    assert client.submit_calls == 1
+    assert result.data["orientation_error_rad"] == pytest.approx(0.0)
+    assert client.orientation == pytest.approx((half, 0.0, 0.0, half))
+
+
+def test_move_to_pose_does_nothing_when_already_at_the_target(skills):
     service, client = skills
 
-    result = service.move_to_xyz(0.0, 0.0, 0.3)
+    result = service.move_to_pose(0.0, 0.0, 0.3)
 
     assert result.data["ok"] is True
     assert client.submit_calls == 0
 
 
-def test_move_to_xyz_applies_a_gripper_target_when_already_at_the_position(skills):
+def test_move_to_pose_applies_a_gripper_target_when_already_at_the_position(skills):
     service, client = skills
 
-    result = service.move_to_xyz(0.0, 0.0, 0.3, gripper=0.005)
+    result = service.move_to_pose(0.0, 0.0, 0.3, gripper=0.005)
 
     assert result.data["ok"] is True
     assert result.data["submit_calls"] == 1
     assert client.submitted[0][1][0][-1] == pytest.approx(0.005)
 
 
-def test_move_to_xyz_skips_a_gripper_target_that_matches_the_command(skills):
+def test_move_to_pose_skips_a_gripper_target_that_matches_the_command(skills):
     service, client = skills
 
-    result = service.move_to_xyz(0.0, 0.0, 0.3, gripper=0.037)
+    result = service.move_to_pose(0.0, 0.0, 0.3, gripper=0.037)
 
     assert result.data["ok"] is True
     assert client.submit_calls == 0
 
 
-def test_move_to_xyz_keeps_an_explicit_gripper_command(skills):
+def test_move_to_pose_keeps_an_explicit_gripper_command(skills):
     service, client = skills
 
-    service.move_to_xyz(0.0, 0.02, 0.3, gripper=0.005)
+    service.move_to_pose(0.0, 0.02, 0.3, gripper=0.005)
 
     assert client.submitted[0][1][0][-1] == pytest.approx(0.005)
 
@@ -154,7 +178,7 @@ def test_unreachable_target_is_reported_without_submitting():
     }
     service = EfeSkills(client=client, check_cancelled=lambda: None)
 
-    result = service.move_to_xyz(10.0, 0.0, 0.0)
+    result = service.move_to_pose(10.0, 0.0, 0.0)
 
     assert result.is_error
     assert "reachable workspace" in result.data["error"]
@@ -166,7 +190,7 @@ def test_failed_ik_is_reported_without_submitting():
     client.ik_response = {"ok": False, "error": "no solution"}
     service = EfeSkills(client=client, check_cancelled=lambda: None)
 
-    result = service.move_to_xyz(0.0, 0.1, 0.0)
+    result = service.move_to_pose(0.0, 0.1, 0.0)
 
     assert result.is_error
     assert "IK did not converge" in result.data["error"]
@@ -178,7 +202,7 @@ def test_move_stops_when_the_episode_ends(skills):
     client.done = True
     client.done_reason = "success"
 
-    result = service.move_to_xyz(0.0, 0.1, 0.0)
+    result = service.move_to_pose(0.0, 0.1, 0.0)
 
     assert result.data["done"] is True
     assert result.data["submit_calls"] == 0
@@ -190,7 +214,7 @@ def test_move_reports_the_end_without_observing_a_finished_episode(skills):
     client.done_reason = "failed"
     client.last_meta = {}
 
-    result = service.move_to_xyz(0.0, 0.1, 0.0)
+    result = service.move_to_pose(0.0, 0.1, 0.0)
 
     assert client.observe_calls == 0
     assert result.data["ok"] is False
@@ -204,7 +228,7 @@ def test_chunk_duration_follows_a_control_rate_the_default_does_not_fit():
     client.spec["control_hz"] = 24.0
     service = EfeSkills(client=client, check_cancelled=lambda: None)
 
-    service.move_to_xyz(0.0, 0.0, 0.32)
+    service.move_to_pose(0.0, 0.0, 0.32)
 
     assert client.submitted
     for _, _, dt in client.submitted:
@@ -319,7 +343,7 @@ def test_a_task_with_no_declared_gripper_travel_keeps_the_skills():
     service = EfeSkills(client=client, check_cancelled=lambda: None)
 
     assert service.gripper_tolerance_m > 0
-    assert service.move_to_xyz(0.0, 0.0, 0.3).data["ok"] is True
+    assert service.move_to_pose(0.0, 0.0, 0.3).data["ok"] is True
 
 
 def test_a_null_gripper_limit_keeps_the_skills():
@@ -363,7 +387,7 @@ def test_q_prefixed_joints_are_read_from_bare_proprioception():
 
     service = EfeSkills(client=client, check_cancelled=lambda: None)
 
-    result = service.move_to_xyz(0.0, 0.035, 0.3)
+    result = service.move_to_pose(0.0, 0.035, 0.3)
 
     assert not result.is_error, result.data
     assert result.data["ok"] is True
@@ -386,7 +410,7 @@ def test_an_episode_that_succeeds_mid_move_is_not_an_error():
 
     service = EfeSkills(client=GoalClient(), check_cancelled=lambda: None)
 
-    result = service.move_to_xyz(0.0, 0.09, 0.3)
+    result = service.move_to_pose(0.0, 0.09, 0.3)
 
     assert result.data["ok"] is True
     assert result.is_error is False
@@ -400,7 +424,7 @@ def test_in_place_gripper_move_uses_the_gripper_tolerance(skills):
     # Half a tolerance away from the command the proprioception already reports.
     near = 0.037 - service.gripper_tolerance_m / 2
 
-    result = service.move_to_xyz(0.0, 0.0, 0.3, gripper=near)
+    result = service.move_to_pose(0.0, 0.0, 0.3, gripper=near)
 
     assert result.data["ok"] is True
     assert client.submit_calls == 0

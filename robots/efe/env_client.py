@@ -39,8 +39,11 @@ from __future__ import annotations
 
 import json
 import math
+import threading
+import time
 import urllib.error
 import urllib.request
+from collections.abc import Callable
 from typing import Any
 
 import numpy as np
@@ -87,6 +90,13 @@ class EfeEnvClient:
 
             robot = Robot(base_url, timeout=connect_timeout_s)
         self._robot = robot
+        self._deadline: float | None = None
+        self._robot_post = getattr(robot, "_post", None)
+        if callable(self._robot_post):
+            # rcb_client's action methods use fixed 600–1800 s HTTP read
+            # timeouts. Clamp those requests too, so a nearly expired trial
+            # does not leave the EFE service executing a long chunk.
+            robot._post = self._post_with_deadline
         client_base = getattr(robot, "base", None)
         resolved_base = client_base or base_url
         self._base_url = resolved_base.rstrip("/") if resolved_base else None
@@ -134,6 +144,17 @@ class EfeEnvClient:
             and self._done
             and (self.done_reason or "").strip().lower() == "finished"
         )
+
+    def set_deadline(self, deadline: float | None) -> None:
+        """Set the monotonic deadline for service calls in this trial."""
+        self._deadline = deadline
+
+    @property
+    def remaining_s(self) -> float | None:
+        """Seconds remaining in the trial, or ``None`` when unbounded."""
+        if self._deadline is None:
+            return None
+        return self._deadline - time.monotonic()
 
     @property
     def success_hidden(self) -> bool:
@@ -184,7 +205,8 @@ class EfeEnvClient:
         """
         self._raise_if_done("observe")
         cameras = self._validated_cameras(cameras)
-        result = self._robot.get_obs(
+        result = self._bounded_call(
+            self._robot.get_obs,
             cameras=cameras,
             seconds=0,
             depth=True if depth else None,
@@ -223,7 +245,8 @@ class EfeEnvClient:
         resolved_dt = (
             None if action_type == _DONE_ACTION else self._resolve_dt(dt, len(rows))
         )
-        result = self._robot.submit(
+        result = self._bounded_call(
+            self._robot.submit,
             action_type,
             rows,
             dt=resolved_dt,
@@ -237,7 +260,7 @@ class EfeEnvClient:
 
     def status(self) -> dict[str, Any]:
         """Return the service's call, step, and episode counters."""
-        status = self._robot.status()
+        status = self._bounded_call(self._robot.status)
         # Shell code can call rcb_client directly in Codex's full-access mode.
         # At a session boundary, the service snapshot must replace our local
         # state, including a prior done=True after an external reset.
@@ -253,7 +276,14 @@ class EfeEnvClient:
         """
         if not math.isfinite(timeout_s) or timeout_s <= 0:
             raise ValueError(f"timeout_s must be positive, got {timeout_s}")
-        status = self._robot.wait_ready(timeout=timeout_s)
+        remaining = self.remaining_s
+        if remaining is not None:
+            if remaining <= 0:
+                raise TimeoutError(
+                    "The trial budget is exhausted; no further service call can run."
+                )
+            timeout_s = min(timeout_s, remaining)
+        status = self._bounded_call(self._robot.wait_ready, timeout=timeout_s)
         self._record_state(status)
         return status
 
@@ -275,7 +305,9 @@ class EfeEnvClient:
         meta: dict[str, Any] = {"video": "none"}
         if cameras is not None:
             meta["cameras"] = list(cameras)
-        result = self._service_post("/reset", meta, [])
+        result = self._bounded_call(
+            self._service_post, "/reset", meta, [], _SERVICE_POST_TIMEOUT_S
+        )
         self.reset_calls += 1
         self._done = False
         self.done_reason = None
@@ -300,7 +332,11 @@ class EfeEnvClient:
             )
         if self._base_url is None:
             raise RuntimeError("The service client has no base URL")
-        status = self._post_json(f"{self._base_url}/finish", {})
+        remaining = self.remaining_s
+        timeout_s = 60.0 if remaining is None else min(60.0, remaining)
+        status = self._bounded_call(
+            self._post_json, f"{self._base_url}/finish", {}, timeout_s
+        )
         self.finish_calls += 1
         self._done = True
         self.done_reason = status.get("reason") or "finished"
@@ -347,7 +383,46 @@ class EfeEnvClient:
                 )
             if not np.isfinite(seed_array).all():
                 raise ValueError("IK seed has non-finite values")
-        return self._robot.ik(targets, seed=None if seed is None else list(seed))
+        return self._bounded_call(
+            self._robot.ik, targets, seed=None if seed is None else list(seed)
+        )
+
+    def _bounded_call(
+        self, function: Callable[..., Any], *args: Any, **kwargs: Any
+    ) -> Any:
+        """Stop waiting for a service call when the trial deadline expires.
+
+        Requests that time out may still have reached the service. A timed-out
+        write is therefore uncertain and must not be retried automatically.
+        The runner reads service status before it starts another session.
+        """
+        remaining = self.remaining_s
+        if remaining is None:
+            return function(*args, **kwargs)
+        if remaining <= 0:
+            raise TimeoutError(
+                "The trial budget is exhausted; no further service call can run."
+            )
+
+        outcome: dict[str, Any] = {}
+
+        def invoke() -> None:
+            try:
+                outcome["value"] = function(*args, **kwargs)
+            except BaseException as exc:  # re-raised in the calling thread
+                outcome["error"] = exc
+
+        worker = threading.Thread(target=invoke, daemon=True)
+        worker.start()
+        worker.join(remaining)
+        if worker.is_alive():
+            raise TimeoutError(
+                "The service call exceeded the remaining trial budget "
+                f"({remaining:.1f} s)."
+            )
+        if "error" in outcome:
+            raise outcome["error"]
+        return outcome.get("value")
 
     # -- validation ------------------------------------------------------
 
@@ -356,6 +431,7 @@ class EfeEnvClient:
         path: str,
         meta: dict[str, Any],
         parts: list[Any],
+        timeout_s: float | None = None,
     ) -> Any:
         """POST through the client's RCB1 helper and return its result.
 
@@ -369,10 +445,35 @@ class EfeEnvClient:
                 "The service client exposes no _post path; reset needs "
                 "rcb_client.Robot._post(path, meta, parts, timeout)"
             )
-        return post(path, meta, parts, _SERVICE_POST_TIMEOUT_S)
+        timeout = _SERVICE_POST_TIMEOUT_S if timeout_s is None else timeout_s
+        remaining = self.remaining_s
+        if remaining is not None:
+            if remaining <= 0:
+                raise TimeoutError(
+                    "The trial budget is exhausted; no further service call can run."
+                )
+            timeout = min(timeout, remaining)
+        return post(path, meta, parts, timeout)
+
+    def _post_with_deadline(
+        self, path: str, meta: dict[str, Any], parts: list[Any], timeout: float
+    ) -> Any:
+        """Limit the wrapped RCB1 request to the remaining trial time."""
+        if not callable(self._robot_post):
+            raise RuntimeError("The service client exposes no _post path")
+        remaining = self.remaining_s
+        if remaining is not None:
+            if remaining <= 0:
+                raise TimeoutError(
+                    "The trial budget is exhausted; no further service call can run."
+                )
+            timeout = min(timeout, remaining)
+        return self._robot_post(path, meta, parts, timeout)
 
     @staticmethod
-    def _post_json(url: str, payload: dict[str, Any]) -> dict[str, Any]:
+    def _post_json(
+        url: str, payload: dict[str, Any], timeout_s: float = 60.0
+    ) -> dict[str, Any]:
         """POST a JSON body and return the decoded response.
 
         ``/reset`` uses the client's RCB1 helper, while ``/finish`` takes a
@@ -386,7 +487,7 @@ class EfeEnvClient:
             method="POST",
         )
         try:
-            with urllib.request.urlopen(request, timeout=60) as response:
+            with urllib.request.urlopen(request, timeout=timeout_s) as response:
                 return json.loads(response.read())
         except urllib.error.HTTPError as exc:
             detail = exc.read().decode(errors="replace")[:300]

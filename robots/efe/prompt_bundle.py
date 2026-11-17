@@ -34,7 +34,7 @@ EPISODE_END_BY_AGENT = (
 )
 
 TOOLS = """- `efe_spec`: action layouts, limits, cameras, proprioception, kinematics. Read it once before acting.
-- `efe_observe`: current frames and proprioception. It never moves the robot.
+- `efe_observe`: current frames, camera calibration, and proprioception. It never moves the robot.
 - `efe_status`: calls, control steps, elapsed time, and whether the episode has ended.
 - `efe_recover`: wait for a crashed service to resume the same episode.
 - `view_env_state`: read one recorded step: proprioception, counters, the command that produced it, and any saved artifact names. `step` defaults to -1 (latest)."""
@@ -42,7 +42,7 @@ TOOLS = """- `efe_spec`: action layouts, limits, cameras, proprioception, kinema
 SUBMIT_TOOL = "\n- `efe_submit`: send one action chunk in a layout from `efe_spec`."
 
 SKILL_TOOL = (
-    "\n- `move_to_xyz`: move the tool frame to a world position with a closed IK loop."
+    "\n- `move_to_pose`: move the tool frame to a world position; optionally set its wxyz orientation (default: keep the current orientation)."
     "\n- `set_gripper`: set the gripper opening in metres while holding the arm pose."
 )
 

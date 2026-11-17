@@ -284,6 +284,7 @@ def run_efe(
             base_url=efe_base_url,
             connect_timeout_s=connect_timeout_s,
         )
+        client.set_deadline(deadline)
         report["service"] = {
             "protocol": client.spec.get("protocol"),
             "robot": client.spec.get("robot"),
