@@ -222,7 +222,7 @@ class FakeEfeClient:
         return FakeResult(dict(self.last_meta))
 
     def status(self) -> dict[str, Any]:
-        # Match the standard-mode lifecycle fields used at session handoff.
+        # Match the standard-mode lifecycle fields used by the runner.
         return {
             "step": self.control_steps,
             "calls": self.submit_calls + self.observe_calls,

@@ -75,7 +75,7 @@ def test_run_preserves_instruction_and_quotes_paths(tmp_path, monkeypatch):
     assert execute.call_args.kwargs["cwd"] == "/app/task with spaces"
     assert execute.call_args.kwargs["env"]["CODEX_API_KEY"] == "test-key"
     assert execute.call_args.kwargs["timeout_sec"] == 72
-    assert shlex.split(execute.call_args.kwargs["command"])[-14:] == [
+    assert shlex.split(execute.call_args.kwargs["command"])[-12:] == [
         "--model",
         "test-model",
         "--timeout-s",
@@ -86,8 +86,6 @@ def test_run_preserves_instruction_and_quotes_paths(tmp_path, monkeypatch):
         "7",
         "--reasoning-effort",
         "none",
-        "--explore-sessions",
-        "1",
         "--codex-sandbox",
         "read-only",
     ]
@@ -192,7 +190,7 @@ def test_post_run_usage_keeps_cached_tokens_inside_input(tmp_path):
     assert context.model_usage["openai/test"].n_input_tokens == 100
 
 
-def test_agent_uploads_memory_and_forwards_exploration(tmp_path, monkeypatch):
+def test_agent_uploads_memory(tmp_path, monkeypatch):
     memory = tmp_path / "corpus"
     (memory / "global").mkdir(parents=True)
     (memory / "global" / "lesson.md").write_text("# Lesson\n")
@@ -200,7 +198,6 @@ def test_agent_uploads_memory_and_forwards_exploration(tmp_path, monkeypatch):
         logs_dir=tmp_path / "logs",
         model_name="openai/test",
         memory_source=str(memory),
-        explore_sessions=2,
     )
     environment = UploadEnvironment()
     execute = AsyncMock()
@@ -215,8 +212,8 @@ def test_agent_uploads_memory_and_forwards_exploration(tmp_path, monkeypatch):
     asyncio.run(agent.install(environment))
     asyncio.run(agent.run("Task", environment, AgentContext()))
 
-    # The corpus is staged under the agent log directory, so exploration notes
-    # survive the container and the agent user can append to them.
+    # The corpus is staged under the agent log directory, so the trial can read
+    # it after the container stops.
     archive_path = "/logs/agent/rpent/memory.tar.gz"
     assert archive_path in environment.uploads
     with tarfile.open(fileobj=io.BytesIO(environment.uploads[archive_path])) as archive:
@@ -232,44 +229,7 @@ def test_agent_uploads_memory_and_forwards_exploration(tmp_path, monkeypatch):
         "mkdir -p /logs/agent/rpent && chown -R 1000:1000 /logs/agent/rpent"
     ]
     command = shlex.split(agent_execute.call_args.kwargs["command"])
-    assert command[command.index("--explore-sessions") + 1] == "2"
     assert command[command.index("--memory-dir") + 1] == "/logs/agent/rpent/memory"
-
-
-def test_multi_session_usage_recovery_sums_each_session_trace(tmp_path):
-    agent = RPentEfeAgent(logs_dir=tmp_path, model_name="openai/test")
-    output_dir = tmp_path / "rpent"
-    for number, totals in ((1, (5, 1, 1)), (1, (10, 2, 1)), (2, (20, 3, 2))):
-        session = output_dir / "sessions" / f"session_{number:03d}"
-        session.mkdir(parents=True, exist_ok=True)
-        event = {
-            "method": "thread/tokenUsage/updated",
-            "payload": {
-                "token_usage": {
-                    "total": {
-                        "input_tokens": totals[0],
-                        "cached_input_tokens": totals[1],
-                        "output_tokens": totals[2],
-                    }
-                }
-            },
-        }
-        with (session / "codex.txt.stream.jsonl").open("a", encoding="utf-8") as file:
-            file.write(json.dumps(event) + "\n")
-    (output_dir / "session.json").write_text(
-        json.dumps({"stats": {"usage_observed": False}})
-    )
-    context = AgentContext()
-
-    agent.populate_context_post_run(context)
-
-    assert context.n_input_tokens == 30
-    assert context.n_cache_tokens == 5
-    assert context.n_output_tokens == 3
-    assert (
-        json.loads((output_dir / "usage-recovery.json").read_text())["complete"]
-        is False
-    )
 
 
 def test_malformed_usage_events_are_skipped(tmp_path):
@@ -335,15 +295,6 @@ def test_zero_usage_trace_is_not_recovered_as_measured(tmp_path):
     assert context.n_cache_tokens is None
     assert context.n_output_tokens is None
     assert not (output_dir / "usage-recovery.json").exists()
-
-
-def test_agent_rejects_invalid_exploration_sessions(tmp_path):
-    with pytest.raises(ValueError):
-        RPentEfeAgent(
-            logs_dir=tmp_path,
-            model_name="openai/test",
-            explore_sessions=0,
-        )
 
 
 def test_codex_key_overrides_openai_key_for_the_default_provider(tmp_path, monkeypatch):

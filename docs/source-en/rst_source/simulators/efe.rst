@@ -106,13 +106,6 @@ frozen start state, and spend one reset; only the last episode is graded. This
 is the EFE standard-mode reset rule in the
 `official protocol <https://github.com/mll-lab-nu/embodied-first-exam/blob/main/docs/protocol/standard_mode.md>`_.
 
-``explore_sessions`` is an RPent policy on top of that budget, not an EFE
-feature. When it is greater than 1, RPent runs independent planner sessions
-and, if a session ends early and resets remain, spends one reset before the
-next session. An episode the agent ends with ``efe_end_episode`` is graded as
-it stands and is not reset. The default is 1, so a single run never resets on
-its own.
-
 Other tasks withhold the success signal from the agent. For those tasks,
 RPent provides ``efe_end_episode`` so the model can declare that it has finished
 acting. The verifier then grades the final state. Calling this tool does not
@@ -221,9 +214,8 @@ timestamped job directory below it.
        ├── agent/
        │   ├── setup/           # Agent install log
        │   └── rpent/
-       │       ├── session.json # Agent execution metrics, errors, per-session stats
-       │       ├── codex*.txt   # Planner transcript (under sessions/ when explore_sessions > 1)
-       │       ├── sessions/    # Per-session artifacts when explore_sessions > 1
+       │       ├── session.json # Agent execution metrics, errors, stats
+       │       ├── codex.txt    # Planner transcript
        │       ├── codex-home/  # CODEX_HOME for this trial
        │       └── memory/      # Memory root for this trial
        ├── verifier/            # Verifier logs and reward.json
@@ -236,7 +228,7 @@ The container path ``/logs/agent/rpent/`` maps to
 ``<trial_name>/agent/rpent/`` on the host. EFE's verifier writes
 ``verifier/reward.json``, and Harbor copies those scores to
 ``verifier_result.rewards`` in the trial's ``result.json``. Agent execution metrics are in
-``stats`` and each session's ``metrics`` in ``agent/rpent/session.json``. An
+``stats`` and ``metrics`` in ``agent/rpent/session.json``. An
 incomplete trial may have no ``result.json`` or ``session.json``; check
 ``trial.log`` and ``agent/rpent/run.log`` first.
 
@@ -298,19 +290,11 @@ Common Options
   from the shell. The default ``read-only`` keeps shell commands away from the
   simulator, so only RPent tools act on the episode.
 
-Task Memory and Exploration
----------------------------
+Task Memory
+-----------
 
 - ``--agent-kwarg memory_source=/path``: uploads an existing RPent memory
   directory for the trial. Without it, the trial starts with an empty ``memory/``.
-- ``--agent-kwarg explore_sessions=N``: runs up to ``N`` planner sessions,
-  stopping early when the reset budget is spent or time runs out. A session
-  that ends early hands off by resetting while the reset budget remains, so
-  the next session starts a fresh attempt; an episode the agent ends itself is
-  graded without a reset, and only the final episode is graded. Later sessions
-  can read working notes from earlier sessions. This is an RPent policy, not
-  an EFE requirement; the default is 1. Multi-session handoff has not been
-  benchmarked against a single session at the same budget.
 - Each trial uses its own ``codex-home/``; the model is selected by ``--model``,
   and credentials come from the forwarded environment variables.
 
@@ -395,9 +379,7 @@ Isolation and Measurement Mode
 - With ``full-access``, the agent can write shell scripts that call ``rcb_client``
   directly and bypass the RPent tools. Those calls never pass through RPent's
   client, so ``metrics`` in ``session.json`` does not count them, and the run
-  cannot be compared with one that drives the robot through the tools. At each
-  planner-session boundary, the runner reads ``/status`` to sync the episode,
-  end reason, and reset allowance before it starts another session.
+  cannot be compared with one that drives the robot through the tools.
 - The generic ``rpent --robot efe`` entry point has no sandbox option and always
   runs with ``full-access``. Use it for manual and interactive debugging; use the
   Harbor adapter for evaluation and comparison.
@@ -419,7 +401,7 @@ services.
 
 The Harbor adapter calls ``robots.efe.runner.run_efe`` directly. The generic
 ``rpent --robot efe`` CLI is a separate path for manual debugging. ``run_efe``
-is headless and owns the trial-wide deadline, the planner sessions on one
+is headless and owns the trial-wide deadline, the planner session on the
 episode, and the machine-readable ``session.json``; the generic CLI has no
 Codex sandbox option and runs one session for EFE. ``run_efe`` starts
 CodexPlanner, uses ``rcb_client.Robot`` to interact with the simulator, and

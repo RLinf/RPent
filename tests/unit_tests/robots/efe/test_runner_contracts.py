@@ -20,11 +20,9 @@ import json
 import os
 import subprocess
 import sys
-from types import SimpleNamespace
 
 import pytest
 
-from robots.efe.env_client import EfeEnvClient
 from robots.efe.runner import run_efe
 from robots.efe.toolkit import EfeToolkit
 from rpent.dashboard.events import NullDashboardEventSink
@@ -152,17 +150,12 @@ def test_runner_builds_prompt_variables_from_the_shared_helper(
         workdir=workdir,
         output_dir=output,
         memory_dir=memory,
-        inbox_tag=session_vars.DEFAULT_INBOX_TAG,
-        session_max=1,
         skills=True,
     )
     assert {key: captured[key] for key in shared} == shared
-    assert captured["session_number"] == 1
     assert captured["skills"] is True
     assert captured["reset"] is False
     assert captured["end_episode"] is False
-    assert captured["handoff"] is False
-    assert captured["write_notes"] is False
     assert captured["restricted_shell"] is True
 
 
@@ -178,7 +171,6 @@ def test_finish_does_not_count_as_a_service_success(
     )
 
     assert report["agent_finish"]["status"] == "completed"
-    assert report["sessions"][0]["solved"] is False
     assert report["efe"]["solved"] is False
 
 
@@ -204,7 +196,6 @@ def test_solved_follows_the_service_end_reason(tmp_path, monkeypatch, efe_client
         client=efe_client,
     )
 
-    assert report["sessions"][0]["solved"] is True
     assert report["efe"]["solved"] is True
 
 
@@ -509,99 +500,6 @@ def test_rpent_arm_loads_memory_and_shared_prompt(
     ]
 
 
-def test_exploration_handoff_uses_fresh_planners_and_aggregates_stats(
-    tmp_path, recording_planner, efe_client
-):
-    output_dir = tmp_path / "logs"
-
-    report = run_efe(
-        "Use the public robot client.",
-        workdir=tmp_path,
-        output_dir=output_dir,
-        model="test-model",
-        explore_sessions=2,
-        client=efe_client,
-    )
-
-    assert report["error"] is None
-    assert [session["session"] for session in report["sessions"]] == [1, 2]
-    assert report["stats"]["turns_used"] == 2
-    assert report["stats"]["tool_calls"] == 4
-    assert report["stats"]["total_input_tokens"] == 10
-    assert report["stats"]["usage_observed"] is True
-    first, second = recording_planner.instances
-    assert first.options["output_path"] == (
-        output_dir / "sessions" / "session_001" / "codex.txt"
-    )
-    assert (
-        second.options["output_path"]
-        == output_dir / "sessions" / "session_002" / "codex_02.txt"
-    )
-    assert "Earlier sessions" not in first.solve_options["system_prompt"]
-    assert "session 1 of up to 2" not in first.solve_options["system_prompt"]
-    assert "notes-session-1.md" in first.solve_options["system_prompt"]
-    assert "Earlier sessions archived notes" in second.solve_options["system_prompt"]
-    assert "session 2 of up to 2" in second.solve_options["system_prompt"]
-    assert "notes-session-2.md" in second.solve_options["system_prompt"]
-
-
-def test_exploration_inbox_is_the_only_writable_memory_path(
-    tmp_path, recording_planner, efe_client
-):
-    output_dir = tmp_path / "logs"
-    denied_dir = tmp_path / "logs-denied"
-    inbox = output_dir / "memory" / "_internal" / "inbox" / "efe"
-    allowed = {"path": str(inbox / "wip" / "notes.md"), "content": "observed\n"}
-    denied = {
-        "path": str(denied_dir / "memory" / "global" / "bad.md"),
-        "content": "x",
-    }
-
-    recording_planner.probe = allowed
-    run_efe(
-        "Task",
-        workdir=tmp_path,
-        output_dir=output_dir,
-        model="test-model",
-        explore_sessions=2,
-        client=efe_client,
-    )
-    assert not recording_planner.instances[0].probe_result.is_error
-
-    recording_planner.instances = []
-    recording_planner.probe = denied
-    run_efe(
-        "Task",
-        workdir=tmp_path,
-        output_dir=denied_dir,
-        model="test-model",
-        explore_sessions=2,
-        client=efe_client,
-    )
-    assert recording_planner.instances[0].probe_result.is_error
-
-
-def test_recovered_session_error_is_not_reported_as_run_failure(
-    tmp_path, recording_planner, efe_client
-):
-    recording_planner.session_errors = ["Codex SDK timed out after 5s", None]
-
-    report = run_efe(
-        "Task",
-        workdir=tmp_path,
-        output_dir=tmp_path / "logs",
-        model="test-model",
-        explore_sessions=2,
-        client=efe_client,
-    )
-
-    assert report["error"] is None
-    assert [session["error"] for session in report["sessions"]] == [
-        "Codex SDK timed out after 5s",
-        None,
-    ]
-
-
 def test_terminal_session_error_is_reported(tmp_path, recording_planner, efe_client):
     recording_planner.session_errors = ["RuntimeError: boom"]
 
@@ -610,12 +508,10 @@ def test_terminal_session_error_is_reported(tmp_path, recording_planner, efe_cli
         workdir=tmp_path,
         output_dir=tmp_path / "logs",
         model="test-model",
-        explore_sessions=2,
         client=efe_client,
     )
 
     assert report["error"] == "RuntimeError: boom"
-    assert len(report["sessions"]) == 1
 
 
 def test_rpent_arm_resolves_relative_paths_from_the_workspace(
@@ -711,7 +607,6 @@ def test_a_spent_planner_budget_is_a_clean_stop(
 
     assert report["error"] is None
     assert report["budget_stop"] == "Codex SDK timed out after 5s"
-    assert report["sessions"][0]["error"] == "Codex SDK timed out after 5s"
 
 
 def test_a_structured_timeout_is_a_clean_stop_whatever_the_error_says(
@@ -733,7 +628,7 @@ def test_a_structured_timeout_is_a_clean_stop_whatever_the_error_says(
     assert report["budget_stop"] == "the model returned no final message"
 
 
-def test_budget_expired_before_the_first_session_is_a_clean_stop(
+def test_budget_expired_before_the_session_is_a_clean_stop(
     tmp_path, efe_client, monkeypatch
 ):
     """Reaching the deadline is a budget stop even with no session result."""
@@ -755,281 +650,6 @@ def test_budget_expired_before_the_first_session_is_a_clean_stop(
 
     assert report["error"] is None
     assert report["budget_stop"] is not None
-
-
-def test_an_early_episode_end_resets_instead_of_skipping_the_budget(
-    tmp_path, recording_planner, efe_client
-):
-    """A failed attempt with resets left must start a fresh one."""
-    efe_client.spec["budget"] = {"reset": 2}
-    efe_client.done = True
-    efe_client.done_reason = "failed"
-    resets = []
-
-    def reset(*, cameras=None):
-        resets.append(cameras)
-        efe_client.reset_calls += 1
-        efe_client.done = False
-        efe_client.done_reason = None
-        return {}
-
-    efe_client.reset = reset
-
-    report = run_efe(
-        "Task",
-        workdir=tmp_path,
-        output_dir=tmp_path / "logs",
-        model="test-model",
-        explore_sessions=2,
-        client=efe_client,
-    )
-
-    assert resets == [None]
-    assert len(report["sessions"]) == 2
-
-
-def test_an_early_episode_end_stops_once_the_reset_budget_is_spent(
-    tmp_path, recording_planner, efe_client
-):
-    efe_client.spec["budget"] = {"reset": 0}
-    efe_client.done = True
-    efe_client.done_reason = "failed"
-
-    report = run_efe(
-        "Task",
-        workdir=tmp_path,
-        output_dir=tmp_path / "logs",
-        model="test-model",
-        explore_sessions=3,
-        client=efe_client,
-    )
-
-    assert report["sessions"] == []
-
-
-def test_an_agent_finished_episode_is_not_reset(tmp_path, monkeypatch, efe_client):
-    import rpent.planner.codex as codex
-
-    efe_client.spec["success_signal"] = "hidden"
-    efe_client.spec["budget"] = {"reset": 2}
-    resets = []
-
-    def reset(*, cameras=None):
-        resets.append(cameras)
-        return {}
-
-    efe_client.reset = reset
-
-    class FinishingPlanner:
-        def __init__(self, **options):
-            pass
-
-        def solve(self, **options):
-            efe_client.finish_calls += 1
-            efe_client.done = True
-            efe_client.done_reason = "finished"
-            return PlannerResult()
-
-    monkeypatch.setattr(codex, "CodexPlanner", FinishingPlanner)
-
-    report = run_efe(
-        "Task",
-        workdir=tmp_path,
-        output_dir=tmp_path / "logs",
-        model="test-model",
-        explore_sessions=2,
-        client=efe_client,
-    )
-
-    assert resets == []
-    assert len(report["sessions"]) == 1
-
-
-class _RcBRobotDouble:
-    """Expose a fake service through the same methods as rcb_client.Robot."""
-
-    def __init__(self, service):
-        self.service = service
-        self.base = "http://sim:8000"
-        self.status_error: Exception | None = None
-
-    def spec(self):
-        return self.service.spec
-
-    def status(self):
-        if self.status_error is not None:
-            raise self.status_error
-        return self.service.status()
-
-    def get_obs(self, **kwargs):
-        return self.service.observe(**kwargs)
-
-    def submit(self, action_type, actions, **kwargs):
-        return self.service.submit(action_type, actions, **kwargs)
-
-    def ik(self, targets, *, seed=None):
-        return self.service.ik(targets, seed=seed)
-
-    def _post(self, path, meta, parts, timeout):
-        if path != "/reset":
-            raise AssertionError(f"unexpected service path: {path}")
-        return SimpleNamespace(meta=self.service.reset())
-
-
-def test_full_access_direct_finish_stops_multisession_handoff(
-    tmp_path, monkeypatch, efe_client
-):
-    import rpent.planner.codex as codex
-
-    efe_client.spec["success_signal"] = "hidden"
-    efe_client.spec["budget"] = {"reset": 2}
-    server_client = EfeEnvClient(robot=_RcBRobotDouble(efe_client))
-    planner_calls = []
-
-    class DirectFinishingPlanner:
-        def __init__(self, **options):
-            pass
-
-        def solve(self, **options):
-            planner_calls.append(options)
-            efe_client.finish()
-            return PlannerResult()
-
-    monkeypatch.setattr(codex, "CodexPlanner", DirectFinishingPlanner)
-
-    report = run_efe(
-        "Task",
-        workdir=tmp_path,
-        output_dir=tmp_path / "logs",
-        model="test-model",
-        sandbox="full-access",
-        explore_sessions=2,
-        client=server_client,
-    )
-
-    assert len(planner_calls) == 1
-    assert len(report["sessions"]) == 1
-    assert report["service_status"]["reason"] == "finished"
-    assert server_client.agent_ended_episode is True
-
-
-def test_full_access_direct_reset_syncs_before_next_session(
-    tmp_path, monkeypatch, efe_client
-):
-    import rpent.planner.codex as codex
-
-    efe_client.spec["budget"] = {"reset": 2}
-    server_client = EfeEnvClient(robot=_RcBRobotDouble(efe_client))
-    planner_calls = []
-
-    class DirectResetPlanner:
-        def __init__(self, **options):
-            pass
-
-        def solve(self, **options):
-            planner_calls.append(options)
-            if len(planner_calls) == 1:
-                efe_client.reset()
-            return PlannerResult()
-
-    monkeypatch.setattr(codex, "CodexPlanner", DirectResetPlanner)
-
-    report = run_efe(
-        "Task",
-        workdir=tmp_path,
-        output_dir=tmp_path / "logs",
-        model="test-model",
-        sandbox="full-access",
-        explore_sessions=2,
-        client=server_client,
-    )
-
-    assert len(planner_calls) == 2
-    assert server_client.reset_calls == 1
-    assert report["service_status"]["episode"] == 2
-    assert server_client.done is False
-
-
-def test_runner_stops_handoff_when_service_state_cannot_sync(
-    tmp_path, monkeypatch, efe_client
-):
-    import rpent.planner.codex as codex
-
-    robot = _RcBRobotDouble(efe_client)
-    robot.status_error = ConnectionError("status unavailable")
-    server_client = EfeEnvClient(robot=robot)
-    planner_calls = []
-
-    class RecordingPlanner:
-        def __init__(self, **options):
-            pass
-
-        def solve(self, **options):
-            planner_calls.append(options)
-            return PlannerResult()
-
-    monkeypatch.setattr(codex, "CodexPlanner", RecordingPlanner)
-
-    report = run_efe(
-        "Task",
-        workdir=tmp_path,
-        output_dir=tmp_path / "logs",
-        model="test-model",
-        sandbox="full-access",
-        explore_sessions=2,
-        client=server_client,
-    )
-
-    assert len(planner_calls) == 1
-    assert len(report["sessions"]) == 1
-    assert report["service_status"] is None
-    assert report["state_sync_error"] == "ConnectionError: status unavailable"
-    assert report["error"] is None
-
-
-def test_the_planner_deadline_is_checked_before_a_reset(
-    tmp_path, monkeypatch, efe_client
-):
-    import robots.efe.runner as runner
-    import rpent.planner.codex as codex
-
-    efe_client.spec["budget"] = {"reset": 2}
-    resets = []
-
-    def reset(*, cameras=None):
-        resets.append(cameras)
-        efe_client.done = False
-        return {}
-
-    efe_client.reset = reset
-
-    class FailingPlanner:
-        def __init__(self, **options):
-            pass
-
-        def solve(self, **options):
-            efe_client.done = True
-            efe_client.done_reason = "failed"
-            return PlannerResult()
-
-    monkeypatch.setattr(codex, "CodexPlanner", FailingPlanner)
-    clock = [0.0, 0.0, 100.0]
-    monkeypatch.setattr(
-        runner.time, "monotonic", lambda: clock.pop(0) if clock else 100.0
-    )
-
-    report = run_efe(
-        "Task",
-        workdir=tmp_path,
-        output_dir=tmp_path / "logs",
-        model="test-model",
-        timeout_s=1,
-        explore_sessions=2,
-        client=efe_client,
-    )
-
-    assert resets == []
-    assert len(report["sessions"]) == 1
 
 
 def test_a_missing_codex_wheel_does_not_abort_the_report(

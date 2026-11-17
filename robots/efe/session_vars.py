@@ -25,9 +25,6 @@ from __future__ import annotations
 import hashlib
 from pathlib import Path
 
-# Harbor starts one trial per task, so its memory root needs no per-task cell.
-DEFAULT_INBOX_TAG = "efe"
-
 
 def recipe_tag(task_name: str, instruction: str) -> str:
     """Return the stable per-task tag for run directories and memory cells."""
@@ -35,18 +32,11 @@ def recipe_tag(task_name: str, instruction: str) -> str:
     return f"{task_name or 'efe'}_{digest}"
 
 
-def inbox_path(memory_dir: Path, cell_tag: str) -> Path:
-    """Return the inbox that ``MemoryManager`` exposes for this tag."""
-    return memory_dir / "_internal" / "inbox" / cell_tag
-
-
 def prompt_vars(
     *,
     workdir: Path,
     output_dir: Path,
     memory_dir: Path,
-    inbox_tag: str,
-    session_max: int,
     skills: bool,
 ) -> dict[str, object]:
     """Return the variables ``robots.efe.prompt_bundle`` reads."""
@@ -54,7 +44,5 @@ def prompt_vars(
         "workdir": str(workdir),
         "output_dir": str(output_dir),
         "memory_dir": str(memory_dir),
-        "memory_inbox": str(inbox_path(memory_dir, inbox_tag)),
-        "session_max": session_max,
         "skills": skills,
     }

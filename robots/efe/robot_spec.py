@@ -142,12 +142,10 @@ def _add_cli_args(parser: argparse.ArgumentParser, use_dashboard: bool) -> None:
 def _validate_args(args: argparse.Namespace) -> None:
     # EFE does not declare ``supports_exploration``, so the generic CLI rejects
     # ``--explore`` before robot hooks run. Keep the guard for callers that
-    # invoke this hook directly. This CLI has no ``--explore-sessions`` option:
-    # the Harbor adapter and ``run_efe`` own the session count.
+    # invoke this hook directly. This CLI runs one evaluation session.
     if getattr(args, "explore", False):
         raise ValueError(
-            "The EFE runner starts its own sessions; set explore_sessions on "
-            "RPentEfeAgent or pass explore_sessions to run_efe"
+            "The EFE CLI runs one evaluation session and does not support --explore"
         )
     if getattr(args, "memory_repo", None) is not None:
         raise ValueError(
@@ -194,15 +192,12 @@ def _parse_config(args: argparse.Namespace) -> RunConfig:
             workdir=workdir,
             output_dir=output_dir,
             memory_dir=memory_dir,
-            inbox_tag=tag,
-            session_max=1,
             skills=bool(getattr(args, "efe_skills", True)),
         ),
         "recipe_tag": tag,
         "mode": "eval",
         "task_name": task_name,
         "instruction": instruction,
-        "session_number": 1,
     }
     return RunConfig(
         recipe_tag=tag,

@@ -263,8 +263,8 @@ class EfeEnvClient:
         """Return the service's call, step, and episode counters."""
         status = self._bounded_call(self._robot.status)
         # Shell code can call rcb_client directly in Codex's full-access mode.
-        # At a session boundary, the service snapshot must replace our local
-        # state, including a prior done=True after an external reset.
+        # The service snapshot must replace our local state, including a prior
+        # done=True after an external reset.
         self._record_state(status, authoritative=True)
         return status
 
@@ -395,7 +395,6 @@ class EfeEnvClient:
 
         Requests that time out may still have reached the service. A timed-out
         write is therefore uncertain and must not be retried automatically.
-        The runner reads service status before it starts another session.
         """
         remaining = self.remaining_s
         if remaining is None:

@@ -32,7 +32,7 @@ from robots.efe.env_client import EfeEnvClient
 from robots.efe.toolkit import EfeToolkit, tool_capabilities
 from rpent.dashboard.events import NullDashboardEventSink
 from rpent.memory.manager import MemoryManager
-from rpent.planner.base import REASONING_EFFORTS, is_recoverable_agent_error
+from rpent.planner.base import REASONING_EFFORTS
 from rpent.robots.prompt_bundle import PromptBundle
 from rpent.utils.logging import get_logger, init_output_dir
 
@@ -40,13 +40,6 @@ if TYPE_CHECKING:
     from rpent.planner.base import PlannerResult
 
 logger = get_logger("efe")
-
-_USAGE_KEYS = (
-    "total_input_tokens",
-    "total_cached_input_tokens",
-    "total_output_tokens",
-    "total_reasoning_output_tokens",
-)
 
 
 @contextmanager
@@ -122,26 +115,6 @@ def _is_budget_stop(agent_error: str | None) -> bool:
     return any(marker in lowered for marker in _BUDGET_STOP_MARKERS)
 
 
-def _aggregate_stats(sessions: list[dict[str, object]]) -> dict[str, object]:
-    """Sum session counters; a single session keeps its full planner stats.
-
-    ``usage_observed`` stays true only when every session reported usage.
-    Otherwise the zero counters mean "unknown", not zero tokens.
-    """
-    if len(sessions) == 1:
-        return sessions[0]["stats"]
-    totals: dict[str, object] = dict.fromkeys(_USAGE_KEYS, 0)
-    totals["turns_used"] = 0
-    totals["tool_calls"] = 0
-    observed = bool(sessions)
-    for session in sessions:
-        stats = session["stats"]
-        observed = observed and stats.get("usage_observed") is True
-        for key in ("turns_used", "tool_calls", *_USAGE_KEYS):
-            totals[key] += int(stats.get(key) or 0)
-    return {"backend": "codex_sdk", "usage_observed": observed, **totals}
-
-
 def run_efe(
     instruction: str,
     *,
@@ -152,7 +125,6 @@ def run_efe(
     max_turns: int = 200,
     reasoning_effort: str = "none",
     memory_dir: Path | None = None,
-    explore_sessions: int = 1,
     skills: bool = True,
     sandbox: str = "read-only",
     efe_base_url: str | None = None,
@@ -161,26 +133,20 @@ def run_efe(
 ) -> dict[str, object]:
     """Run one EFE trial with RPent's planner and the EFE robot tools.
 
-    The session uses RPent's prompt, memory corpus, and the EFE toolkit. It may
-    hand off across sessions. When a session ends early and the task's reset
-    budget remains, the next session starts a fresh attempt, spending one
-    reset; an episode the agent ends with ``finish`` is graded as it stands.
-    Without ``memory_dir`` the corpus starts empty, so the run measures RPent
-    without prior experience.
+    The trial uses one planner session. The model can call ``efe_reset`` while
+    the task grants resets; only the last episode is graded. Without
+    ``memory_dir`` the corpus starts empty, so the run measures RPent without
+    prior experience.
 
     Args:
         instruction: The task instruction supplied by Harbor.
         workdir: The public agent workspace inside the task container.
         output_dir: A directory for RPent artifacts, separate from verifier output.
         model: The Codex model identifier.
-        timeout_s: Maximum planner wall time in seconds across all sessions.
-        max_turns: Maximum model responses per session.
+        timeout_s: Maximum planner wall time in seconds.
+        max_turns: Maximum model responses.
         reasoning_effort: A reasoning level supported by the planner.
         memory_dir: An existing RPent memory corpus.
-        explore_sessions: Number of independent planner sessions. A session
-            that ends early hands off by resetting when the reset budget allows
-            it, so later sessions may run on fresh attempts. An episode the
-            agent ends itself is graded without a reset.
         skills: Replace the joint-level submit tool with the high-level skills.
         sandbox: Codex shell sandbox. ``read-only`` keeps shell commands away
             from the simulator, so only RPent tools act on the episode;
@@ -201,8 +167,6 @@ def run_efe(
         raise ValueError(f"Unsupported reasoning effort: {reasoning_effort}")
     if sandbox not in SANDBOX_CHOICES:
         raise ValueError(f"Unsupported Codex sandbox: {sandbox}")
-    if explore_sessions <= 0:
-        raise ValueError("explore_sessions must be positive.")
     if not math.isfinite(connect_timeout_s) or connect_timeout_s <= 0:
         raise ValueError("connect_timeout_s must be positive.")
     # The connect wait counts against the trial's wall clock, so it cannot
@@ -225,18 +189,11 @@ def run_efe(
         memory_root = output_dir / "memory"
         memory_root.mkdir(parents=True, exist_ok=True)
         memory_mode = "empty"
-    explore = explore_sessions > 1
-    memory = MemoryManager(
-        memory_root,
-        memory_access="inbox_write" if explore else "read_only",
-        inbox_cell_tag="efe" if explore else None,
-    )
+    memory = MemoryManager(memory_root, memory_access="read_only")
     prompt_vars: dict[str, object] = session_vars.prompt_vars(
         workdir=workdir,
         output_dir=output_dir,
         memory_dir=memory_root,
-        inbox_tag=session_vars.DEFAULT_INBOX_TAG,
-        session_max=explore_sessions,
         skills=skills,
     )
     # The generic CLI renders the same factories, so this path cannot drift.
@@ -255,7 +212,6 @@ def run_efe(
         "codex_sandbox": sandbox,
         "memory_root": str(memory_root),
         "memory_mode": memory_mode,
-        "explore_sessions": explore_sessions,
         "skills": skills,
         "codex_home": str(output_dir / "codex-home"),
         "versions": {
@@ -266,17 +222,15 @@ def run_efe(
         "codex_binary_override": os.environ.get("CODEX_BIN"),
         "instruction": instruction,
         "agent_finish": None,
-        "sessions": [],
+        "metrics": {},
         "stats": {},
         "error": None,
-        "state_sync_error": None,
-        "service_status": None,
         "budget_stop": None,
     }
-    sessions: list[dict[str, object]] = report["sessions"]  # type: ignore[assignment]
     started = time.monotonic()
     deadline = started + timeout_s
     terminal_stop_reason: str | None = None
+    solved = False
     try:
         from rpent.planner.codex import CodexPlanner
 
@@ -291,90 +245,43 @@ def run_efe(
             "action_types": sorted(client.spec["action_types"]),
         }
         with _trial_codex_home(output_dir), _trial_repo_root(workdir):
-            for number in range(1, explore_sessions + 1):
-                # Only a planner result can report a clean budget stop; reset
-                # this before anything else so an exception between sessions
-                # is never attributed to the previous session's timeout.
-                terminal_stop_reason = None
-                if client.agent_ended_episode:
-                    # ``efe_end_episode`` is the model's own decision to be
-                    # graded; a reset would discard that episode.
-                    logger.info(
-                        "the agent ended the episode; grading it without a reset"
-                    )
-                    break
-                # Check the budget before resetting: a reset at the deadline
-                # would leave a fresh, never-run episode as the graded one.
-                remaining = math.ceil(deadline - time.monotonic())
-                if remaining <= 0:
-                    if not sessions:
-                        report["budget_stop"] = (
-                            "The planner timeout expired before the session "
-                            f"started ({timeout_s}s)."
-                        )
-                    break
-                if client.done:
-                    # The service refuses a reset only once the trial is
-                    # settled. An attempt that ended early on a failure can
-                    # still be abandoned while the reset budget lasts, so the
-                    # next session starts a fresh attempt rather than skipping
-                    # the rest of the budget.
-                    if client.resets_left <= 0:
-                        logger.info(
-                            "the episode ended and the reset budget is spent; "
-                            "no further session starts"
-                        )
-                        break
-                    logger.info(
-                        "the attempt ended (%s); resetting for session %d/%d",
-                        client.done_reason or "no reason reported",
-                        number,
-                        explore_sessions,
-                    )
-                    try:
-                        client.reset()
-                    except (RuntimeError, ValueError) as exc:
-                        logger.info("the service refused the reset: %s", exc)
-                        break
-                session_dir = (
-                    output_dir
-                    if explore_sessions == 1
-                    else output_dir / "sessions" / f"session_{number:03d}"
+            remaining = math.ceil(deadline - time.monotonic())
+            if remaining <= 0:
+                report["budget_stop"] = (
+                    "The planner timeout expired before the session "
+                    f"started ({timeout_s}s)."
                 )
-                session_dir.mkdir(parents=True, exist_ok=True)
+            else:
                 toolkit = EfeToolkit(
                     client=client,
                     dashboard_events=NullDashboardEventSink(),
                     memory=memory,
-                    state_output_dir=session_dir,
+                    state_output_dir=output_dir,
                     enable_skills=skills,
                 )
-                solved = False
                 try:
                     planner = CodexPlanner(
-                        output_dir=str(session_dir),
+                        output_dir=str(output_dir),
                         repo_root=workdir,
-                        output_path=session_dir
-                        / ("codex.txt" if number == 1 else f"codex_{number:02d}.txt"),
+                        output_path=output_dir / "codex.txt",
                         model=model,
                         timeout_s=remaining,
                         reasoning_effort=reasoning_effort,
                         sandbox=sandbox,
                         dashboard_events=NullDashboardEventSink(),
                     )
-                    per_session_vars = {
+                    session_prompt_vars = {
                         **prompt_vars,
-                        "session_number": number,
-                        "handoff": number > 1,
-                        "write_notes": explore,
                         "restricted_shell": sandbox != "full-access",
                         **tool_capabilities(client, enable_skills=skills),
                     }
-                    system_prompt = prompts.render("system", variables=per_session_vars)
+                    system_prompt = prompts.render(
+                        "system", variables=session_prompt_vars
+                    )
                     user_message = prompts.render(
                         "user",
                         variables={
-                            **per_session_vars,
+                            **session_prompt_vars,
                             "instruction": instruction.strip(),
                         },
                     )
@@ -386,51 +293,12 @@ def run_efe(
                     )
                 finally:
                     toolkit.close()
-                try:
-                    report["service_status"] = client.status()
-                except Exception as exc:
-                    # A full-access shell can change the episode without using
-                    # EfeEnvClient. Do not start another session when the
-                    # authoritative handoff state is unavailable.
-                    report["service_status"] = None
-                    report["state_sync_error"] = f"{type(exc).__name__}: {exc}"
-                    state_sync_failed = True
-                    logger.warning("could not sync the EFE episode state: %s", exc)
-                else:
-                    state_sync_failed = False
                 solved = toolkit.solved()
-                terminal_stop_reason = result.stop_reason
-                sessions.append(
-                    {
-                        "session": number,
-                        "solved": solved,
-                        "stats": result.stats,
-                        "finish": result.finish_result,
-                        "error": result.error,
-                        "metrics": toolkit.metrics(),
-                    }
-                )
                 report["agent_finish"] = result.finish_result
-                if result.error is not None:
-                    report["error"] = result.error
-                    if (
-                        not state_sync_failed
-                        and explore
-                        and number < explore_sessions
-                        and is_recoverable_agent_error(result.error)
-                    ):
-                        logger.warning(
-                            "session %d/%d ended with %s; continuing with a fresh handoff",
-                            number,
-                            explore_sessions,
-                            result.error,
-                        )
-                        continue
-                    break
-                # A later successful session supersedes earlier recoverable errors.
-                report["error"] = None
-                if state_sync_failed:
-                    break
+                report["metrics"] = toolkit.metrics()
+                report["stats"] = result.stats
+                report["error"] = result.error
+                terminal_stop_reason = result.stop_reason
     except Exception as exc:
         report["error"] = f"{type(exc).__name__}: {exc}"
         logger.exception("EFE session failed")
@@ -445,7 +313,6 @@ def run_efe(
             report["budget_stop"] = report["error"]
             report["error"] = None
             logger.info("the planner used its time budget: %s", report["budget_stop"])
-        report["stats"] = _aggregate_stats(sessions)
         if client is not None:
             report["efe"] = {
                 "submit_calls": client.submit_calls,
@@ -453,7 +320,7 @@ def run_efe(
                 "control_steps": client.control_steps,
                 "done": client.done,
                 "done_reason": client.done_reason,
-                "solved": any(bool(session.get("solved")) for session in sessions),
+                "solved": solved,
             }
         report["elapsed_s"] = round(time.monotonic() - started, 3)
         (output_dir / "session.json").write_text(

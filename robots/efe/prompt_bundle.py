@@ -77,7 +77,7 @@ RULES = BulletList(
 
 SHELL_RULE = "Shell commands have no network access. Act on the robot only through the tools above."
 
-MEMORY = """RPent memory is a corpus shared across sessions. Read it before acting:
+MEMORY = """RPent memory is a corpus. Read it before acting:
 `{{memory_dir}}/global/` and `{{memory_dir}}/task-family/` when they exist.
 Apply a lesson only when this task matches its stated conditions."""
 
@@ -87,16 +87,6 @@ OUTPUT = BulletList(
         "Do not repeat an observation you already have in this context.",
     ]
 )
-
-NOTES = BulletList(
-    [
-        "Record working notes under `{{memory_inbox}}/wip/notes-session-{{session_number}}.md` before finish.",
-    ]
-)
-
-EXPLORE = """You are session {{session_number}} of up to {{session_max}} on this task.
-Earlier sessions archived notes under `{{memory_inbox}}/wip/`. Read them first.
-Do not repeat a failed approach unless you can name the parameter that changes it."""
 
 
 def role(*, reset: bool = False, end_episode: bool = False) -> str:
@@ -115,10 +105,8 @@ def system_prompt(variables: Mapping[str, object] | None = None) -> PromptNode:
 
     ``PromptBundle.render`` fills the variables. ``skills``, ``reset``, and
     ``end_episode`` come from the run variables so the prompt describes the
-    tools the session registers. ``write_notes`` follows the memory policy: an
-    evaluation session holds the corpus read-only, so the prompt must not ask
-    it to write there. ``restricted_shell`` matches a Codex sandbox that
-    cannot reach the robot from shell commands.
+    tools the session registers. ``restricted_shell`` matches a Codex sandbox
+    that cannot reach the robot from shell commands.
     """
     values = variables or {}
     skills = bool(values.get("skills", True))
@@ -140,10 +128,6 @@ def system_prompt(variables: Mapping[str, object] | None = None) -> PromptNode:
         "MEMORY": MEMORY,
         "OUTPUT": OUTPUT,
     }
-    if bool(values.get("write_notes", False)):
-        parts["NOTES"] = NOTES
-    if bool(values.get("handoff", False)):
-        parts["EXPLORE"] = EXPLORE
     return parts
 
 

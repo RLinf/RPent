@@ -21,9 +21,6 @@ from rpent.prompt.utils import format_prompt
 
 _VARIABLES = {
     "memory_dir": "/memory",
-    "memory_inbox": "/memory/_internal/inbox/efe",
-    "session_number": 1,
-    "session_max": 1,
 }
 
 
@@ -34,14 +31,12 @@ def _render(**flags) -> str:
 
 def test_prompt_guidance_matches_the_run_configuration():
     default = _render()
-    restricted = _render(restricted_shell=True, write_notes=True)
+    restricted = _render(restricted_shell=True)
 
     assert "move_to_pose" in default
     assert "move_to_pose" not in _render(skills=False)
     assert "no network access" not in default
     assert "no network access" in restricted
-    assert "notes-session-" not in default
-    assert "notes-session-" in restricted
 
 
 def test_skill_guidance_follows_the_run_variables():

@@ -41,18 +41,15 @@ logger = get_logger("efe")
 _EFE_TOOL_DESCRIPTIONS = {
     "read_text_file": (
         "Read a UTF-8 text file. Use for the task instruction, RPent memory "
-        "files, and notes from earlier sessions. Large files are truncated. "
-        "Published memory is read-only; during exploration, write only to the "
-        "current memory inbox.\n\n"
+        "files, and run artifacts. Large files are truncated.\n\n"
         "Args:\n"
         "    path: Absolute or workspace-relative path\n"
         "    max_chars: Max chars (default 40000)"
     ),
     "write_text_file": (
         "Write a UTF-8 text file (creates parent dirs). Use for working notes "
-        "only. Published memory is read-only; during exploration, write only "
-        "to the current memory inbox. Notes outside the run output directory "
-        "stay in the task container and do not survive the trial."
+        "in the run output directory. Files outside that directory stay in the "
+        "task container and do not survive the trial."
     ),
     "list_dir": (
         "List files in a directory (non-recursive). Default = the run output "

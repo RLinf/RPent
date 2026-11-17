@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Harbor 0.23 installed agent for EFE-compatible RPent trial sessions."""
+"""Harbor 0.23 installed agent for an EFE-compatible RPent trial."""
 
 from __future__ import annotations
 
@@ -61,7 +61,6 @@ class RPentEfeAgent(BaseInstalledAgent):
         max_turns: int = 200,
         reasoning_effort: str = "none",
         memory_source: str | None = None,
-        explore_sessions: int = 1,
         skills: bool = True,
         sandbox: str = "read-only",
         **kwargs,
@@ -81,8 +80,6 @@ class RPentEfeAgent(BaseInstalledAgent):
             raise ValueError("agent_timeout_s must be positive.")
         if max_turns <= 0:
             raise ValueError("timeout_s and max_turns must be positive.")
-        if explore_sessions <= 0:
-            raise ValueError("explore_sessions must be positive.")
         if sandbox not in SANDBOX_CHOICES:
             raise ValueError(f"Unsupported Codex sandbox: {sandbox}")
         self.memory_source = (
@@ -106,7 +103,6 @@ class RPentEfeAgent(BaseInstalledAgent):
         self.timeout_s = 3500 if timeout_s is None else timeout_s
         self.max_turns = max_turns
         self.reasoning_effort = reasoning_effort
-        self.explore_sessions = explore_sessions
         self.skills = bool(skills)
         self.sandbox = sandbox
 
@@ -253,11 +249,9 @@ class RPentEfeAgent(BaseInstalledAgent):
         return wheels[0]
 
     async def _upload_memory(self, environment: BaseEnvironment) -> None:
-        """Stage the host memory corpus where the agent user may also write.
+        """Stage the host memory corpus inside the trial logs.
 
-        The memory root must be writable and must survive the container: with
-        ``explore_sessions > 1`` the planner writes exploration notes into
-        ``<memory>/_internal/inbox/``. Harbor only syncs
+        The memory root must survive the container. Harbor only syncs
         ``environment_logs_dir`` back to the trial directory, and a task may run
         the agent as a non-root ``USER``, so the root lives under the agent log
         directory and is extracted as the agent user.
@@ -291,8 +285,8 @@ class RPentEfeAgent(BaseInstalledAgent):
                 source_path=archive_path, target_path=str(remote_archive)
             )
         # ``--no-same-owner`` keeps the host UID/GIDs out of the container, so
-        # the agent user owns what it has to append to. The archive itself is
-        # removed before the trial reads the memory root.
+        # the agent user can remove the archive and read the corpus. The archive
+        # is removed before the trial reads the memory root.
         await self.exec_as_agent(
             environment,
             command=(
@@ -346,8 +340,6 @@ class RPentEfeAgent(BaseInstalledAgent):
             str(self.max_turns),
             "--reasoning-effort",
             self.reasoning_effort,
-            "--explore-sessions",
-            str(self.explore_sessions),
             "--codex-sandbox",
             self.sandbox,
         ]
@@ -391,11 +383,10 @@ class RPentEfeAgent(BaseInstalledAgent):
 
     @staticmethod
     def _recover_usage(output_dir: Path) -> tuple[dict[str, int], str] | None:
-        """Sum the last usage event in every session trace.
+        """Sum the last usage event in the session trace.
 
-        Sessions are independent Codex contexts, so their totals add up. A
-        trace without a usage event contributes nothing; ``None`` means no
-        trace reported usage.
+        A trace without a usage event contributes nothing; ``None`` means the
+        trace did not report usage.
         """
         totals = {
             "total_input_tokens": 0,

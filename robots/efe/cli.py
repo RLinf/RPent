@@ -37,7 +37,6 @@ def main(argv: list[str] | None = None) -> int:
         default="none",
     )
     parser.add_argument("--memory-dir", type=Path, default=None)
-    parser.add_argument("--explore-sessions", type=int, default=1)
     parser.add_argument(
         "--no-skills",
         dest="skills",
@@ -79,7 +78,6 @@ def main(argv: list[str] | None = None) -> int:
             max_turns=args.max_turns,
             reasoning_effort=args.reasoning_effort,
             memory_dir=args.memory_dir,
-            explore_sessions=args.explore_sessions,
             skills=args.skills,
             sandbox=args.codex_sandbox,
             efe_base_url=args.efe_base_url,
