@@ -127,9 +127,12 @@ GPU 任务还需要 NVIDIA 驱动和 NVIDIA Container Toolkit。本集成适配 
       export RPENT_ROOT=/absolute/path/to/RPent
       export EFE_ROOT=/absolute/path/to/embodied-first-exam
       uv sync --project "$EFE_ROOT" --python 3.12
+      uv pip install --python "$EFE_ROOT/.venv/bin/python" -e "$RPENT_ROOT"
       docker info
       uv run --project "$EFE_ROOT" harbor --version
       test -f "$RPENT_ROOT/robots/efe/harbor_agent.py"
+
+   这条安装命令把 RPent 安装到宿主机的 EFE Python 环境，供手动运行 ``rpent --robot efe`` 使用。通过 Harbor 运行 Trial 时不需要在宿主机安装 RPent：Harbor 会在任务容器中自动安装。
 
    ``docker info`` 应显示 Docker 服务正常，``harbor --version`` 应输出 \
    0.23.0，``test -f`` 应无报错退出。首次 Trial 还要构建或拉取任务镜像并\

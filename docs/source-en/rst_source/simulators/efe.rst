@@ -145,10 +145,14 @@ This integration targets Harbor 0.23.0 and Python 3.12.
       export RPENT_ROOT=/absolute/path/to/RPent
       export EFE_ROOT=/absolute/path/to/embodied-first-exam
       uv sync --project "$EFE_ROOT" --python 3.12
+      uv pip install --python "$EFE_ROOT/.venv/bin/python" -e "$RPENT_ROOT"
       docker info
       uv run --project "$EFE_ROOT" harbor --version
       test -f "$RPENT_ROOT/robots/efe/harbor_agent.py"
 
+   This command installs RPent into EFE's host Python environment for manual
+   use of ``rpent --robot efe``. You do not need to install RPent on the host
+   to run a Harbor trial; Harbor installs it in the task container.
    ``docker info`` must report a running service, ``harbor --version`` must
    report 0.23.0, and ``test -f`` must exit without an error. The first trial
    also builds or pulls its task image and downloads resources, so setup takes
