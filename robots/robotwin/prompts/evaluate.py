@@ -36,12 +36,17 @@ The current task_language and fresh observation override historical memory.
 Use the semantic JSON as the phase plan and the JSONL as evidence for action
 type and VLA cadence, never as a coordinate replay."""
 
-TRANSFER = """Transfer roles, phase order, required arms, observable gates,
-VLA/analytic division, chunk pattern, terminal action, and known failures.
-Rebind every object, destination, relation, arm choice, pixel, pose, table
+TRANSFER_GEOMETRY = """Rebind every object, destination, relation, arm choice, pixel, pose, table
 height, clearance, grasp point, and release/contact point from this episode.
 Use a supported recipe as the default skeleton when current evidence agrees;
 treat an experimental recipe as a weak prior."""
+
+TRANSFER = (
+    """Transfer roles, phase order, required arms, observable gates,
+VLA/analytic division, chunk pattern, terminal action, and known failures.
+"""
+    + TRANSFER_GEOMETRY
+)
 
 ACCURACY_LOOP = """Issue one registered action, inspect fresh before/after
 evidence, then decide again. Maintain a compact internal ledger: current phase,
@@ -50,7 +55,7 @@ blocker, and next observable gate. Advance only when the current gate is visibly
 satisfied. Primitive success is not task success.
 
 If an action makes useful progress but stops mid-phase, continue the same phase
-with the shortest suitable action. LingBot-VLA may be called repeatedly as the
+with the shortest suitable action. The action model may be called repeatedly as the
 recipe and physical state require; lack of an immediate completed gate does not
 by itself forbid another VLA chunk. The two-no-progress rule applies to an
 unchanged analytic primitive target or identical hand-written recovery: after
@@ -85,8 +90,7 @@ observed goal match it:
   after the object body crosses the opening and is internally supported. Do not
   apply containment rules to a pad, plate, scale, skillet, or stand."""
 
-CONTROL = """Every lingbot_act uses the exact complete current task_language and
-use_length=50. Use one chunk near contact, near success, instability, or for a
+CONTROL_GUIDANCE = """Use one chunk near contact, near success, instability, or for a
 small correction; two for ordinary stable progress; three only for a
 recipe-supported continuity-sensitive phase already moving correctly. When VLA
 has correct contact and visible progress, avoid interrupting it with speculative
@@ -102,6 +106,12 @@ closed: also require visible target motion, elevation, or an emptied source.
 Never call a primitive just to test whether it helps. For planner residuals,
 guarded low approaches, physical state shaping, and wrist-sweep safety, follow
 robots/robotwin/guides/GUIDE_RPENT.md and re-observe after every primitive."""
+
+CONTROL = (
+    """Every lingbot_act uses the exact complete current task_language and
+use_length=50. """
+    + CONTROL_GUIDANCE
+)
 
 PERCEPTION = """Use the head view as semantic authority for identity,
 distractors, destinations, language relations, and global progress. Use the
@@ -150,6 +160,9 @@ WAM_WORKFLOW = (
 
 def system_prompt(
     variables: Mapping[str, object] | None = None,
+    *,
+    transfer: str = TRANSFER,
+    control: str = CONTROL,
 ) -> PromptNode:
     """Return the RoboTwin evaluation prompt for the selected policy."""
     if (variables or {}).get("policy_kind") == "wam":
@@ -157,10 +170,10 @@ def system_prompt(
     return {
         "ROLE": ROLE,
         "READ ORDER": READ_ORDER,
-        "CLEAN-TO-RANDOMIZED TRANSFER": TRANSFER,
+        "CLEAN-TO-RANDOMIZED TRANSFER": transfer,
         "ACCURACY-FIRST LOOP": ACCURACY_LOOP,
         "CONDITIONAL TASK-FAMILY PLAYBOOKS": TASK_FAMILIES,
-        "VLA AND PRIMITIVE CONTROL": CONTROL,
+        "VLA AND PRIMITIVE CONTROL": control,
         "PERCEPTION": PERCEPTION,
         "RUNTIME": RUNTIME,
         "BUDGET AND SUCCESS": BUDGET_AND_SUCCESS,

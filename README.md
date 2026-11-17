@@ -92,6 +92,7 @@ RPent is built for four kinds of users:
             <li><a href="https://rpent.readthedocs.io/en/latest/rst_source/simulators/robodojo.html#awomo05-setup">Awomo05</a> (RoboDojo) ✅</li>
             <li><a href="docs/source-en/rst_source/development/add_action_model.rst">Cosmos Policy</a> (LIBERO / LIBERO-Pro)</li>
             <li><a href="docs/source-en/rst_source/development/add_action_model.rst">Fast-WAM</a> (LIBERO / LIBERO-Pro / RoboTwin)</li>
+            <li><a href="docs/source-en/rst_source/development/add_action_model.rst">UniWAM</a> (RoboTwin)</li>
           </ul>
         </ul>
       </td>
@@ -184,12 +185,12 @@ rpent --robot libero --suite libero_object_swap --task 2 --seed 0 \
   --planner claude_code --model claude-opus-4-8
 ```
 
-See the [planner docs](https://rpent.readthedocs.io/en/latest/rst_source/guides/configure_planner.html) to configure other planners (`api`, `codex`) and model providers.
+See the [planner docs](https://rpent.readthedocs.io/en/latest/rst_source/guides/configure_planner.html) to configure other planners (`api`, `codex`, `gemini_cli`) and model providers.
 For the exploration workflow and local-memory evaluation, see [LIBERO exploration mode](https://rpent.readthedocs.io/en/latest/rst_source/simulators/libero.html#exploration-and-local-memory-evaluation).
 
 ### Interactive CLI mode
 
-With `claude_code` or `codex`, add `--tui` (`-t`) to steer the agent live from your terminal. The built-in task is pre-filled at the `you>` prompt. Press Enter to submit it as-is. To change or replace the task, edit the input before pressing Enter. While the agent runs, type follow-up messages to steer it (`/help` lists commands; `/quit` or Ctrl-D ends). Requires a TTY. The `api` planner uses a native CLI that runs the preset task first and accepts follow-ups between runs; use `/exit` to close it.
+With `claude_code`, `codex`, or `gemini_cli`, add `--tui` (`-t`) for terminal interaction. The built-in task is pre-filled at the `you>` prompt; edit it or press Enter to submit. Follow-up messages queue until the current turn completes. Use `/interrupt [message]` to interrupt; an attached message goes ahead of the queue. `/help` lists commands; `/quit` or Ctrl-D ends the session. Requires a TTY. The `api` planner uses a native CLI that runs the preset task first and accepts follow-ups between runs; use `/exit` to close it.
 
 ```bash
 rpent --robot libero --suite libero_object_swap --task 2 --seed 0 \
@@ -208,6 +209,16 @@ rpent --robot libero --dashboard --dashboard-language zh-cn \
 For a complete list of CLI options, see the [Command-Line Reference](https://rpent.readthedocs.io/en/latest/rst_source/guides/cli.html). RoboCasa and RoboTwin provide their own task parameters — see the [RoboCasa](https://rpent.readthedocs.io/en/latest/rst_source/simulators/robocasa.html) and [RoboTwin](https://rpent.readthedocs.io/en/latest/rst_source/simulators/robotwin.html) docs.
 
 For more detailed documentation, see the [RPent documentation](https://rpent.readthedocs.io/en/latest/).
+
+## Adoption
+
+We are happy to see RPent has been adopted by leading companies and research institutions, with users and collaborators including NVIDIA, Huawei, Tencent, ROBAM, Z-Trans AI (Zetta project), Tsinghua University, Peking University, and the National University of Singapore.
+
+✨ If you find RPent useful for embodied AI research or robotics applications, feel free to reach out or submit a PR to have your organization listed here.
+
+<div align="center">
+  <img src="https://cdn.jsdelivr.net/gh/RLinf/misc@beb75d9289a0dee012004c26436f8fb1c688f310/rpent/adoption/adoption.png" alt="RPent community: 10 companies, including Z-Trans AI (Zetta project) and ROBAM, followed by 22 universities and 8 research institutions"/>
+</div>
 
 ## Contributing
 
