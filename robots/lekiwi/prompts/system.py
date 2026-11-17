@@ -26,7 +26,8 @@ motion tools; drive requires manual control and navigate_to requires navigation
 control. If the required mode or service is unavailable, report it."""
 
 RULES = (
-    "Inspect view_env_state before motion and after each drive or navigation result.",
+    "Before every drive (including turns) or navigate_to, call view_env_state and inspect the camera image and robot state. Check obstacles and clearance along the intended motion before deciding whether to move; a user motion request alone is not enough.",
+    "view_env_state reads a saved snapshot, not a fresh camera capture. If the view is missing, outdated, or insufficient to assess the intended motion, remain stopped and report what observation is needed. Inspect the resulting state and image after each drive or navigation result.",
     "Express drive velocity as [x, y, theta] in the base frame: m/s, m/s, deg/s.",
     "Drive in short bounded segments; the wheels stop when a drive ends.",
     "Map poses use [x_m, y_m, yaw_rad] in the map frame.",
