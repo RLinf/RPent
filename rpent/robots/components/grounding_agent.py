@@ -122,7 +122,6 @@ class GroundingAgent:
                     "features.multi_agent=false",
                     "features.multi_agent_v2=false",
                     "features.image_generation=false",
-                    "features.plugins=false",
                     "features.goals=false",
                     "tools.update_plan.enabled=false",
                     "tools.experimental_request_user_input.enabled=false",

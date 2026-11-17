@@ -97,22 +97,19 @@ These options control the planner, memory, output directory, and Dashboard.
 Environment Options
 -------------------
 
-RoboTwin supports ``--am-backend lingbot|fast-wam|uniwam``; LingBot is the default.
-UniWAM uses ``--am-checkpoint`` for its resource root (``policy/``, ``checkpoint/``,
-``wan/``, ``vlm/``) and ``--am-python`` for the model environment. Alternatively,
-connect to its WAM worker with ``--am-endpoint``. See :doc:`../simulators/robotwin`.
-
 LIBERO selects tasks with ``--suite``, ``--task``, ``--seed``, and ``--libero-type``; the variant defaults to ``LIBERO_TYPE`` or ``pro``. RoboCasa365 and RoboTwin use ``--task-name``. Franka uses ``--task-id`` and ``--robot-config``. See :doc:`../simulators/libero`, :doc:`../simulators/robocasa`, :doc:`../simulators/robotwin`, :doc:`../real_world_robots/franka`, and :doc:`../real_world_robots/dual_franka` for details.
 
 ``--env-endpoint``, ``--am-endpoint``, and LIBERO’s ``--sam3-endpoint`` connect to existing environment, action-model (VLA or WAM), and SAM3 services respectively. RPent RPC addresses use ``[protocol://]host:port``, defaulting to ``http``. LingBot uses native WebSocket; see :doc:`../simulators/robotwin`. See :doc:`advanced_deployment` for GPU assignment and remote services.
 
 ``--am-backend`` selects one action model supported by the platform. LIBERO
-defaults to ``pi05`` and RoboTwin to ``lingbot``. VLA and WAM share
+defaults to ``pi05``; RoboTwin supports ``lingbot`` (default), ``fast-wam`` and
+``uniwam``. VLA and WAM share
 ``--am-endpoint`` for existing workers, and ``--am-checkpoint``, ``--am-python``,
 ``--am-root`` and ``--am-cuda-device`` for local deployment. Explicit local
 deployment options are rejected with an endpoint.
 ``--am-checkpoint`` supplies local weights or a service model identity as required
-by the backend. ``--am-python`` selects the provisioned model interpreter;
+by the backend. For UniWAM, it selects the resource root described in
+:doc:`../simulators/robotwin`. ``--am-python`` selects the provisioned model interpreter;
 VLA defaults to the current interpreter. ``--am-root`` selects the working
 directory, defaulting to the RPent checkout; Cosmos Policy requires its source
 directory.
