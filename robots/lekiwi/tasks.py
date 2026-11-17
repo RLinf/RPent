@@ -84,6 +84,18 @@ LEKIWI_TASKS = {
             "The target stays fixed relative to the initial pose, even after turning.",
         ),
     ),
+    3: LeKiwiTask(
+        name="interactive_session",
+        instruction=(
+            "Start an interactive session with no predefined goal. Acknowledge "
+            "that you are ready, then wait for the user's messages."
+        ),
+        success_criteria="Respond to the user's requests as they arrive.",
+        constraints=(
+            "Do not initiate motion or invent a test or survey; move only when the user requests it.",
+            "Keep the session open after replying; call finish only when the user asks to end it.",
+        ),
+    ),
 }
 
 

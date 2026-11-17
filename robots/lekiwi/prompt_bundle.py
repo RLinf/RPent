@@ -36,8 +36,9 @@ def system_prompt(variables: Mapping[str, object] | None = None) -> PromptNode:
 
 def user_prompt(variables: Mapping[str, object] | None = None) -> PromptNode:
     """Assemble the task-specific initial user prompt."""
+    interactive = (variables or {}).get("task_name") == "interactive_session"
     return {
         "TASK": user_parts.TASK,
         "TASK CONSTRAINTS": user_parts.CONSTRAINTS,
-        "BEGIN": user_parts.BEGIN,
+        "BEGIN": user_parts.INTERACTIVE_BEGIN if interactive else user_parts.BEGIN,
     }

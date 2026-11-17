@@ -22,3 +22,6 @@ CONSTRAINTS = """{{constraints}}"""
 
 BEGIN = """Call view_env_state with step 0, inspect the camera view and the
 velocity state, then execute the task conservatively."""
+
+INTERACTIVE_BEGIN = """Reply that you are ready and wait for the user's next
+message. No tool call or movement is needed to start this session."""

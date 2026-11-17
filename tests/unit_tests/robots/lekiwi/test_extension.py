@@ -240,7 +240,7 @@ def test_dashboard_navigation_command_reaches_task_prompt(tmp_path, target):
     assert dashboard["primitives"] == ("navigate_to", "stop")
 
 
-@pytest.mark.parametrize("task_id", [0, 1, 2])
+@pytest.mark.parametrize("task_id", [0, 1, 2, 3])
 def test_manual_dashboard_tasks_remain_available(tmp_path, task_id):
     from argparse import ArgumentParser
 
@@ -262,6 +262,15 @@ def test_manual_dashboard_tasks_remain_available(tmp_path, task_id):
     assert config.task_desc["task_id"] == task_id
     assert config.recipe_tag == f"lekiwi_t{task_id}"
     assert dashboard["primitives"] == ("drive", "stop")
+    prompt = spec.prompts.render("user", variables=config.prompt_vars)
+    if task_id == 3:
+        assert "no predefined goal" in prompt
+        assert "wait for the user's next" in prompt
+        assert "move only when the user requests it" in prompt
+        assert "call finish only when the user asks to end it" in prompt
+        assert "Call view_env_state with step 0" not in prompt
+    else:
+        assert "Call view_env_state with step 0" in prompt
 
 
 def test_navigation_cli_selects_target_and_rejects_manual_task(tmp_path):
