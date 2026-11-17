@@ -54,6 +54,7 @@ logger = get_logger("rl_episode")
 EXIT_SETUP_FAILED = 75
 # Planner errors with a task outcome, including exhaustion of episode budgets.
 _TERMINAL_ERRORS = {
+    "invalid_action",
     "tool_arguments",
     "tool_name",
     "response_truncated",
@@ -81,8 +82,12 @@ def start_environment(
     """
     args.env = task.get("environment", getattr(args, "env", "libero"))
     args.workflow = task.get("workflow", getattr(args, "workflow", "episode"))
+    args.no_thinking = not task.get(
+        "reasoning", not getattr(args, "no_thinking", False)
+    )
     args.image_size = task.get("image_size", getattr(args, "image_size", 1024))
     for name, default in (
+        ("world_cord", "base"),
         ("perception_mode", "single"),
         ("max_observe_calls", 8),
         ("observe_concurrency", 8),
@@ -292,6 +297,16 @@ def run(args: argparse.Namespace) -> int:
     args.observation_mode = options.pop("observation_mode", args.observation_mode)
     args.prompt = options.pop("prompt", args.prompt)
     args.image_size = options.pop("image_size", args.image_size)
+    thinking = options.get("thinking", task.get("reasoning", True))
+    if getattr(args, "no_thinking", None) is not None:
+        thinking = not args.no_thinking
+    if type(thinking) is not bool:
+        raise ValueError("reasoning/thinking must be a boolean")
+    options["thinking"] = thinking
+    task = {**task, "reasoning": thinking}
+    args.no_thinking = not thinking
+    if args.no_thinking:
+        options["reasoning_effort"] = "none"
     init_output_dir(args.output_dir)
     with contextlib.ExitStack() as release:
         try:
@@ -344,6 +359,14 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     get_robot_spec().add_cli_args(parser, use_dashboard=True)
     parser.add_argument("--output-dir", type=Path, required=True)
+    reasoning = parser.add_mutually_exclusive_group()
+    reasoning.add_argument(
+        "--reasoning", "--thinking", dest="no_thinking", action="store_false"
+    )
+    reasoning.add_argument(
+        "--no-reasoning", "--no-thinking", dest="no_thinking", action="store_true"
+    )
+    parser.set_defaults(no_thinking=None)
     parser.add_argument(
         "--record-api-trace",
         action="store_true",

@@ -75,6 +75,7 @@ from rpent.dashboard.interaction import DashboardInteractionPort, DashboardMessa
 from rpent.dashboard.planner_control import DashboardPlannerControl
 from rpent.planner.base import (
     REASONING_EFFORTS,
+    InvalidActionResponse,
     Planner,
     PlannerResult,
     cancel_and_wait,
@@ -91,6 +92,10 @@ _IMAGE_OMITTED = "[Image omitted: --no-images is enabled.]"
 
 class _InvalidToolArguments(ModelRetry):
     """Model-supplied arguments rejected before tool execution."""
+
+
+class _AutomaticCompletion(Exception):
+    """The toolkit completed the task before another model request."""
 
 
 class _RequestBudgetExhausted(Exception):
@@ -330,7 +335,7 @@ class ApiAgentLoop(Planner):
                 run,
                 timeout=None if self.interactive else self.timeout_s,
             )
-        except _RequestBudgetExhausted as exc:
+        except (_RequestBudgetExhausted, _AutomaticCompletion) as exc:
             session.error = None
             logger.info("%s", exc)
         except Exception as exc:
@@ -345,7 +350,11 @@ class ApiAgentLoop(Planner):
                 logger.warning("%s", session.error)
             else:
                 session.error = f"{type(exc).__name__}: {exc}"
-                logger.exception("Harness planner failed")
+                if isinstance(exc, InvalidActionResponse):
+                    session.error_kind = "invalid_action"
+                    logger.warning("%s", session.error)
+                else:
+                    logger.exception("Harness planner failed")
         finally:
             session.emit_usage()
         return PlannerResult(
@@ -486,6 +495,7 @@ class _HarnessToolkit(FunctionToolset):
     ) -> None:
         super().__init__(id="rpent")
         self.toolkit = toolkit
+        self.completion_result = getattr(toolkit, "completion_result", lambda: None)
         self.dashboard_events = dashboard_events
         self.no_images = no_images
         self.finish_result: dict[str, Any] | None = None
@@ -697,12 +707,14 @@ class _Session(AbstractCapability):
             result = await handler()
             self.error = None
             return result
-        except _RequestBudgetExhausted:
+        except (_RequestBudgetExhausted, _AutomaticCompletion):
             # The native CLI catches run exceptions before solve_async can see them.
             self.error = None
             raise
         except Exception as exc:
-            self.error_kind = None
+            self.error_kind = (
+                "invalid_action" if isinstance(exc, InvalidActionResponse) else None
+            )
             if isinstance(exc, APIConnectionError) or (
                 isinstance(exc, ModelAPIError)
                 and isinstance(exc.__cause__, APIConnectionError)
@@ -742,6 +754,10 @@ class _Session(AbstractCapability):
     async def before_model_request(
         self, ctx: RunContext, request_context: ModelRequestContext
     ) -> ModelRequestContext:
+        completion = self.toolkit.completion_result()
+        if completion is not None:
+            self.toolkit.finish_result = completion
+            raise _AutomaticCompletion("Native episode completed.")
         try:
             self.limits.check_before_request(self.usage + ctx.usage)
         except UsageLimitExceeded:

@@ -43,6 +43,8 @@ from rpent.utils.serialization import write_json
 def primitive_definitions(primitives, *, workflow, action_mode, perception_mode):
     """Select the same native declarations for local and remote execution."""
     for definition in iter_tools(primitives):
+        if workflow == "pear" and definition.name not in {"move_to", "set_gripper"}:
+            continue
         if definition.name in {"view_env", "segment", "back_project"} and (
             perception_mode == "batch" or workflow != "episode"
         ):
@@ -94,10 +96,16 @@ class RLToolkit(Toolkit):
         perception_mode: str = "single",
         max_observe_calls: int = 8,
         observe_concurrency: int = 8,
+        world_cord: str = "base",
+        reasoning: bool = True,
     ) -> None:
         if observation_mode != "adaptive":
             raise ValueError("rl supports only adaptive observations")
         validate_workflow(environment, workflow)
+        from robots.rl.contracts import validate_coordinates
+
+        validate_coordinates(environment, world_cord)
+        self.world_cord, self.reasoning = world_cord, reasoning
         if image_size not in IMAGE_SIZES:
             raise ValueError(f"unsupported image size {image_size}")
         from robots.rl.contracts import validate_options
@@ -141,9 +149,18 @@ class RLToolkit(Toolkit):
                 "robocasa": RoboCasaPrimitives,
                 "robotwin": RoboTwinPrimitives,
             }[environment]
+        native_options = dict(runtime_kwargs)
+        if environment == "libero":
+            native_options.update(
+                world_cord=world_cord, capture_geometry=workflow != "pear"
+            )
         self._primitives = primitive_type(
-            state=state, check_cancelled=self.raise_if_cancelled, **runtime_kwargs
+            state=state, check_cancelled=self.raise_if_cancelled, **native_options
         )
+        if workflow == "pear" and self._primitives.coordinates.table_height_m is None:
+            raise ValueError(
+                "pear requires native base and table calibration; use a matching environment server"
+            )
         self._task = self._primitives.env.get_task_language()
         self._publish_step(self._primitives.record_observation())
         self._recorded_env_steps = 0
@@ -217,12 +234,12 @@ class RLToolkit(Toolkit):
 
     def add_tool(self, declaration, *, replace=False) -> None:
         """Expose the same strict input contract at the model and execution boundary."""
-        from robots.rl.contracts import strict_tool
+        from robots.rl.contracts import coordinate_definition, strict_tool
 
         primitive = getattr(self, "_primitives", None)
         cameras = getattr(primitive, "cameras", ("agentview", "wrist"))
         declaration = strict_tool(
-            declaration,
+            coordinate_definition(declaration, self.world_cord),
             image_size=self.image_size,
             latest=self.workflow == "episode_image",
             cameras=cameras,
@@ -235,6 +252,8 @@ class RLToolkit(Toolkit):
             raise ValueError("snapshot observations require --workflow zap_turn")
         begin = time.perf_counter()
         observation = self.snapshot.observe(self._robot_state())
+        if self.world_cord == "general":
+            observation.data["coordinates"] = self._primitives.coordinates.description()
         self.workflow_stats["perception_seconds"] += time.perf_counter() - begin
         return observation
 
@@ -291,9 +310,11 @@ class RLToolkit(Toolkit):
                 "state": {"step": step, **self._robot_state()},
             },
         )
+        if self.world_cord == "general" or self.workflow == "pear":
+            observation.data["coordinates"] = self._primitives.coordinates.description()
         if self.workflow in {"zap_episode", "zap_subtask"}:
             observation = self.observe_snapshot()
-        elif self.workflow == "episode_image":
+        elif self.workflow in {"episode_image", "pear"}:
             view = self.current_image_observation()
             observation.data["observation"] = view.data
             observation.images = view.images
@@ -387,7 +408,7 @@ class RLToolkit(Toolkit):
             self.workflow_stats["atomic_actions"] = (
                 self.workflow_stats.get("atomic_actions", 0) + 1
             )
-        if self.workflow == "episode_image" and name in {
+        if self.workflow in {"episode_image", "pear"} and name in {
             "move_to",
             "set_gripper",
             "execute_actions",
@@ -472,6 +493,17 @@ class RLToolkit(Toolkit):
             self.observer.publish_current()
         return ToolResult(data=data)
 
+    def completion_result(self) -> dict[str, Any] | None:
+        """Finish pear from native flags, without an extra model request."""
+        if self.workflow != "pear" or not self._primitives.ended:
+            return None
+        return {
+            "_finish": True,
+            "success": self.solved(),
+            "terminated": self._primitives.env.terminated,
+            "truncated": self._primitives.env.truncated,
+        }
+
     def solved(self) -> bool:
         """Return the environment's latched success flag."""
         if self.environment != "libero":
@@ -487,6 +519,8 @@ class RLToolkit(Toolkit):
             {
                 "observation_mode": "adaptive",
                 "workflow": self.workflow,
+                "world_cord": self.world_cord,
+                "reasoning": self.reasoning,
                 "image_size": self.image_size,
                 "action_mode": self.action_mode,
                 "perception_mode": self.perception_mode,

@@ -41,6 +41,8 @@ logger = get_logger("rl_remote")
 
 REMOTE_OPTION_DEFAULTS = {
     "workflow": "episode",
+    "world_cord": "base",
+    "reasoning": True,
     "observation_mode": "adaptive",
     "prompt": "simple",
     "image_size": 1024,
@@ -56,7 +58,11 @@ REMOTE_OPTION_DEFAULTS = {
 
 def remote_options(task: dict) -> dict:
     """Resolve and validate the workflow configuration at the RPC boundary."""
-    from robots.rl.contracts import validate_options, validate_perception_options
+    from robots.rl.contracts import (
+        validate_coordinates,
+        validate_options,
+        validate_perception_options,
+    )
     from robots.rl.images import IMAGE_SIZES
     from robots.rl.prompt_bundle import PROMPT_VARIANTS
 
@@ -67,8 +73,11 @@ def remote_options(task: dict) -> dict:
     for name, default in REMOTE_OPTION_DEFAULTS.items():
         if type(options[name]) is not type(default):
             raise ValueError(f"invalid remote workflow option {name}")
-    if options["workflow"] != "episode" or options["observation_mode"] != "adaptive":
-        raise ValueError("remote toolkit supports adaptive episode only")
+    if (
+        options["workflow"] not in {"episode", "pear"}
+        or options["observation_mode"] != "adaptive"
+    ):
+        raise ValueError("remote toolkit supports adaptive episode or pear only")
     if options["perception_mode"] != "single":
         raise ValueError("remote toolkit supports single perception only")
     if (
@@ -76,6 +85,10 @@ def remote_options(task: dict) -> dict:
         or options["prompt"] not in PROMPT_VARIANTS
     ):
         raise ValueError("invalid remote image size or prompt variant")
+    validate_coordinates(task["environment"], options["world_cord"])
+    from robots.rl.prompt_bundle import validate_workflow
+
+    validate_workflow(task["environment"], options["workflow"])
     validate_options(
         task["environment"],
         options["workflow"],
@@ -226,6 +239,9 @@ class ToolkitWorker(RpcFacade):
             },
             "source_digest": source_digest(),
             "tools": declarations(self.toolkit),
+            "coordinates": self.toolkit._primitives.coordinates.metadata()
+            if self.toolkit.environment == "libero"
+            else None,
             "pid": os.getpid(),
             "boot_id": Path("/proc/sys/kernel/random/boot_id").read_text().strip(),
         }
@@ -247,6 +263,7 @@ class ToolkitWorker(RpcFacade):
                 base64.b64encode(image).decode("ascii") for image in result.images
             ],
             "solved": self.toolkit.solved() if solved is None else solved,
+            "completion_result": self.toolkit.completion_result(),
             "workflow_stats": self.toolkit.workflow_stats,
             "files": self.exchange.collect(),
         }
@@ -332,6 +349,7 @@ class RemoteToolkit(Toolkit):
         self._stopped = threading.Event()
         self._session = None
         self._solved = False
+        self._completion = None
         self._transport_error = None
         self._heartbeat = None
         if owner_id is None:
@@ -354,6 +372,16 @@ class RemoteToolkit(Toolkit):
                 or metadata["workflow_options"] != options
             ):
                 raise ValueError("remote toolkit task or budget mismatch")
+            if self.world_cord == "general":
+                coordinates = metadata.get("coordinates") or {}
+                if (
+                    coordinates.get("world_cord") != "general"
+                    or coordinates.get("tcp") != "finger_pad_midpoint"
+                    or coordinates.get("table_height_above_base_m") is None
+                ):
+                    raise ValueError(
+                        "remote general toolkit lacks matching base, table and TCP calibration"
+                    )
             from robots.rl.backends import RoboCasaPrimitives, RoboTwinPrimitives
             from robots.rl.tools import LiberoRLPrimitives
 
@@ -362,7 +390,7 @@ class RemoteToolkit(Toolkit):
                 "robocasa": RoboCasaPrimitives,
                 "robotwin": RoboTwinPrimitives,
             }[request["task"]["environment"]]
-            from robots.rl.contracts import strict_tool
+            from robots.rl.contracts import coordinate_definition, strict_tool
             from robots.rl.toolkit import action_batch_definition, primitive_definitions
 
             definitions = list(
@@ -379,7 +407,7 @@ class RemoteToolkit(Toolkit):
                 )
             for definition in definitions:
                 definition = strict_tool(
-                    definition,
+                    coordinate_definition(definition, self.world_cord),
                     image_size=self.image_size,
                     cameras=getattr(owner, "cameras", ("agentview", "wrist")),
                 )
@@ -434,6 +462,7 @@ class RemoteToolkit(Toolkit):
         transferred = ArtifactExchange.receive(self._output, payload["files"])
         self.state.reload()
         self._solved = payload["solved"]
+        self._completion = payload.get("completion_result")
         self.workflow_stats = payload["workflow_stats"]
         trace = self._output / "remote-transfer.jsonl"
         with trace.open("a") as file:
@@ -500,6 +529,10 @@ class RemoteToolkit(Toolkit):
     ) -> ToolResult:
         """The backend has already captured the original post-action state."""
         return ToolResult(data=result)
+
+    def completion_result(self) -> dict | None:
+        """Return the native terminal state received from the owning worker."""
+        return self._completion
 
     def solved(self) -> bool:
         return self._solved

@@ -57,6 +57,7 @@ def build_env_cfg(
     specific_reset_id: int = 0,
     seed: int = 0,
     max_episode_steps: int = 10000,
+    camera_depths: bool = True,
 ) -> Any:
     from omegaconf import OmegaConf
 
@@ -88,7 +89,7 @@ def build_env_cfg(
                 "camera_widths": 256,
                 # Render depth too, so we can back-project pixels to world
                 # from depth + camera calibration
-                "camera_depths": True,
+                "camera_depths": camera_depths,
                 # RLinf counts policy steps separately from reset settling.
                 "ignore_done": True,
                 **(
@@ -108,6 +109,9 @@ def make_env(
     suite_name: str = "libero_spatial",
     max_episode_steps: int = 10000,
     rl_control_state: bool = False,
+    world_cord: str = "base",
+    coordinate_calibration: bool = False,
+    camera_depths: bool = True,
 ) -> LiberoEnv:
     """Build a single-env LiberoEnv pinned to ``task_id`` / ``seed``."""
     from rlinf.envs.sim.libero.libero_env import LiberoEnv
@@ -128,12 +132,15 @@ def make_env(
         specific_reset_id=rid,
         seed=seed,
         max_episode_steps=max_episode_steps,
+        camera_depths=camera_depths,
     )
     env_type = LiberoEnv
     if rl_control_state:
         from robots.libero.control import controlled_env_type
 
-        env_type = controlled_env_type()
+        env_type = controlled_env_type(
+            world_cord=world_cord, coordinate_calibration=coordinate_calibration
+        )
     env = env_type(
         cfg=cfg, num_envs=1, seed_offset=0, total_num_processes=1, worker_info=None
     )
@@ -362,6 +369,17 @@ def main():
     p.add_argument("--seed", type=int, default=0)
     p.add_argument("--max-episode-steps", type=int, default=10000)
     p.add_argument(
+        "--rgb-only",
+        action="store_true",
+        help="Disable automatic depth observables for RGB-only control.",
+    )
+    p.add_argument("--world-cord", choices=("base", "general"), default="base")
+    p.add_argument(
+        "--coordinate-calibration",
+        action="store_true",
+        help="Read native mounted-base, table and pad calibration.",
+    )
+    p.add_argument(
         "--rl-control-state",
         action="store_true",
         help="Attach native grip-site/control-frame measurements for RL tools.",
@@ -414,6 +432,9 @@ def main():
         suite_name=args.suite,
         max_episode_steps=args.max_episode_steps,
         rl_control_state=args.rl_control_state,
+        world_cord=args.world_cord,
+        coordinate_calibration=args.coordinate_calibration,
+        camera_depths=not args.rgb_only,
     )
     facade = LiberoEnvFacade(
         raw_env,

@@ -178,9 +178,13 @@ def validate_options(
         raise ValueError(
             "action-mode must be single/batch and max-actions-per-call >= 1"
         )
+    if workflow == "pear" and action_mode != "single":
+        raise ValueError("pear requires one move_to or set_gripper call per reply")
     if reasoning < -1 or images < -1:
         raise ValueError("history limits must be -1 or a nonnegative integer")
-    if (environment != "libero" or workflow not in {"episode", "episode_image"}) and (
+    if (
+        environment != "libero" or workflow not in {"episode", "episode_image", "pear"}
+    ) and (
         action_mode != "single" or reasoning != -1 or images != -1 or max_actions != 3
     ):
         raise ValueError(
@@ -213,3 +217,40 @@ def argument_hint(name: str, environment: str = "libero") -> str:
         "observe": "Use calls with unique id/op; view_env has camera only; segment/back_project need an issued source or @view.camera/@segment. Fix the whole list before retrying.",
         "execute_actions": "Supply a non-empty actions list within K; each item must be move_to with a target or set_gripper with opening 0..1.",
     }.get(name, "Follow the declared required fields and value ranges.")
+
+
+def validate_coordinates(environment: str, world_cord: str) -> None:
+    """Reject unsupported frames before starting a simulator."""
+    if world_cord not in {"base", "general"}:
+        raise ValueError("world_cord must be base or general")
+    if environment != "libero" and world_cord != "base":
+        raise ValueError("general coordinates currently support LIBERO only")
+
+
+def coordinate_definition(declaration, world_cord: str):
+    """Describe the selected coordinates without changing the tool wire schema."""
+    if world_cord == "base":
+        return declaration
+    import re
+    from dataclasses import replace
+
+    def convert(value):
+        if isinstance(value, dict):
+            return {k: convert(v) for k, v in value.items()}
+        if isinstance(value, list):
+            return [convert(v) for v in value]
+        if isinstance(value, str):
+            return re.sub(
+                r"\bworld(?:-frame)?\b",
+                "general frame",
+                value.replace("grip_site", "finger-pad TCP").replace(
+                    "grip-site", "finger-pad TCP"
+                ),
+            )
+        return value
+
+    return replace(
+        declaration,
+        description=convert(declaration.description),
+        _input_schema=convert(declaration.input_schema),
+    )

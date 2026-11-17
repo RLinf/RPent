@@ -8,7 +8,8 @@ if [[ -n "${RPENT_MODEL:-}" && "${RPENT_MODEL,,}" != *qwen3.8* && -z "${RPENT_RE
 fi
 run_args=(
   --sam3-timeout-s "${RPENT_SAM3_TIMEOUT_S:-120}"                 # SAM3 排队加推理 RPC 时限，不延长 planner 总预算。
-  --workflow "${RPENT_WORKFLOW:-episode}"                         # 工作流：episode、episode_image 或 zap_*。
+  --workflow "${RPENT_WORKFLOW:-episode}"                         # 工作流：episode、episode_image、pear 或 zap_*。
+  --world-cord "${RPENT_WORLD_CORD:-base}"                         # base 为仿真坐标；general 为基座坐标和指垫 TCP。
   --perception-mode "${RPENT_PERCEPTION_MODE:-single}"           # 感知接口：single；batch 使用 observe，仅支持 episode。
   --max-observe-calls "${RPENT_MAX_OBSERVE_CALLS:-8}"               # 一次 observe 中子操作总数上限，至少 1。
   --observe-concurrency "${RPENT_OBSERVE_CONCURRENCY:-8}"           # 独立子操作并发上限；不修改 SAM3 副本的并发限制。

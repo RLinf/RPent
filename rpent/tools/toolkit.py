@@ -373,6 +373,10 @@ class Toolkit:
         """Return a rule-checked continuation at an idle planner boundary."""
         return None
 
+    def completion_result(self) -> dict[str, Any] | None:
+        """Return a native terminal result, or None to keep requesting actions."""
+        return None
+
     def solved(self) -> bool:
         """Whether the env has reported the task complete.
 

@@ -341,7 +341,8 @@ def test_owned_process_group_reaps_cold_children_without_stopping_other_daemons(
         "import json,os,signal,subprocess,sys,time; from pathlib import Path; "
         "signal.signal(signal.SIGTERM,signal.SIG_IGN); "
         f"p=subprocess.Popen([sys.executable,'-c',{grandchild!r}]); "
-        f"Path({str(ids)!r}).write_text(json.dumps([os.getpid(),p.pid])); "
+        f"ids=Path({str(ids)!r}); temporary=ids.with_suffix('.tmp'); "
+        "temporary.write_text(json.dumps([os.getpid(),p.pid])); temporary.replace(ids); "
         "time.sleep(60)"
     )
     parent = (

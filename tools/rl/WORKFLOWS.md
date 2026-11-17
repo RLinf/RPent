@@ -2,7 +2,7 @@
 
 [简体中文](WORKFLOWS_zh.md) · [Installation](INSTALL.md) · [First task](README.md)
 
-All five modes use the API planner and the same robot/frame/gripper contract.
+All modes use the API planner and select LIBERO coordinates with `--world-cord`.
 The differences are perception tools and how long conversation history survives.
 Native environment flags determine success; a todo item or `finish` claim does
 not override them. The public workflow names are listed below.
@@ -13,14 +13,14 @@ not override them. The public workflow names are listed below.
 | --- | --- | --- |
 | `episode` | `move_to`, `set_gripper`, `view_env`, `segment`, `back_project`, `finish` | Whole episode, with compaction |
 | `episode_image` | `move_to`, `set_gripper`, `segment`, `back_project`, `finish` | Whole episode, raw images after actions |
+| `pear` | `move_to`, `set_gripper` | Whole episode, RGB/state after every action; automatic completion |
 | `zap_turn` | `move_to`, `set_gripper`, `change_query`, `update_todo`, `finish` | None between requests |
 | `zap_episode` | `move_to`, `set_gripper`, `change_query`, `finish` | Whole episode, with compaction |
 | `zap_subtask` | `move_to`, `set_gripper`, `change_query`, `update_todo`, `finish` | Current subtask, with compaction |
 
 Every reply contains exactly one tool call, except `zap_subtask` initialization,
 which contains `change_query` and `update_todo` exactly once each. The entire
-reply is validated before any tool executes. Rejected replies consume requests
-and return feedback without executing sibling actions.
+reply is validated before any tool executes. Rejected replies consume requests and return feedback without executing sibling actions in the existing workflows. In `pear`, an invalid reply immediately ends the episode as a normal failure.
 
 `episode` starts with the task and measured state. The model calls `view_env`
 for images and explicit perception tools for world coordinates. `zap_turn`
@@ -320,3 +320,18 @@ mandatory. See https://github.com/mlc-ai/xgrammar/issues/802.
 `--workflow episode --perception-mode batch` replaces standalone perception
 with `observe(calls=[...])`. Sources define dependencies; independent nodes run
 concurrently. [CLI, examples, source IDs and outputs](OBSERVE.md).
+
+## Base frame and RGB-only control
+
+`--world-cord base` is the default simulator-world frame and keeps the existing `grip_site`. `--world-cord general` works with every LIBERO RL workflow: the mounting base is the origin, x points forward, y left, z up, with a measured finger-pad midpoint TCP. Initial feedback gives table height above the base. The controller compensates the TCP offset; positions use metres and orientations fixed-axis XYZ radians.
+
+All geometry, including batched observe and ZAP surfaces, uses the selected frame: `world_xyz`, `top_z_m`, `size_xyz_m`, `axis_yaw` and `z_range_m`. Raw `*_world.npz` maps remain simulator-world points; `coordinates.json` records their transform. Convert valid points before filtering height or computing extents. Images and camera/step bindings do not change.
+
+`pear` retains the episode-image conversation and returns agentview, wrist and measured robot state initially and after every action. It uses no SAM3, depth perception, action batch or `finish`. A reply must call exactly one of `move_to` and `set_gripper`. `--reasoning` enables thinking; `--no-reasoning` disables it and requires a direct tool call without text. Both are aliases of the existing thinking flags. Native success or exhausted budgets ends the episode automatically. Invalid replies end as reward-zero task failures without correction requests; partial motion alone does not end an episode.
+
+```bash
+bash tools/rl/run.sh --simulator libero --suite libero_goal --task 0 --seed 0 \
+  --workflow pear --world-cord general --action-mode single --no-reasoning
+```
+
+A pear-only remote manager can omit `--sam3-endpoint`. Existing perception workflows still require a SAM3 endpoint. Use matching RPent revisions at both RPC ends; general coordinates require native base, table and finger-pad calibration from the updated environment server. The dual-arm convention, for a future integration, places the origin midway between the two mounting bases with the same axes; only single-arm LIBERO is implemented here.

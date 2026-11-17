@@ -23,7 +23,13 @@ from dataclasses import replace
 from pydantic_ai import BinaryContent, ModelRetry, ToolCallPart
 from pydantic_ai.capabilities import AbstractCapability
 from pydantic_ai.exceptions import UnexpectedModelBehavior
-from pydantic_ai.messages import ModelRequest, SystemPromptPart, UserPromptPart
+from pydantic_ai.messages import (
+    ModelRequest,
+    SystemPromptPart,
+    TextPart,
+    ThinkingPart,
+    UserPromptPart,
+)
 
 from rpent.utils.serialization import write_json
 
@@ -163,6 +169,17 @@ class WorkflowCapability(AbstractCapability):
             trace.response(response)
         calls = [part for part in response.parts if isinstance(part, ToolCallPart)]
         error = None
+        if (
+            self.toolkit.workflow == "pear"
+            and not self.toolkit.reasoning
+            and any(
+                isinstance(part, (TextPart, ThinkingPart)) and part.content.strip()
+                for part in response.parts
+            )
+        ):
+            error = (
+                "Reasoning is disabled; respond with one direct tool call and no prose."
+            )
         if response.state != "complete" or response.finish_reason == "length":
             raise UnexpectedModelBehavior(
                 "Token limit reached before any response was generated"
@@ -210,5 +227,9 @@ class WorkflowCapability(AbstractCapability):
             feedback = error + " No tool executed."
             if self.toolkit.snapshot is not None:
                 self.toolkit.snapshot.last_result = {"error": feedback}
+            if self.toolkit.workflow == "pear":
+                from rpent.planner.base import InvalidActionResponse
+
+                raise InvalidActionResponse(feedback)
             raise ModelRetry(feedback)
         return response

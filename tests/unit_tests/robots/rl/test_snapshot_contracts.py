@@ -53,6 +53,9 @@ def tool_descriptions_without_cli_globals(monkeypatch):
 
 
 class Primitives:
+    from robots.rl.geometry import valid_points
+
+    surface_points = staticmethod(valid_points)
     _audit_sam = LiberoRLPrimitives._audit_sam
     cameras = ("agentview", "wrist")
 

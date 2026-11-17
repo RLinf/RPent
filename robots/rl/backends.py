@@ -34,6 +34,8 @@ class ScenePrimitives(LiberoRLPrimitives):
 
     cameras: tuple[str, ...]
 
+    surface_points = staticmethod(geometry.valid_points)
+
     def __init__(
         self,
         *,

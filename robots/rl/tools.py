@@ -19,7 +19,7 @@ from __future__ import annotations
 import itertools
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Annotated, Any, Literal
+from typing import TYPE_CHECKING, Annotated, Any, Literal
 
 import numpy as np
 from pydantic import Field
@@ -27,7 +27,9 @@ from scipy.spatial.transform import Rotation
 
 from robots.libero.env_client import LiberoEnvClient
 from robots.rl import geometry
-from rpent.robots.components.sam3_client import Sam3Client
+
+if TYPE_CHECKING:
+    from rpent.robots.components.sam3_client import Sam3Client
 from rpent.session import EnvState, StepRecord
 from rpent.tools import ToolResult, tool
 
@@ -91,16 +93,26 @@ class LiberoRLPrimitives:
         self,
         *,
         env: LiberoEnvClient,
-        sam3_client: Sam3Client,
+        sam3_client: Sam3Client | None = None,
         state: EnvState,
         check_cancelled: Callable[[], None],
         config: ControlConfig = ControlConfig(),
+        world_cord: str = "base",
+        capture_geometry: bool = True,
     ) -> None:
         self.env = env
         self._sam3 = sam3_client
         self._state = state
         self._check_cancelled = check_cancelled
         self._config = config
+        from robots.rl.coordinates import Coordinates
+
+        self.coordinates = Coordinates.from_control(
+            world_cord, env.last_obs["control_state"]
+        )
+        self.capture_geometry = capture_geometry
+        if world_cord == "general" or not capture_geometry:
+            self._state.save("coordinates.json", self.coordinates.metadata(), step=None)
         # The client resets on connect, leaving the gripper fully open.
         self._open_gap = self._finger_gap()
         self.env_steps = 0
@@ -117,14 +129,41 @@ class LiberoRLPrimitives:
         states = np.asarray(self.env.last_obs["states"], dtype=np.float64)
         return float(abs(states[6]) + abs(states[7]))
 
-    def measure(self) -> Measurement:
-        """Read the pose and opening from the latest environment observation."""
+    def _measure_native(self) -> Measurement:
+        """Read the native control site without changing the OSC reference."""
         control = self.env.last_obs["control_state"]
         return Measurement(
             xyz=np.asarray(control["xyz"], dtype=np.float64),
             rotation=np.asarray(control["rotation"], dtype=np.float64),
             opening=min(1.0, self._finger_gap() / self._open_gap),
         )
+
+    def _tcp_world(self, current: Measurement) -> np.ndarray:
+        if self.coordinates.mode == "base":
+            return current.xyz
+        return np.asarray(
+            self.env.last_obs["control_state"]["pad_tcp_xyz"], dtype=np.float64
+        )
+
+    def measure(self) -> Measurement:
+        """Read the selected TCP pose in the episode's model-facing frame."""
+        native = self._measure_native()
+        return Measurement(
+            self.coordinates.points(self._tcp_world(native)),
+            self.coordinates.orientation(native.rotation),
+            native.opening,
+        )
+
+    def _site_target(
+        self, xyz: np.ndarray, rotation: np.ndarray, current: Measurement
+    ) -> np.ndarray:
+        """Compensate the measured TCP offset at the requested target rotation."""
+        offset = current.rotation.T @ (self._tcp_world(current) - current.xyz)
+        return xyz - rotation @ offset
+
+    def surface_points(self, native_points: np.ndarray) -> np.ndarray:
+        """Filter invalid native depth, then convert before statistics or z filters."""
+        return self.coordinates.points(geometry.valid_points(native_points))
 
     def _step(self, action: np.ndarray) -> None:
         self._check_cancelled()
@@ -199,20 +238,26 @@ class LiberoRLPrimitives:
         if xyz is None and orientation_rpy is None:
             return _error("Supply xyz, orientation_rpy, or both.")
         start = self.measure()
-        target = start.xyz if xyz is None else np.asarray(xyz, dtype=np.float64)
+        target = self.coordinates.world_position(
+            start.xyz if xyz is None else np.asarray(xyz, dtype=np.float64)
+        )
         goal = (
-            start.rotation
+            self.coordinates.world_orientation(start.rotation)
             if orientation_rpy is None
-            else Rotation.from_euler("xyz", orientation_rpy).as_matrix()
+            else self.coordinates.world_orientation(
+                Rotation.from_euler("xyz", orientation_rpy).as_matrix()
+            )
         )
 
         config = self._config
         errors: list[tuple[float, float]] = []
         reason = None
-        previous = start
+        previous = self._measure_native()
         for steps in itertools.count():
-            current = self.measure()
-            action, distance, angle = self._pose_action(current, target, goal)
+            current = self._measure_native()
+            action, distance, angle = self._pose_action(
+                current, self._site_target(target, goal, current), goal
+            )
             errors.append((distance, angle))
             settled = (
                 np.linalg.norm(current.xyz - previous.xyz) < config.settle_speed_m
@@ -262,10 +307,11 @@ class LiberoRLPrimitives:
         if self.ended:
             return _error("episode_ended")
         config = self._config
-        hold = self.measure()
+        hold = self._measure_native()
+        hold_xyz = self._tcp_world(hold).copy()
         previous, still, reason = hold.opening, 0, None
         for steps in itertools.count():
-            current = self.measure()
+            current = self._measure_native()
             error = opening - current.opening
             still = (
                 still + 1
@@ -286,7 +332,11 @@ class LiberoRLPrimitives:
                 reason = "blocked"
             if reason is not None:
                 break
-            action, _, _ = self._pose_action(current, hold.xyz, hold.rotation)
+            action, _, _ = self._pose_action(
+                current,
+                self._site_target(hold_xyz, hold.rotation, current),
+                hold.rotation,
+            )
             # Native gripper input: -1 opens, +1 closes, 0 keeps the command.
             action[6] = 0.0 if within else float(-np.sign(error))
             self._step(action)
@@ -320,6 +370,12 @@ class LiberoRLPrimitives:
             extras={"env_steps": self.env_steps},
         ) as step:
             for camera, sim_camera in SIM_CAMERAS.items():
+                if not self.capture_geometry:
+                    rgb = self.env.render_camera(
+                        sim_camera, IMAGE_SIZE, IMAGE_SIZE, depth=False
+                    )
+                    self._save(f"{camera}.png", np.asarray(rgb)[::-1], step)
+                    continue
                 rgb, depth = self.env.render_camera(
                     sim_camera, IMAGE_SIZE, IMAGE_SIZE, depth=True
                 )
@@ -331,7 +387,13 @@ class LiberoRLPrimitives:
                     geometry.metric_depth(depth, meta)[::-1], meta
                 )
                 self._save(f"{camera}.png", np.asarray(rgb)[::-1], step)
-                self._save(f"{camera}_world.npz", world.astype(np.float16), step)
+                self._save(
+                    f"{camera}_world.npz",
+                    world.astype(
+                        np.float32 if self.coordinates.mode == "general" else np.float16
+                    ),
+                    step,
+                )
         return self._state.get(step)
 
     def _save(self, name: str, value: Any, step: int) -> None:
@@ -471,7 +533,7 @@ class LiberoRLPrimitives:
             if segmentation.box is not None
             else geometry.box_from_mask(mask)
         )
-        surface = geometry.surface_geometry(geometry.valid_points(world[mask]))
+        surface = geometry.surface_geometry(self.surface_points(world[mask]))
         if surface is None:
             data.update(
                 dict.fromkeys(("world_xyz", "top_z_m", "size_xyz_m", "axis_yaw")),
@@ -524,14 +586,14 @@ class LiberoRLPrimitives:
                 return _error("z_range_m applies to box and mask")
             if not _inside(pixel, world.shape):
                 return _error("pixel outside the image")
-            points = geometry.valid_points(world[pixel[0], pixel[1]])
+            points = self.surface_points(world[pixel[0], pixel[1]])
         else:
             if box is not None:
                 row_min, col_min = max(box[0], 0), max(box[1], 0)
                 points = world[row_min : box[2], col_min : box[3]]
             else:
                 points = world[mask]
-            points = geometry.valid_points(points)
+            points = self.surface_points(points)
             if z_range_m is not None:
                 low, high = z_range_m
                 points = points[(points[:, 2] >= low) & (points[:, 2] <= high)]

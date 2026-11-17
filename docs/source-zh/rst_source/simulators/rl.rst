@@ -57,7 +57,7 @@ episode。先从一个 episode 开始。
 工作流与工具
 ----------------------------------------------------------------
 
-各模式使用 API planner，共用机器人、坐标和夹爪说明。
+各模式使用 API planner。LIBERO 坐标系由 ``--world-cord`` 选择。
 
 .. list-table:: LIBERO 上下文策略
    :header-rows: 1
@@ -68,6 +68,9 @@ episode。先从一个 episode 开始。
    * - ``episode``
      - ``view_env`` 、 ``segment`` 、 ``back_project``
      - 整条任务
+   * - ``pear``
+     - RGB 和实测状态，每轮一个 ``move_to`` 或 ``set_gripper``
+     - 整条任务，原生自动结束
    * - ``zap_turn``
      - 自动感知、文字 todo
      - 每次请求独立
@@ -78,7 +81,7 @@ episode。先从一个 episode 开始。
      - 自动感知、结构化 todo
      - 每次有效 ``update_todo`` 后清空
 
-动作工具为 ``move_to`` 、 ``set_gripper`` 、 ``finish`` 。自动感知使用当前帧
+现有 episode 和 ZAP 模式的动作工具为 ``move_to`` 、 ``set_gripper`` 、 ``finish`` 。自动感知使用当前帧
 SAM3 框和深度测得的世界几何。每次回复仅一个工具，子任务初始化则同时要求
 query 和 todo 工具。重置不会重置全局预算。原生任务文本直接来自仿真器，没有
 逐任务 prompt 文件。RoboCasa 增加 ``move_base`` ，RoboTwin 增加解剖学左右臂
@@ -301,3 +304,28 @@ Episode-image、ZAP 和远程 toolkit 启动前拒绝此选项。
 两个启动器都支持，恢复时固定参数。详见
 :download:`感知列表指南 <../../../../tools/rl/OBSERVE_zh.md>` 的启动、source、示例、
 返回和审计说明。
+
+机器人基座坐标
+--------------
+
+所有 LIBERO RL workflows 都支持 ``--world-cord general``：原点在机械臂安装基座中心，+x 向前、+y 向机器人左侧、+z 向上，位置单位为米。默认值 ``base`` 保留仿真世界坐标和原来的 ``grip_site`` 定位方式。
+
+``general`` 的抓取 TCP 是两指指垫几何中心的实测中点。控制器根据姿态和夹爪开度补偿它相对 ``grip_site`` 的偏移。姿态仍用固定轴 XYZ 的 roll、pitch、yaw，单位为弧度。初始观察会给出桌面相对基座的实际高度；每次 reset 后固定本 episode 的坐标变换，缺少标定信息就报错。
+
+机器人位姿、``world_xyz``、``top_z_m``、``size_xyz_m``、``axis_yaw`` 和 ``z_range_m`` 都遵循所选坐标系，覆盖 segment、back_project、批量 observe 和 ZAP 自动感知。几何统计量由转换后的点云重新计算，尺寸表示沿所选坐标轴的范围。保存的 ``*_world.npz`` 仍是仿真世界坐标，``coordinates.json`` 记录变换和 TCP 定义。图片朝向、像素、mask 与观察步数的绑定不变。
+
+纯图像控制
+----------
+
+``--workflow pear`` 提供参考 `PEAR <https://arxiv.org/abs/2611.18562>`_ 的观察—动作循环，动作保留 RPent 的绝对 ``move_to`` 和归一化 ``set_gripper``。初始及每次动作后返回固定相机、腕部相机的 RGB 图片和实测机器人状态。模型依赖仍是 planner checkpoint 和 LIBERO 资源，无需 SAM3 或 Pi0.5 权重。该工作流只提供这两个动作工具，不启动 SAM3，也不生成深度点云。
+
+沿用现有模型端点和任务设置启动：
+
+.. code-block:: bash
+
+   bash tools/rl/run.sh --simulator libero --suite libero_goal --task 0 --seed 0 \
+     --workflow pear --world-cord general --action-mode single --reasoning
+
+``--no-reasoning`` 会实际关闭模型 thinking，并要求直接 tool call、不输出解释文字。它与 ``--no-thinking`` 等价，``--reasoning`` 与 ``--thinking`` 等价，默认开启。每轮必须恰好调用一个合法动作；无调用、多调用、未知工具、非法参数，或关闭推理后仍输出推理文字，都会立即以正常任务失败结束，不再请求模型纠正，也不消耗基础设施重试。
+
+原生成功，或环境步数、请求次数、时间、上下文预算耗尽后，程序自动结束，无需 ``finish``。动作 blocked 或 partial 仍返回实测结果，下一轮可以继续。远程 toolkit 支持 ``episode`` 和 ``pear``，两端源码及坐标设置必须一致；仅运行 pear 的 backend 可省略 ``--sam3-endpoint``。backend 命令及模型端点设置见工作流指南。

@@ -95,6 +95,10 @@ async def execute_tool(toolkit: Toolkit, name: str, arguments: dict) -> ToolResu
         raise
 
 
+class InvalidActionResponse(ValueError):
+    """A terminal policy-protocol violation, not a transport or setup failure."""
+
+
 class PlannerResult:
     """Result returned by a planner invocation."""
 

@@ -456,3 +456,14 @@ def test_trainer_episode_recording_is_explicit(tmp_path, record):
     assert args.workflow == "episode" and args.action_mode == "batch"
     assert args.max_actions_per_call == 3 and args.perception_mode == "single"
     assert list(tmp_path.iterdir()) == []
+
+
+def test_pear_batch_pins_frame_and_reasoning_and_forwards_both(tmp_path):
+    args = batch_args(
+        tmp_path, "--workflow", "pear", "--world-cord", "general", "--no-reasoning"
+    )
+    batch.resolve_run_options(args)
+    assert args.world_cord == "general" and args.no_thinking
+    flags = batch.episode_options(args)
+    assert flags[flags.index("--world-cord") + 1] == "general"
+    assert "--no-thinking" in flags

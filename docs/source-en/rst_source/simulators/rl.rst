@@ -62,7 +62,7 @@ working examples and links to task manifests.
 Workflow and Tools
 ------------------
 
-All modes use the API planner and the same robot/frame/gripper instructions.
+All modes use the API planner. Select the LIBERO frame with ``--world-cord``.
 
 .. list-table:: LIBERO context policies
    :header-rows: 1
@@ -73,6 +73,9 @@ All modes use the API planner and the same robot/frame/gripper instructions.
    * - ``episode``
      - ``view_env``, ``segment``, ``back_project``
      - Entire episode
+   * - ``pear``
+     - RGB and measured robot state; one ``move_to`` or ``set_gripper``
+     - Entire episode; native automatic completion
    * - ``zap_turn``
      - Automatic perception; text todo
      - Independent request snapshots
@@ -83,7 +86,7 @@ All modes use the API planner and the same robot/frame/gripper instructions.
      - Automatic perception; structured todo
      - Cleared by every valid ``update_todo``
 
-Motion tools are ``move_to``, ``set_gripper`` and ``finish``. Automatic
+The existing episode and ZAP modes expose ``move_to``, ``set_gripper`` and ``finish``. Automatic
 perception uses current SAM3 boxes and depth-measured world geometry.
 Each reply has one tool call; subtask initialization instead requires the
 query and todo tools together. Context resets preserve the global budget.
@@ -341,3 +344,28 @@ No extra model calls occur inside a tool. Action batching remains independent.
 concurrency. Both launchers support them and pin them for resume. See the
 :download:`observation-list guide <../../../../tools/rl/OBSERVE.md>` for startup,
 source rules, examples, result fields and audit.
+
+Robot-Base Coordinates
+----------------------
+
+For any LIBERO RL workflow, use ``--world-cord general`` to express absolute positions in metres from the arm's mounting base: +x forward, +y to the robot's left, +z up. The default, ``base``, retains simulator-world coordinates and the original ``grip_site`` control point.
+
+In ``general``, the TCP is the measured midpoint of the two finger pads. The controller compensates its offset from ``grip_site``, including changes in orientation and finger opening. Orientations remain fixed-axis XYZ roll, pitch and yaw in radians. The initial observation gives the actual table height above the base. Each reset establishes a fixed frame for that episode; missing native calibration is an error.
+
+The selected frame applies to robot poses, ``world_xyz``, ``top_z_m``, ``size_xyz_m``, ``axis_yaw`` and ``z_range_m`` across segment, back-project, batched observation and ZAP perception. Geometry is recomputed from transformed points; a size is an extent along the selected axes. Saved ``*_world.npz`` maps stay in simulator world; ``coordinates.json`` records the transform and TCP. Images, pixels and masks retain their usual camera orientation and observation-step association.
+
+RGB-Only Control
+----------------
+
+Use ``--workflow pear`` for a LIBERO observation–action conversation inspired by `PEAR <https://arxiv.org/abs/2611.18562>`_. It retains RPent's absolute ``move_to`` and normalized ``set_gripper`` actions. Initial observations and action replies contain agentview RGB, wrist RGB and measured robot state. Use the same planner checkpoint and LIBERO assets; SAM3 and Pi0.5 weights are unnecessary. This workflow starts no SAM3 service and computes no depth maps; it exposes only the two action tools.
+
+Launch it with the ordinary planner and task options:
+
+.. code-block:: bash
+
+   bash tools/rl/run.sh --simulator libero --suite libero_goal --task 0 --seed 0 \
+     --workflow pear --world-cord general --action-mode single --reasoning
+
+Use ``--no-reasoning`` to disable model thinking and request a direct tool call without prose. These flags alias ``--thinking`` and ``--no-thinking``; thinking is enabled by default. Every reply must contain exactly one valid action. Missing or multiple calls, unknown tools, invalid arguments, and reasoning text when disabled immediately end the episode as a normal failure, without another model request or infrastructure retry.
+
+Native success or exhausted environment, request, time or context budgets ends the episode automatically. There is no ``finish`` tool. A blocked or partial motion returns its measured outcome so the next turn can continue. Remote toolkits support ``episode`` and ``pear`` with matching source and frame settings; start a matching backend without ``--sam3-endpoint`` for pear-only use. See the workflow guide for the backend command and model endpoint settings.

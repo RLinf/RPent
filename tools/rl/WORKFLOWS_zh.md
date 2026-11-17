@@ -2,7 +2,7 @@
 
 [English](WORKFLOWS.md) · [安装](INSTALL_zh.md) · [首个任务](README_zh.md)
 
-五种模式使用同一个 API planner，并共用机器人、坐标和夹爪说明。
+各模式使用同一个 API planner，LIBERO 坐标系通过 `--world-cord` 选择。
 区别是感知工具和对话保留范围。成功由原生环境标志判定，todo 状态或
 `finish` 的声明不能代替环境判定。公开工作流名称如下。
 
@@ -12,6 +12,7 @@
 | --- | --- | --- |
 | `episode` | `move_to`、`set_gripper`、`view_env`、`segment`、`back_project`、`finish` | 整条任务，支持压缩 |
 | `episode_image` | `move_to`、`set_gripper`、`segment`、`back_project`、`finish` | 整条任务，动作后返回原始图片 |
+| `pear` | `move_to`、`set_gripper` | 整条任务，每次动作后返回 RGB 和状态，自动结束 |
 | `zap_turn` | `move_to`、`set_gripper`、`change_query`、`update_todo`、`finish` | 每次请求独立 |
 | `zap_episode` | `move_to`、`set_gripper`、`change_query`、`finish` | 整条任务，支持压缩 |
 | `zap_subtask` | `move_to`、`set_gripper`、`change_query`、`update_todo`、`finish` | 当前子任务，支持压缩 |
@@ -278,3 +279,18 @@ Qwen 通过 SGLang 运行且存在无参数工具时，使用带有界空白的�
 
 `--workflow episode --perception-mode batch` 将独立感知替换为 observe，
 由 source 推导依赖，独立节点并行。[CLI、示例、ID 与返回说明](OBSERVE_zh.md)。
+
+## 基座坐标与纯图像控制
+
+`--world-cord base` 默认保留仿真世界坐标和现有 `grip_site`。所有 LIBERO RL workflows 都支持 `--world-cord general`：原点在安装基座中心，x 向前、y 向左、z 向上，TCP 为两指指垫中心的实测中点。初始反馈给出桌面相对基座的高度，控制器负责补偿 TCP 偏移。位置单位为米，姿态是固定轴 XYZ 欧拉角，单位为弧度。
+
+几何结果统一遵循所选坐标系，覆盖批量 observe 和 ZAP 的 `world_xyz`、`top_z_m`、`size_xyz_m`、`axis_yaw` 及输入 `z_range_m`。原始 `*_world.npz` 保留仿真世界坐标，`coordinates.json` 记录变换。有效点先转换，再按高度筛选和计算范围。图像及相机、观察步数的绑定不变。
+
+`pear` 沿用 episode_image 的会话机制，初始和动作后自动提供固定相机、腕部相机 RGB 及实测状态，不使用 SAM3、深度感知、动作批处理或 `finish`。每轮恰好调用一个 `move_to` 或 `set_gripper`。`--reasoning` 开启 thinking；`--no-reasoning` 关闭 thinking，并要求直接 tool call、不输出文字，分别等价于原有的 thinking 开关。原生成功或预算耗尽后自动结束；无效回复立即按零奖励任务失败结束，不请求纠正，动作 partial 本身不会结束任务。
+
+```bash
+bash tools/rl/run.sh --simulator libero --suite libero_goal --task 0 --seed 0 \
+  --workflow pear --world-cord general --action-mode single --no-reasoning
+```
+
+只运行 pear 的远程 manager 可省略 `--sam3-endpoint`，现有感知工作流仍需 SAM3 端点。RPC 两端使用相同 RPent 版本；general 必须从更新后的环境服务读取基座、桌面和指垫标定。未来双臂集成的原点约定为两个安装基座的中点，方向相同；本次只实现 LIBERO 单臂。

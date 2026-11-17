@@ -504,6 +504,8 @@ def test_prompt_variant_reaches_the_prompt_variables() -> None:
         "prompt": "base_gripper",
         "environment": "libero",
         "workflow": "episode",
+        "world_cord": "base",
+        "reasoning": True,
         "image_size": 1024,
         "action_mode": "single",
         "max_actions_per_call": 3,

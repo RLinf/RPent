@@ -173,10 +173,10 @@ class Snapshot:
                                     "query": query,
                                     "box_rc": display_box,
                                     "surface": geometry.surface_geometry(
-                                        geometry.valid_points(world[match.mask])
+                                        primitive.surface_points(world[match.mask])
                                     ),
                                     "box_surface": geometry.surface_geometry(
-                                        geometry.valid_points(world[r0:r1, c0:c1])
+                                        primitive.surface_points(world[r0:r1, c0:c1])
                                     ),
                                 }
                             )

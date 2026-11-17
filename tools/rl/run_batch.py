@@ -46,6 +46,7 @@ STOP = threading.Event()
 RUN_FLAGS = (
     "--sam3-timeout-s",
     "--workflow",
+    "--world-cord",
     "--perception-mode",
     "--max-observe-calls",
     "--observe-concurrency",
@@ -407,7 +408,9 @@ def collect(args: argparse.Namespace, batch: Path) -> None:
     jobs = read_jobs(Path(args.jobs), args.seeds)
     for job in jobs:
         validate_workflow(job["environment"], args.workflow)
-        from robots.rl.contracts import validate_options
+        from robots.rl.contracts import validate_coordinates, validate_options
+
+        validate_coordinates(job["environment"], args.world_cord)
 
         validate_options(
             job["environment"],
@@ -421,6 +424,7 @@ def collect(args: argparse.Namespace, batch: Path) -> None:
         "jobs": jobs,
         "prompt": args.prompt,
         "workflow": args.workflow,
+        "world_cord": args.world_cord,
         "image_size": getattr(args, "image_size", 1024),
         "thinking": not getattr(args, "no_thinking", False),
         "run_options": {
@@ -740,6 +744,7 @@ def build_parser() -> tuple[argparse.ArgumentParser, argparse.ArgumentParser]:
         help="SAM RPC deadline including queue time; default 120 seconds.",
     )
     collection.add_argument("--workflow", choices=WORKFLOWS, default=None)
+    collection.add_argument("--world-cord", choices=("base", "general"), default=None)
     collection.add_argument("--action-mode", choices=("single", "batch"), default=None)
     collection.add_argument(
         "--perception-mode",
@@ -764,13 +769,16 @@ def build_parser() -> tuple[argparse.ArgumentParser, argparse.ArgumentParser]:
     collection.add_argument("--image-history", type=int, default=None)
     collection.add_argument(
         "--no-thinking",
+        "--no-reasoning",
         action="store_true",
         help="Disable Qwen thinking for every episode and pin it in the batch manifest",
     )
     collection.add_argument(
         "--image_size", type=int, choices=(1024, 512, 256), default=None
     )
-    collection.add_argument("--thinking", dest="no_thinking", action="store_false")
+    collection.add_argument(
+        "--thinking", "--reasoning", dest="no_thinking", action="store_false"
+    )
     collection.set_defaults(no_thinking=None)
     collection.add_argument("--max-turns", type=int, default=None)
     collection.add_argument("--max-tokens", type=int, default=None)

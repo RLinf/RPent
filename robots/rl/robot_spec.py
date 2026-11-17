@@ -104,6 +104,8 @@ def get_toolkit(
         perception_mode=config.prompt_vars.get("perception_mode", "single"),
         max_observe_calls=config.prompt_vars.get("max_observe_calls", 8),
         observe_concurrency=config.prompt_vars.get("observe_concurrency", 8),
+        world_cord=config.prompt_vars.get("world_cord", "base"),
+        reasoning=config.prompt_vars.get("reasoning", True),
     )
 
 
@@ -116,6 +118,12 @@ def _add_cli_args(parser: argparse.ArgumentParser, use_dashboard: bool) -> None:
         default="libero",
     )
     parser.add_argument("--workflow", choices=WORKFLOWS, default="episode")
+    parser.add_argument(
+        "--world-cord",
+        choices=("base", "general"),
+        default="base",
+        help="base: existing simulator world; general: mounted robot-base frame and finger-pad TCP (LIBERO only).",
+    )
     parser.add_argument("--action-mode", choices=("single", "batch"), default="single")
     parser.add_argument("--max-actions-per-call", type=int, default=3)
     parser.add_argument(
@@ -236,8 +244,15 @@ def _validate_args(args: argparse.Namespace) -> None:
         and getattr(args, "env", "libero") != "libero"
     ):
         raise ValueError("--image_size currently supports LIBERO only")
-    from robots.rl.contracts import validate_options, validate_perception_options
+    from robots.rl.contracts import (
+        validate_coordinates,
+        validate_options,
+        validate_perception_options,
+    )
 
+    validate_coordinates(
+        getattr(args, "env", "libero"), getattr(args, "world_cord", "base")
+    )
     validate_perception_options(
         getattr(args, "workflow", "episode"),
         getattr(args, "perception_mode", "single"),
@@ -271,8 +286,10 @@ def _validate_args(args: argparse.Namespace) -> None:
     if args.no_images:
         raise ValueError("rl requires camera images; remove --no-images")
     if getattr(args, "remote_toolkit_endpoint", None) is not None:
-        if getattr(args, "workflow", "episode") != "episode":
-            raise ValueError("remote toolkit currently supports --workflow episode")
+        if getattr(args, "workflow", "episode") not in {"episode", "pear"}:
+            raise ValueError(
+                "remote toolkit currently supports --workflow episode or pear"
+            )
         if getattr(args, "perception_mode", "single") != "single":
             raise ValueError("remote toolkit currently supports single perception")
         if args.env_endpoint is not None or args.sam3_endpoint is not None:
@@ -292,8 +309,15 @@ def _parse_config(args: argparse.Namespace) -> RunConfig:
     environment = getattr(args, "env", "libero")
     workflow = getattr(args, "workflow", "episode")
     validate_workflow(environment, workflow)
-    from robots.rl.contracts import validate_options, validate_perception_options
+    from robots.rl.contracts import (
+        validate_coordinates,
+        validate_options,
+        validate_perception_options,
+    )
 
+    validate_coordinates(
+        getattr(args, "env", "libero"), getattr(args, "world_cord", "base")
+    )
     validate_perception_options(
         getattr(args, "workflow", "episode"),
         getattr(args, "perception_mode", "single"),
@@ -333,6 +357,8 @@ def _parse_config(args: argparse.Namespace) -> RunConfig:
             "prompt": args.prompt,
             "environment": environment,
             "workflow": workflow,
+            "world_cord": getattr(args, "world_cord", "base"),
+            "reasoning": not getattr(args, "no_thinking", False),
             "image_size": getattr(args, "image_size", 1024),
             "action_mode": getattr(args, "action_mode", "single"),
             "perception_mode": getattr(args, "perception_mode", "single"),
@@ -350,6 +376,8 @@ def _parse_config(args: argparse.Namespace) -> RunConfig:
             "prompt": args.prompt,
             "environment": environment,
             "workflow": workflow,
+            "world_cord": getattr(args, "world_cord", "base"),
+            "reasoning": not getattr(args, "no_thinking", False),
             "image_size": getattr(args, "image_size", 1024),
             "action_mode": getattr(args, "action_mode", "single"),
             "perception_mode": getattr(args, "perception_mode", "single"),
@@ -466,6 +494,14 @@ def _start_env(
             "--max-episode-steps",
             str(args.max_episode_steps),
             "--rl-control-state",
+            *(["--rgb-only"] if getattr(args, "workflow", "episode") == "pear" else []),
+            "--world-cord",
+            getattr(args, "world_cord", "base"),
+            *(
+                ["--coordinate-calibration"]
+                if getattr(args, "workflow", "episode") == "pear"
+                else []
+            ),
         ],
         {
             "LIBERO_TYPE": args.libero_type or get_libero_type(),
@@ -546,6 +582,8 @@ def _init_runtime(
         },
     }
     selected = set(starters) if components is None else set(components)
+    if getattr(args, "workflow", "episode") == "pear":
+        selected.discard("sam3")
     if unknown := selected.difference(starters):
         raise ValueError(f"unknown rl runtime components: {sorted(unknown)}")
 
@@ -632,13 +670,28 @@ def configure_planner(planner, config: RunConfig):
         raise ValueError("rl workflows require --planner api")
     from robots.rl.history import HistoryRetention
 
+    if config.prompt_vars.get("workflow") == "pear":
+        planner.thinking = config.prompt_vars.get("reasoning", True)
+        if not planner.thinking:
+            planner.reasoning_effort = "none"
+            if planner.model_settings is not None:
+                from rpent.planner.qwen import is_qwen_model
+
+                if is_qwen_model(getattr(planner.model, "model_name", "")):
+                    extra = planner.model_settings.get("extra_body") or {}
+                    template = extra.get("chat_template_kwargs") or {}
+                    planner.model_settings.pop("openai_reasoning_effort", None)
+                    planner.model_settings["extra_body"] = {
+                        **extra,
+                        "chat_template_kwargs": {**template, "enable_thinking": False},
+                    }
     planner.capabilities_factory = lambda toolkit, system, user, turns: [
         WorkflowCapability(toolkit, system, user, turns, timeout_s=planner.timeout_s),
         *(
             [HistoryRetention(toolkit)]
             if config.prompt_vars.get("environment", "libero") == "libero"
             and config.prompt_vars.get("workflow", "episode")
-            in {"episode", "episode_image"}
+            in {"episode", "episode_image", "pear"}
             else []
         ),
     ]

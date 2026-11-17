@@ -89,8 +89,13 @@ def connected(tmp_path, monkeypatch, request):
     monkeypatch.setattr(
         templates, "default_variables", lambda: {"output_dir": "/offline/output"}
     )
-    env = FakeEnv(success_below_z=0.95)
     options = getattr(request, "param", {})
+    if options.get("world_cord") == "general" or options.get("workflow") == "pear":
+        from tests.unit_tests.robots.rl.test_coordinates import CalibratedEnv
+
+        env = CalibratedEnv([1, -2, 0.5], 0.4, success_below_z=1.45)
+    else:
+        env = FakeEnv(success_below_z=0.95)
     toolkit = make_toolkit(tmp_path / "backend", "adaptive", env=env, **options)
     release = contextlib.ExitStack()
     release.callback(toolkit.close)
@@ -863,3 +868,31 @@ def test_manager_control_calls_respond_while_bulk_replies_are_pending(tmp_path):
                 result = future.result(timeout=10)
                 assert result["files"][0]["bytes"] == blob
                 assert result["native_success"] is False
+
+
+@pytest.mark.parametrize(
+    "connected",
+    [{"world_cord": "general"}, {"workflow": "pear", "world_cord": "general"}],
+    indirect=True,
+)
+def test_remote_general_converts_once_and_carries_native_completion(connected):
+    import numpy as np
+
+    client = connected.connect()
+    np.testing.assert_allclose(
+        client.initial_observation().data["state"]["pose"]["xyz"],
+        connected.toolkit._robot_state()["pose"]["xyz"],
+    )
+    if client.workflow == "episode":
+        measured = client.execute_tool("segment", {"prompt": "cube"})
+        assert measured.data["top_z_m"] == pytest.approx(1, abs=1e-4)
+    else:
+        assert {tool.name for tool in client.list_tools()} == {"move_to", "set_gripper"}
+        assert connected.env.depth_calls == 0
+    moved = client.execute_tool("move_to", {"xyz": [0.1, -0.2, 0.9]})
+    np.testing.assert_allclose(
+        moved.data["pose"]["xyz"], connected.toolkit._robot_state()["pose"]["xyz"]
+    )
+    if client.workflow == "pear":
+        assert client.completion_result()["success"] is True
+    client.close()

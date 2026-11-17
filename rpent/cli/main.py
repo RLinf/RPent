@@ -159,6 +159,7 @@ def _build_argparser() -> argparse.ArgumentParser:
     ap.add_argument("--max-tokens", type=int, default=32768)
     ap.add_argument(
         "--no-thinking",
+        "--no-reasoning",
         action="store_true",
         help="Ask a Qwen endpoint to answer without a reasoning block (api "
         "planner). Thinking is on by default; --reasoning-effort selects a "
@@ -166,6 +167,7 @@ def _build_argparser() -> argparse.ArgumentParser:
     )
     ap.add_argument(
         "--thinking",
+        "--reasoning",
         dest="no_thinking",
         action="store_false",
         help="Enable Qwen thinking (default); --no-thinking disables it.",

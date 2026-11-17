@@ -47,7 +47,14 @@ CAMERA = """Cameras
 - Use pixels, masks and poses from the same observation step, and take a new observation after every motion."""
 
 ENVIRONMENT_WORKFLOWS = {
-    "libero": ("episode", "episode_image", "zap_turn", "zap_episode", "zap_subtask"),
+    "libero": (
+        "episode",
+        "episode_image",
+        "zap_turn",
+        "zap_episode",
+        "zap_subtask",
+        "pear",
+    ),
     "robocasa": ("episode",),
     "robotwin": ("episode",),
 }
@@ -99,11 +106,31 @@ def system_prompt(variables: Mapping[str, object] | None = None) -> str:
             f"unknown prompt variant {variant!r}; expected one of {PROMPT_VARIANTS}"
         )
     prompts = Path(__file__).parent / "prompts"
+    general = variables.get("world_cord", "base") == "general"
+    if workflow == "pear":
+        sections = [(prompts / "pear.md").read_text().strip()]
+        sections.append(
+            (prompts / ("libero_general.md" if general else "libero.md"))
+            .read_text()
+            .strip()
+            .replace(
+                "Segmentation reports visible surfaces, not object centres or guaranteed grasp poses. ",
+                "",
+            )
+        )
+        sections.append(
+            "Reason from the current observations, then call exactly one action tool."
+            if variables.get("reasoning", True)
+            else "Reasoning is disabled. Call exactly one action tool directly. Do not output reasoning, explanations, or any other text."
+        )
+        return "\n\n".join(sections)
     sections = [
         (prompts / name).read_text().strip()
         for name in (
             "shared.md",
-            f"{environment}.md",
+            "libero_general.md"
+            if environment == "libero" and general
+            else f"{environment}.md",
             "episode_observe.md" if perception == "batch" else f"{workflow}.md",
         )
     ]
@@ -131,6 +158,27 @@ def system_prompt(variables: Mapping[str, object] | None = None) -> str:
         )
     if environment == "libero":
         sections.extend(_SECTIONS[variant])
+        if general:
+            sections = [
+                section.replace("grip_site", "grasp TCP").replace(
+                    "grip-site", "grasp TCP"
+                )
+                for section in sections
+            ]
+            sections = [
+                section.replace(
+                    "The grasp point lies between the finger pads, 9.7 cm beyond the wrist flange along the approach axis. The pads reach about 1.2 cm above and 0.4 cm below it and the fingertips about 0.9 cm below it, so keep the grasp point at least 1.5 cm above the surface an object stands on.",
+                    "The grasp TCP is the measured midpoint of the two finger-pad geometry centres. Keep clearance for the full pads and fingertips when approaching a support surface; the TCP is not the lowest part of the gripper.",
+                ).replace(
+                    "9.7 cm above the grasp point along the approach axis and 5 cm to its side",
+                    "mounted above and beside the grasp TCP",
+                )
+                for section in sections
+            ]
+            if CAMERA in _SECTIONS[variant]:
+                sections[-1] = (
+                    "Cameras: agentview is fixed and wrist moves with the gripper. Use the displayed image orientation and current observation step; do not infer pixel directions from a different camera or robot pose."
+                )
     return "\n\n".join(sections)
 
 
