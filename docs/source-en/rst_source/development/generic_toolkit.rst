@@ -3,10 +3,17 @@
 Generic RGB-D Toolkit
 =====================
 
-Register the read-only tools in ``toolkits`` to let a planner sample a pixel,
-segment an object or measure a named part using recorded RGB-D observations.
-Each robot supplies its own cameras and calibration. Positions and lengths
-are reported in metres in the coordinate frame identified by ``world_frame_id``.
+Register the read-only tools in ``toolkits`` to let a planner look up 3D positions
+at image pixels, segment objects or measure their parts using recorded RGB-D
+observations.
+
+For example, if the planner selects a pixel on the side of a cup,
+``back_project`` can return the 3D coordinates of that surface point. With
+sufficient observations, ``geometry`` can fit the rim to find its center and
+radius, or estimate the cup's height from its rim and base centers. The
+``world_frame_id`` in the result identifies the world frame for the surface
+point and the rim center. The coordinate components, rim radius and cup height
+are all in metres.
 
 Choose a tool
 -------------
@@ -58,15 +65,19 @@ choose another action.
 Register tools for a robot
 --------------------------
 
-Implement ``get_observation(camera=..., step=...)`` on the robot's observation
-provider. Return a ``GeometryObservation`` from ``toolkits.observation`` with RGB
-and either an aligned world XYZ map in metres or optical-axis depth in
-metres with camera intrinsics and the camera-to-world transform. Named geometry needs the camera pose and
-world up direction. To support cross-view checks, implement
-``additional_observations(primary)`` with calibrated views from the same step
-and world frame.
+The robot's observation adapter implements ``get_observation(camera=..., step=...)``
+to return the RGB image for that camera and step along with its 3D data in a
+single ``toolkits.observation.GeometryObservation``. The adapter can supply an
+aligned world XYZ map giving each pixel's surface coordinates in metres, or an
+aligned optical-axis depth map in metres together with the camera intrinsics
+and the camera-to-world transform.
 
-Given the provider (``observations``), the session's ``EnvState`` (``state``)
+Measuring a named target also requires the camera pose and world up direction.
+If the robot has multiple calibrated cameras, the adapter can implement
+``additional_observations(primary)`` to return other views from the same step
+in the same world frame.
+
+Given the adapter (``observations``), the session's ``EnvState`` (``state``)
 and an initialized ``segmenter``, register the tools on the robot's ``toolkit``.
 Supply a ``grounder`` that selects and verifies image targets to enable named
 geometry. Otherwise set it to ``None``.
