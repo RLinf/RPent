@@ -20,9 +20,11 @@ import json
 import os
 import subprocess
 import sys
+from types import SimpleNamespace
 
 import pytest
 
+from robots.efe.env_client import EfeEnvClient
 from robots.efe.runner import run_efe
 from robots.efe.toolkit import EfeToolkit
 from rpent.dashboard.events import NullDashboardEventSink
@@ -840,6 +842,148 @@ def test_an_agent_finished_episode_is_not_reset(tmp_path, monkeypatch, efe_clien
 
     assert resets == []
     assert len(report["sessions"]) == 1
+
+
+class _RcBRobotDouble:
+    """Expose a fake service through the same methods as rcb_client.Robot."""
+
+    def __init__(self, service):
+        self.service = service
+        self.base = "http://sim:8000"
+        self.status_error: Exception | None = None
+
+    def spec(self):
+        return self.service.spec
+
+    def status(self):
+        if self.status_error is not None:
+            raise self.status_error
+        return self.service.status()
+
+    def get_obs(self, **kwargs):
+        return self.service.observe(**kwargs)
+
+    def submit(self, action_type, actions, **kwargs):
+        return self.service.submit(action_type, actions, **kwargs)
+
+    def ik(self, targets, *, seed=None):
+        return self.service.ik(targets, seed=seed)
+
+    def _post(self, path, meta, parts, timeout):
+        if path != "/reset":
+            raise AssertionError(f"unexpected service path: {path}")
+        return SimpleNamespace(meta=self.service.reset())
+
+
+def test_full_access_direct_finish_stops_multisession_handoff(
+    tmp_path, monkeypatch, efe_client
+):
+    import rpent.planner.codex as codex
+
+    efe_client.spec["success_signal"] = "hidden"
+    efe_client.spec["budget"] = {"reset": 2}
+    server_client = EfeEnvClient(robot=_RcBRobotDouble(efe_client))
+    planner_calls = []
+
+    class DirectFinishingPlanner:
+        def __init__(self, **options):
+            pass
+
+        def solve(self, **options):
+            planner_calls.append(options)
+            efe_client.finish()
+            return PlannerResult()
+
+    monkeypatch.setattr(codex, "CodexPlanner", DirectFinishingPlanner)
+
+    report = run_efe(
+        "Task",
+        workdir=tmp_path,
+        output_dir=tmp_path / "logs",
+        model="test-model",
+        sandbox="full-access",
+        explore_sessions=2,
+        client=server_client,
+    )
+
+    assert len(planner_calls) == 1
+    assert len(report["sessions"]) == 1
+    assert report["service_status"]["reason"] == "finished"
+    assert server_client.agent_ended_episode is True
+
+
+def test_full_access_direct_reset_syncs_before_next_session(
+    tmp_path, monkeypatch, efe_client
+):
+    import rpent.planner.codex as codex
+
+    efe_client.spec["budget"] = {"reset": 2}
+    server_client = EfeEnvClient(robot=_RcBRobotDouble(efe_client))
+    planner_calls = []
+
+    class DirectResetPlanner:
+        def __init__(self, **options):
+            pass
+
+        def solve(self, **options):
+            planner_calls.append(options)
+            if len(planner_calls) == 1:
+                efe_client.reset()
+            return PlannerResult()
+
+    monkeypatch.setattr(codex, "CodexPlanner", DirectResetPlanner)
+
+    report = run_efe(
+        "Task",
+        workdir=tmp_path,
+        output_dir=tmp_path / "logs",
+        model="test-model",
+        sandbox="full-access",
+        explore_sessions=2,
+        client=server_client,
+    )
+
+    assert len(planner_calls) == 2
+    assert server_client.reset_calls == 1
+    assert report["service_status"]["episode"] == 2
+    assert server_client.done is False
+
+
+def test_runner_stops_handoff_when_service_state_cannot_sync(
+    tmp_path, monkeypatch, efe_client
+):
+    import rpent.planner.codex as codex
+
+    robot = _RcBRobotDouble(efe_client)
+    robot.status_error = ConnectionError("status unavailable")
+    server_client = EfeEnvClient(robot=robot)
+    planner_calls = []
+
+    class RecordingPlanner:
+        def __init__(self, **options):
+            pass
+
+        def solve(self, **options):
+            planner_calls.append(options)
+            return PlannerResult()
+
+    monkeypatch.setattr(codex, "CodexPlanner", RecordingPlanner)
+
+    report = run_efe(
+        "Task",
+        workdir=tmp_path,
+        output_dir=tmp_path / "logs",
+        model="test-model",
+        sandbox="full-access",
+        explore_sessions=2,
+        client=server_client,
+    )
+
+    assert len(planner_calls) == 1
+    assert len(report["sessions"]) == 1
+    assert report["service_status"] is None
+    assert report["state_sync_error"] == "ConnectionError: status unavailable"
+    assert report["error"] is None
 
 
 def test_the_planner_deadline_is_checked_before_a_reset(

@@ -380,7 +380,9 @@ Isolation and Measurement Mode
 - With ``full-access``, the agent can write shell scripts that call ``rcb_client``
   directly and bypass the RPent tools. Those calls never pass through RPent's
   client, so ``metrics`` in ``session.json`` does not count them, and the run
-  cannot be compared with one that drives the robot through the tools.
+  cannot be compared with one that drives the robot through the tools. At each
+  planner-session boundary, the runner reads ``/status`` to sync the episode,
+  end reason, and reset allowance before it starts another session.
 - The generic ``rpent --robot efe`` entry point has no sandbox option and always
   runs with ``full-access``. Use it for manual and interactive debugging; use the
   Harbor adapter for evaluation and comparison.

@@ -269,6 +269,8 @@ def run_efe(
         "sessions": [],
         "stats": {},
         "error": None,
+        "state_sync_error": None,
+        "service_status": None,
         "budget_stop": None,
     }
     sessions: list[dict[str, object]] = report["sessions"]  # type: ignore[assignment]
@@ -288,13 +290,12 @@ def run_efe(
             "action_types": sorted(client.spec["action_types"]),
         }
         with _trial_codex_home(output_dir), _trial_repo_root(workdir):
-            agent_finished = False
             for number in range(1, explore_sessions + 1):
                 # Only a planner result can report a clean budget stop; reset
                 # this before anything else so an exception between sessions
                 # is never attributed to the previous session's timeout.
                 terminal_stop_reason = None
-                if client.done and agent_finished:
+                if client.agent_ended_episode:
                     # ``efe_end_episode`` is the model's own decision to be
                     # graded; a reset would discard that episode.
                     logger.info(
@@ -317,7 +318,7 @@ def run_efe(
                     # still be abandoned while the reset budget lasts, so the
                     # next session starts a fresh attempt rather than skipping
                     # the rest of the budget.
-                    if client.reset_calls >= client.reset_budget:
+                    if client.resets_left <= 0:
                         logger.info(
                             "the episode ended and the reset budget is spent; "
                             "no further session starts"
@@ -334,7 +335,6 @@ def run_efe(
                     except (RuntimeError, ValueError) as exc:
                         logger.info("the service refused the reset: %s", exc)
                         break
-                finish_calls_at_start = client.finish_calls
                 session_dir = (
                     output_dir
                     if explore_sessions == 1
@@ -384,9 +384,20 @@ def run_efe(
                         max_turns=max_turns,
                     )
                 finally:
-                    solved = toolkit.solved()
                     toolkit.close()
-                agent_finished = client.finish_calls > finish_calls_at_start
+                try:
+                    report["service_status"] = client.status()
+                except Exception as exc:
+                    # A full-access shell can change the episode without using
+                    # EfeEnvClient. Do not start another session when the
+                    # authoritative handoff state is unavailable.
+                    report["service_status"] = None
+                    report["state_sync_error"] = f"{type(exc).__name__}: {exc}"
+                    state_sync_failed = True
+                    logger.warning("could not sync the EFE episode state: %s", exc)
+                else:
+                    state_sync_failed = False
+                solved = toolkit.solved()
                 terminal_stop_reason = result.stop_reason
                 sessions.append(
                     {
@@ -402,7 +413,8 @@ def run_efe(
                 if result.error is not None:
                     report["error"] = result.error
                     if (
-                        explore
+                        not state_sync_failed
+                        and explore
                         and number < explore_sessions
                         and is_recoverable_agent_error(result.error)
                     ):
@@ -416,6 +428,8 @@ def run_efe(
                     break
                 # A later successful session supersedes earlier recoverable errors.
                 report["error"] = None
+                if state_sync_failed:
+                    break
     except Exception as exc:
         report["error"] = f"{type(exc).__name__}: {exc}"
         logger.exception("EFE session failed")

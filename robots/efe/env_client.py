@@ -100,6 +100,7 @@ class EfeEnvClient:
         self.control_steps = 0
         self.reset_calls = 0
         self.finish_calls = 0
+        self._resets_left: int | None = None
 
     # -- read-only views -------------------------------------------------
 
@@ -117,6 +118,22 @@ class EfeEnvClient:
     def reset_budget(self) -> int:
         """Return how many resets the task grants; zero when it grants none."""
         return int((self._spec.get("budget") or {}).get("reset") or 0)
+
+    @property
+    def resets_left(self) -> int:
+        """Return the service-reported reset allowance when available."""
+        if self._resets_left is not None:
+            return self._resets_left
+        return max(self.reset_budget - self.reset_calls, 0)
+
+    @property
+    def agent_ended_episode(self) -> bool:
+        """Whether the agent ended a hidden-success episode through the service."""
+        return (
+            self.success_hidden
+            and self._done
+            and (self.done_reason or "").strip().lower() == "finished"
+        )
 
     @property
     def success_hidden(self) -> bool:
@@ -221,7 +238,10 @@ class EfeEnvClient:
     def status(self) -> dict[str, Any]:
         """Return the service's call, step, and episode counters."""
         status = self._robot.status()
-        self._record_state(status)
+        # Shell code can call rcb_client directly in Codex's full-access mode.
+        # At a session boundary, the service snapshot must replace our local
+        # state, including a prior done=True after an external reset.
+        self._record_state(status, authoritative=True)
         return status
 
     def wait_ready(self, timeout_s: float = 600.0) -> dict[str, Any]:
@@ -241,8 +261,8 @@ class EfeEnvClient:
         """Abandon the running episode and start a new one from the frozen state.
 
         Only a task that declares a reset budget exposes ``/reset``, and the
-        service refuses it after success or once the budget is spent. Only the
-        last episode is graded.
+        service refuses it after success, agent finish, or when the budget is
+        spent. Only the last episode is graded.
         """
         if self.reset_budget <= 0:
             raise ValueError("This task declares no reset budget")
@@ -497,18 +517,43 @@ class EfeEnvClient:
 
     # -- episode state ---------------------------------------------------
 
-    def _record_state(self, payload: dict[str, Any]) -> None:
-        """Keep the latest known values; ``/status`` reports only counters."""
+    def _record_state(
+        self, payload: dict[str, Any], *, authoritative: bool = False
+    ) -> None:
+        """Keep service state and reconcile counters when a response provides them."""
+        previous_reset_calls = self.reset_calls
+        episode = payload.get("episode")
+        if isinstance(episode, int) and not isinstance(episode, bool) and episode >= 1:
+            # The standard-mode protocol numbers its initial episode as 1.
+            self.reset_calls = episode - 1
+        resets_left = payload.get("resets_left")
+        if (
+            isinstance(resets_left, int)
+            and not isinstance(resets_left, bool)
+            and resets_left >= 0
+        ):
+            self._resets_left = resets_left
+            if "episode" not in payload and not payload.get("done"):
+                self.reset_calls = max(self.reset_budget - resets_left, 0)
+        total_steps = payload.get("control_steps_total")
+        if isinstance(total_steps, int) and not isinstance(total_steps, bool):
+            self.control_steps = total_steps
+
+        if authoritative and self.reset_calls != previous_reset_calls:
+            # A direct /reset starts a new episode. Do not attach the prior
+            # episode's observation or camera frames to the new one.
+            self.last_meta = {}
         self.last_meta = {**self.last_meta, **payload}
-        if payload.get("done"):
-            self._done = True
-            self.done_reason = payload.get("reason")
+
+        if "done" in payload and (authoritative or payload["done"]):
+            self._done = bool(payload["done"])
+            self.done_reason = payload.get("reason") if self._done else None
 
     def _reset_allowed_after_end(self) -> bool:
         """Whether the service still accepts ``/reset`` after this ending.
 
-        The service refuses a reset only once the trial is settled: success or
-        the time limit. An attempt that ended early on a task failure or on
+        The service refuses a reset after success, agent finish, or the time
+        limit. An attempt that ended early on a task failure or on
         ``max_control_steps`` can still be abandoned for a fresh attempt, which
         is what the reset budget is for. A reason this adapter does not
         recognise is left to the service, which stays authoritative.
@@ -517,7 +562,15 @@ class EfeEnvClient:
         if not reason:
             return True
         return not any(
-            settled in reason for settled in ("success", "goal", "timeout", "timed out")
+            settled in reason
+            for settled in (
+                "success",
+                "goal",
+                "timeout",
+                "timed out",
+                "finished",
+                "agent_finished",
+            )
         )
 
     def _raise_if_done(self, call: str) -> None:

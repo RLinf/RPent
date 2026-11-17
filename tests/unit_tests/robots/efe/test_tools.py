@@ -212,6 +212,8 @@ def test_status_reports_exactly_the_service_fields(tools):
         "done": False,
         "reason": None,
         "elapsed_s": 0.0,
+        "resets_left": 0,
+        "episode": 1,
     }
 
 
@@ -223,7 +225,7 @@ def test_reset_reports_the_new_episode(tmp_path):
     data = service.efe_reset(cameras=["wrist_cam"]).data
 
     assert client.reset_calls == 1
-    assert data["episode"] == 1
+    assert data["episode"] == 2
     assert data["resets_left"] == 4
 
 

@@ -66,7 +66,7 @@ class FakeRobot:
         self.observe_calls = []
         self.post_calls = []
         self.post_result = SimpleNamespace(
-            meta={"episode": 1, "resets_left": 4, "done": False}
+            meta={"episode": 2, "resets_left": 4, "done": False}
         )
         self.status_calls = 0
         self.submit_result = _result()
@@ -225,6 +225,47 @@ def test_status_reports_the_episode_end(client, robot):
         client.observe()
 
 
+def test_status_reconciles_a_direct_reset(robot):
+    spec = {**_SPEC, "budget": {"reset": 5}}
+    client = EfeEnvClient(robot=FakeRobot(spec))
+    client._record_state({"done": True, "reason": "failed", "step": 8})
+    client._robot.status_result = {
+        "episode": 2,
+        "resets_left": 4,
+        "control_steps_total": 11,
+        "done": False,
+        "reason": None,
+        "step": 3,
+    }
+
+    status = client.status()
+
+    assert status["episode"] == 2
+    assert client.done is False
+    assert client.done_reason is None
+    assert client.reset_calls == 1
+    assert client.resets_left == 4
+    assert client.control_steps == 11
+    assert client.last_meta == status
+
+
+def test_status_recognizes_a_direct_agent_finish(robot):
+    spec = {**_SPEC, "success_signal": "hidden", "budget": {"reset": 5}}
+    client = EfeEnvClient(robot=FakeRobot(spec))
+    client._robot.status_result = {
+        "episode": 1,
+        "resets_left": 5,
+        "done": True,
+        "reason": "finished",
+    }
+
+    client.status()
+
+    assert client.done is True
+    assert client.agent_ended_episode is True
+    assert client.reset_calls == 0
+
+
 def test_status_keeps_the_last_observation(client, robot):
     robot.observe_result = _result(proprio={"layout": [], "now": []}, step=4)
     client.observe()
@@ -321,6 +362,15 @@ def test_reset_is_refused_after_the_trial_succeeded(robot):
     spec = {**_SPEC, "budget": {"reset": 5}}
     client = EfeEnvClient(robot=FakeRobot(spec))
     client._record_state({"done": True, "reason": "success"})
+
+    with pytest.raises(RuntimeError, match="Cannot reset"):
+        client.reset()
+
+
+def test_reset_is_refused_after_the_agent_finished_the_episode(robot):
+    spec = {**_SPEC, "budget": {"reset": 5}, "success_signal": "hidden"}
+    client = EfeEnvClient(robot=FakeRobot(spec))
+    client._record_state({"done": True, "reason": "finished"})
 
     with pytest.raises(RuntimeError, match="Cannot reset"):
         client.reset()

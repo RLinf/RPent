@@ -144,6 +144,16 @@ class FakeEfeClient:
         return int((self.spec.get("budget") or {}).get("reset") or 0)
 
     @property
+    def resets_left(self) -> int:
+        if self.done and self.done_reason in {"success", "timeout", "finished"}:
+            return 0
+        return max(self.reset_budget - self.reset_calls, 0)
+
+    @property
+    def agent_ended_episode(self) -> bool:
+        return self.success_hidden and self.done and self.done_reason == "finished"
+
+    @property
     def success_hidden(self) -> bool:
         return self.spec.get("success_signal") == "hidden"
 
@@ -207,14 +217,17 @@ class FakeEfeClient:
         return FakeResult(dict(self.last_meta))
 
     def status(self) -> dict[str, Any]:
-        # GET /status carries no camera, proprioception, or clock-relative fields.
+        # Match the standard-mode lifecycle fields used at session handoff.
         return {
             "step": self.control_steps,
             "calls": self.submit_calls + self.observe_calls,
             "control_steps": self.control_steps,
+            "control_steps_total": self.control_steps,
             "done": self.done,
             "reason": self.done_reason,
             "elapsed_s": 0.0,
+            "episode": self.reset_calls + 1,
+            "resets_left": self.resets_left,
         }
 
     def wait_ready(self, timeout_s: float = 600.0) -> dict[str, Any]:
@@ -226,7 +239,7 @@ class FakeEfeClient:
         self.done_reason = None
         left = max(self.reset_budget - self.reset_calls, 0)
         return {
-            "episode": self.reset_calls,
+            "episode": self.reset_calls + 1,
             "resets_left": left,
             "step": 0,
             "control_steps": 0,

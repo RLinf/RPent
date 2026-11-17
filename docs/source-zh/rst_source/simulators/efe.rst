@@ -265,6 +265,7 @@ Raw 组直接使用服务接口：``efe_spec`` 返回每个动作向量的列含
 
 - Harbor Runner 默认使用 Codex 的 ``read-only`` 沙箱。它限制 Shell，不限制 RPent 工具：Shell 不能写文件或访问网络；机器人动作通过 RPent 工具执行。
 - 使用 ``full-access`` 时，Agent 可以用 Shell 写脚本直接调用 ``rcb_client``，绕过 RPent 工具。这些调用不经过 RPent 的客户端，``session.json`` 的 ``metrics`` 不会统计，因此这种运行不能与走工具的运行对比。
+- 每轮 Planner Session 结束时，Runner 会读取 ``/status``，同步 Episode、结束原因和剩余 Reset 次数，再决定是否启动下一轮。
 - 通用 ``rpent --robot efe`` 没有 Sandbox 选项，固定以 ``full-access`` 运行，用于手动和交互调试。正式评测与对照请通过 Harbor 运行。
 - ``rpent`` 默认使用 ``--planner api``，它没有 Codex 的 Shell 沙箱。手动运行 ``rpent --robot efe`` 时若要复现 Harbor 的行为，需显式加上 ``--planner codex``。
 
