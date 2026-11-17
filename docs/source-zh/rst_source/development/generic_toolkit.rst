@@ -49,14 +49,18 @@ LIBERO 的适配器按相机名（``agentview`` 或 ``wrist``）和步号读取 
 为真实机器人接入工具
 --------------------
 
+实现真机的 :ref:`观测适配器 <generic-toolkit-registration>` 时，按步号读取相机采集的 RGB-D 帧和对应的标定数据。若相机随机械臂移动，使用采集该帧时的相机位姿将深度点变换到世界坐标系。
+
+.. _generic-toolkit-registration:
+
 观测适配器与工具注册
-~~~~~~~~~~~~~~~~~~~~
+--------------------
 
 接入仿真器或真机时，由该平台的观测适配器实现 ``get_observation(camera=..., step=...)``，通过一个 ``toolkits.observation.GeometryObservation`` 对象返回指定相机在该步的 RGB 图像和对应的三维数据。适配器可以直接提供与图像对齐的世界坐标图，给出每个像素对应的三维坐标（单位为米），也可以提供与图像对齐的光轴深度图（单位为米），并附上相机内参和相机到世界坐标系的变换。
 
 用 ``back_project`` 按高度筛选采样点时，适配器还需提供世界坐标系的向上方向 ``up_direction``。用 ``geometry`` 测量具名目标时，需要同时提供 ``up_direction`` 和相机位姿 ``camera_to_world``。若有多台标定相机，可实现 ``additional_observations(primary)``，提供同一步、同一世界坐标系的其他视角。
 
-准备好适配器 ``observations``、当前会话的 ``EnvState`` 实例 ``state`` 和已初始化的分割客户端 ``segmenter``，即可在机器人的 ``toolkit`` 上注册工具。要启用具名目标测量，再传入能选点和核验目标的 ``grounder``。仅注册前两个工具时将其设为 ``None``。
+准备好适配器 ``observations``、当前会话的 ``EnvState`` 实例 ``state`` 和已初始化的分割客户端 ``segmenter``，即可在该平台的 ``toolkit`` 上注册工具。要启用具名目标测量，再传入能选点和核验目标的 ``grounder``。仅注册前两个工具时将其设为 ``None``。
 
 .. code-block:: python
 

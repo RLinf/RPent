@@ -73,8 +73,15 @@ choose another action.
 Integrate the tools on a real robot
 -----------------------------------
 
+Implement the robot's :ref:`observation adapter <generic-toolkit-registration>`
+to read the recorded RGB-D frame and its camera calibration for each step. If
+the camera moves with the arm, use its pose at the time of capture to transform
+depth samples into world coordinates.
+
+.. _generic-toolkit-registration:
+
 Observation adapters and tool registration
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+------------------------------------------
 
 For a simulator or a real robot, implement ``get_observation(camera=..., step=...)``
 on the platform's observation adapter. The method returns a
@@ -87,12 +94,12 @@ and the camera-to-world transform.
 To filter ``back_project`` samples by height, supply the world up direction
 (``up_direction``). To measure a named target with ``geometry``, supply both
 ``up_direction`` and the camera pose (``camera_to_world``).
-If the robot has multiple calibrated cameras, the adapter can implement
+For platforms with multiple calibrated cameras, the adapter can implement
 ``additional_observations(primary)`` to return other views from the same step
 in the same world frame.
 
 Given the adapter (``observations``), the session's ``EnvState`` (``state``)
-and an initialized ``segmenter``, register the tools on the robot's ``toolkit``.
+and an initialized ``segmenter``, register the tools on the platform's ``toolkit``.
 Supply a ``grounder`` that selects and verifies image targets to enable named
 geometry. Otherwise set it to ``None``.
 
