@@ -277,7 +277,6 @@ RPENT_E2E_OUTPUT_DIR=/path/to/new-output-dir \
   python -m pytest tests/e2e_tests/robodojo/test_xpolicylab.py -v -s
 ```
 
-Enable depth and calibration as described in the RoboDojo guide. Older official
-runtimes also need `RPENT_OFFICIAL_DESCRIPTIONS=/path/to/official-descriptions.json`.
+Enable depth and calibration as described in the RoboDojo guide.
 The test uses no external reasoning-model service. It borrows the VPP2 endpoint
 and leaves it running. Without the opt-in flag this test is skipped.

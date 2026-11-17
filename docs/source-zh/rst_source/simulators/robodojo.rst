@@ -407,20 +407,6 @@ WebSocket 12.0 缺少此 XPolicyLab 服务端使用的 ``websockets.asyncio`` �
 安装 ``ffmpeg`` 可执行程序并加入 ``PATH``；官方 evaluator 从第一帧观测
 就开始录制视频。
 
-此运行时不返回 ``extra_info.detailed_instruction``。运行前准备
-`官网公开任务说明 <https://robodojo-benchmark.com/leaderboard/detail-description>`_
-的本地快照：
-
-.. code-block:: bash
-
-   python -m robots.robodojo.xpolicylab.descriptions \
-     --output /path/to/official-descriptions.json
-
-该命令复制 RPent 随附的 42 个任务说明，无需联网。
-原始来源地址和校验值记录在
-``robots/robodojo/xpolicylab/official_descriptions.source.json`` 中。
-评测读取导出的文件；请将其与本轮冻结配置一并保留。
-
 .. code-block:: bash
 
    python -m robots.robodojo.xpolicylab \
@@ -429,7 +415,6 @@ WebSocket 12.0 缺少此 XPolicyLab 服务端使用的 ``websockets.asyncio`` �
      --am-endpoint socket://127.0.0.1:9100 \
      --sam3-endpoint socket://127.0.0.1:9200 \
      --memory-dir /path/to/memory/robodojo \
-     --official-descriptions /path/to/official-descriptions.json \
      --planner codex --reasoning-effort high --timeout 4800 \
      --env-cuda-device 0 --policy-cuda-device 1 \
      --output-dir /path/to/results/stack-bowls-seed1
@@ -445,11 +430,9 @@ RPent 在 ``--output-dir`` 保存配置、代码版本与补丁、prompt／guide
 在 RoboDojo 仓库中运行 ``bash scripts/robodojo.sh summarize`` 可更新汇总表。
 少量试跑会保存逐回合结果，但未达到官方要求回合数时，汇总表中的对应单元格仍为空。
 
-官方详细任务说明从 ``extra_info.detailed_instruction`` 追加到规划器的首次用户消息。
-旧运行时若没有该字段，需传入
-``--official-descriptions /path/to/official-descriptions.json``。
-该文件以任务名为键，每项包含官方公开的 ``description`` 字符串与 ``scoring``
-字符串列表；各回合会保存实际使用的说明及来源。
+规划器通过 ``view_env_state`` 读取环境原生任务指令，沿用 RoboDojo 的评测
+prompt 和 memory 规则，不额外加入官网详细说明或评分规则。
+每个回合的 ``task-instruction.json`` 保存原生指令及来源。
 
 批量评测
 ~~~~~~~~
@@ -468,7 +451,6 @@ GPU 0 上串行运行。分配资源时也需为这些服务预留 GPU。
      --am-endpoint socket://127.0.0.1:9100 \
      --sam3-endpoint socket://127.0.0.1:9200 \
      --memory-dir /path/to/memory/robodojo \
-     --official-descriptions /path/to/official-descriptions.json \
      --planner codex --reasoning-effort high --timeout 4800 \
      --output-dir /path/to/results/four-categories-seed1 --dry-run
 

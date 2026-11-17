@@ -559,20 +559,6 @@ task success checks and action limits stay with the official evaluator.
 Install the ``ffmpeg`` executable and make it available on ``PATH``; the
 official evaluator starts video recording with the first observation.
 
-This runtime does not return ``extra_info.detailed_instruction``. Prepare
-a local snapshot of the `official public task descriptions
-<https://robodojo-benchmark.com/leaderboard/detail-description>`_ before running:
-
-.. code-block:: bash
-
-   python -m robots.robodojo.xpolicylab.descriptions \
-     --output /path/to/official-descriptions.json
-
-This command copies the 42-task snapshot bundled with RPent; no network access
-is needed. The original source URL and checksums are recorded in
-``robots/robodojo/xpolicylab/official_descriptions.source.json``.
-Evaluation reads the exported file; keep it with the frozen run inputs.
-
 .. code-block:: bash
 
    python -m robots.robodojo.xpolicylab \
@@ -581,7 +567,6 @@ Evaluation reads the exported file; keep it with the frozen run inputs.
      --am-endpoint socket://127.0.0.1:9100 \
      --sam3-endpoint socket://127.0.0.1:9200 \
      --memory-dir /path/to/memory/robodojo \
-     --official-descriptions /path/to/official-descriptions.json \
      --planner codex --reasoning-effort high --timeout 4800 \
      --env-cuda-device 0 --policy-cuda-device 1 \
      --output-dir /path/to/results/stack-bowls-seed1
@@ -599,11 +584,10 @@ official result directory. Run ``bash scripts/robodojo.sh summarize`` from the
 RoboDojo checkout to refresh its summary. Partial batches retain individual
 results, but aggregate cells remain empty until the required count is present.
 
-Detailed task instructions are appended to the initial planner message from
-``extra_info.detailed_instruction``. For older runtimes without that field,
-provide ``--official-descriptions /path/to/official-descriptions.json``: a map
-from task name to the official public ``description`` string and ``scoring``
-list of strings. The selected instruction and source are saved per episode.
+The planner reads the environment's native task instruction through
+``view_env_state`` and uses the shared RoboDojo evaluation prompt and memory
+rules. Website descriptions and scoring criteria are not added to its input.
+Each episode's ``task-instruction.json`` saves the native instruction and its source.
 
 Batch evaluation
 ~~~~~~~~~~~~~~~~
@@ -622,7 +606,6 @@ hardware; omitting them runs serially on GPU 0. Reserve GPUs for these services 
      --am-endpoint socket://127.0.0.1:9100 \
      --sam3-endpoint socket://127.0.0.1:9200 \
      --memory-dir /path/to/memory/robodojo \
-     --official-descriptions /path/to/official-descriptions.json \
      --planner codex --reasoning-effort high --timeout 4800 \
      --output-dir /path/to/results/four-categories-seed1 --dry-run
 

@@ -16,7 +16,6 @@
 
 from __future__ import annotations
 
-import json
 import re
 import time
 from copy import deepcopy
@@ -40,20 +39,6 @@ from rpent.utils.logging import get_logger, init_output_dir
 from rpent.utils.rpc import make_rpc_client
 
 logger = get_logger(__name__)
-
-
-def task_description(obs: dict, task: str, catalog: str | None) -> tuple[str, str]:
-    """Read official public instructions, with an explicit older-runtime fallback."""
-    if text := obs.get("extra_info", {}).get("detailed_instruction"):
-        return text, "observation.extra_info.detailed_instruction"
-    if not catalog:
-        raise ValueError(
-            "Runtime has no detailed_instruction; provide --official-descriptions"
-        )
-    entries = json.loads(Path(catalog).read_text())
-    key = task if task in entries else task.removesuffix("_random")
-    entry = entries[key]
-    return entry["description"] + "\n\n" + "\n".join(entry["scoring"]), catalog
 
 
 class ExternalToolkit(RoboDojoToolkit):
@@ -193,7 +178,7 @@ class Model:
                 env_cfg_type="arx_x5",
                 recipe_tag=self.tag,
                 reference_tag=f"{self.context['task']}_s0_l0",
-                task_summary={},
+                task_summary={"task": self.context["task"]},
                 memory_dir=str(memory),
                 output_dir=str(self.output),
                 mode="dev",
@@ -203,22 +188,13 @@ class Model:
             system = bundle.render("system", variables=variables)
             guide = get_repo_root() / "robots/robodojo/guides/GUIDE_RPENT.md"
             system = system.replace("robots/robodojo/guides/GUIDE_RPENT.md", str(guide))
-            description, source = task_description(
-                self.bridge.obs,
-                self.context["task"],
-                self.cfg.get("official_descriptions"),
-            )
             user = bundle.render("user", variables=variables)
-            user += (
-                "\n\nExecution interface: XPolicyLab.\nOfficial detailed task instruction:\n"
-                + description
-            )
+            user += "\n\nExecution interface: XPolicyLab."
             write_json_atomic(
                 self.output / "task-instruction.json",
                 {
                     "instruction": self.bridge.obs["instruction"],
-                    "detailed_instruction": description,
-                    "source": source,
+                    "source": "observation.instruction",
                 },
             )
             (self.output / "system_prompt.txt").write_text(system)

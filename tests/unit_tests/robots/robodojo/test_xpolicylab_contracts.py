@@ -141,8 +141,9 @@ def observed(step=0, layout=0):
     return obs
 
 
+@pytest.mark.parametrize("with_details", [False, True])
 def test_two_episodes_clear_history_targets_and_use_actual_layout(
-    tmp_path, monkeypatch
+    tmp_path, monkeypatch, with_details
 ):
     from robots.robodojo.xpolicylab import model as module
     from rpent.planner.base import PlannerResult
@@ -151,14 +152,21 @@ def test_two_episodes_clear_history_targets_and_use_actual_layout(
 
     class Planner:
         def solve(self, **kwargs):
-            assert "Official public task details." in kwargs["user_message"]
+            for key in ("system_prompt", "user_message"):
+                assert "Official public task details." not in kwargs[key]
+                assert "Public scoring rules." not in kwargs[key]
             toolkit = kwargs["toolkit"]
             env = toolkit._primitives.env
             assert env._history_step == env._inference_index == 0
             assert toolkit._primitives.env._client.held is None
             assert "reset" not in toolkit._tools
             assert "not measured opening" in toolkit._tools["set_gripper"].description
-            assert len(toolkit.execute_tool("view_env_state", {"step": -1}).images) == 3
+            view = toolkit.execute_tool("view_env_state", {"step": -1})
+            assert len(view.images) == 3
+            visible = json.dumps(view.data)
+            assert "Test public feedback" in visible
+            assert "Official public task details." not in visible
+            assert "Public scoring rules." not in visible
             result = toolkit.execute_tool(
                 "set_gripper", {"arm": "right", "val": 0, "steps": 2}
             )
@@ -183,7 +191,12 @@ def test_two_episodes_clear_history_targets_and_use_actual_layout(
     )
     for layout in (0, 1):
         model.reset()
-        model.update_obs(observed(layout=layout))
+        initial = observed(layout=layout)
+        if with_details:
+            initial["extra_info"]["scoring"] = ["Public scoring rules."]
+        else:
+            initial.pop("extra_info")
+        model.update_obs(initial)
         try:
             while model.worker.is_alive():
                 actions = model.get_action()
@@ -200,36 +213,14 @@ def test_two_episodes_clear_history_targets_and_use_actual_layout(
             assert model.report["native_steps"] == model.report["history_steps"] == 2
             assert model.report["inference_count"] == 1
             assert model.report["episode"]["layout"] == layout
+            assert json.loads((model.output / "task-instruction.json").read_text()) == {
+                "instruction": "Test public feedback",
+                "source": "observation.instruction",
+            }
         finally:
             model.abort()
     assert calls[0] is not calls[1]
     assert len(list((tmp_path / "episodes").glob("*/report.json"))) == 2
-
-
-def test_runtime_description_precedes_catalog_and_random_fallback(tmp_path):
-    from robots.robodojo.xpolicylab.model import task_description
-
-    assert (
-        task_description(observed(), "stack_blocks", "/missing")[0]
-        == "Official public task details."
-    )
-    path = tmp_path / "catalog.json"
-    path.write_text(
-        json.dumps(
-            {
-                "stack_blocks": {
-                    "description": "Public details",
-                    "scoring": ["Public score text"],
-                }
-            }
-        )
-    )
-    assert (
-        task_description({}, "stack_blocks_random", str(path))[0]
-        == "Public details\n\nPublic score text"
-    )
-    with pytest.raises(ValueError, match="official-descriptions"):
-        task_description({}, "stack_blocks", None)
 
 
 @pytest.mark.parametrize("failure", [False, True])
@@ -351,29 +342,6 @@ def test_terminal_status_waits_for_cleanup(tmp_path, monkeypatch):
         model.worker.join(5)
     assert model.episode_report()["status"] == "completed"
     assert (tmp_path / "episodes/stack_blocks_s1_l0/report.json").is_file()
-
-
-def test_public_description_export_is_offline_and_preserves_existing_file(
-    tmp_path, monkeypatch
-):
-    from robots.robodojo.xpolicylab import descriptions
-    from robots.robodojo.xpolicylab.model import task_description
-
-    output = tmp_path / "inputs/descriptions.json"
-    monkeypatch.setattr("sys.argv", ["descriptions", "--output", str(output)])
-    descriptions.main()
-    bundled = Path(descriptions.__file__).with_name("official_descriptions.json")
-    assert output.read_bytes() == bundled.read_bytes()
-    catalog = json.loads(output.read_text())
-    assert len(catalog) == 42
-    for task, entry in catalog.items():
-        text, source = task_description({}, task, str(output))
-        assert text == entry["description"] + "\n\n" + "\n".join(entry["scoring"])
-        assert source == str(output)
-    output.write_text("existing frozen input")
-    with pytest.raises(FileExistsError):
-        descriptions.main()
-    assert output.read_text() == "existing frozen input"
 
 
 def test_official_task_counts_and_worker_arguments(tmp_path, monkeypatch):

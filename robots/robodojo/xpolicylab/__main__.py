@@ -93,9 +93,6 @@ def prepare(args: argparse.Namespace) -> tuple[dict, dict[str, str], Path]:
         model=args.model,
         reasoning_effort=args.reasoning_effort,
         timeout=args.timeout,
-        official_descriptions=str(args.official_descriptions.resolve())
-        if args.official_descriptions
-        else None,
     )
     (output / "policy.yml").write_text(yaml.safe_dump(config))
     sources = [
@@ -109,10 +106,6 @@ def prepare(args: argparse.Namespace) -> tuple[dict, dict[str, str], Path]:
         for p in sorted(source.rglob("*"))
         if p.is_file() and "__pycache__" not in p.parts
     }
-    if args.official_descriptions:
-        hashes[str(args.official_descriptions.resolve())] = hashlib.sha256(
-            args.official_descriptions.read_bytes()
-        ).hexdigest()
     names = {
         d.metadata["Name"]
         for d in importlib.metadata.distributions()
@@ -409,11 +402,6 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--sam3-endpoint", help="Existing RPent SAM3 RPC endpoint")
     parser.add_argument(
         "--memory-dir", type=Path, default=get_repo_root() / "memory/robodojo"
-    )
-    parser.add_argument(
-        "--official-descriptions",
-        type=Path,
-        help="Public task-description JSON for older runtimes",
     )
     parser.add_argument(
         "--output-dir",

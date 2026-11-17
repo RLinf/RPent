@@ -91,8 +91,6 @@ def fingerprint(args: argparse.Namespace) -> str:
         get_repo_root() / "robots/robodojo/prompts",
         get_repo_root() / "robots/robodojo/guides",
     ]
-    if args.official_descriptions:
-        sources.append(args.official_descriptions)
     for source in sources:
         files = sorted(source.rglob("*")) if source.is_dir() else [source]
         for path in files:
@@ -128,7 +126,6 @@ def task_command(
         "am_endpoint",
         "sam3_endpoint",
         "memory_dir",
-        "official_descriptions",
         "planner",
         "model",
         "reasoning_effort",

@@ -96,8 +96,6 @@ def test_two_official_episodes():
             "--policy-cuda-device",
             os.environ.get("RPENT_XPOLICYLAB_POLICY_GPU", "0"),
         ]
-        if catalog := os.environ.get("RPENT_OFFICIAL_DESCRIPTIONS"):
-            command += ["--official-descriptions", catalog]
         subprocess.run(command, env=env, check=True)
         server.assert_complete()
     reports = [
