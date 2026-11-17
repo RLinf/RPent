@@ -309,7 +309,11 @@ def run(args: argparse.Namespace) -> int:
             history_compaction=history_compaction,
             count_tokens=count_tokens,
             tokenizer_path=args.tokenizer_path,
-            request_trace_dir=args.output_dir / "api_trace",
+            request_trace_dir=(
+                args.output_dir / "api_trace"
+                if getattr(args, "record_api_trace", False)
+                else None
+            ),
         )
         planner = get_robot_spec().configure_planner(planner, config)
         result = asyncio.run(
@@ -335,10 +339,16 @@ def run(args: argparse.Namespace) -> int:
     return 0
 
 
-def main() -> None:
+def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
+    """Parse one trainer-owned episode without starting models or services."""
     parser = argparse.ArgumentParser(description=__doc__)
     get_robot_spec().add_cli_args(parser, use_dashboard=True)
     parser.add_argument("--output-dir", type=Path, required=True)
+    parser.add_argument(
+        "--record-api-trace",
+        action="store_true",
+        help="Record full HTTP requests, responses and compaction inputs for debugging.",
+    )
     parser.add_argument(
         "--request",
         type=Path,
@@ -351,7 +361,11 @@ def main() -> None:
         help="Tokenizer of the served planner model, used to count tokens for "
         "history compaction.",
     )
-    args = parser.parse_args()
+    return parser.parse_args(argv)
+
+
+def main() -> None:
+    args = parse_args()
     # A stopped episode still releases its simulator and model client.
     signal.signal(signal.SIGTERM, lambda *_: sys.exit(128 + signal.SIGTERM))
     sys.exit(run(args))

@@ -25,7 +25,7 @@ from pydantic_ai.capabilities import AbstractCapability
 from pydantic_ai.exceptions import UnexpectedModelBehavior
 from pydantic_ai.messages import ModelRequest, SystemPromptPart, UserPromptPart
 
-from rpent.planner.request_trace import write_json
+from rpent.utils.serialization import write_json
 
 
 class WorkflowCapability(AbstractCapability):

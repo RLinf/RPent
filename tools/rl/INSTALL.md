@@ -23,16 +23,7 @@ sudo apt-get update
 sudo apt-get install -y git build-essential ffmpeg libegl1 libopengl0 libgl1 libglib2.0-0 libvulkan1 vulkan-tools
 # Install uv using its linked official instructions if it is not available.
 uv python install 3.12 3.11
-git clone --branch rpent-rl-workflow https://github.com/zhexuanxu/RPent.git
-cd RPent
-cp tools/rl/config.example.sh .rl-env.sh
-```
-
-If the development branch has not been published, use the source archive
-provided with this change instead of the Git clone commands above:
-
-```bash
-tar -xzf rpent-rl-workflows-source.tar.gz
+git clone --branch rpent-ppo https://github.com/zhexuanxu/RPent.git
 cd RPent
 cp tools/rl/config.example.sh .rl-env.sh
 ```
@@ -67,8 +58,8 @@ robosuite 1.5.2 and NumPy 1.26.4. These requirement files are not full
 transitive lockfiles; save `uv pip freeze` for reproducible deployments.
 
 Request access to [facebook/sam3](https://huggingface.co/facebook/sam3) before
-logging in. Download the full model directory, including tokenizer, processor
-and chat template. Downloads need network access and sufficient disk space:
+logging in. Download the full Qwen3.8-27B directory, including its tokenizer, processor
+and chat template, and the SAM3 `sam3.pt` checkpoint. Downloads need network access and sufficient disk space:
 
 ```bash
 unset HF_HUB_OFFLINE HF_DATASETS_OFFLINE TRANSFORMERS_OFFLINE
@@ -80,8 +71,8 @@ env -u LIBERO_PRO_ASSET_PATH liberopro-download-assets \
   --assets-dir "$LIBERO_PRO_ASSET_PATH" --skip-existing --no-cache
 ```
 
-The temporary `env -u` avoids the downloader selecting an existing assets
-fallback. If your network requires a Hugging Face mirror, set `HF_ENDPOINT`
+The temporary `env -u` avoids the downloader selecting an existing fallback asset
+directory. If your network requires a Hugging Face mirror, set `HF_ENDPOINT`
 before downloading. Use your own proxy settings; no private download helper
 is required. Demonstration datasets are unnecessary for task execution.
 BDDL and initialization states ship in `rpent-liberopro`. Generate its local

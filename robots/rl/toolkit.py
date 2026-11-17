@@ -34,10 +34,10 @@ from robots.rl.prompt_bundle import validate_workflow
 from robots.rl.tools import LiberoRLPrimitives
 from rpent.dashboard.events import DashboardEventSink
 from rpent.memory import MemoryManager
-from rpent.planner.request_trace import write_json
 from rpent.session import EnvState
 from rpent.tools import ToolResult, iter_tools
 from rpent.tools.toolkit import Toolkit
+from rpent.utils.serialization import write_json
 
 
 def primitive_definitions(primitives, *, workflow, action_mode, perception_mode):

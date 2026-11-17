@@ -28,15 +28,9 @@ from typing import Any
 
 import httpx
 
+from rpent.utils.serialization import write_json
+
 _NATIVE_ID = contextvars.ContextVar("rpent_native_request_id", default=None)
-
-
-def write_json(path: Path, value: Any) -> None:
-    """Publish JSON atomically without exposing partially written records."""
-    path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_suffix(path.suffix + ".tmp")
-    temporary.write_text(json.dumps(value, ensure_ascii=False, default=str))
-    temporary.replace(path)
 
 
 class RequestTrace:

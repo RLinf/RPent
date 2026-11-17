@@ -21,15 +21,7 @@ sudo apt-get update
 sudo apt-get install -y git build-essential ffmpeg libegl1 libopengl0 libgl1 libglib2.0-0 libvulkan1 vulkan-tools
 # 如果尚未安装 uv，先按上方官方链接安装。
 uv python install 3.12 3.11
-git clone --branch rpent-rl-workflow https://github.com/zhexuanxu/RPent.git
-cd RPent
-cp tools/rl/config.example.sh .rl-env.sh
-```
-
-如果开发分支尚未发布，使用本次改动提供的源码包，替代上面的 Git clone 步骤：
-
-```bash
-tar -xzf rpent-rl-workflows-source.tar.gz
+git clone --branch rpent-ppo https://github.com/zhexuanxu/RPent.git
 cd RPent
 cp tools/rl/config.example.sh .rl-env.sh
 ```
@@ -74,7 +66,7 @@ env -u LIBERO_PRO_ASSET_PATH liberopro-download-assets \
   --assets-dir "$LIBERO_PRO_ASSET_PATH" --skip-existing --no-cache
 ```
 
-临时 `env -u` 避免下载器选用已有资产目录的 fallback。网络需要 HF 镜像时，可在
+临时 `env -u` 避免下载器选用已有的备用资源目录。网络需要 HF 镜像时，可在
 下载前设置 `HF_ENDPOINT`；代理按自己的网络配置，无需私有下载脚本。
 运行任务不需要演示数据集。BDDL 与初始化状态随 `rpent-liberopro` 安装，
 完成安装及资产下载后生成本地配置：

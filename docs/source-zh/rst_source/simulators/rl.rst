@@ -57,7 +57,7 @@ episode。先从一个 episode 开始。
 工作流与工具
 ----------------------------------------------------------------
 
-五种模式使用 API planner，共用机器人、坐标和夹爪说明。
+各模式使用 API planner，共用机器人、坐标和夹爪说明。
 
 .. list-table:: LIBERO 上下文策略
    :header-rows: 1
@@ -86,7 +86,7 @@ query 和 todo 工具。重置不会重置全局预算。原生任务文本直�
 
 :download:`工作流指南 <../../../../tools/rl/WORKFLOWS_zh.md>` 说明初始化与重置、
 完整工具、SAM3 池和固定任务对比。 ``--image_size`` 为 VLM 图片选择 1024、512
-或 256，原始 RGB-D/SAM3 始终为1024，显示像素和矩形会映射回原始坐标。
+或 256，原始 RGB-D/SAM3 始终为 1024，显示像素和矩形会映射回原始坐标。
 
 规划器配置
 ----------------------------------------------------------------
@@ -129,9 +129,9 @@ query 和 todo 工具。重置不会重置全局预算。原生任务文本直�
      - 每条轨迹的模型请求次数／物理环境步数上限。
    * - ``--planner-timeout-s``
      - 7200
-     - planner 墙钟时限；批处理 ``--episode-timeout`` 默认14400秒。
+     - planner 墙钟时限；批处理 ``--episode-timeout`` 默认 14400 秒。
 
-一次正常模型回复及其工具结果是两条消息，保留10条尾部消息通常约为5轮。
+一次正常模型回复及其工具结果是两条消息，保留 10 条尾部消息通常约为 5 轮。
 token 与消息数量条件为“或”；若只需 token 触发，设置
 ``--compaction-max-messages 0``。保留后的窗口仍可能超过 token 阈值，审计会记录。
 
@@ -145,7 +145,7 @@ token 与消息数量条件为“或”；若只需 token 触发，设置
 
 同一参数区还列出 ``--reasoning-history``、``--image-history``、
 ``--action-mode``、``--max-actions-per-call`` 和 ``--image_size``。
-默认历史为 -1/-1、动作为 single、batch 长度为3、VLM 图像为1024。
+默认历史为 -1/-1、动作为 single、batch 长度为3、VLM 图像为 1024。
 历史裁剪之后仍会进行压缩判断。
 
 例如在单条或批处理命令后追加 ``--max-tokens 8192 --temperature 0.8
@@ -204,17 +204,26 @@ slot 数是容量上限，采集前须用真实驻留环境验证布局。后端
      --perception-mode single --libero-type pro \
      --tokenizer-path /path/to/Qwen3.5-4B --cuda-device 0
 
-这里的 ``cuda-device`` 选择远程环境 GPU。planner 在自己的输出目录保存校验后的原始 RGB、深度和几何文件，训练端应引用这里的文件，不能引用环境机器上的路径。动作响应丢失、执行结果不确定会停止 episode，同一会话内不重放动作。
+这里的 ``--cuda-device`` 选择远程环境 GPU。planner 在自己的输出目录保存校验后的原始 RGB、深度和几何文件，训练端应引用这里的文件，不能引用环境机器上的路径。动作响应丢失、执行结果不确定会停止 episode，同一会话内不重放动作。
 
-RLinf 训练
-----------------------------------------------------------------
+使用 RLinf 训练规划器
+---------------------
 
-参考文档保留离线安装、RLinf/SFT 集成说明。RLinf 负责策略训练和 checkpoint，
-RPent 负责仿真器与工具执行；episode 入口为 ``robots.rl.rl_episode`` 。
-数据编码位于 ``ms-swift/examples/rpent`` ，应保留实际请求与图片顺序。
+环境安装、完整 Qwen3.5 SFT 模型、原生任务清单、服务路由、训练、checkpoint 导出和 包含 60 条 episode 的训练池回归评测集，统一参见配套的 `RLinf episode PPO/GRPO 指南 <https://github.com/zhexuanxu/RLinf/blob/rpent-ppo/docs/source-zh/rst_source/examples/agentic/rpent_episode_sync.rst>`__。
 
-RL trainer 在请求 JSON 中提供 ``task`` 和 ``planner`` 对象。planner 参数包含 ``max_turns``、``max_tokens``、时间上限、``history_compaction``、``thinking`` 和 ``sampling_params``。采样字段与 Qwen adapter 同名，显式值覆盖独立运行的默认值。每条 episode 在 ``api_trace/`` 保留完整 HTTP 和原生请求记录。配套 RLinf episode PPO 示例还保存真实采样 token ID、行为 logprob 和有序训练图片，便于交叉核对。
+模型主机运行 RLinf 和 CPU RPent planner，环境主机运行 LIBERO-PRO 与 SAM3。在 RPent checkout 中独立安装 CPU planner：
 
+.. code-block:: bash
+
+   uv venv --python 3.12 .venv-planner
+   uv pip install --python .venv-planner/bin/python --prerelease=allow \
+     --torch-backend cpu -r requirements/episode-planner.txt
+
+将 RLinf 的 ``tools.rpent.python`` 指向该解释器。仿真主机使用另一环境安装 ``requirements/episode-ppo-env.txt``，并将 ``RLINF_ROOT`` 指向配套 checkout；该环境同时服务 PPO 和 GRPO。远端 ``episode`` 使用 SAM3 和原生场景资源，不使用 Pi0.5 权重。保持 SFT 的工作流、prompt、动作 batch 大小和显式感知工具。
+
+episode 默认保存任务结果和训练数据；完整 HTTP 与压缩过程抓取需要显式开启。trainer 直接启动 RPent 时使用 ``--record-api-trace``，RLinf 中设置 ``tools.rpent.record_api_trace=true``。这个开关只记录传输细节，不改变模型输入或压缩行为。
+
+trainer 在请求 JSON 中提供 ``task`` 和 ``planner`` 对象。planner 参数包含 ``max_turns``、``max_tokens``、时间上限、``history_compaction``、``thinking`` 和 ``sampling_params``；显式采样值覆盖独立运行的默认值。RLinf 保留采样 token ID、行为 logprob 和有序训练图片。现有 ``ms-swift/examples/rpent`` SFT 编码也应保留实际请求和图片顺序，集成约定见 ``tools/rl/REFERENCE.md``。
 
 图片反馈、动作列表与历史保留
 ------------------------------------------------

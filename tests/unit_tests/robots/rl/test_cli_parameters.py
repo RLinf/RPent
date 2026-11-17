@@ -431,3 +431,28 @@ def test_sam_transport_deadline_reaches_real_runtime_client(tmp_path, monkeypatc
     result = runtime["sam3_client"].segment(b"image", text_prompt="cup")
     assert result.found is False
     assert rpc.call.call_args.kwargs["timeout_s"] == 600
+
+
+@pytest.mark.parametrize("record", [False, True])
+def test_trainer_episode_recording_is_explicit(tmp_path, record):
+    from robots.rl.rl_episode import parse_args
+
+    argv = [
+        "--output-dir",
+        str(tmp_path),
+        "--request",
+        str(tmp_path / "request.json"),
+        "--workflow",
+        "episode",
+        "--simulator",
+        "libero",
+        "--action-mode",
+        "batch",
+        "--max-actions-per-call",
+        "3",
+    ]
+    args = parse_args(argv + (["--record-api-trace"] if record else []))
+    assert args.record_api_trace is record
+    assert args.workflow == "episode" and args.action_mode == "batch"
+    assert args.max_actions_per_call == 3 and args.perception_mode == "single"
+    assert list(tmp_path.iterdir()) == []

@@ -94,7 +94,7 @@ commands. Both use ``episode``.
 The :download:`workflow guide <../../../../tools/rl/WORKFLOWS.md>` gives exact
 bootstrap/reset rules, complete tool lists, SAM3 pool setup and fixed-panel
 comparison commands. ``--image_size`` selects 1024, 512 or 256 for VLM images;
-native RGB-D/SAM3 stay1024 and displayed pixel/box coordinates are mapped.
+native RGB-D/SAM3 remain at 1024 pixels and displayed pixel/box coordinates are mapped.
 
 Planner Configuration
 ---------------------
@@ -158,8 +158,8 @@ field and does not disable thinking.
 
 ``--reasoning-history``, ``--image-history``, ``--action-mode``,
 ``--max-actions-per-call`` and ``--image_size`` are also listed in the same
-array. The default histories are -1/-1, action mode is single, batch length is3,
-and VLM image size is1024. Compaction still applies after history retention.
+array. The default histories are -1/-1, action mode is single, batch length is 3,
+and VLM image size is 1024. Compaction still applies after history retention.
 
 For example, append ``--max-tokens 8192 --temperature 0.8
 --compaction-max-messages 0`` to a single or batch command. Model input and the
@@ -233,28 +233,30 @@ with the ordinary workflow flags:
      --perception-mode single --libero-type pro \
      --tokenizer-path /path/to/Qwen3.5-4B --cuda-device 0
 
-``cuda-device`` selects the remote environment GPU here. The planner keeps
+``--cuda-device`` selects the remote environment GPU here. The planner keeps
 verified copies of the original RGB, depth and geometry under its own output
 directory; trainers must reference that directory, not environment-host paths.
 If an action response is lost or leaves the outcome uncertain, the planner
 stops the episode without replaying the action in that session.
 
-RLinf Training
---------------
+Train the Planner with RLinf
+----------------------------
 
-The reference preserves offline installation and RLinf/SFT integration details.
-RLinf owns policy training/checkpoints; RPent owns simulator/tool execution.
-Its episode entry is ``robots.rl.rl_episode``. Dataset encoding belongs to
-``ms-swift/examples/rpent`` and must preserve saved requests and image order.
+Use the paired `RLinf episode PPO/GRPO guide <https://github.com/zhexuanxu/RLinf/blob/rpent-ppo/docs/source-en/rst_source/examples/agentic/rpent_episode_sync.rst>`__ for environment installation, full Qwen3.5 SFT model files, native task manifests, service routing, training, checkpoint export and the 60-episode regression panel.
 
-An RL trainer supplies ``task`` and ``planner`` objects in the request JSON.
-Planner options include ``max_turns``, ``max_tokens``, timeouts,
-``history_compaction``, ``thinking`` and ``sampling_params``. The
-``sampling_params`` fields use the Qwen adapter's sampling field names.
-Explicit values override the standalone sampling defaults. Each episode retains full HTTP/native traces in
-``api_trace/``. Use the paired RLinf episode PPO recipe to store sampled token
-IDs, behavior logprobs and ordered training images alongside these traces.
+The model hosts run RLinf and a CPU RPent planner; the environment host runs LIBERO-PRO and SAM3. From the RPent checkout, prepare the CPU planner independently:
 
+.. code-block:: bash
+
+   uv venv --python 3.12 .venv-planner
+   uv pip install --python .venv-planner/bin/python --prerelease=allow \
+     --torch-backend cpu -r requirements/episode-planner.txt
+
+Point RLinf's ``tools.rpent.python`` to this interpreter. Install ``requirements/episode-ppo-env.txt`` in a separate environment on the simulator host, with ``RLINF_ROOT`` pointing to the paired checkout. That environment serves both PPO and GRPO. The remote ``episode`` workflow uses SAM3 and native scene assets, without Pi0.5 weights. Keep the SFT workflow, prompts, action batch size and explicit perception tools unchanged.
+
+Episode runs save task outcomes and training artifacts by default. Full HTTP and compaction traces are optional: direct trainer launches accept ``--record-api-trace``, and RLinf exposes ``tools.rpent.record_api_trace=true``. This switch records transport details; it does not change model input or compaction behavior.
+
+The trainer supplies ``task`` and ``planner`` objects in a request JSON. Planner options include ``max_turns``, ``max_tokens``, timeouts, ``history_compaction``, ``thinking`` and ``sampling_params``. Explicit sampling values override standalone defaults. RLinf retains sampled token IDs, behavior logprobs and ordered training images. Existing SFT encoding in ``ms-swift/examples/rpent`` must preserve those requests and image order; see ``tools/rl/REFERENCE.md`` for the integration contract.
 
 Image feedback, action batches and history
 ------------------------------------------------------------------------------------

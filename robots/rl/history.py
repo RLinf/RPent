@@ -10,7 +10,7 @@ from pydantic_ai.capabilities import AbstractCapability
 from pydantic_ai.messages import ModelRequest, ModelResponse, ThinkingPart
 
 from rpent.planner.compaction import _key, images_in, retain_images
-from rpent.planner.request_trace import write_json
+from rpent.utils.serialization import write_json
 
 
 def retained_history(messages, reasoning: int, images: int):

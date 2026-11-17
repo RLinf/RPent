@@ -1,0 +1,7 @@
+# CPU-only planner for a remote robots.rl.remote_manager backend.
+# Run from the RPent root with uv pip install --torch-backend cpu -r this-file.
+-e .
+transformers==5.19.0
+torch==2.14.1
+torchvision
+pillow>=10

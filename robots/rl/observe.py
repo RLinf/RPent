@@ -16,8 +16,8 @@ from uuid import uuid4
 from PIL import Image
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from rpent.planner.request_trace import write_json
 from rpent.tools import ToolResult, tool
+from rpent.utils.serialization import write_json
 
 NodeId = Annotated[str, Field(pattern=r"^[A-Za-z][A-Za-z0-9_]{0,31}$")]
 SourceId = Annotated[str, Field(min_length=1, max_length=256)]
