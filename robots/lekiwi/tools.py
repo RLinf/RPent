@@ -52,6 +52,19 @@ class LeKiwiPrimitives:
         self.env = env
         self._check_cancelled = check_cancelled
 
+    @tool(readonly=True)
+    def get_odometry(self) -> ToolResult:
+        """Read wheel-estimated x_m, y_m and yaw_deg since the task reset.
+
+        Initial forward is +x and left is +y; positive yaw turns left.
+        The coordinate frame stays fixed after turning. Returns valid, age_s
+        and simulated; invalid results omit pose values. Wheel slip and
+        integration drift are not independently measured. Does not move the
+        robot, reset the origin or require map localization.
+        """
+        self._check_cancelled()
+        return ToolResult(data=self.env.get_odometry())
+
     @tool
     def drive(
         self,

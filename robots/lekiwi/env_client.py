@@ -106,6 +106,12 @@ class LeKiwiEnvClient(BaseEnvClient):
         if states is not None:
             self._last_states = states
 
+    def get_odometry(self) -> dict[str, Any]:
+        """Read wheel-estimated pose relative to the latest task reset."""
+        return self._client.call(
+            "env.get_odometry", timeout_s=self._TIMEOUT_S["default"]
+        )
+
     def get_robot_state(self) -> dict[str, Any]:
         robot_state = self._client.call(
             "env.get_robot_state", timeout_s=self._TIMEOUT_S["default"]

@@ -65,6 +65,9 @@ class EnvControl:
         self._navigation_min_expiry = 0.0
         self._sample = {}
         self._sample_monotonic = 0.0
+        self._odometry_pose = [0.0, 0.0, 0.0]
+        self._odometry_valid = True
+        self._odometry_max_gap_s = max(1.0, 3 / raw.config.step_frequency)
         self._fault = None
         self.observation = None
         self.observed_at = 0.0
@@ -162,13 +165,62 @@ class EnvControl:
                 "simulated": self.simulated,
             }
 
+    def reset_odometry(self) -> None:
+        """Set the current position and heading as the task's fixed origin."""
+        with self.lock:
+            self._odometry_pose = [0.0, 0.0, 0.0]
+            self._odometry_valid = True
+
+    def get_odometry(self) -> dict[str, Any]:
+        """Read wheel-integrated task pose; omit pose when feedback is invalid."""
+        with self.lock:
+            age = time.monotonic() - self._sample_monotonic if self._sample else None
+            valid = (
+                self._odometry_valid
+                and age is not None
+                and 0 <= age <= self._odometry_max_gap_s
+                and not self._fault
+                and not self._closing.is_set()
+            )
+            result = {"valid": bool(valid), "age_s": age, "simulated": self.simulated}
+            if valid:
+                x, y, yaw = self._odometry_pose
+                result.update(
+                    x_m=x,
+                    y_m=y,
+                    yaw_deg=math.degrees(math.atan2(math.sin(yaw), math.cos(yaw))),
+                )
+            return result
+
     def _update_sample(self):
         sample = self.raw.get_velocity_sample()
-        if not sample or sample["sampled_monotonic"] <= self._sample_monotonic:
+        if not sample:
             return
         measured = vector(sample["velocity"])
         measured[2] = math.radians(measured[2])
         with self.lock:
+            dt = sample["sampled_monotonic"] - self._sample_monotonic
+            if self._sample:
+                if dt == 0:
+                    return
+                if dt < 0:
+                    self._odometry_valid = False
+                    return
+                if not 0 < dt <= self._odometry_max_gap_s:
+                    # Missing intervals cannot be reconstructed from one velocity.
+                    # Keep the task pose invalid until an explicit reset.
+                    self._odometry_valid = False
+                elif self._odometry_valid:
+                    previous = self._sample["measured_velocity"]
+                    vx, vy, omega = [(a + b) / 2 for a, b in zip(previous, measured)]
+                    heading = self._odometry_pose[2] + omega * dt / 2
+                    self._odometry_pose[0] += (
+                        math.cos(heading) * vx - math.sin(heading) * vy
+                    ) * dt
+                    self._odometry_pose[1] += (
+                        math.sin(heading) * vx + math.cos(heading) * vy
+                    ) * dt
+                    self._odometry_pose[2] += omega * dt
             self._sample = {
                 "sampled_at": sample["sampled_at"],
                 "measured_velocity": measured,

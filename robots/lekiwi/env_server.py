@@ -65,6 +65,7 @@ class LeKiwiEnvFacade(BaseEnvFacade):
     )
     # These handlers synchronize internally instead of holding the RPC write lock.
     _RUNTIME_METHODS = (
+        "get_odometry",
         "get_stereo_frame",
         "get_navigation_state",
         "navigate_to",
@@ -76,6 +77,7 @@ class LeKiwiEnvFacade(BaseEnvFacade):
         "recording_stop",
     )
     _READONLY = (
+        "get_odometry",
         "get_env_meta",
         "get_robot_state",
         "get_observation",
@@ -284,6 +286,7 @@ class LeKiwiEnvBackend:
                 self.control.stop()
             observation, info = self.env.reset()
             self.control._update_sample()
+            self.control.reset_odometry()
         return {
             "ok": True,
             "info": to_numpy_tree(info),
@@ -292,6 +295,10 @@ class LeKiwiEnvBackend:
             "main_images": self._strip_batch(observation.get("main_images")),
             "steps": self.control.steps,
         }
+
+    def get_odometry(self) -> dict[str, Any]:
+        """Return wheel-estimated pose relative to the latest task reset."""
+        return self.control.get_odometry()
 
     def get_robot_state(self) -> dict[str, Any]:
         state = self.control.state()

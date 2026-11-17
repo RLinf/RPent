@@ -42,6 +42,9 @@ class FakeBackend:
     def get_robot_state(self):
         return {"velocity": [0.0, 0.0, 0.0]}
 
+    def get_odometry(self):
+        return {"valid": True, "age_s": 0.01, "x_m": 0.2, "y_m": -0.1, "yaw_deg": 30}
+
     def get_observation(self):
         return {"states": np.zeros(3, dtype=np.float32)}
 
@@ -91,6 +94,14 @@ def test_lekiwi_client_and_facade_round_trip_numpy_over_http():
         result = client.drive([0.1, 0.0, 5.0], duration_s=0.5)
         held = client.hold([0.2, 0.0, 0.0], ttl_s=0.75)
         stopped = client.stop()
+        from robots.lekiwi.tools import LeKiwiPrimitives
+        from rpent.tools import iter_tools
+
+        primitives = LeKiwiPrimitives(env=client, check_cancelled=lambda: None)
+        odometry = {tool.name: tool for tool in iter_tools(primitives)}["get_odometry"]
+        assert odometry.readonly
+        assert "env.get_odometry" in facade._readonly_methods
+        assert odometry().data == backend.get_odometry()
     finally:
         server.shutdown()
         server.server_close()
@@ -310,6 +321,20 @@ def test_backend_stop_ends_a_hold_before_its_ttl(
         time.sleep(0.15)
         assert inner.moving_steps == settled
         assert inner.stops >= 1
+    finally:
+        backend.close_env()
+
+
+def test_task_reset_zeros_odometry(fake_rlinf_realworld_modules, monkeypatch):
+    backend, inner = _fake_backend(monkeypatch)
+    try:
+        backend.drive([0.5, 0, 0], duration_s=0.15)
+        with backend.control.step_lock:
+            assert backend.get_odometry()["x_m"] > 0
+            backend.reset()
+            pose = backend.get_odometry()
+            assert pose["valid"]
+            assert [pose["x_m"], pose["y_m"], pose["yaw_deg"]] == [0, 0, 0]
     finally:
         backend.close_env()
 
