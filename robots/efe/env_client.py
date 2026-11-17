@@ -137,15 +137,6 @@ class EfeEnvClient:
             return self._resets_left
         return max(self.reset_budget - self.reset_calls, 0)
 
-    @property
-    def agent_ended_episode(self) -> bool:
-        """Whether the agent ended a hidden-success episode through the service."""
-        return (
-            self.success_hidden
-            and self._done
-            and (self.done_reason or "").strip().lower() == "finished"
-        )
-
     def set_deadline(self, deadline: float | None) -> None:
         """Set the monotonic deadline for service calls in this trial."""
         self._deadline = deadline

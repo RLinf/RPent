@@ -155,10 +155,6 @@ class FakeEfeClient:
         return max(self.reset_budget - self.reset_calls, 0)
 
     @property
-    def agent_ended_episode(self) -> bool:
-        return self.success_hidden and self.done and self.done_reason == "finished"
-
-    @property
     def success_hidden(self) -> bool:
         return self.spec.get("success_signal") == "hidden"
 

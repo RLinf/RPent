@@ -253,7 +253,7 @@ def test_status_reconciles_a_direct_reset(robot):
     assert client.last_meta == status
 
 
-def test_status_recognizes_a_direct_agent_finish(robot):
+def test_status_records_a_direct_agent_finish(robot):
     spec = {**_SPEC, "success_signal": "hidden", "budget": {"reset": 5}}
     client = EfeEnvClient(robot=FakeRobot(spec))
     client._robot.status_result = {
@@ -266,7 +266,7 @@ def test_status_recognizes_a_direct_agent_finish(robot):
     client.status()
 
     assert client.done is True
-    assert client.agent_ended_episode is True
+    assert client.done_reason == "finished"
     assert client.reset_calls == 0
 
 
