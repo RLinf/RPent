@@ -105,6 +105,37 @@ def test_run_preserves_instruction_and_quotes_paths(tmp_path, monkeypatch):
     assert "--no-skills" not in command
 
 
+def test_run_names_the_task_from_the_trial_configuration(tmp_path, monkeypatch):
+    """The uploaded instruction names the log directory, not the task."""
+    trial_config = {"task": {"path": "/tasks/pick_the_tube"}}
+    (tmp_path / "config.json").write_text(json.dumps(trial_config), encoding="utf-8")
+    agent = RPentEfeAgent(logs_dir=tmp_path / "logs", model_name="openai/test-model")
+    environment = UploadEnvironment()
+    execute = AsyncMock()
+    monkeypatch.setattr(agent, "exec_as_agent", execute)
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+
+    asyncio.run(agent.run("Task", environment, AgentContext()))
+
+    command = shlex.split(execute.call_args.kwargs["command"])
+    assert command[command.index("--task-name") + 1] == "pick_the_tube"
+
+
+def test_run_without_a_trial_configuration_leaves_the_task_name_implicit(
+    tmp_path, monkeypatch
+):
+    agent = RPentEfeAgent(logs_dir=tmp_path, model_name="openai/test-model")
+    environment = UploadEnvironment()
+    execute = AsyncMock()
+    monkeypatch.setattr(agent, "exec_as_agent", execute)
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+
+    asyncio.run(agent.run("Task", environment, AgentContext()))
+
+    command = shlex.split(execute.call_args.kwargs["command"])
+    assert "--task-name" not in command
+
+
 def test_run_forwards_the_configured_codex_sandbox(tmp_path, monkeypatch):
     agent = RPentEfeAgent(
         logs_dir=tmp_path,

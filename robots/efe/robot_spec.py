@@ -94,14 +94,20 @@ def _prepare_prompt_vars(
     The generic CLI renders the system prompt after this hook, so the prompt
     lists the tools the session actually registers: an unsupported joint
     layout keeps the raw submit tool, and the service spec decides reset and
-    hidden success.
+    hidden success. It also carries the Codex shell restriction, because a
+    read-only or workspace-write sandbox cannot reach the service over the
+    network.
     """
     from robots.efe.toolkit import tool_capabilities
 
-    return tool_capabilities(
+    variables = tool_capabilities(
         runtime_kwargs["client"],
         enable_skills=bool(config.prompt_vars.get("skills", True)),
     )
+    planner = getattr(args, "planner", None)
+    sandbox = getattr(args, "codex_sandbox", "full-access")
+    variables["restricted_shell"] = planner == "codex" and sandbox != "full-access"
+    return variables
 
 
 def _add_cli_args(parser: argparse.ArgumentParser, use_dashboard: bool) -> None:
@@ -116,6 +122,15 @@ def _add_cli_args(parser: argparse.ArgumentParser, use_dashboard: bool) -> None:
         type=Path,
         required=not use_dashboard,
         help="File holding the task instruction supplied by EFE.",
+    )
+    parser.add_argument(
+        "--task-name",
+        default=None,
+        help=(
+            "Task identity for results and artifact names. Default: the "
+            "instruction file's parent directory, which is the task directory "
+            "only for local runs."
+        ),
     )
     parser.add_argument(
         "--workdir",
@@ -181,7 +196,12 @@ def _parse_config(args: argparse.Namespace) -> RunConfig:
         raise ValueError("--instruction-file is required")
     instruction_path = Path(args.instruction_file).expanduser().resolve(strict=True)
     instruction = instruction_path.read_text(encoding="utf-8")
-    task_name = instruction_path.parent.name or "efe"
+    # An agent harness may upload the instruction away from the task directory,
+    # so it passes the identity explicitly instead of letting the upload
+    # location name the run.
+    task_name = (
+        getattr(args, "task_name", None) or instruction_path.parent.name or "efe"
+    )
     tag = session_vars.recipe_tag(task_name, instruction)
     workdir = Path(args.workdir or Path.cwd()).expanduser().resolve()
     memory_dir = (

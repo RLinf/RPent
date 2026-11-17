@@ -131,6 +131,18 @@ def test_parse_config_uses_the_task_instruction(tmp_path):
     assert config.recipe_tag.startswith("task_")
 
 
+def test_parse_config_uses_an_explicit_task_name(tmp_path):
+    """An agent harness uploads the instruction away from the task directory."""
+    args = _args(tmp_path)
+    args.task_name = "pick_the_tube"
+
+    config = _parse_config(args)
+
+    assert config.task_desc["task"] == "pick_the_tube"
+    assert config.prompt_vars["task_name"] == "pick_the_tube"
+    assert config.recipe_tag.startswith("pick_the_tube_")
+
+
 def test_parse_config_binds_the_workspace_as_the_repo_root(
     tmp_path, monkeypatch: pytest.MonkeyPatch
 ):
@@ -211,7 +223,12 @@ def test_prompt_variables_follow_the_connected_task_capabilities(tmp_path):
     config = _parse_config(args)
 
     default = _prepare_prompt_vars(args, config, {"client": FakeEfeClient()})
-    assert default == {"skills": True, "reset": False, "end_episode": False}
+    assert default == {
+        "skills": True,
+        "reset": False,
+        "end_episode": False,
+        "restricted_shell": False,
+    }
 
     spec = {
         **copy.deepcopy(SPEC),
@@ -219,11 +236,38 @@ def test_prompt_variables_follow_the_connected_task_capabilities(tmp_path):
         "success_signal": "hidden",
     }
     granted = _prepare_prompt_vars(args, config, {"client": FakeEfeClient(spec)})
-    assert granted == {"skills": True, "reset": True, "end_episode": True}
+    assert granted == {
+        "skills": True,
+        "reset": True,
+        "end_episode": True,
+        "restricted_shell": False,
+    }
 
     config.prompt_vars["skills"] = False
     disabled = _prepare_prompt_vars(args, config, {"client": FakeEfeClient()})
     assert disabled["skills"] is False
+
+
+@pytest.mark.parametrize(
+    ("planner", "sandbox", "restricted"),
+    [
+        ("codex", "read-only", True),
+        ("codex", "workspace-write", True),
+        ("codex", "full-access", False),
+        ("api", "read-only", False),
+    ],
+)
+def test_restricted_shell_follows_the_codex_sandbox(
+    tmp_path, planner, sandbox, restricted
+):
+    args = _args(tmp_path)
+    args.planner = planner
+    args.codex_sandbox = sandbox
+    config = _parse_config(args)
+
+    variables = _prepare_prompt_vars(args, config, {"client": FakeEfeClient()})
+
+    assert variables["restricted_shell"] is restricted
 
 
 def test_prompt_variables_fall_back_when_the_layout_is_unsupported(tmp_path):
@@ -237,20 +281,27 @@ def test_prompt_variables_fall_back_when_the_layout_is_unsupported(tmp_path):
 
 
 @pytest.mark.parametrize(
-    ("spec_changes", "cli_args", "skills_available"),
+    ("spec_changes", "cli_args", "skills_available", "shell_restricted"),
     [
-        ({}, [], True),
+        ({}, [], True, False),
         (
             {"budget": {"reset": 2}, "success_signal": "hidden"},
             [],
             True,
+            False,
         ),
-        ({"kinematics": {}}, [], False),
-        ({}, ["--efe-no-skills"], False),
+        ({"kinematics": {}}, [], False, False),
+        ({}, ["--efe-no-skills"], False, False),
+        (
+            {},
+            ["--planner", "codex", "--codex-sandbox", "read-only"],
+            True,
+            True,
+        ),
     ],
 )
 def test_generic_cli_renders_the_tools_the_session_registers(
-    tmp_path, monkeypatch, spec_changes, cli_args, skills_available
+    tmp_path, monkeypatch, spec_changes, cli_args, skills_available, shell_restricted
 ):
     from rpent.cli import main as cli
 
@@ -308,3 +359,4 @@ def test_generic_cli_renders_the_tools_the_session_registers(
     assert ("efe_end_episode" in prompt) is ("efe_end_episode" in tools)
     assert ("efe_reset" in prompt) is (client.reset_budget > 0)
     assert ("efe_end_episode" in prompt) is client.success_hidden
+    assert ("Shell commands have no network access" in prompt) is shell_restricted

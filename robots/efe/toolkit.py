@@ -47,9 +47,10 @@ _EFE_TOOL_DESCRIPTIONS = {
         "    max_chars: Max chars (default 40000)"
     ),
     "write_text_file": (
-        "Write a UTF-8 text file (creates parent dirs). Use for working notes "
-        "in the run output directory. Files outside that directory stay in the "
-        "task container and do not survive the trial."
+        "Write a UTF-8 text file (creates parent dirs). A relative path "
+        "resolves against the workspace. Write notes that must survive the "
+        "trial under {{output_dir}}; files elsewhere in the task container do "
+        "not leave it."
     ),
     "list_dir": (
         "List files in a directory (non-recursive). Default = the run output "
