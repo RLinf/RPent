@@ -29,7 +29,7 @@ from pathlib import Path
 def recipe_tag(task_name: str, instruction: str) -> str:
     """Return the stable per-task tag for run directories and memory cells."""
     digest = hashlib.sha256(instruction.encode("utf-8")).hexdigest()[:8]
-    return f"{task_name or 'efe'}_{digest}"
+    return f"{task_name}_{digest}"
 
 
 def prompt_vars(

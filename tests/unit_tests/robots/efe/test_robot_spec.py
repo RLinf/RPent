@@ -58,13 +58,18 @@ def _args(tmp_path: Path) -> argparse.Namespace:
     instruction.write_text("Pick up the tube.\n", encoding="utf-8")
     return argparse.Namespace(
         instruction_file=instruction,
+        task_name=None,
         workdir=tmp_path,
         output_dir=tmp_path / "logs",
         memory_dir=None,
+        memory_repo=None,
         explore=False,
-        efe_connect_timeout_s=30.0,
-        efe_skills=True,
+        planner="api",
+        codex_sandbox="full-access",
         efe_base_url=None,
+        efe_connect_timeout_s=30.0,
+        efe_trial_timeout_s=None,
+        efe_skills=True,
     )
 
 

@@ -189,7 +189,7 @@ class RPentEfeAgent(BaseInstalledAgent):
             task_path = json.load(config_file).get("task", {}).get("path")
         if not task_path:
             return None
-        return Path(task_path).expanduser().name or None
+        return Path(task_path).expanduser().name
 
     def _apply_agent_timeout(self, agent_timeout_s: int) -> None:
         """Keep connection, planning, and finalization inside Harbor's timeout."""
@@ -385,7 +385,7 @@ class RPentEfeAgent(BaseInstalledAgent):
         if not self.skills:
             arguments.append("--efe-no-skills")
         task_name = self._resolve_task_name()
-        if task_name is not None:
+        if task_name:
             arguments += ["--task-name", task_name]
         command = shlex.join(arguments)
         forwarded = {
