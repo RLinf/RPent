@@ -220,3 +220,17 @@ class EfeToolkit(Toolkit):
             "skills_enabled": self._skills is not None,
             "skills_error": self._skills_error,
         }
+
+    def evaluation_metrics(self, *, success: bool | None) -> dict[str, Any]:
+        """Collect EFE service and tool counters for the run finalizer."""
+        del success  # The verifier owns task scoring.
+        return {
+            **self.metrics(),
+            "service": {
+                "protocol": self._client.spec.get("protocol"),
+                "robot": self._client.spec.get("robot"),
+                "action_types": sorted(self._client.spec["action_types"]),
+            },
+            "done": self._client.done,
+            "done_reason": self._client.done_reason,
+        }

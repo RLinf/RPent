@@ -19,6 +19,7 @@ from __future__ import annotations
 import asyncio
 import io
 import json
+import os
 import shlex
 import tarfile
 from importlib import import_module
@@ -75,20 +76,33 @@ def test_run_preserves_instruction_and_quotes_paths(tmp_path, monkeypatch):
     assert execute.call_args.kwargs["cwd"] == "/app/task with spaces"
     assert execute.call_args.kwargs["env"]["CODEX_API_KEY"] == "test-key"
     assert execute.call_args.kwargs["timeout_sec"] == 72
-    assert shlex.split(execute.call_args.kwargs["command"])[-12:] == [
-        "--model",
-        "test-model",
-        "--timeout-s",
-        "42",
-        "--efe-connect-timeout-s",
-        "42",
-        "--max-turns",
-        "7",
-        "--reasoning-effort",
-        "none",
-        "--codex-sandbox",
-        "read-only",
+    command = shlex.split(execute.call_args.kwargs["command"])
+    assert command[:4] == [
+        "/opt/rpent-efe/venv/bin/rpent",
+        "--robot",
+        "efe",
+        "--planner",
     ]
+    assert command[4] == "codex"
+    assert command[command.index("--model") + 1] == "test-model"
+    assert command[command.index("--planner-timeout-s") + 1] == "31"
+    assert command[command.index("--efe-connect-timeout-s") + 1] == "10.5"
+    assert command[command.index("--efe-trial-timeout-s") + 1] == "42"
+    assert command[command.index("--max-turns") + 1] == "7"
+    assert command[command.index("--reasoning-effort") + 1] == "none"
+    assert command[command.index("--codex-sandbox") + 1] == "read-only"
+    assert command[command.index("--memory-profile") + 1] == "local"
+    assert command[command.index("--memory-dir") + 1] == "/logs/agent/rpent/memory"
+    assert command[command.index("--instruction-file") + 1].endswith(
+        "rpent-instruction.txt"
+    )
+    assert command[command.index("--workdir") + 1] == "/app/task with spaces"
+    assert command[command.index("--output-dir") + 1] == "/logs/agent/rpent"
+    assert execute.call_args.kwargs["env"]["CODEX_HOME"] == (
+        "/logs/agent/rpent/codex-home"
+    )
+    assert "--timeout-s" not in command
+    assert "--no-skills" not in command
 
 
 def test_run_forwards_the_configured_codex_sandbox(tmp_path, monkeypatch):
@@ -104,15 +118,56 @@ def test_run_forwards_the_configured_codex_sandbox(tmp_path, monkeypatch):
 
     asyncio.run(agent.run("Task", UploadEnvironment(), AgentContext()))
 
-    assert shlex.split(execute.call_args.kwargs["command"])[-2:] == [
-        "--codex-sandbox",
-        "full-access",
-    ]
+    command = shlex.split(execute.call_args.kwargs["command"])
+    assert command[command.index("--codex-sandbox") + 1] == "full-access"
+
+
+def test_known_planner_budget_stop_does_not_fail_the_harbor_trial(
+    tmp_path, monkeypatch
+):
+    agent = RPentEfeAgent(logs_dir=tmp_path, model_name="openai/test-model")
+    execute = AsyncMock(side_effect=RuntimeError("CLI exited with status 1"))
+    monkeypatch.setattr(agent, "exec_as_agent", execute)
+    monkeypatch.setattr(agent, "_transcript_reports_budget_stop", lambda _: True)
+
+    asyncio.run(agent.run("Task", UploadEnvironment(), AgentContext()))
+
+    execute.assert_awaited_once()
+
+
+def test_transcript_budget_stop_detection_is_narrow(tmp_path):
+    output_dir = tmp_path / "rpent"
+    output_dir.mkdir()
+    agent = RPentEfeAgent(logs_dir=tmp_path, model_name="openai/test-model")
+    transcript = output_dir / "transcript_task.json"
+    transcript.write_text(
+        json.dumps({"error": "Codex SDK timed out after 12s"}), encoding="utf-8"
+    )
+    assert agent._transcript_reports_budget_stop(output_dir)
+    transcript.write_text(
+        json.dumps({"error": "ConnectionError: Request timed out after 12s"}),
+        encoding="utf-8",
+    )
+    assert not agent._transcript_reports_budget_stop(output_dir)
 
 
 def test_unknown_codex_sandbox_is_rejected(tmp_path):
     with pytest.raises(ValueError, match="sandbox"):
         RPentEfeAgent(logs_dir=tmp_path, model_name="openai/test", sandbox="none")
+
+
+def test_run_forwards_trial_local_codex_home_not_host_home(tmp_path, monkeypatch):
+    agent = RPentEfeAgent(logs_dir=tmp_path, model_name="openai/test")
+    execute = AsyncMock()
+    monkeypatch.setattr(agent, "exec_as_agent", execute)
+    monkeypatch.setenv("CODEX_HOME", str(tmp_path / "host-codex"))
+
+    asyncio.run(agent.run("Task", UploadEnvironment(), AgentContext()))
+
+    assert execute.call_args.kwargs["env"]["CODEX_HOME"] == (
+        "/logs/agent/rpent/codex-home"
+    )
+    assert execute.call_args.kwargs["env"]["CODEX_HOME"] != os.environ["CODEX_HOME"]
 
 
 def test_install_uploads_one_wheel_and_records_its_hash(tmp_path, monkeypatch):
@@ -167,7 +222,7 @@ def test_default_source_root_is_the_repository_root(tmp_path):
 def test_post_run_usage_keeps_cached_tokens_inside_input(tmp_path):
     agent = RPentEfeAgent(logs_dir=tmp_path, model_name="openai/test")
     (tmp_path / "rpent").mkdir()
-    (tmp_path / "rpent/session.json").write_text(
+    (tmp_path / "rpent/transcript_task.json").write_text(
         json.dumps(
             {
                 "stats": {
@@ -236,7 +291,7 @@ def test_malformed_usage_events_are_skipped(tmp_path):
     agent = RPentEfeAgent(logs_dir=tmp_path, model_name="openai/test")
     output_dir = tmp_path / "rpent"
     output_dir.mkdir()
-    (output_dir / "session.json").write_text(
+    (output_dir / "transcript_task.json").write_text(
         json.dumps({"stats": {"usage_observed": False}})
     )
     events = [
@@ -271,7 +326,7 @@ def test_zero_usage_trace_is_not_recovered_as_measured(tmp_path):
     agent = RPentEfeAgent(logs_dir=tmp_path, model_name="openai/test")
     output_dir = tmp_path / "rpent"
     output_dir.mkdir()
-    (output_dir / "session.json").write_text(
+    (output_dir / "transcript_task.json").write_text(
         json.dumps({"stats": {"usage_observed": False}})
     )
     event = {
@@ -311,7 +366,7 @@ def test_codex_key_overrides_openai_key_for_the_default_provider(tmp_path, monke
     assert execute.call_args.kwargs["env"]["CODEX_API_KEY"] == "codex-key"
 
 
-def test_host_codex_home_is_not_forwarded_to_the_trial(tmp_path, monkeypatch):
+def test_trial_codex_home_isolated_from_host_codex_home(tmp_path, monkeypatch):
     agent = RPentEfeAgent(logs_dir=tmp_path, model_name="openai/test")
     environment = UploadEnvironment()
     execute = AsyncMock()
@@ -320,13 +375,16 @@ def test_host_codex_home_is_not_forwarded_to_the_trial(tmp_path, monkeypatch):
 
     asyncio.run(agent.run("Task", environment, AgentContext()))
 
-    assert "CODEX_HOME" not in execute.call_args.kwargs["env"]
+    assert execute.call_args.kwargs["env"]["CODEX_HOME"] == (
+        "/logs/agent/rpent/codex-home"
+    )
+    assert execute.call_args.kwargs["env"]["CODEX_HOME"] != str(tmp_path / "host-codex")
 
 
 def test_failed_start_does_not_invent_usage(tmp_path):
     agent = RPentEfeAgent(logs_dir=tmp_path, model_name="openai/test")
     (tmp_path / "rpent").mkdir()
-    (tmp_path / "rpent/session.json").write_text(
+    (tmp_path / "rpent/transcript_task.json").write_text(
         '{"stats": {}, "error": "startup failed"}'
     )
     context = AgentContext()
@@ -342,7 +400,7 @@ def test_failed_start_does_not_invent_usage(tmp_path):
 def test_zeroed_stats_without_observed_usage_stay_unknown(tmp_path):
     agent = RPentEfeAgent(logs_dir=tmp_path, model_name="openai/test")
     (tmp_path / "rpent").mkdir()
-    (tmp_path / "rpent/session.json").write_text(
+    (tmp_path / "rpent/transcript_task.json").write_text(
         json.dumps(
             {
                 "stats": {
@@ -373,7 +431,7 @@ def test_hard_timeout_recovers_observed_usage_from_partial_stream(
     output_dir = tmp_path / "rpent"
     output_dir.mkdir()
     if partial_report is not None:
-        (output_dir / "session.json").write_text(partial_report)
+        (output_dir / "transcript_task.json").write_text(partial_report)
     event = {
         "method": "thread/tokenUsage/updated",
         "payload": {
@@ -417,10 +475,10 @@ def test_the_wrapper_timeout_sits_inside_harbors_agent_timeout(tmp_path, monkeyp
     asyncio.run(agent.run("Task", UploadEnvironment(), AgentContext()))
 
     command = shlex.split(execute.call_args.kwargs["command"])
-    planner_budget = int(command[command.index("--timeout-s") + 1])
+    planner_budget = int(command[command.index("--planner-timeout-s") + 1])
     connect_wait = float(command[command.index("--efe-connect-timeout-s") + 1])
-    assert planner_budget < 600
-    assert connect_wait == planner_budget
+    assert planner_budget + connect_wait <= agent.timeout_s
+    assert planner_budget > 0
     assert execute.call_args.kwargs["timeout_sec"] < 600
 
 
@@ -487,9 +545,9 @@ def test_the_task_config_supplies_the_timeout_without_an_override(tmp_path):
     assert agent._resolve_harbor_agent_timeout() == 600
 
 
-def test_a_session_report_without_a_stats_object_falls_back_to_recovery(tmp_path):
+def test_a_transcript_without_a_stats_object_falls_back_to_recovery(tmp_path):
     agent = RPentEfeAgent(logs_dir=tmp_path, model_name="openai/test-model")
-    report = agent.logs_dir / "rpent" / "session.json"
+    report = agent.logs_dir / "rpent" / "transcript_task.json"
     report.parent.mkdir(parents=True)
     report.write_text(json.dumps({"error": None, "stats": []}), encoding="utf-8")
     stream = report.parent / "codex.txt.stream.jsonl"

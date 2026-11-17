@@ -135,14 +135,14 @@ def test_harbor_task_records_agent_session_and_verifier_result(
         ],
         dict,
     )
-    assert len(list(job_dir.glob("*/agent/**/session.json"))) == 1
-    assert (
-        json.loads(next(job_dir.glob("*/agent/**/session.json")).read_text())["error"]
-        is None
-    )
-    assert "reward" not in json.loads(
-        next(job_dir.glob("*/agent/**/session.json")).read_text()
-    )
-    assert (
-        next(job_dir.glob("*/agent/**/session.json")).parent / "codex.txt.stream.jsonl"
-    ).is_file()
+    efe_result_path = next(job_dir.glob("*/agent/**/efe-result.json"))
+    transcript_path = next(job_dir.glob("*/agent/**/transcript_*.json"))
+    efe_result = json.loads(efe_result_path.read_text())
+    transcript = json.loads(transcript_path.read_text())
+    assert efe_result["agent_error"] is None
+    assert transcript["error"] is None
+    assert "reward" not in efe_result
+    assert len(list(job_dir.glob("*/agent/**/efe-result.json"))) == 1
+    assert len(list(job_dir.glob("*/agent/**/transcript_*.json"))) == 1
+    assert len(list(job_dir.glob("*/agent/**/codex_*.txt.stream.jsonl"))) == 1
+    assert not list(job_dir.glob("*/agent/**/session.json"))

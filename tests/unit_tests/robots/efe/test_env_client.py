@@ -292,6 +292,19 @@ def test_service_call_does_not_block_past_the_trial_deadline():
         release.set()
 
 
+def test_constructor_applies_the_trial_deadline(robot):
+    deadline = time.monotonic() + 2.0
+
+    client = EfeEnvClient(robot=robot, deadline=deadline)
+
+    assert 0 < client.remaining_s <= 2.0
+
+
+def test_expired_constructor_deadline_is_rejected(robot):
+    with pytest.raises(TimeoutError, match="deadline expired before connection"):
+        EfeEnvClient(robot=robot, deadline=time.monotonic() - 0.01)
+
+
 def test_expired_trial_deadline_skips_the_service_call(client, robot):
     client.set_deadline(time.monotonic() - 0.01)
 

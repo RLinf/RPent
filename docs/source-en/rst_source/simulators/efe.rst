@@ -214,8 +214,9 @@ timestamped job directory below it.
        ├── agent/
        │   ├── setup/           # Agent install log
        │   └── rpent/
-       │       ├── session.json # Agent execution metrics, errors, stats
-       │       ├── codex.txt    # Planner transcript
+       │       ├── transcript_*.json # Generic CLI transcript and planner stats
+       │       ├── efe-result.json   # EFE metrics and finalization data
+       │       ├── codex_*.txt       # Planner transcript
        │       ├── codex-home/  # CODEX_HOME for this trial
        │       └── memory/      # Memory root for this trial
        ├── verifier/            # Verifier logs and reward.json
@@ -227,10 +228,10 @@ timestamped job directory below it.
 The container path ``/logs/agent/rpent/`` maps to
 ``<trial_name>/agent/rpent/`` on the host. EFE's verifier writes
 ``verifier/reward.json``, and Harbor copies those scores to
-``verifier_result.rewards`` in the trial's ``result.json``. Agent execution metrics are in
-``stats`` and ``metrics`` in ``agent/rpent/session.json``. An
-incomplete trial may have no ``result.json`` or ``session.json``; check
-``trial.log`` and ``agent/rpent/run.log`` first.
+``verifier_result.rewards`` in the trial's ``result.json``. Planner statistics
+are in ``agent/rpent/transcript_*.json`` and EFE metrics are in
+``agent/rpent/efe-result.json``. An incomplete trial may have no finalized
+result or transcript; check ``trial.log`` and ``agent/rpent/run.log`` first.
 
 Read the trial's ``verifier_result.rewards.success`` to determine whether
 the task succeeded. ``first_success`` describes the first attempt when a task
@@ -274,10 +275,13 @@ Common Options
   explicitly when importing the agent from an installed wheel.
 - ``--agent-kwarg workdir=/path``: the task working directory; defaults to
   ``/app``.
-- ``--agent-kwarg timeout_s=N``: an optional RPent inner time limit. By default,
+- ``--agent-kwarg timeout_s=N``: an optional RPent trial time limit. By default,
   RPent reads Harbor's resolved timeout from the trial configuration and, for a
-  local task, ``task.toml``. It reserves time for shutdown and report writing so
-  Harbor does not kill the trial before ``session.json`` is saved.
+  local task, ``task.toml``. It reserves time for planner shutdown and CLI
+  finalization.
+- ``--agent-kwarg connect_timeout_s=N``: maximum wait for the EFE service
+  (default 60 seconds). This time is deducted from the RPent trial budget before
+  setting the planner timeout.
 - ``--agent-kwarg agent_timeout_s=N``: explicitly override the detected Harbor
   timeout. Use this when the task configuration is not available as a local
   task directory. Set it to the same effective timeout Harbor uses. Harbor
@@ -341,7 +345,7 @@ support one layout: the leading columns are the joint targets, in
 ``spec.kinematics.joint_names`` order, and the last column is the gripper
 opening. When the layout reorders, omits, or adds columns, the skills are not
 registered: the toolkit keeps ``efe_submit``, records the reason as
-``skills_error`` in ``session.json``, and the prompt lists only the tools the
+``skills_error`` in ``efe-result.json``, and the prompt lists only the tools the
 session registers.
 
 .. code-block:: bash
@@ -378,11 +382,11 @@ Isolation and Measurement Mode
   the network. RPent tools send the robot actions.
 - With ``full-access``, the agent can write shell scripts that call ``rcb_client``
   directly and bypass the RPent tools. Those calls never pass through RPent's
-  client, so ``metrics`` in ``session.json`` does not count them, and the run
+  client, so ``metrics`` in ``efe-result.json`` does not count them, and the run
   cannot be compared with one that drives the robot through the tools.
-- The generic ``rpent --robot efe`` entry point has no sandbox option and always
-  runs with ``full-access``. Use it for manual and interactive debugging; use the
-  Harbor adapter for evaluation and comparison.
+- The generic ``rpent --robot efe`` entry point accepts ``--codex-sandbox``.
+  The default is ``full-access``; pass ``--codex-sandbox read-only`` to match
+  the Harbor default.
 - ``rpent`` defaults to ``--planner api``, which has no Codex shell sandbox. Pass
   ``--planner codex`` to a manual ``rpent --robot efe`` run when the trial should
   behave like the Harbor run.
@@ -399,16 +403,18 @@ the task image's Python; the container does not need ``uv``. ``robots/`` is
 part of the RPent distribution; installing it does not start other robot
 services.
 
-The Harbor adapter calls ``robots.efe.runner.run_efe`` directly. The generic
-``rpent --robot efe`` CLI is a separate path for manual debugging. ``run_efe``
-is headless and owns the trial-wide deadline, the planner session on the
-episode, and the machine-readable ``session.json``; the generic CLI has no
-Codex sandbox option and runs one session for EFE. ``run_efe`` starts
-CodexPlanner, uses ``rcb_client.Robot`` to interact with the simulator, and
-saves ``session.json``. Harbor controls container isolation, execution
-budgets, and cleanup. ``solved()`` uses only the service's reported end
-reason. RPent does not start a simulator, read privileged state, or change
-EFE's scoring.
+The Harbor adapter starts the installed ``rpent`` command with
+``--robot efe --planner codex``. The EFE ``RobotSpec`` connects the generic CLI
+to ``EfeEnvClient`` and ``EfeToolkit``. The CLI writes its standard
+``transcript_*.json`` and invokes EFE's ``finalize_run`` hook to write
+``efe-result.json``. The Harbor adapter sizes connection and planner budgets
+to leave time for planner shutdown and finalization, and treats a recorded
+planner budget stop as a clean agent exit so Harbor can grade the episode.
+It also passes the trial deadline to ``EfeEnvClient`` so service requests
+cannot outlive the assigned EFE budget.
+Harbor controls container isolation and cleanup. ``solved()`` uses only the
+service's reported end reason. RPent does not start a simulator, read
+privileged state, or change EFE's scoring.
 
 RPentEfeAgent forwards model environment variables and explicit Harbor
 ``--agent-env`` settings. It maps ``OPENAI_API_KEY`` and ``OPENAI_BASE_URL`` to

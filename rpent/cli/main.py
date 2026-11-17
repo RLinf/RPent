@@ -56,6 +56,7 @@ from rpent.dashboard.events import (
 from rpent.evaluation import RunFinalizationContext
 from rpent.memory import MemoryManager
 from rpent.planner.base import (
+    CODEX_SANDBOX_CHOICES,
     REASONING_EFFORTS,
     build_planner,
     is_recoverable_agent_error,
@@ -187,6 +188,12 @@ def _build_argparser() -> argparse.ArgumentParser:
         "Terminal interactive API/Claude sessions are exempt. "
         "Defaults to CODEX_TIMEOUT_S (codex only), GEMINI_CLI_TIMEOUT_S "
         "(gemini_cli only), CELL_TIMEOUT_S, or 1200.",
+    )
+    ap.add_argument(
+        "--codex-sandbox",
+        choices=CODEX_SANDBOX_CHOICES,
+        default="full-access",
+        help="Shell sandbox for the Codex planner. Ignored by other planners.",
     )
     ap.add_argument(
         "--claude-code-max-budget-usd",
@@ -335,6 +342,7 @@ def _start_continuation_session(
         max_tokens=args.max_tokens,
         planner_timeout_s=args.planner_timeout_s,
         reasoning_effort=args.reasoning_effort,
+        codex_sandbox=args.codex_sandbox,
         claude_code_max_budget_usd=args.claude_code_max_budget_usd,
         dashboard_events=dashboard_events,
         no_images=args.no_images,
@@ -507,6 +515,7 @@ def main() -> int:
         max_tokens=args.max_tokens,
         planner_timeout_s=args.planner_timeout_s,
         reasoning_effort=args.reasoning_effort,
+        codex_sandbox=args.codex_sandbox,
         claude_code_max_budget_usd=args.claude_code_max_budget_usd,
         dashboard_events=dashboard_events,
         no_images=args.no_images,

@@ -80,17 +80,27 @@ class EfeEnvClient:
         *,
         base_url: str | None = None,
         connect_timeout_s: float = 3600.0,
+        deadline: float | None = None,
         robot: Any | None = None,
     ) -> None:
         if robot is not None:
             if base_url is not None:
                 raise ValueError("Pass either base_url or robot, not both.")
-        else:
+        started_at = time.monotonic()
+        if deadline is not None and not math.isfinite(deadline):
+            raise ValueError("deadline must be finite.")
+        if deadline is not None and deadline <= started_at:
+            raise TimeoutError("The EFE trial deadline expired before connection.")
+        if deadline is not None:
+            connect_timeout_s = min(connect_timeout_s, deadline - started_at)
+        if connect_timeout_s <= 0 or not math.isfinite(connect_timeout_s):
+            raise ValueError("connect_timeout_s must be positive and finite.")
+        if robot is None:
             from rcb_client import Robot
 
             robot = Robot(base_url, timeout=connect_timeout_s)
         self._robot = robot
-        self._deadline: float | None = None
+        self._deadline = deadline
         # rcb_client exposes no public reset/finish endpoint or request-timeout
         # hook. Keep its private RCB1 post method as the narrow adapter point.
         self._robot_post = robot._post

@@ -103,9 +103,10 @@ for setup and test prerequisites.
 
 ## EFE task runs
 
-`tests/unit_tests/robots/efe/test_runner_loopback.py` covers the Harbor runner's
-call chain offline: the real MCP HTTP transport on loopback, a scripted planner,
-the EFE toolkit, and `session.json`. It needs no simulator, container, or model.
+`tests/unit_tests/robots/efe/test_runner_loopback.py` covers the standalone EFE
+runner's call chain offline: the real MCP HTTP transport on loopback, a scripted
+planner, the EFE toolkit, and its session report. It needs no simulator,
+container, or model.
 
 `tests/e2e_tests/efe/test_policy_chain.py` runs one real EFE trial through
 Harbor and Docker. It needs one task directory, a reachable model endpoint, and
@@ -118,7 +119,7 @@ RPENT_EFE_MODEL=<model> \
 ```
 
 Without `RPENT_EFE_TASK_PATH`, the case skips. The test checks that the trial
-produces `result.json`, verifier rewards, `session.json`, and the Codex
+produces `result.json`, verifier rewards, `efe-result.json`, and the generic CLI
 transcript; a zero verifier reward is still a completed run.
 
 ## Embodied GPU E2E tests

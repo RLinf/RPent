@@ -14,6 +14,8 @@
 
 """Values shared by the EFE CLI, the Harbor adapter, and the runner."""
 
+from rpent.planner.base import CODEX_SANDBOX_CHOICES
+
 # Codex sandbox modes. An EFE evaluation isolates the robot behind RPent tools;
 # ``full-access`` lets the planner's shell reach the simulator directly.
-SANDBOX_CHOICES = ("read-only", "workspace-write", "full-access")
+SANDBOX_CHOICES = CODEX_SANDBOX_CHOICES

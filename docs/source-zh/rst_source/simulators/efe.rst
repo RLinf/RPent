@@ -154,8 +154,9 @@ EFE 的可选重置预算允许任务提供最多 N 次尝试。这类任务注�
        ├── agent/
        │   ├── setup/           # Agent 安装日志
        │   └── rpent/
-       │       ├── session.json # Agent 执行指标、错误、统计
-       │       ├── codex.txt    # Planner 对话
+       │       ├── transcript_*.json # 通用 CLI 对话与 Planner 统计
+       │       ├── efe-result.json   # EFE 指标与收尾结果
+       │       ├── codex_*.txt       # Planner 对话
        │       ├── codex-home/  # 本次 Trial 的 CODEX_HOME
        │       └── memory/      # 本次 Trial 的 Memory 根目录
        ├── verifier/            # Verifier 日志和 reward.json
@@ -164,7 +165,7 @@ EFE 的可选重置预算允许任务提供最多 N 次尝试。这类任务注�
        ├── lock.json
        └── trial.log
 
-容器内的 ``/logs/agent/rpent/`` 对应宿主机上的 ``<trial_name>/agent/rpent/``。EFE 的 Verifier 写出 ``verifier/reward.json``，Harbor 将它记录为 ``result.json`` 的 ``verifier_result.rewards``。Agent 执行指标在 ``agent/rpent/session.json`` 的 ``stats`` 和 ``metrics``。Trial 未完成时可能没有 ``result.json`` 或 ``session.json``，先看 ``trial.log`` 和 ``agent/rpent/run.log``。
+容器内的 ``/logs/agent/rpent/`` 对应宿主机上的 ``<trial_name>/agent/rpent/``。EFE 的 Verifier 写出 ``verifier/reward.json``，Harbor 将它记录为 ``result.json`` 的 ``verifier_result.rewards``。Planner 统计在 ``agent/rpent/transcript_*.json``，EFE 指标在 ``agent/rpent/efe-result.json``。Trial 未完成时可能没有最终结果或 transcript，先看 ``trial.log`` 和 ``agent/rpent/run.log``。
 
 判断任务是否成功，读取 Trial 的 ``verifier_result.rewards.success``。任务允许重试时，``first_success`` 表示首次尝试的结果。模型返回 ``finish(status="completed")`` 只表示 Agent 停止工作；CLI 正常退出只表示执行代码没有报告错误，两者都不代表评分成功。
 
@@ -194,7 +195,8 @@ EFE 的可选重置预算允许任务提供最多 N 次尝试。这类任务注�
 
 - ``--agent-kwarg source_root=/path``：指定用于构建 Wheel 的 RPent 源码目录；默认使用 RPentEfeAgent 所在的仓库。从已安装的 Wheel 导入时，需要显式指定该路径。
 - ``--agent-kwarg workdir=/path``：任务的工作目录；默认 ``/app``。
-- ``--agent-kwarg timeout_s=N``：可选的 RPent 内层时间上限。默认情况下，RPent 会从 Harbor Trial 配置读取实际超时；对于本地任务，也会读取 ``task.toml``。RPent 会为关闭和写入报告预留时间，避免 Harbor 在 ``session.json`` 保存前终止 Trial。
+- ``--agent-kwarg timeout_s=N``：可选的 RPent Trial 时间上限。默认情况下，RPent 会从 Harbor Trial 配置读取实际超时；对于本地任务，也会读取 ``task.toml``。RPent 会为 Planner 关闭和 CLI 收尾预留时间。
+- ``--agent-kwarg connect_timeout_s=N``：等待 EFE 服务的最长时间，默认 60 秒；这段时间会从 RPent Trial 预算中扣除，剩余时间才分配给 Planner。
 - ``--agent-kwarg agent_timeout_s=N``：手动指定 Harbor 的实际超时，覆盖自动读取的值。任务配置无法通过本地任务目录访问时使用此参数，并确保数值与 Harbor 实际采用的超时一致。Harbor 0.23 在内部解析该超时，但不会传给 Installed Agent，因此适配层会读取 Trial 配置和本地任务的 ``task.toml``。
 - ``--agent-kwarg max_turns=N``：Planner 的模型响应次数上限，不等于 Shell 命令数。
 - ``--agent-kwarg sandbox=full-access``：允许 Planner 用 Shell 直接编写脚本操作 Simulator。默认 ``read-only`` 让 Shell 无法访问 Simulator，只有 RPent 工具会作用于 Episode。
@@ -235,7 +237,7 @@ EFE 的可选重置预算允许任务提供最多 N 次尝试。这类任务注�
 
 Raw 组直接使用服务接口：``efe_spec`` 返回每个动作向量的列含义和顺序（即动作布局），Planner 再按该布局用 ``efe_submit`` 发送关节目标动作块。
 
-动作布局定义一行动作里每个数的含义。技能只支持一种布局：前几列是各关节的目标角度，顺序与 ``spec.kinematics.joint_names`` 一致；最后一列是夹爪开度。布局换序、缺列或多列时技能不注册：工具集保留 ``efe_submit``，把原因写入 ``session.json`` 的 ``skills_error``，Prompt 只列出当前 Session 实际注册的工具。
+动作布局定义一行动作里每个数的含义。技能只支持一种布局：前几列是各关节的目标角度，顺序与 ``spec.kinematics.joint_names`` 一致；最后一列是夹爪开度。布局换序、缺列或多列时技能不注册：工具集保留 ``efe_submit``，把原因写入 ``efe-result.json`` 的 ``skills_error``，Prompt 只列出当前 Session 实际注册的工具。
 
 .. code-block:: bash
 
@@ -266,8 +268,8 @@ Raw 组直接使用服务接口：``efe_spec`` 返回每个动作向量的列含
 ------------------
 
 - Harbor Runner 默认使用 Codex 的 ``read-only`` 沙箱。它限制 Shell，不限制 RPent 工具：Shell 不能写文件或访问网络；机器人动作通过 RPent 工具执行。
-- 使用 ``full-access`` 时，Agent 可以用 Shell 写脚本直接调用 ``rcb_client``，绕过 RPent 工具。这些调用不经过 RPent 的客户端，``session.json`` 的 ``metrics`` 不会统计，因此这种运行不能与走工具的运行对比。
-- 通用 ``rpent --robot efe`` 没有 Sandbox 选项，固定以 ``full-access`` 运行，用于手动和交互调试。正式评测与对照请通过 Harbor 运行。
+- 使用 ``full-access`` 时，Agent 可以用 Shell 写脚本直接调用 ``rcb_client``，绕过 RPent 工具。这些调用不经过 RPent 的客户端，``efe-result.json`` 的 ``metrics`` 不会统计，因此这种运行不能与走工具的运行对比。
+- 通用 ``rpent --robot efe`` 支持 ``--codex-sandbox``。默认值为 ``full-access``；传入 ``--codex-sandbox read-only`` 可使用与 Harbor 相同的默认沙箱。
 - ``rpent`` 默认使用 ``--planner api``，它没有 Codex 的 Shell 沙箱。手动运行 ``rpent --robot efe`` 时若要复现 Harbor 的行为，需显式加上 ``--planner codex``。
 
 开发者集成说明
@@ -275,7 +277,9 @@ Raw 组直接使用服务接口：``efe_spec`` 返回每个动作向量的列含
 
 Harbor 通过 ``--agent`` 加载 RPent 的 ``RPentEfeAgent``。该入口会从 RPent 源码构建 Wheel 并上传；Wheel 按 ``pyproject.toml`` 的包发现和包数据规则生成，不包含宿主机的 Git 数据、测试、缓存、API key 文件和运行日志。Harbor 再用任务镜像自带的 Python 把 Wheel 安装到 ``/opt/rpent-efe/venv``；容器不需要 ``uv``。``robots/`` 是 RPent 安装包的一部分，不会因此启动其他机器人服务。
 
-Harbor 直接调用 ``robots.efe.runner.run_efe``。通用 ``rpent --robot efe`` CLI 是另一条手动调试路径。``run_efe`` 以无界面方式运行，负责整个 Trial 的截止时间、同一 Episode 上的 Planning Session，以及机器可读的 ``session.json``；通用 CLI 没有 Codex Sandbox 选项，EFE 路径也只运行一个 Session。``run_efe`` 启动 CodexPlanner、通过 ``rcb_client.Robot`` 与仿真器交互，并保存 ``session.json``。Harbor 管理容器隔离、执行预算和清理。``solved()`` 只采信服务返回的结束原因。RPent 不启动仿真器、不读取特权状态，也不修改 EFE 的评分规则。
+Harbor 在容器内调用已安装的 ``rpent`` 命令，并传入 ``--robot efe --planner codex``。EFE 的 ``RobotSpec`` 将通用 CLI 接到 ``EfeEnvClient`` 和 ``EfeToolkit``。CLI 写入标准的 ``transcript_*.json``，并调用 EFE 的 ``finalize_run`` hook 写入 ``efe-result.json``。Harbor 适配器分配连接与 Planner 时间，为 Planner 关闭和 CLI 收尾留出余量；遇到 transcript 记录的 Planner 预算耗尽时，适配器按正常 Agent 退出处理，让 Harbor 继续评分。Harbor 管理容器隔离和清理。``solved()`` 只采信服务返回的结束原因。RPent 不启动仿真器、不读取特权状态，也不修改 EFE 的评分规则。
+
+适配器还会把 Trial 截止时间传给 ``EfeEnvClient``，避免服务请求超过 EFE 预算。
 
 RPentEfeAgent 会转发模型环境变量和显式的 Harbor ``--agent-env`` 设置。若尚未设置 ``CODEX_API_KEY``、``CODEX_BASE_URL``，则分别从 ``OPENAI_API_KEY``、``OPENAI_BASE_URL`` 映射。宿主机的 ``CODEX_HOME`` 不会转发，每个 Trial 都会新建独立目录。
 

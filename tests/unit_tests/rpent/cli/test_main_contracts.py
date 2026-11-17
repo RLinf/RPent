@@ -779,6 +779,8 @@ def test_full_cli_exploration_finalizes_memory_without_starting_gpu_runtime(
             str(tmp_path / "memory"),
             "--output-dir",
             str(tmp_path),
+            "--codex-sandbox",
+            "read-only",
             "--max-turns",
             "4",
             "--explore-sessions",
@@ -790,6 +792,7 @@ def test_full_cli_exploration_finalizes_memory_without_starting_gpu_runtime(
 
     assert cli.main() == 0
     assert calls["build_planner"][1]["interactive"] is interactive
+    assert calls["build_planner"][1]["codex_sandbox"] == "read-only"
     saved_tasks = {
         data["task_id"]: data
         for path in tmp_path.glob("**/trajectories/*/task.json")

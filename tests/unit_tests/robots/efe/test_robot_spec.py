@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import argparse
 import copy
+import json
 import os
 import sys
 from dataclasses import replace
@@ -35,6 +36,7 @@ from robots.efe.robot_spec import (
 )
 from robots.efe.toolkit import EfeToolkit
 from rpent.dashboard.events import NullDashboardEventSink
+from rpent.evaluation import RunFinalizationContext
 from rpent.planner.base import PlannerResult
 from rpent.robots.robot_spec import RobotSpec
 from rpent.utils.logging import init_output_dir
@@ -72,6 +74,39 @@ def test_spec_exposes_prompts_and_runtime_hooks():
     assert isinstance(spec, RobotSpec)
     assert spec.name == "efe"
     assert spec.supports_exploration is False
+    assert spec.finalize_run is not None
+
+
+def test_finalize_run_writes_efe_metrics_to_the_cli_result(tmp_path):
+    context = RunFinalizationContext(
+        output_dir=tmp_path,
+        robot_name="efe",
+        task_desc={"task": "pick"},
+        environment_success=None,
+        agent_error=None,
+        elapsed_s=12.5,
+        planner="codex",
+        model="test-model",
+        reasoning_effort="none",
+        max_turns=20,
+        planner_timeout_s=60,
+        finish_result={"status": "completed"},
+        stats={"usage_observed": True, "total_input_tokens": 10},
+        environment_metrics={
+            "efe_submit_calls": 2,
+            "done_reason": "finished",
+        },
+    )
+    finalizer = get_robot_spec().finalize_run
+
+    assert finalizer is not None
+    result_path = finalizer(context)
+    result = json.loads(result_path.read_text(encoding="utf-8"))
+
+    assert result_path.name == "efe-result.json"
+    assert result["stats"]["total_input_tokens"] == 10
+    assert result["metrics"]["efe_submit_calls"] == 2
+    assert "reward" not in result
 
 
 def test_cli_args_match_the_shared_robot_spec_contract(tmp_path):
@@ -84,6 +119,7 @@ def test_cli_args_match_the_shared_robot_spec_contract(tmp_path):
 
     assert args.instruction_file == instruction
     assert args.efe_skills is True
+    assert args.efe_trial_timeout_s is None
 
 
 def test_parse_config_uses_the_task_instruction(tmp_path):

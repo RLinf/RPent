@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import os
 import shlex
 import shutil
@@ -38,13 +39,19 @@ from harbor.models.agent.context import AgentContext, ModelUsage
 from robots.efe.constants import SANDBOX_CHOICES
 
 # Harbor kills the agent process when its resolved ``agent_timeout_sec``
-# expires. Keep the planner budget and the exec wrapper inside that budget so
-# ``run_efe`` can still write ``session.json`` before the kill:
-#   planner budget = agent_timeout - 2 * margin
+# expires. Keep connection and planner budgets inside that limit so the generic
+# CLI can write its transcript and run finalizer before Harbor kills the agent:
+#   connection + planner = agent_timeout - 2 * margin
 #   exec wrapper   = agent_timeout - margin
 # The margin covers the planner's 15 s worker join, an in-flight tool call, and
-# the report write.
+# finalization.
 _TIMEOUT_MARGIN_S = 30
+_DEFAULT_CONNECT_TIMEOUT_S = 60
+_BUDGET_STOP_MARKERS = (
+    "sdk timed out after",
+    "planner timed out after",
+    "planner timeout expired",
+)
 
 
 class RPentEfeAgent(BaseInstalledAgent):
@@ -58,6 +65,7 @@ class RPentEfeAgent(BaseInstalledAgent):
         workdir: str = "/app",
         timeout_s: int | None = None,
         agent_timeout_s: int | None = None,
+        connect_timeout_s: float = _DEFAULT_CONNECT_TIMEOUT_S,
         max_turns: int = 200,
         reasoning_effort: str = "none",
         memory_source: str | None = None,
@@ -78,6 +86,8 @@ class RPentEfeAgent(BaseInstalledAgent):
             raise ValueError("timeout_s must be positive.")
         if agent_timeout_s is not None and agent_timeout_s <= 0:
             raise ValueError("agent_timeout_s must be positive.")
+        if not math.isfinite(connect_timeout_s) or connect_timeout_s <= 0:
+            raise ValueError("connect_timeout_s must be positive.")
         if max_turns <= 0:
             raise ValueError("timeout_s and max_turns must be positive.")
         if sandbox not in SANDBOX_CHOICES:
@@ -93,7 +103,8 @@ class RPentEfeAgent(BaseInstalledAgent):
         # Harbor resolves the container budget from ``--agent-timeout-sec`` or
         # the task's ``[agent] timeout_sec`` and does not pass it here, so a
         # caller that sets one must pass the same value as ``agent_timeout_s``.
-        # Deriving the planner budget from it keeps the report inside the kill.
+        # Deriving the inner connection/planner budget keeps finalization inside
+        # the Harbor kill deadline.
         self.agent_timeout_s = agent_timeout_s
         if agent_timeout_s is not None:
             budget = agent_timeout_s - 2 * _TIMEOUT_MARGIN_S
@@ -101,6 +112,7 @@ class RPentEfeAgent(BaseInstalledAgent):
                 raise ValueError("agent_timeout_s is too small for one session.")
             timeout_s = budget if timeout_s is None else min(timeout_s, budget)
         self.timeout_s = 3500 if timeout_s is None else timeout_s
+        self.connect_timeout_s = connect_timeout_s
         self.max_turns = max_turns
         self.reasoning_effort = reasoning_effort
         self.skills = bool(skills)
@@ -117,8 +129,8 @@ class RPentEfeAgent(BaseInstalledAgent):
 
         With ``agent_timeout_s`` the wrapper stops one margin early, so the
         planner's shutdown still fits. Without it, the wrapper outlives the
-        planner budget by one margin, which is the best a caller who left
-        Harbor's own timeout unset can do.
+        connection and planner budget by one margin, which is the best a caller
+        who left Harbor's own timeout unset can do.
         """
         if self.agent_timeout_s is not None:
             return max(1, self.agent_timeout_s - _TIMEOUT_MARGIN_S)
@@ -162,7 +174,7 @@ class RPentEfeAgent(BaseInstalledAgent):
         return int(resolved * float(multiplier))
 
     def _apply_agent_timeout(self, agent_timeout_s: int) -> None:
-        """Keep the planner and exec wrapper inside Harbor's agent timeout."""
+        """Keep connection, planning, and finalization inside Harbor's timeout."""
         if agent_timeout_s <= 2 * _TIMEOUT_MARGIN_S:
             raise ValueError("Harbor agent timeout is too small for one session.")
         self.agent_timeout_s = agent_timeout_s
@@ -310,6 +322,10 @@ class RPentEfeAgent(BaseInstalledAgent):
                 self._apply_agent_timeout(resolved_timeout)
         remote_output = self.environment_logs_dir / "rpent"
         remote_instruction = self.environment_logs_dir / "rpent-instruction.txt"
+        connect_timeout_s = min(self.connect_timeout_s, max(1.0, self.timeout_s / 4))
+        planner_timeout_s = self.timeout_s - math.ceil(connect_timeout_s)
+        if planner_timeout_s <= 0:
+            raise ValueError("timeout_s is too small for connection and planning.")
         with tempfile.TemporaryDirectory(prefix="rpent-efe-task-") as temporary_dir:
             instruction_path = Path(temporary_dir) / "instruction.txt"
             instruction_path.write_text(instruction, encoding="utf-8")
@@ -318,9 +334,11 @@ class RPentEfeAgent(BaseInstalledAgent):
             )
         model = self.model_name.removeprefix("openai/")
         arguments = [
-            "/opt/rpent-efe/venv/bin/python",
-            "-m",
-            "robots.efe.cli",
+            "/opt/rpent-efe/venv/bin/rpent",
+            "--robot",
+            "efe",
+            "--planner",
+            "codex",
             "--instruction-file",
             str(remote_instruction),
             "--workdir",
@@ -329,12 +347,15 @@ class RPentEfeAgent(BaseInstalledAgent):
             str(remote_output),
             "--model",
             model,
-            "--timeout-s",
-            str(self.timeout_s),
-            # The connect wait counts against the planner budget, so it cannot
-            # be the client's 3600 s default: on a 3500 s trial that wait alone
-            # would outlive the container.
+            "--planner-timeout-s",
+            str(planner_timeout_s),
+            "--memory-profile",
+            "local",
+            "--memory-dir",
+            str(remote_output / "memory"),
             "--efe-connect-timeout-s",
+            str(connect_timeout_s),
+            "--efe-trial-timeout-s",
             str(self.timeout_s),
             "--max-turns",
             str(self.max_turns),
@@ -343,15 +364,8 @@ class RPentEfeAgent(BaseInstalledAgent):
             "--codex-sandbox",
             self.sandbox,
         ]
-        if self.memory_source is not None:
-            arguments.extend(
-                [
-                    "--memory-dir",
-                    str(self.environment_logs_dir / "rpent" / "memory"),
-                ]
-            )
         if not self.skills:
-            arguments.append("--no-skills")
+            arguments.append("--efe-no-skills")
         command = shlex.join(arguments)
         forwarded = {
             name: os.environ[name]
@@ -367,19 +381,44 @@ class RPentEfeAgent(BaseInstalledAgent):
             if name in os.environ
         }
         forwarded.update(self._extra_env)
+        forwarded["CODEX_HOME"] = str(remote_output / "codex-home")
         if "CODEX_API_KEY" not in forwarded and "OPENAI_API_KEY" in forwarded:
             forwarded["CODEX_API_KEY"] = forwarded["OPENAI_API_KEY"]
         if "CODEX_API_KEY" in forwarded:
             forwarded["OPENAI_API_KEY"] = forwarded["CODEX_API_KEY"]
         if "CODEX_BASE_URL" not in forwarded and "OPENAI_BASE_URL" in forwarded:
             forwarded["CODEX_BASE_URL"] = forwarded["OPENAI_BASE_URL"]
-        await self.exec_as_agent(
-            environment,
-            command=command,
-            cwd=self.workdir,
-            env=forwarded,
-            timeout_sec=self.exec_timeout_s,
-        )
+        try:
+            await self.exec_as_agent(
+                environment,
+                command=command,
+                cwd=self.workdir,
+                env=forwarded,
+                timeout_sec=self.exec_timeout_s,
+            )
+        except Exception:
+            if self._transcript_reports_budget_stop(self.logs_dir / "rpent"):
+                self.logger.info(
+                    "EFE planner used its time budget; Harbor will grade the episode."
+                )
+                return
+            raise
+
+    @staticmethod
+    def _transcript_reports_budget_stop(output_dir: Path) -> bool:
+        """Whether the generic CLI transcript records an intentional timeout."""
+        for transcript_path in sorted(output_dir.glob("transcript_*.json")):
+            try:
+                transcript = json.loads(transcript_path.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                continue
+            if not isinstance(transcript, dict):
+                continue
+            error = transcript.get("error")
+            lowered = error.lower() if isinstance(error, str) else ""
+            if any(marker in lowered for marker in _BUDGET_STOP_MARKERS):
+                return True
+        return False
 
     @staticmethod
     def _recover_usage(output_dir: Path) -> tuple[dict[str, int], str] | None:
@@ -438,32 +477,37 @@ class RPentEfeAgent(BaseInstalledAgent):
     def populate_context_post_run(self, context: AgentContext) -> None:
         """Read measured token totals after Harbor synchronizes the agent logs.
 
-        The session report always carries zeroed usage counters, so only
-        ``usage_observed`` proves that the SDK reported real totals. Otherwise
-        the values stay ``None`` instead of claiming zero tokens.
+        Only ``usage_observed`` proves that the SDK reported real totals.
+        Otherwise the values stay ``None`` instead of claiming zero tokens.
         """
-        report_path = self.logs_dir / "rpent" / "session.json"
+        output_dir = self.logs_dir / "rpent"
         stats: dict[str, object] = {}
-        if report_path.is_file():
+        for transcript_path in sorted(output_dir.glob("transcript_*.json")):
             try:
-                reported = json.loads(report_path.read_text(encoding="utf-8"))["stats"]
-            except (json.JSONDecodeError, KeyError, TypeError):
+                transcript = json.loads(transcript_path.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
                 self.logger.warning(
-                    "The RPent session report is incomplete: %s", report_path
+                    "The RPent transcript is incomplete: %s", transcript_path
                 )
-            else:
-                if isinstance(reported, dict):
-                    stats = reported
-                else:
-                    self.logger.warning(
-                        "The RPent session report has no stats object: %s", report_path
-                    )
+                continue
+            if not isinstance(transcript, dict):
+                self.logger.warning(
+                    "The RPent transcript is not a JSON object: %s", transcript_path
+                )
+                continue
+            reported = transcript.get("stats")
+            if isinstance(reported, dict):
+                stats = reported
+                break
+            self.logger.warning(
+                "The RPent transcript has no stats object: %s", transcript_path
+            )
         if stats.get("usage_observed") is not True:
-            recovered = self._recover_usage(report_path.parent)
+            recovered = self._recover_usage(output_dir)
             if recovered is None:
                 return
             stats, source_name = recovered
-            (report_path.parent / "usage-recovery.json").write_text(
+            (output_dir / "usage-recovery.json").write_text(
                 json.dumps({"complete": False, "source": source_name, "stats": stats})
                 + "\n",
                 encoding="utf-8",

@@ -22,7 +22,9 @@ only when the task declares a reset budget.
 from __future__ import annotations
 
 import argparse
+import math
 import os
+import time
 from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -30,6 +32,7 @@ from typing import TYPE_CHECKING, Any
 from robots.efe import session_vars
 from robots.efe.prompt_bundle import system_prompt, user_prompt
 from rpent.dashboard.events import DashboardEventSink
+from rpent.evaluation import RunFinalizationContext, write_json_atomic
 from rpent.memory import MemoryManager
 from rpent.robots.prompt_bundle import PromptBundle
 from rpent.robots.robot_spec import RobotSpec, RunConfig
@@ -50,6 +53,7 @@ def get_robot_spec() -> RobotSpec:
         prepare_prompt_vars=_prepare_prompt_vars,
         validate_args=_validate_args,
         prepare_memory=_prepare_memory,
+        finalize_run=_finalize_run,
     )
 
 
@@ -131,6 +135,12 @@ def _add_cli_args(parser: argparse.ArgumentParser, use_dashboard: bool) -> None:
         help="How long to wait for the simulator to answer.",
     )
     parser.add_argument(
+        "--efe-trial-timeout-s",
+        type=float,
+        default=None,
+        help="Optional EFE service deadline, including the initial connection wait.",
+    )
+    parser.add_argument(
         "--efe-no-skills",
         dest="efe_skills",
         action="store_false",
@@ -156,8 +166,13 @@ def _validate_args(args: argparse.Namespace) -> None:
         raise ValueError(
             f"The instruction file does not exist: {args.instruction_file}"
         )
-    if args.efe_connect_timeout_s <= 0:
+    if not math.isfinite(args.efe_connect_timeout_s) or args.efe_connect_timeout_s <= 0:
         raise ValueError("--efe-connect-timeout-s must be positive")
+    trial_timeout_s = getattr(args, "efe_trial_timeout_s", None)
+    if trial_timeout_s is not None and (
+        not math.isfinite(trial_timeout_s) or trial_timeout_s <= 0
+    ):
+        raise ValueError("--efe-trial-timeout-s must be positive")
 
 
 def _parse_config(args: argparse.Namespace) -> RunConfig:
@@ -208,9 +223,38 @@ def _parse_config(args: argparse.Namespace) -> RunConfig:
 
 
 def _prepare_memory(args: argparse.Namespace, config: RunConfig) -> None:
-    """Create the run's memory root; the runner never downloads a corpus."""
+    """Create the run's memory and planner state roots without downloads."""
     memory_dir = Path(config.prompt_vars["memory_dir"])
     memory_dir.mkdir(parents=True, exist_ok=True)
+    if getattr(args, "planner", None) == "codex":
+        (config.output_dir / "codex-home").mkdir(parents=True, exist_ok=True)
+
+
+def _finalize_run(context: RunFinalizationContext) -> Path:
+    """Write EFE metrics through the generic CLI's finalization hook."""
+    return write_json_atomic(
+        context.output_dir / "efe-result.json",
+        {
+            "compatibility": "EFE-compatible / non-official",
+            "robot": context.robot_name,
+            "task": dict(context.task_desc),
+            "planner": context.planner,
+            "model": context.model,
+            "reasoning_effort": context.reasoning_effort,
+            "max_turns": context.max_turns,
+            "planner_timeout_s": context.planner_timeout_s,
+            "elapsed_s": context.elapsed_s,
+            "environment_success": context.environment_success,
+            "agent_error": context.agent_error,
+            "finish": (
+                dict(context.finish_result)
+                if context.finish_result is not None
+                else None
+            ),
+            "stats": dict(context.stats),
+            "metrics": dict(context.environment_metrics),
+        },
+    )
 
 
 def _init_runtime(
@@ -222,8 +266,13 @@ def _init_runtime(
     """Connect to the existing simulator service. This starts no subprocess."""
     from robots.efe.env_client import EfeEnvClient
 
+    trial_timeout_s = getattr(args, "efe_trial_timeout_s", None)
+    deadline = (
+        time.monotonic() + trial_timeout_s if trial_timeout_s is not None else None
+    )
     client = EfeEnvClient(
         base_url=args.efe_base_url,
         connect_timeout_s=args.efe_connect_timeout_s,
+        deadline=deadline,
     )
     return [], {"client": client}

@@ -348,6 +348,7 @@ def _run_dashboard_task(
                         max_tokens=args.max_tokens,
                         planner_timeout_s=args.planner_timeout_s,
                         reasoning_effort=args.reasoning_effort,
+                        codex_sandbox=args.codex_sandbox,
                         claude_code_max_budget_usd=args.claude_code_max_budget_usd,
                         dashboard_events=state,
                         no_images=args.no_images,
