@@ -594,7 +594,7 @@ def test_policy_capture_exports_only_executed_actions_with_their_inputs(
     direct, first, last = trajectory["actions"]
     (prediction,) = trajectory["predictions"]
     (model_input,) = inputs
-    instruction = "policy subtask" if backend == "fast-wam" else "native instruction"
+    instruction = "policy subtask" if policy == "wam" else "native instruction"
     assert model_input["task_language"] == prediction["instruction"] == instruction
     if history_length:
         expected_history = np.array([[0] * 14, [1] * 14], dtype=np.float64)

@@ -26,7 +26,8 @@ chunk counts are not UniWAM timing: choose chunks from current progress.
 )
 
 CONTROL = (
-    """Every wam_act uses the exact complete current task_language.
+    """Omit prompt in wam_act to use the current task_language, or provide a
+concrete subtask instruction for this call.
 Each chunk contains 16 qpos actions; max_chunks defaults to 1. Execution history is
 maintained automatically across VLA and analytic tools. """
     + base.CONTROL_GUIDANCE

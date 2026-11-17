@@ -148,6 +148,8 @@ UniWAM Backend
 
 Select UniWAM with ``--am-backend uniwam``. The planner calls
 ``wam_act(max_chunks=1)`` to execute 16 joint/gripper actions per chunk.
+Omit ``prompt`` to use the native task instruction, or pass a subtask instruction
+for that call.
 UniWAM uses recent action history to predict the next actions and supports
 RoboTwin evaluation, exploration and memory configuration.
 

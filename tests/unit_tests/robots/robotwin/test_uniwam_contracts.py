@@ -151,7 +151,7 @@ def test_invalid_feedback_blocks_history_until_reset(monkeypatch, operation):
     np.testing.assert_array_equal(env.qpos_history, np.zeros((1, 14)))
 
 
-@pytest.mark.parametrize("backend", ["lingbot", "uniwam"])
+@pytest.mark.parametrize("backend", ["fast-wam", "uniwam"])
 def test_analytic_intervention_is_in_next_policy_request(backend):
     rpc = FeedbackRPC()
     env = RoboTwinEnvClient(rpc, expected_meta={"seed": 7})
@@ -174,12 +174,15 @@ def test_analytic_intervention_is_in_next_policy_request(backend):
     primitives.wam_act(max_chunks=1)
     primitives.apply_qpos_updates([{"arm": "left", "gripper": 1.0}])
     primitives.wam_act(prompt="a proposed subtask", max_chunks=2)
+    result = primitives.wam_act(max_chunks=1)
     np.testing.assert_array_equal(histories[1][:, 0], np.arange(2, 18))
     np.testing.assert_array_equal(histories[2][:, 0], np.arange(18, 34))
-    assert rpc.count == 49
-    assert (
-        instructions
-        == [rpc.info()["instruction"]]
-        + [rpc.info()["instruction"] if backend == "uniwam" else "a proposed subtask"]
-        * 2
-    )
+    np.testing.assert_array_equal(histories[3][:, 0], np.arange(34, 50))
+    assert rpc.count == 65
+    assert instructions == [
+        rpc.info()["instruction"],
+        "a proposed subtask",
+        "a proposed subtask",
+        rpc.info()["instruction"],
+    ]
+    assert result.data["prompt"] == rpc.info()["instruction"]

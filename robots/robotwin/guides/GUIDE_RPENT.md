@@ -38,8 +38,9 @@ Coordinates are world-frame metres and quaternions are `[qw,qx,qy,qz]`.
 For LingBot, every `lingbot_act` must use the full current task language and
 `use_length=50`. Use the same-task successful recipe's chunk cadence as a prior.
 
-For UniWAM, `wam_act(max_chunks=1)` uses the full current task language and
-executes 16 qpos actions per chunk. State history includes analytic-tool actions
+For UniWAM, `wam_act(max_chunks=1)` uses the current task language by default.
+Pass `prompt` to specify a subtask for this call. Each chunk executes 16 qpos
+actions. State history includes analytic-tool actions
 and is maintained automatically. Choose the cadence from current progress;
 LingBot recipe chunk counts are not UniWAM timing.
 

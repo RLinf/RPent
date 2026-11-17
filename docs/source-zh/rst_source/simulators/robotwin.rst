@@ -141,6 +141,7 @@ UniWAM 后端
 通过 ``--am-backend uniwam`` 启用 UniWAM。规划器使用 ``wam_act(max_chunks=1)``
 执行动作，每块包含 16 步关节／夹爪动作。UniWAM 会参考最近的动作记录预测下一步，
 支持 RoboTwin 的评估、探索和记忆配置。
+不传 ``prompt`` 时使用原生任务指令，也可以通过该参数指定本次调用的子任务指令。
 
 在独立的 Python 3.11 模型环境中，按
 `UniWAM 官方 RoboTwin 部署说明 <https://github.com/UniWAM/UniWAM/tree/8dcd3401bccda8c002fc558e356b975b1789eecd/inference/robotwin/uniwam>`_

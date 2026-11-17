@@ -266,7 +266,7 @@ class RoboTwinPrimitives:
         """Execute bounded action chunks from the selected WAM on current observations. Omit prompt for the native task, or supply a subtask for this call. Inspect the resulting state before continuing; predictions do not establish task success.
 
         Args:
-            prompt: Concrete instruction for this call; omit or null for the native task. UniWAM always uses the native task instruction.
+            prompt: Concrete instruction for this call; omit or null for the native task.
             max_chunks: One to four predictions before planner feedback (default 1).
         """
         if type(max_chunks) is not int or not 1 <= max_chunks <= 4:
@@ -278,7 +278,7 @@ class RoboTwinPrimitives:
             use_length=None,
             prompt=prompt,
             action_type=self.model.action_type,
-            override_prompt=self.policy_backend != "uniwam",
+            override_prompt=True,
         )
 
     def _policy_act(
