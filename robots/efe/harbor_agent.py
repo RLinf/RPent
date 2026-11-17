@@ -20,6 +20,8 @@ import hashlib
 import json
 import os
 import shlex
+import shutil
+import subprocess
 import tarfile
 import tempfile
 from pathlib import Path
@@ -127,7 +129,13 @@ class RPentEfeAgent(BaseInstalledAgent):
         return self.timeout_s + _TIMEOUT_MARGIN_S
 
     def _resolve_harbor_agent_timeout(self) -> int | None:
-        """Read Harbor's resolved timeout from this trial's local config."""
+        """Read Harbor's resolved timeout from this trial's local config.
+
+        Harbor 0.23 resolves the agent timeout in its Trial object but only
+        passes the value to the oracle agent; installed agents receive no
+        timeout keyword argument. Read the saved trial configuration instead,
+        and let ``agent_timeout_s`` override this when the config is absent.
+        """
         trial_config_path = self.logs_dir.parent / "config.json"
         if not trial_config_path.is_file():
             return None
@@ -166,60 +174,37 @@ class RPentEfeAgent(BaseInstalledAgent):
         self.timeout_s = min(self.timeout_s, budget)
 
     async def install(self, environment: BaseEnvironment) -> None:
-        """Upload source and install RPent without robot extras."""
-        entries = ("pyproject.toml", "README.md", "LICENSE", "rpent", "robots")
-        for entry in entries:
+        """Build and install one wheel from the RPent checkout."""
+        for entry in ("pyproject.toml", "README.md", "LICENSE", "rpent", "robots"):
             if not (self.source_root / entry).exists():
                 raise FileNotFoundError(
                     f"RPent source is missing: {self.source_root / entry}"
                 )
-        source_files = {self.source_root / entry for entry in entries[:3]}
-        for package in entries[3:]:
-            source_files.update(
-                path
-                for path in (self.source_root / package).rglob("*.py")
-                if not any(
-                    part.startswith(".") or part == "__pycache__"
-                    for part in path.relative_to(self.source_root).parts
-                )
-            )
-        with (self.source_root / "pyproject.toml").open("rb") as project_file:
-            package_data = tomllib.load(project_file)["tool"]["setuptools"].get(
-                "package-data", {}
-            )
-        for package, patterns in package_data.items():
-            package_dir = self.source_root.joinpath(*package.split("."))
-            for pattern in patterns:
-                source_files.update(package_dir.glob(pattern))
-        await self.exec_as_root(environment, command="mkdir -p /opt/rpent-efe/source")
         with tempfile.TemporaryDirectory(prefix="rpent-efe-") as temporary_dir:
-            archive_path = Path(temporary_dir) / "source.tar.gz"
-            with tarfile.open(archive_path, "w:gz") as archive:
-                for path in sorted(source_files):
-                    if path.is_file() and not path.is_symlink():
-                        archive.add(
-                            path,
-                            arcname=str(path.relative_to(self.source_root)),
-                            recursive=False,
-                        )
+            wheel_path = self._build_wheel(Path(temporary_dir))
             self.logs_dir.mkdir(parents=True, exist_ok=True)
-            (self.logs_dir / "rpent-source.json").write_text(
+            (self.logs_dir / "rpent-wheel.json").write_text(
                 json.dumps(
-                    {"sha256": hashlib.sha256(archive_path.read_bytes()).hexdigest()}
+                    {
+                        "filename": wheel_path.name,
+                        "sha256": hashlib.sha256(wheel_path.read_bytes()).hexdigest(),
+                    }
                 )
                 + "\n",
                 encoding="utf-8",
             )
+            await self.exec_as_root(environment, command="mkdir -p /opt/rpent-efe")
             await environment.upload_file(
-                source_path=archive_path, target_path="/opt/rpent-efe/source.tar.gz"
+                source_path=wheel_path,
+                target_path=f"/opt/rpent-efe/{wheel_path.name}",
             )
         await self.exec_as_root(
             environment,
             command=(
-                "tar -xzf /opt/rpent-efe/source.tar.gz -C /opt/rpent-efe/source && "
                 "python3 -m venv /opt/rpent-efe/venv && "
                 "/opt/rpent-efe/venv/bin/python -m pip install --no-cache-dir "
-                "--disable-pip-version-check /opt/rpent-efe/source"
+                "--disable-pip-version-check "
+                f"/opt/rpent-efe/{shlex.quote(wheel_path.name)}"
             ),
             timeout_sec=900,
         )
@@ -235,6 +220,37 @@ class RPentEfeAgent(BaseInstalledAgent):
         (setup_dir / "pip-freeze.txt").write_text(frozen.stdout or "", encoding="utf-8")
         if self.memory_source is not None:
             await self._upload_memory(environment)
+
+    def _build_wheel(self, output_dir: Path) -> Path:
+        """Build one wheel from the checkout with the host's uv."""
+        uv = shutil.which("uv")
+        if uv is None:
+            raise RuntimeError(
+                "uv is required to build the RPent wheel for the EFE adapter."
+            )
+        completed = subprocess.run(
+            [
+                uv,
+                "build",
+                "--wheel",
+                "--out-dir",
+                str(output_dir),
+                str(self.source_root),
+            ],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if completed.returncode != 0:
+            detail = completed.stderr.strip() or completed.stdout.strip()
+            raise RuntimeError(f"Could not build the RPent wheel: {detail}")
+        wheels = sorted(output_dir.glob("*.whl"))
+        if len(wheels) != 1:
+            raise RuntimeError(
+                "Expected one built wheel, "
+                f"found {[wheel.name for wheel in wheels]} in {output_dir}"
+            )
+        return wheels[0]
 
     async def _upload_memory(self, environment: BaseEnvironment) -> None:
         """Stage the host memory corpus where the agent user may also write.

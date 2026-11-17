@@ -185,7 +185,8 @@ def _parse_config(args: argparse.Namespace) -> RunConfig:
     # ``get_repo_root()``. The planner is built before ``init_runtime`` runs, so
     # bind the trial workspace here rather than in that hook; otherwise a manual
     # run resolves relative paths and the Codex working directory against the
-    # installed package instead of the task workspace.
+    # installed package instead of the task workspace. The CLI is a one-shot
+    # process, so this binding lasts for the run; tests restore the variable.
     if not os.environ.get("RPENT_REPO_ROOT"):
         os.environ["RPENT_REPO_ROOT"] = str(workdir)
     prompt_vars = {

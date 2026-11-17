@@ -71,13 +71,12 @@ at connection time with an explicit error.
 Observation and Action
 ~~~~~~~~~~~~~~~~~~~~~~
 
-RPent provides two ways for the model to control the robot. **Skills** is the
-default. The model requests a tool pose with ``move_to_pose`` or a gripper
-opening with ``set_gripper``. It can omit orientation to keep the current one.
-RPent converts these requests into robot joint commands. **Raw** lets the model
-send the task's native action values directly with ``efe_submit``. Start with
-the default; see `Compare Skills and Raw`_ for limits and comparison commands.
-If a robot's controls are unsupported by Skills, RPent automatically uses Raw.
+RPent has two control modes. **Skills** is the default: the model requests a
+tool pose with ``move_to_pose`` or a gripper opening with ``set_gripper``.
+**Raw** sends the task's native action values with ``efe_submit``. A task whose
+layout Skills cannot drive keeps the Raw tool instead. The table below
+summarizes both; see `Compare Skills and Raw`_ for the tool list and
+comparison commands.
 
 .. list-table::
    :header-rows: 1
@@ -101,15 +100,18 @@ When the service provides calibration, ``efe_observe`` returns it in
 ``frame_extrinsics_cv``. Use these values with the depth image when you need
 to relate a pixel to the world frame.
 
-Some tasks allow another attempt. For those tasks, the model can call
-``efe_reset`` to abandon the current episode (one attempt), return to the same
-initial scene, and spend one reset from the task's budget. When
-``explore_sessions`` is greater than 1, RPent also resets on its own between
-planner sessions: a session that ended early hands off by spending one reset,
-and the next session starts a fresh attempt. An episode the agent ends with
-``efe_end_episode`` is graded as it stands and is not reset. Only the last
-episode is graded. This follows EFE's standard-mode reset budget rules in the
+EFE's optional reset budget lets a task allow up to N attempts. On those tasks,
+the model can call ``efe_reset`` to abandon the current episode, return to the
+frozen start state, and spend one reset; only the last episode is graded. This
+is the EFE standard-mode reset rule in the
 `official protocol <https://github.com/mll-lab-nu/embodied-first-exam/blob/main/docs/protocol/standard_mode.md>`_.
+
+``explore_sessions`` is an RPent policy on top of that budget, not an EFE
+feature. When it is greater than 1, RPent runs independent planner sessions
+and, if a session ends early and resets remain, spends one reset before the
+next session. An episode the agent ends with ``efe_end_episode`` is graded as
+it stands and is not reset. The default is 1, so a single run never resets on
+its own.
 
 Other tasks withhold the success signal from the agent. For those tasks,
 RPent provides ``efe_end_episode`` so the model can declare that it has finished
@@ -286,7 +288,10 @@ Common Options
   Harbor does not kill the trial before ``session.json`` is saved.
 - ``--agent-kwarg agent_timeout_s=N``: explicitly override the detected Harbor
   timeout. Use this when the task configuration is not available as a local
-  task directory. Set it to the same effective timeout Harbor uses.
+  task directory. Set it to the same effective timeout Harbor uses. Harbor
+  0.23 resolves this timeout internally but does not pass it to installed
+  agents, so the adapter reads the trial configuration and, for local tasks,
+  ``task.toml``.
 - ``--agent-kwarg max_turns=N``: the model-response limit in the planner, not a
   count of shell commands.
 - ``--agent-kwarg sandbox=full-access``: lets the planner script the simulator
@@ -303,7 +308,9 @@ Task Memory and Exploration
   that ends early hands off by resetting while the reset budget remains, so
   the next session starts a fresh attempt; an episode the agent ends itself is
   graded without a reset, and only the final episode is graded. Later sessions
-  can read working notes from earlier sessions.
+  can read working notes from earlier sessions. This is an RPent policy, not
+  an EFE requirement; the default is 1. Multi-session handoff has not been
+  benchmarked against a single session at the same budget.
 - Each trial uses its own ``codex-home/``; the model is selected by ``--model``,
   and credentials come from the forwarded environment variables.
 
@@ -402,18 +409,24 @@ Integration Details for Developers
 ----------------------------------
 
 Harbor loads RPent's ``RPentEfeAgent`` through ``--agent``. This entry point
-packages RPent source, installation metadata, and package data declared in
-``pyproject.toml`` from the RPent checkout. It installs them into a virtual
-environment at ``/opt/rpent-efe/venv`` using the task image's Python; the
-container does not need ``uv``. The archive excludes host Git data, tests,
-API key files, and run logs. ``robots/`` is part of the RPent distribution;
-uploading it does not start other robot services.
+builds a wheel from the RPent checkout and uploads it. The wheel follows the
+package discovery and package data declared in ``pyproject.toml``, so host Git
+data, tests, caches, API key files, and run logs are not included. Harbor
+installs the wheel into a virtual environment at ``/opt/rpent-efe/venv`` using
+the task image's Python; the container does not need ``uv``. ``robots/`` is
+part of the RPent distribution; installing it does not start other robot
+services.
 
-The runner is RPent's in-container execution code. It starts CodexPlanner,
-uses ``rcb_client.Robot`` to interact with the simulator, and saves ``session.json``.
-Harbor controls container isolation, execution budgets, and cleanup.
-``solved()`` uses only the service's reported end reason. RPent
-does not start a simulator, read privileged state, or change EFE's scoring.
+The Harbor adapter calls ``robots.efe.runner.run_efe`` directly. The generic
+``rpent --robot efe`` CLI is a separate path for manual debugging. ``run_efe``
+is headless and owns the trial-wide deadline, the planner sessions on one
+episode, and the machine-readable ``session.json``; the generic CLI has no
+Codex sandbox option and runs one session for EFE. ``run_efe`` starts
+CodexPlanner, uses ``rcb_client.Robot`` to interact with the simulator, and
+saves ``session.json``. Harbor controls container isolation, execution
+budgets, and cleanup. ``solved()`` uses only the service's reported end
+reason. RPent does not start a simulator, read privileged state, or change
+EFE's scoring.
 
 RPentEfeAgent forwards model environment variables and explicit Harbor
 ``--agent-env`` settings. It maps ``OPENAI_API_KEY`` and ``OPENAI_BASE_URL`` to
@@ -429,12 +442,14 @@ Host ``CODEX_HOME`` is not forwarded; each trial creates its own directory.
        └── EFE task service
 
 Supported service versions are ``eai-standard/2.2`` and ``2.4`` for standard
-mode. ``2.1`` and ``2.3`` publish ``control_dt`` instead of ``control_hz`` and
-ship a different ``rcb_client`` (``get_obs(include_depth=...)``, ``Result.depth``,
+mode.
+
+``2.1`` and ``2.3`` publish ``control_dt`` instead of ``control_hz`` and ship
+a different ``rcb_client`` (``get_obs(include_depth=...)``, ``Result.depth``,
 no ``wait_ready``), so ``EfeEnvClient`` rejects them with an explicit error
 rather than failing later on a missing spec field. Supporting them needs a
 separate adapter, including for ``2.3`` and its ``standard-realtime`` tasks.
-Privileged tasks instead deliver a replayable ``trajectory.npz`` or a policy
-program or model. Their verifier replays the trajectory or runs the policy,
-which does not match this integration's step-by-step observation and action
-loop.
+
+``privileged`` tasks require a replayable ``trajectory.npz`` or a policy
+program/model. The verifier replays the trajectory or runs the policy, which
+does not fit RPent's step-by-step observation and action.

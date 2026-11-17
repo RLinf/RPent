@@ -117,7 +117,7 @@ def test_unknown_codex_sandbox_is_rejected(tmp_path):
         RPentEfeAgent(logs_dir=tmp_path, model_name="openai/test", sandbox="none")
 
 
-def test_install_uploads_local_source_without_tests_or_caches(tmp_path, monkeypatch):
+def test_install_uploads_one_wheel_and_records_its_hash(tmp_path, monkeypatch):
     source = tmp_path / "source"
     source.mkdir()
     for filename in (
@@ -126,19 +126,13 @@ def test_install_uploads_local_source_without_tests_or_caches(tmp_path, monkeypa
         "LICENSE",
         "robots/efe/cli.py",
         "robots/__init__.py",
-        "rpent/__pycache__/cached.pyc",
-        "rpent/.env",
-        "rpent/.codex/auth.json",
-        "rpent/logs/run.log",
-        "rpent/dashboard/static/style.css",
-        "tests/private.py",
+        "rpent/cli/main.py",
     ):
         target = source / filename
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text("placeholder")
-    (source / "pyproject.toml").write_text(
-        '[tool.setuptools.package-data]\n"rpent.dashboard" = ["static/*.css"]\n'
-    )
+    wheel = tmp_path / "rpent-0.1.0-py3-none-any.whl"
+    wheel.write_bytes(b"wheel")
     agent = RPentEfeAgent(
         logs_dir=tmp_path / "logs", model_name="openai/test", source_root=str(source)
     )
@@ -146,27 +140,23 @@ def test_install_uploads_local_source_without_tests_or_caches(tmp_path, monkeypa
     execute = AsyncMock()
     execute.return_value = SimpleNamespace(stdout="rpent==0.1.0\n")
     monkeypatch.setattr(agent, "exec_as_root", execute)
+    monkeypatch.setattr(agent, "_build_wheel", lambda output_dir: wheel)
 
     asyncio.run(agent.install(environment))
 
     commands = [call.kwargs["command"] for call in execute.await_args_list]
     install = next(command for command in commands if "pip install" in command)
-    assert "robots/efe/cli.py" in environment.archive_members
-    assert "rpent/__pycache__/cached.pyc" not in environment.archive_members
-    assert "tests/private.py" not in environment.archive_members
-    assert "rpent/.env" not in environment.archive_members
-    assert "rpent/.codex/auth.json" not in environment.archive_members
-    assert "rpent/logs/run.log" not in environment.archive_members
-    assert "rpent/dashboard/static/style.css" in environment.archive_members
+    uploaded = environment.uploads["/opt/rpent-efe/rpent-0.1.0-py3-none-any.whl"]
+    assert uploaded == b"wheel"
     assert "python3 -m venv" in install
     assert "--no-cache-dir" in install
     assert "--disable-pip-version-check" in install
+    assert "/opt/rpent-efe/rpent-0.1.0-py3-none-any.whl" in install
     assert "pip freeze --all" in commands[-1]
     assert (tmp_path / "logs/setup/pip-freeze.txt").read_text() == "rpent==0.1.0\n"
-    assert (
-        len(json.loads((tmp_path / "logs/rpent-source.json").read_text())["sha256"])
-        == 64
-    )
+    wheel_record = json.loads((tmp_path / "logs/rpent-wheel.json").read_text())
+    assert wheel_record["filename"] == wheel.name
+    assert len(wheel_record["sha256"]) == 64
 
 
 def test_default_source_root_is_the_repository_root(tmp_path):
@@ -218,6 +208,9 @@ def test_agent_uploads_memory_and_forwards_exploration(tmp_path, monkeypatch):
     agent_execute = AsyncMock(return_value=SimpleNamespace(stdout="1000\n1000\n"))
     monkeypatch.setattr(agent, "exec_as_root", execute)
     monkeypatch.setattr(agent, "exec_as_agent", agent_execute)
+    wheel = tmp_path / "rpent-0.1.0-py3-none-any.whl"
+    wheel.write_bytes(b"wheel")
+    monkeypatch.setattr(agent, "_build_wheel", lambda output_dir: wheel)
 
     asyncio.run(agent.install(environment))
     asyncio.run(agent.run("Task", environment, AgentContext()))

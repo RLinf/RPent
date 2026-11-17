@@ -55,7 +55,7 @@ Harbor 把 RPent 和仿真器放在不同容器中运行。RPent 通过 EFE 提�
 观测与动作
 ~~~~~~~~~~
 
-RPent 提供两种控制方式。默认使用 **Skills**：模型通过 ``move_to_pose`` 指定工具末端位置和可选朝向，再用 ``set_gripper`` 指定夹爪开度。省略朝向时，技能保持当前朝向。RPent 会把这些请求转换为关节控制指令。使用 **Raw** 时，模型通过 ``efe_submit`` 直接提交任务原生的动作数值。首次运行保留默认配置即可；适用范围与对照命令见 `对照 Skills 与 Raw`_。如果机器人的控制方式超出 Skills 的支持范围，RPent 会自动改用 Raw。
+RPent 有两种控制方式。默认使用 **Skills**：模型通过 ``move_to_pose`` 指定工具末端位姿，通过 ``set_gripper`` 指定夹爪开度。使用 **Raw** 时，模型通过 ``efe_submit`` 直接提交任务原生的动作数值。Skills 无法驱动的布局会保留 Raw 工具。下表概括两种方式；工具列表和对照命令见 `对照 Skills 与 Raw`_。
 
 .. list-table::
    :header-rows: 1
@@ -76,7 +76,9 @@ RPent 提供两种控制方式。默认使用 **Skills**：模型通过 ``move_t
 返回这些信息，并通过 ``frame_extrinsics_cv`` 返回逐帧的世界到相机变换。
 需要把像素位置与深度换算到世界坐标时，可使用这些数据。
 
-部分任务允许重新尝试。这类任务提供 ``efe_reset`` 工具：放弃当前 Episode（一次尝试），回到相同的初始场景，并消耗一次任务允许的重置次数。当 ``explore_sessions`` 大于 1 时，RPent 也会在规划会话之间自行重置：提前结束的会话交接时消耗一次重置，下一个会话从新的尝试开始。由 ``efe_end_episode`` 主动结束的 Episode 直接参与评分，不会被重置。只有最后一个 Episode 参与评分。具体规则见 EFE `standard-mode 协议 <https://github.com/mll-lab-nu/embodied-first-exam/blob/main/docs/protocol/standard_mode.md>`_。
+EFE 的可选重置预算允许任务提供最多 N 次尝试。这类任务注册 ``efe_reset``：放弃当前 Episode，回到冻结的初始状态，并消耗一次重置；只有最后一个 Episode 参与评分。具体规则见 EFE `standard-mode 协议 <https://github.com/mll-lab-nu/embodied-first-exam/blob/main/docs/protocol/standard_mode.md>`_。
+
+``explore_sessions`` 是 RPent 在重置预算之上增加的多会话策略，不是 EFE 的要求。它大于 1 时，RPent 会运行多个独立的规划会话；会话提前结束且仍有重置次数时，交接前消耗一次重置。由 ``efe_end_episode`` 主动结束的 Episode 直接参与评分，不会被重置。默认值为 1，因此单次运行不会自行重置。
 
 另一些任务不向 Agent 返回是否成功的信号。对这类任务，RPent 提供 ``efe_end_episode`` 工具，让模型主动结束动作执行，再由评分程序检查结束时的状态。调用这个工具不代表成功；目标尚未完成就结束，可能被判定为失败。
 
@@ -196,7 +198,7 @@ RPent 提供两种控制方式。默认使用 **Skills**：模型通过 ``move_t
 - ``--agent-kwarg source_root=/path``：指定 RPent 源码目录；默认使用 RPentEfeAgent 所在的仓库。从已安装的 Wheel 导入时，需要显式指定该路径。
 - ``--agent-kwarg workdir=/path``：任务的工作目录；默认 ``/app``。
 - ``--agent-kwarg timeout_s=N``：可选的 RPent 内层时间上限。默认情况下，RPent 会从 Harbor Trial 配置读取实际超时；对于本地任务，也会读取 ``task.toml``。RPent 会为关闭和写入报告预留时间，避免 Harbor 在 ``session.json`` 保存前终止 Trial。
-- ``--agent-kwarg agent_timeout_s=N``：手动指定 Harbor 的实际超时，覆盖自动读取的值。任务配置无法通过本地任务目录访问时使用此参数，并确保数值与 Harbor 实际采用的超时一致。
+- ``--agent-kwarg agent_timeout_s=N``：手动指定 Harbor 的实际超时，覆盖自动读取的值。任务配置无法通过本地任务目录访问时使用此参数，并确保数值与 Harbor 实际采用的超时一致。Harbor 0.23 在内部解析该超时，但不会传给 Installed Agent，因此适配层会读取 Trial 配置和本地任务的 ``task.toml``。
 - ``--agent-kwarg max_turns=N``：Planner 的模型响应次数上限，不等于 Shell 命令数。
 - ``--agent-kwarg sandbox=full-access``：允许 Planner 用 Shell 直接编写脚本操作 Simulator。默认 ``read-only`` 让 Shell 无法访问 Simulator，只有 RPent 工具会作用于 Episode。
 
@@ -205,6 +207,7 @@ RPent 提供两种控制方式。默认使用 **Skills**：模型通过 ``move_t
 
 - ``--agent-kwarg memory_source=/path``：上传已有 RPent 记忆目录供本次 Trial 使用；未指定时，Trial 从空的 ``memory/`` 开始。
 - ``--agent-kwarg explore_sessions=N``：最多运行 ``N`` 个规划会话；重置次数耗尽或时间耗尽时提前停止。提前结束的会话在重置次数仍有剩余时交接并消耗一次重置，下一个会话从新的尝试开始；由 ``efe_end_episode`` 主动结束的 Episode 不重置，直接参与评分，只有最后一个 Episode 参与评分。后续会话可读取前序会话的工作笔记。
+- ``explore_sessions`` 是 RPent 的策略，不是 EFE 的要求；默认值为 1。多会话交接尚未在相同预算下与单会话做 benchmark 对比。
 - 每个 Trial 使用独立的 ``codex-home/``；模型由 ``--model`` 指定，认证信息来自转发的环境变量。
 
 对照 Skills 与 Raw
@@ -276,9 +279,9 @@ Raw 组直接使用服务接口：``efe_spec`` 返回每个动作向量的列含
 开发者集成说明
 --------------
 
-Harbor 通过 ``--agent`` 加载 RPent 的 ``RPentEfeAgent``。该入口会打包 RPent 源码、安装元数据和 ``pyproject.toml`` 声明的包数据，再用任务镜像自带的 Python 安装到 ``/opt/rpent-efe/venv``；容器不需要 ``uv``。打包内容不含 Git 数据、测试、API key 文件和运行日志。``robots/`` 是 RPent 安装包的一部分，不会因此启动其他机器人服务。
+Harbor 通过 ``--agent`` 加载 RPent 的 ``RPentEfeAgent``。该入口会从 RPent 源码构建 Wheel 并上传；Wheel 按 ``pyproject.toml`` 的包发现和包数据规则生成，不包含宿主机的 Git 数据、测试、缓存、API key 文件和运行日志。Harbor 再用任务镜像自带的 Python 把 Wheel 安装到 ``/opt/rpent-efe/venv``；容器不需要 ``uv``。``robots/`` 是 RPent 安装包的一部分，不会因此启动其他机器人服务。
 
-Runner 指 RPent 在容器内执行任务的代码，负责启动 CodexPlanner、通过 ``rcb_client.Robot`` 与仿真器交互，并保存 ``session.json``。Harbor 管理容器隔离、执行预算和清理。``solved()`` 只采信服务返回的结束原因。RPent 不启动仿真器、不读取特权状态，也不修改 EFE 的评分规则。
+Harbor 直接调用 ``robots.efe.runner.run_efe``。通用 ``rpent --robot efe`` CLI 是另一条手动调试路径。``run_efe`` 以无界面方式运行，负责整个 Trial 的截止时间、同一 Episode 上的多个 Planning Session，以及机器可读的 ``session.json``；通用 CLI 没有 Codex Sandbox 选项，EFE 路径也只运行一个 Session。``run_efe`` 启动 CodexPlanner、通过 ``rcb_client.Robot`` 与仿真器交互，并保存 ``session.json``。Harbor 管理容器隔离、执行预算和清理。``solved()`` 只采信服务返回的结束原因。RPent 不启动仿真器、不读取特权状态，也不修改 EFE 的评分规则。
 
 RPentEfeAgent 会转发模型环境变量和显式的 Harbor ``--agent-env`` 设置。若尚未设置 ``CODEX_API_KEY``、``CODEX_BASE_URL``，则分别从 ``OPENAI_API_KEY``、``OPENAI_BASE_URL`` 映射。宿主机的 ``CODEX_HOME`` 不会转发，每个 Trial 都会新建独立目录。
 
@@ -290,4 +293,8 @@ RPentEfeAgent 会转发模型环境变量和显式的 Harbor ``--agent-env`` 设
    └── 仿真器容器（sim）
        └── EFE 任务服务
 
-支持的服务版本为 standard 模式的 ``eai-standard/2.2`` 与 ``2.4``。``2.1`` 和 ``2.3`` 在 ``/spec`` 中发布 ``control_dt`` 而非 ``control_hz``，并带有不同的 ``rcb_client``（``get_obs(include_depth=...)``、``Result.depth``、没有 ``wait_ready``），``EfeEnvClient`` 会直接给出明确报错，而不是在后面才因为缺少 spec 字段失败。接入这两个版本需要单独的适配层，``2.3`` 及其 standard-realtime 任务同样如此。privileged 任务则要求提交可重放的 ``trajectory.npz``，或策略程序、模型。评分程序通过重放轨迹或运行策略来评测，与本集成逐步观测和执行动作的方式不匹配。
+支持的服务版本为 standard 模式的 ``eai-standard/2.2`` 与 ``2.4``。
+
+``2.1`` 和 ``2.3`` 在 ``/spec`` 中发布 ``control_dt`` 而非 ``control_hz``，并带有不同的 ``rcb_client``（``get_obs(include_depth=...)``、``Result.depth``、没有 ``wait_ready``）。``EfeEnvClient`` 会直接给出明确报错，而不是在后面才因为缺少 spec 字段失败。接入这两个版本需要单独的适配层，``2.3`` 及其 standard-realtime 任务同样如此。
+
+privileged 任务要求提交可重放的 ``trajectory.npz``，或策略程序、模型。评分程序通过重放轨迹或运行策略来评测，与本集成逐步观测和执行动作的方式不匹配。
