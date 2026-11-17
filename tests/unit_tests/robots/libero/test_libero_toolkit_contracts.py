@@ -28,7 +28,7 @@ import numpy as np
 import pytest
 
 from robots.libero import robot_spec, toolkit
-from robots.libero.observations import LiberoGeometryObservations, view_geometry_state
+from robots.libero.observations import LiberoGeometryObservations
 from rpent.dashboard.events import NullDashboardEventSink
 from rpent.memory import MemoryManager
 from rpent.robots import RunConfig
@@ -208,7 +208,9 @@ def test_generic_localization_is_registered_with_libero_observations(
         }
 
     with tk.state.record_step(state={}) as step:
+        tk.state.save("agentview_policy.png", np.ones((4, 4, 3), np.uint8), step=step)
         tk.state.save("agentview_high.png", np.zeros((4, 4, 3), np.uint8), step=step)
+        tk.state.save("wrist_high.png", np.zeros((600, 800, 3), np.uint8), step=step)
         points = np.ones((4, 4, 3))
         points[3, 1] = [0.25, 0.5, 0.75]
         tk.state.save("agentview_world_high.npz", points, step=step)
@@ -222,6 +224,15 @@ def test_generic_localization_is_registered_with_libero_observations(
             },
             step=step,
         )
+    expected_view = toolkit.libero_tools.view_env_state(step, state=tk.state)
+    assert tk.execute_tool("view_env_state", {"step": step}) == expected_view
+    after_action = tk.get_env_state(
+        command={"action": "release"}, result={}, elapsed_s=0.5
+    )
+    assert after_action == ToolResult(
+        data={**expected_view.data, "agent_elapsed_s": 0.5}, images=expected_view.images
+    )
+
     selected = tk.execute_tool(
         "back_project",
         {
@@ -239,16 +250,6 @@ def test_generic_localization_is_registered_with_libero_observations(
         and segmented.data["evidence_status"] == "identity_unchecked"
     )
     assert tk.state.latest_step == step
-
-
-def test_preview_and_saved_image_label_their_own_pixel_grids(tmp_path):
-    state = EnvState(tmp_path)
-    with state.record_step(state={}) as step:
-        state.save("agentview_high.png", np.zeros((600, 800, 3), np.uint8), step=step)
-    view = view_geometry_state(step, state=state).data["views"][0]
-    assert view["image_shape"] == [384, 512]
-    assert view["full_image_shape"] == [600, 800]
-    assert view["full_image"] == "agentview_high.png"
 
 
 def test_pinned_wrist_sample_uses_its_own_calibration(tmp_path):

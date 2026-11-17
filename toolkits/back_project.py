@@ -37,7 +37,7 @@ def back_project(
 ) -> ToolResult:
     """Read metric surface coordinates at known pixels without model inference.
 
-    Use the labeled full-frame image_shape [height,width] and either points_rc
+    Set image_shape to the full-frame image's [height,width]. Supply either points_rc
     (up to 16 row,col pairs in order) or a half-open box_rc [top,left,bottom,right].
     Coordinates lie inside the declared image. The exclusive bottom and right
     may equal its height and width. For either selection, height_m [low,high]

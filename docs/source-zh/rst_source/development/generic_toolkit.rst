@@ -35,7 +35,7 @@
 LIBERO
 ~~~~~~
 
-LIBERO 的适配器按相机名（``agentview`` 或 ``wrist``）和步号读取 RGB 图像、世界坐标图和标定数据。其 API 规划器默认提供 ``back_project`` 和基于 SAM3 的 ``segment``。如需启用 ``geometry``，将 ``MOLMO_ENDPOINT`` 设为已启动的本地 Molmo 服务地址，并在 :doc:`LIBERO 运行命令 <../simulators/libero>` 中加入 ``--geometry --molmo-endpoint "$MOLMO_ENDPOINT"``。
+LIBERO 的适配器按相机名（``agentview`` 或 ``wrist``）和步号读取 RGB 图像、世界坐标图和标定数据。其 API 规划器默认提供 ``back_project`` 和基于 SAM3 的 ``segment``。如需启用 ``geometry``，将 ``MOLMO_ENDPOINT`` 设为已启动的本地 Molmo 服务地址，并在 LIBERO 运行命令中加入 ``--geometry --molmo-endpoint "$MOLMO_ENDPOINT"``。
 
 例如，规划器可以用一次 ``geometry`` 调用测量同一个杯子的杯口半径和完整高度。
 
@@ -49,7 +49,7 @@ LIBERO 的适配器按相机名（``agentview`` 或 ``wrist``）和步号读取 
 为真实机器人接入工具
 --------------------
 
-实现真机的 :ref:`观测适配器 <generic-toolkit-registration>` 时，按步号读取相机采集的 RGB-D 帧和对应的标定数据。若相机随机械臂移动，使用采集该帧时的相机位姿将深度点变换到世界坐标系。
+实现真机的观测适配器时，按步号读取相机采集的 RGB-D 帧和对应的标定数据。若相机随机械臂移动，使用采集该帧时的相机位姿将深度点变换到世界坐标系。
 
 .. _generic-toolkit-registration:
 

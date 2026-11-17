@@ -53,7 +53,7 @@ adapter loads the RGB image, world XYZ map and calibration. Its API planner
 exposes ``back_project`` and SAM3-backed ``segment`` by default. To enable
 ``geometry``, set ``MOLMO_ENDPOINT`` to a
 running local Molmo service and add ``--geometry --molmo-endpoint "$MOLMO_ENDPOINT"``
-to the :doc:`LIBERO run command <../simulators/libero>`.
+to the LIBERO run command.
 
 For example, a planner can request the rim radius and full height of the same cup
 in one ``geometry`` call.
@@ -73,7 +73,7 @@ choose another action.
 Integrate the tools on a real robot
 -----------------------------------
 
-Implement the robot's :ref:`observation adapter <generic-toolkit-registration>`
+Implement the robot's observation adapter
 to read the recorded RGB-D frame and its camera calibration for each step. If
 the camera moves with the arm, use its pose at the time of capture to transform
 depth samples into world coordinates.

@@ -17,62 +17,13 @@
 
 from __future__ import annotations
 
-import io
 from collections.abc import Iterable
 from uuid import uuid4
 
 import numpy as np
-from PIL import Image
 
 from rpent.session import EnvState
-from rpent.tools import ToolResult
 from toolkits.observation import GeometryObservation
-
-
-def view_geometry_state(step: int = -1, *, state: EnvState) -> ToolResult:
-    """Keep calibrated full-frame coordinates while sending only the two working views."""
-    try:
-        record = state.get(step)
-    except (LookupError, ValueError) as exc:
-        return ToolResult(data={"error": str(exc)})
-    payload = {
-        "step": record.step_idx,
-        "state": record.state,
-        "terminated": record.terminated,
-        "truncated": record.truncated,
-        "task_language": record.extras.get("task_language"),
-        "result": record.result,
-        "views": [],
-    }
-    images = []
-    for camera in ("agentview", "wrist"):
-        name = next(
-            (
-                n
-                for n in (f"{camera}_high.png", f"{camera}.png")
-                if n in record.artifacts
-            ),
-            None,
-        )
-        if name is None:
-            continue
-        with Image.open(
-            io.BytesIO(state.load_bytes(name, step=record.step_idx))
-        ) as img:
-            full_shape = [img.height, img.width]
-            img.thumbnail((512, 512), Image.Resampling.LANCZOS)
-            buf = io.BytesIO()
-            img.save(buf, format="PNG")
-            images.append(buf.getvalue())
-            payload["views"].append(
-                {
-                    "camera": camera,
-                    "image_shape": [img.height, img.width],
-                    "full_image": name,
-                    "full_image_shape": full_shape,
-                }
-            )
-    return ToolResult(data=payload, images=images)
 
 
 class LiberoGeometryObservations:

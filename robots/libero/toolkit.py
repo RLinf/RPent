@@ -87,10 +87,7 @@ class LiberoToolkit(Toolkit):
         self._register_libero_tools(generic_tools=generic_tools)
         self._geometry = None
         if generic_tools:
-            from robots.libero.observations import (
-                LiberoGeometryObservations,
-                view_geometry_state,
-            )
+            from robots.libero.observations import LiberoGeometryObservations
             from toolkits.back_project import back_project
             from toolkits.segment import SegmentTool
 
@@ -106,15 +103,6 @@ class LiberoToolkit(Toolkit):
                     state=state,
                     segmenter=sam3,
                 ).segment
-            )
-            self.add_tool(
-                replace(
-                    self._tools["view_env_state"].with_handler(
-                        partial(view_geometry_state, state=state)
-                    ),
-                    description="Read the recorded robot state and two calibrated scene previews with their camera names, sizes and full-image filenames.",
-                ),
-                replace=True,
             )
             if geometry_grounder is not None:
                 from toolkits.geometry.geometry_tool import GeometryTool
@@ -279,7 +267,7 @@ class LiberoToolkit(Toolkit):
                     record.step_idx,
                     e,
                 )
-        out = self._tools["view_env_state"](step=record.step_idx)
+        out = libero_tools.view_env_state(record.step_idx, state=self._state)
         out.data["agent_elapsed_s"] = elapsed_s
         if self._policy_kind == "wam" and (record.terminated or record.truncated):
             status = "success" if record.terminated else "failure"

@@ -300,11 +300,12 @@ LEGACY_SAMPLING = """This is the core of perception-isolated mode. To find where
    For `segment`, provide exactly one of `prompt` and `point`."""
 
 GENERIC_SAMPLING = """Use the registered tool schemas when applying examples from guides or memory.
-`view_env_state` labels each full-frame preview with its camera and image_shape [height,width].
-Choose pixels as [row,col] on that grid. If you open the saved full_image at the same step,
-use its full_image_shape instead.
-For example, a pixel at [200,240] on a 512x512 agentview preview at step 0 uses this call.
-    back_project({"camera":"agentview","step":0,"selection":{"image_shape":[512,512],"points_rc":[[200,240]]}})
+`view_env_state` embeds `agentview_policy.png` (Pi0) followed by the calibrated agentview
+and wrist images, skipping missing images. Pick pixels on `agentview_high.png` or
+`wrist_high.png`, or the same camera's standard PNG if its high-resolution image is absent.
+Pass that camera and step, the image's actual [height,width], and pixels as [row,col].
+For x=240 and y=200 on a 1024x1024 `agentview_high.png` at step 0, call
+    back_project({"camera":"agentview","step":0,"selection":{"image_shape":[1024,1024],"points_rc":[[200,240]]}})
 Read samples_xyz in point order. A null marks invalid or filtered depth. For a region, use
 box_rc [top,left,bottom,right] in place of points_rc (bottom and right are exclusive).
 A box returns surface_xyz and visible_bounds_xyz when enough samples exist. Optional height_m
