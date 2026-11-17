@@ -48,7 +48,7 @@ _TIMEOUT_MARGIN_S = 30
 
 
 class RPentEfeAgent(BaseInstalledAgent):
-    """Install the local RPent source inside Harbor's isolated agent container."""
+    """Build and install RPent inside Harbor's isolated agent container."""
 
     def __init__(
         self,

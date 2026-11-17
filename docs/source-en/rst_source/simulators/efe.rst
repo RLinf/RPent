@@ -277,9 +277,9 @@ endpoint, task revision, and time limit fixed before comparing results.
 Common Options
 --------------
 
-- ``--agent-kwarg source_root=/path``: the RPent source directory to install;
-  defaults to the checkout containing ``RPentEfeAgent``. Set it explicitly
-  when importing the agent from an installed wheel.
+- ``--agent-kwarg source_root=/path``: the RPent source directory to build the
+  wheel from; defaults to the checkout containing ``RPentEfeAgent``. Set it
+  explicitly when importing the agent from an installed wheel.
 - ``--agent-kwarg workdir=/path``: the task working directory; defaults to
   ``/app``.
 - ``--agent-kwarg timeout_s=N``: an optional RPent inner time limit. By default,

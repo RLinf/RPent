@@ -195,7 +195,7 @@ EFE 的可选重置预算允许任务提供最多 N 次尝试。这类任务注�
 常用参数
 --------
 
-- ``--agent-kwarg source_root=/path``：指定 RPent 源码目录；默认使用 RPentEfeAgent 所在的仓库。从已安装的 Wheel 导入时，需要显式指定该路径。
+- ``--agent-kwarg source_root=/path``：指定用于构建 Wheel 的 RPent 源码目录；默认使用 RPentEfeAgent 所在的仓库。从已安装的 Wheel 导入时，需要显式指定该路径。
 - ``--agent-kwarg workdir=/path``：任务的工作目录；默认 ``/app``。
 - ``--agent-kwarg timeout_s=N``：可选的 RPent 内层时间上限。默认情况下，RPent 会从 Harbor Trial 配置读取实际超时；对于本地任务，也会读取 ``task.toml``。RPent 会为关闭和写入报告预留时间，避免 Harbor 在 ``session.json`` 保存前终止 Trial。
 - ``--agent-kwarg agent_timeout_s=N``：手动指定 Harbor 的实际超时，覆盖自动读取的值。任务配置无法通过本地任务目录访问时使用此参数，并确保数值与 Harbor 实际采用的超时一致。Harbor 0.23 在内部解析该超时，但不会传给 Installed Agent，因此适配层会读取 Trial 配置和本地任务的 ``task.toml``。
