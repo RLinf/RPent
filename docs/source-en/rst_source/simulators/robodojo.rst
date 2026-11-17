@@ -73,7 +73,7 @@ Observation and Action
    * - Observation
      - Head and left/right wrist RGB-D images, camera calibration, and joint states, end-effector poses, and gripper states for both arms.
    * - Action
-     - ``move_to``, ``rotate_wrist``, ``set_gripper``, ``release``, ``vpp2_act``, and ``awomo05_act``. ``finish`` cannot override the native task verdict.
+     - ``move_to``, ``rotate_wrist``, ``set_gripper``, ``release``, ``vpp2_act``, and ``awomo05_act``.
    * - Reward / success
      - RoboDojo's native environment determines task success, recorded in the ``success`` field of ``result.json``.
    * - Task prompt
@@ -96,10 +96,9 @@ cuRobo. From the RPent root, create an environment and install the dependencies:
 
 .. dropdown:: Blackwell GPU installation
 
-   Blackwell GPUs need the CUDA 12.8 build of PyTorch. The pinned PyTorch 2.7.0
-   also has a CUDA 12.6 build, but that build does not support Blackwell. On
-   these GPUs, use the following command for both initial installation and
-   reinstallation; ``--torch-backend=cu128`` selects the CUDA 12.8 build:
+   For Blackwell GPUs, install the CUDA 12.8 build of PyTorch 2.7.0.
+   Use the following command for initial installation or reinstallation;
+   ``--torch-backend=cu128`` selects the CUDA 12.8 build:
 
    .. code-block:: bash
 
@@ -181,8 +180,10 @@ The model implementations and weights are available here:
 Install model dependencies separately using the corresponding inference
 environment instructions. RPent starts and stops the model service using its
 current Python environment by default, loading the full model on one GPU.
-For a separate model environment, use ``--am-python /path/to/model-env/bin/python``.
-Use ``--am-checkpoint`` to override the model directory.
+If the model is installed in a separate Python environment, add ``--am-python``
+to the ``rpent`` task command to specify that environment's Python executable,
+and use ``--am-checkpoint`` to specify the model directory. See the complete
+example under Run a Task below.
 
 VPP2 Setup
 ~~~~~~~~~~
@@ -333,6 +334,21 @@ and SAM3, run the bottle-disposal task at seed group 0, layout 0:
 
 The command above uses Hugging Face memory by default. To use local memory,
 see Task Memory and Exploration Mode below.
+
+If VPP2 is installed in a separate Python environment, run the following command
+after setting the environment variables above. Replace
+``/path/to/vpp2-env/bin/python`` with the model environment's Python executable
+and ``/path/to/vpp2`` with the VPP2 resource root prepared earlier:
+
+.. code-block:: bash
+
+   rpent --robot robodojo --am-backend vpp2 \
+     --am-python /path/to/vpp2-env/bin/python \
+     --am-checkpoint /path/to/vpp2 \
+     --task put_bottles_into_dustbin --seed 0 --layout 0 \
+     --planner codex --model <planner-model> --reasoning-effort medium \
+     --max-turns 10000 --planner-timeout-s 1500 \
+     --output-dir /path/to/run-output
 
 View Results
 ------------

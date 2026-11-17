@@ -70,7 +70,7 @@ RoboDojo
    * - 观测
      - 头部和左右腕部相机的 RGB-D 图像、相机标定，以及双臂关节状态、末端执行器位姿和夹爪开合状态。
    * - 动作
-     - ``move_to``、``rotate_wrist``、``set_gripper``、``release`` 和 ``vpp2_act``、``awomo05_act``。``finish`` 不能覆盖原生任务判定。
+     - ``move_to``、``rotate_wrist``、``set_gripper``、``release`` 和 ``vpp2_act``、``awomo05_act``。
    * - 奖励与成功判定
      - 任务是否成功由 RoboDojo 原生环境判定，结果记录在 ``result.json`` 的 ``success`` 字段中。
    * - 任务指令
@@ -91,8 +91,7 @@ NVIDIA 驱动版本建议参考 `Isaac Sim 5.1 官方系统要求 <https://docs.
 
 .. dropdown:: Blackwell GPU 安装
 
-   Blackwell GPU 需要 CUDA 12.8 版 PyTorch。本项目固定的 PyTorch 2.7.0 也提供 CUDA 12.6 构建，\
-   但该构建不支持 Blackwell。使用这类 GPU 时，首次安装及后续重新安装都使用以下命令，\
+   使用 Blackwell GPU 时，请安装 PyTorch 2.7.0 的 CUDA 12.8 构建。首次安装或重新安装时，使用以下命令，\
    通过 ``--torch-backend=cu128`` 选择 CUDA 12.8 构建：
 
    .. code-block:: bash
@@ -159,7 +158,7 @@ VLA 配置
 - VPP2：官方 `VPP2 RoboDojo 实现 <https://github.com/roboterax/video-prediction-policy-2/tree/72c17acf022494ff63617be86079bb92e92f5bf8>`_，以及 `Haodong082399/VPP2 <https://huggingface.co/Haodong082399/VPP2>`_ 发布的配对 100k 权重。
 - Awomo05：`官方实现 <https://github.com/Awomo-WestlakeDI/Awomo-0.5>`_、`XPolicyLab RoboDojo 评测适配器 <https://github.com/XPolicyLab/XPolicyLab/blob/562c14cf08b9e6e411e7d76f192740afced77160/policy/Awomo05/README.md>`__，以及 `Auwomo/Awomo-0.5-Robodojo 权重与配套统计文件 <https://huggingface.co/Auwomo/Awomo-0.5-Robodojo>`_。
 
-模型依赖需按对应的推理环境说明单独安装。默认由 RPent 使用当前 Python 环境自动启动和关闭模型服务，模型在单张 GPU 上完整加载。若模型安装在独立环境，使用 ``--am-python /path/to/model-env/bin/python``；``--am-checkpoint`` 可覆盖模型目录。
+模型依赖需按对应的推理环境说明单独安装。默认由 RPent 使用当前 Python 环境自动启动和关闭模型服务，模型在单张 GPU 上完整加载。若模型安装在独立 Python 环境，在 ``rpent`` 任务启动命令中添加 ``--am-python`` 指定该环境的 Python 路径，并通过 ``--am-checkpoint`` 指定模型目录。完整示例见下方“运行一个任务”。
 
 VPP2 配置
 ~~~~~~~~~
@@ -287,6 +286,18 @@ SAM3 用于物体分割。先在 `facebook/sam3 模型页面 <https://huggingfac
      --max-turns 10000 --planner-timeout-s 1500 \
      --output-dir /path/to/run-output
 
+如果 VPP2 安装在独立 Python 环境，完成上述环境变量设置后，使用以下命令。将 ``/path/to/vpp2-env/bin/python`` 替换为模型环境的 Python 路径，``/path/to/vpp2`` 替换为前文准备的 VPP2 资源根目录：
+
+.. code-block:: bash
+
+   rpent --robot robodojo --am-backend vpp2 \
+     --am-python /path/to/vpp2-env/bin/python \
+     --am-checkpoint /path/to/vpp2 \
+     --task put_bottles_into_dustbin --seed 0 --layout 0 \
+     --planner codex --model <planner-model> --reasoning-effort medium \
+     --max-turns 10000 --planner-timeout-s 1500 \
+     --output-dir /path/to/run-output
+
 查看结果
 --------
 
@@ -307,8 +318,7 @@ SAM3 用于物体分割。先在 `facebook/sam3 模型页面 <https://huggingfac
 未指定输出目录时，结果保存在 ``logs/<timestamp>_robodojo_<task>_s<seed>_l<layout>/``。并发运行应使用不同目录。\
 实时查看方式见 :doc:`../guides/dashboard`。
 
-``score`` 记录原生任务进度分数，范围为 0–100。成功回合记为 100；失败回合
-使用原生阶段分数，没有阶段评分的任务记为 0。该分数用于结果统计，不提供给规划器。``score_available=false`` 且
+``score`` 记录原生任务进度分数，范围为 0–100。成功回合记为 100；失败回合使用原生阶段分数，没有阶段评分的任务记为 0。该分数用于结果统计，不提供给规划器。``score_available=false`` 且
 ``score=null`` 表示未取得分数；读取失败时还会记录 ``score_error``。
 ``eval-fair`` 模式禁止访问评测结果，因此不提供 Score。
 
