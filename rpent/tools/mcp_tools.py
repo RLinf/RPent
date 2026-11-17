@@ -31,6 +31,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import builtins
 import os
 import threading
 from collections.abc import Awaitable, Callable, Mapping, Sequence
@@ -311,6 +312,26 @@ def call_timeout_s() -> float:
     return timeout_s
 
 
+def _exception_group_types() -> tuple[type[BaseException], ...]:
+    """Return the exception-group types task groups raise on this Python.
+
+    ``BaseExceptionGroup`` is a builtin from Python 3.11. On Python 3.10 the
+    transports raise the ``exceptiongroup`` backport bundled with anyio, so
+    the builtin name alone would not match — or even exist.
+    """
+    builtin_group = getattr(builtins, "BaseExceptionGroup", None)
+    if builtin_group is not None:
+        return (builtin_group,)
+    try:  # pragma: no cover - Python 3.10
+        from exceptiongroup import BaseExceptionGroup
+    except ImportError:  # pragma: no cover - keep the raw group text
+        return ()
+    return (BaseExceptionGroup,)  # pragma: no cover - Python 3.10
+
+
+_EXCEPTION_GROUP_TYPES = _exception_group_types()
+
+
 def _leaf_error(exc: BaseException) -> BaseException:
     """Return the single exception wrapped by transport task groups.
 
@@ -319,7 +340,7 @@ def _leaf_error(exc: BaseException) -> BaseException:
     message the model and the planner error report show (a timeout, a refused
     connection) instead of ``unhandled errors in a TaskGroup``.
     """
-    while isinstance(exc, BaseExceptionGroup) and len(exc.exceptions) == 1:
+    while isinstance(exc, _EXCEPTION_GROUP_TYPES) and len(exc.exceptions) == 1:
         exc = exc.exceptions[0]
     return exc
 
@@ -357,7 +378,7 @@ def _run_remote(spec: McpServerSpec, action: Callable[[Any], Awaitable[Any]]) ->
     def run() -> Any:
         try:
             return asyncio.run(main())
-        except BaseExceptionGroup as exc:
+        except _EXCEPTION_GROUP_TYPES as exc:
             raise _leaf_error(exc) from None
 
     try:
