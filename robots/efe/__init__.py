@@ -31,8 +31,8 @@ __all__ = list(_FACTORY_NAMES)
 def __getattr__(name: str) -> Any:
     """Load the robot factories on first use.
 
-    The EFE CLI lives in this package, so ``--help`` must not import the robot
-    framework.
+    The shared CLI discovers this package only after ``--robot efe`` is
+    selected, so generic ``--help`` does not import the robot framework.
     """
     if name in _FACTORY_NAMES:
         from robots.efe import robot_spec

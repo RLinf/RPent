@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Offline service double for the EFE runner contracts."""
+"""Offline service double for EFE integration contracts."""
 
 from __future__ import annotations
 

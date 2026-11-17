@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Run an EFE session with local processes and the real HTTP MCP transport."""
+"""Run the generic EFE CLI with local processes and HTTP MCP transport."""
 
 from __future__ import annotations
 
@@ -29,7 +29,7 @@ import pytest
 from mcp import ClientSession
 from mcp.client.streamable_http import streamable_http_client
 
-from robots.efe.runner import run_efe
+from robots.efe import env_client
 from tests.unit_tests.robots.efe.efe_support import FakeEfeClient
 
 
@@ -183,31 +183,78 @@ def local_backend(
     return instances
 
 
-def test_run_efe_loads_memory_tools_and_prompt(
-    tmp_path: Path, local_backend: list[LocalCodex]
+def _run_generic_cli(
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    workdir: Path,
+    output_dir: Path,
+    instruction: str,
+    memory_dir: Path | None = None,
+) -> int:
+    from rpent.cli import main as cli
+
+    clients: list[FakeEfeClient] = []
+
+    def connect(*, base_url, connect_timeout_s, deadline):
+        del base_url, connect_timeout_s
+        client = FakeEfeClient()
+        client.set_deadline(deadline)
+        clients.append(client)
+        return client
+
+    monkeypatch.setattr(env_client, "EfeEnvClient", connect)
+    monkeypatch.setenv("CODEX_HOME", str(output_dir.parent / "host-codex"))
+    arguments = [
+        "rpent",
+        "--robot",
+        "efe",
+        "--planner",
+        "codex",
+        "--model",
+        "offline-codex",
+        "--instruction-file",
+        str(workdir / "instruction.txt"),
+        "--workdir",
+        str(workdir),
+        "--output-dir",
+        str(output_dir),
+        "--memory-profile",
+        "local",
+        "--memory-dir",
+        str(memory_dir or output_dir / "memory"),
+        "--max-turns",
+        "3",
+        "--reasoning-effort",
+        "low",
+        "--efe-trial-timeout-s",
+        "30",
+    ]
+    (workdir / "instruction.txt").write_text(instruction, encoding="utf-8")
+    monkeypatch.setattr(sys, "argv", arguments)
+    exit_code = cli.main()
+    assert clients and clients[0].deadline is not None
+    return exit_code
+
+
+def test_generic_cli_loads_efe_memory_and_tools_through_the_real_mcp_transport(
+    tmp_path: Path, local_backend: list[LocalCodex], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     workdir = tmp_path / "public workspace"
     workdir.mkdir()
     output_dir = tmp_path / "agent logs"
-    output_dir.mkdir()
     memory_dir = tmp_path / "corpus"
     (memory_dir / "global").mkdir(parents=True)
     (memory_dir / "global" / "pickup.md").write_text("# Pickup lesson\n")
 
-    report = run_efe(
-        "Execute a Python control program in the public workspace.",
+    exit_code = _run_generic_cli(
+        monkeypatch,
         workdir=workdir,
         output_dir=output_dir,
-        model="offline-codex",
-        timeout_s=20,
-        max_turns=3,
-        reasoning_effort="low",
+        instruction="Execute a Python control program in the public workspace.",
         memory_dir=memory_dir,
-        client=FakeEfeClient(),
     )
 
-    assert report["error"] is None, report
-    assert report["memory_mode"] == "loaded"
+    assert exit_code == 0
     backend = local_backend[0]
     assert backend.thread.local_turn.tools == [
         "read_text_file",
@@ -226,38 +273,36 @@ def test_run_efe_loads_memory_tools_and_prompt(
     assert (workdir / "control-result.txt").is_file()
 
 
-def test_run_efe_preserves_child_output_and_accounts_mcp_finish(
-    tmp_path: Path, local_backend: list[LocalCodex]
+def test_generic_cli_preserves_child_output_and_accounts_mcp_finish(
+    tmp_path: Path,
+    local_backend: list[LocalCodex],
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     workdir = tmp_path / "public workspace"
     workdir.mkdir()
     output_dir = tmp_path / "agent logs"
-    output_dir.mkdir()
-    (output_dir / "existing-output.txt").write_text("retain this output\n")
     instruction = "Execute a Python control program in the public workspace."
 
-    report = run_efe(
-        instruction,
+    exit_code = _run_generic_cli(
+        monkeypatch,
         workdir=workdir,
         output_dir=output_dir,
-        model="offline-codex",
-        timeout_s=20,
-        max_turns=3,
-        reasoning_effort="low",
-        client=FakeEfeClient(),
+        instruction=instruction,
     )
 
-    assert report["error"] is None, report
-    assert json.loads((output_dir / "session.json").read_text()) == report
-    assert report["workdir"] == str(workdir.resolve())
-    assert report["agent_finish"] == {
+    assert exit_code == 0
+    transcript_path = next(output_dir.glob("transcript_*.json"))
+    transcript = json.loads(transcript_path.read_text(encoding="utf-8"))
+    result = json.loads((output_dir / "efe-result.json").read_text(encoding="utf-8"))
+    assert transcript["error"] is None
+    assert transcript["finish"] == {
         "_finish": True,
         "status": "completed",
         "summary": "The Python child wrote control-result.txt.",
     }
-    assert "reward" not in report
+    assert "reward" not in result
     assert (
-        report["stats"].items()
+        transcript["stats"].items()
         >= {
             "backend": "codex_sdk",
             "turns_used": 1,
@@ -269,7 +314,6 @@ def test_run_efe_preserves_child_output_and_accounts_mcp_finish(
         }.items()
     )
     assert (workdir / "control-result.txt").read_text() == "control program executed\n"
-    assert (output_dir / "existing-output.txt").read_text() == "retain this output\n"
     assert "control child completed" in (output_dir / "codex.txt").read_text()
     assert (output_dir / "codex.txt.last").read_text() == "Local control program ended."
     assert json.loads(
@@ -298,9 +342,6 @@ def test_run_efe_preserves_child_output_and_accounts_mcp_finish(
         "set_gripper",
     ]
     assert local_backend[0].thread.local_turn.finish_response["isError"] is False
-    assert (
-        json.loads(
-            local_backend[0].thread.local_turn.finish_response["content"][0]["text"]
-        )
-        == report["agent_finish"]
-    )
+    assert json.loads(
+        local_backend[0].thread.local_turn.finish_response["content"][0]["text"]
+    ) == transcript["finish"]

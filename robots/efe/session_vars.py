@@ -12,12 +12,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Run identity and prompt variables shared by both EFE entry points.
+"""Run identity and prompt variables shared by RPent and Harbor.
 
-``rpent --robot efe`` and the Harbor runner render the same prompt template.
-Derive its variables in one place so the two paths cannot drift. The memory
-root stays a caller decision: Harbor gives each trial an empty directory,
-while the CLI reads one shared corpus.
+``rpent --robot efe`` and Harbor render the same prompt template. Derive its
+variables in one place so the two paths cannot drift. The memory root stays a
+caller decision: Harbor gives each trial an empty directory, while a local CLI
+run can use a shared corpus.
 """
 
 from __future__ import annotations

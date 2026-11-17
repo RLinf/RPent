@@ -245,7 +245,10 @@ def _prepare_memory(args: argparse.Namespace, config: RunConfig) -> None:
     memory_dir = Path(config.prompt_vars["memory_dir"])
     memory_dir.mkdir(parents=True, exist_ok=True)
     if args.planner == "codex":
-        (config.output_dir / "codex-home").mkdir(parents=True, exist_ok=True)
+        codex_home = (config.output_dir / "codex-home").resolve()
+        codex_home.mkdir(parents=True, exist_ok=True)
+        # Keep Codex credentials and state inside this run's artifacts.
+        os.environ["CODEX_HOME"] = str(codex_home)
 
 
 def _finalize_run(context: RunFinalizationContext) -> Path:

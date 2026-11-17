@@ -14,8 +14,8 @@
 
 """Opt in with RPENT_EFE_TASK_PATH and RPENT_EFE_MODEL to run one Docker task.
 
-This policy-chain test uses the configured model. The loopback test
-``tests/unit_tests/robots/efe/test_runner_loopback.py`` does not.
+This policy-chain test uses the configured model. The generic CLI loopback test
+``tests/unit_tests/robots/efe/test_cli_loopback.py`` does not.
 Harbor's verifier owns the reward. A zero reward does not fail this test.
 """
 
@@ -145,4 +145,3 @@ def test_harbor_task_records_agent_session_and_verifier_result(
     assert len(list(job_dir.glob("*/agent/**/efe-result.json"))) == 1
     assert len(list(job_dir.glob("*/agent/**/transcript_*.json"))) == 1
     assert len(list(job_dir.glob("*/agent/**/codex_*.txt.stream.jsonl"))) == 1
-    assert not list(job_dir.glob("*/agent/**/session.json"))

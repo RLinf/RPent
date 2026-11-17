@@ -208,7 +208,7 @@ def test_install_uploads_one_wheel_and_records_its_hash(tmp_path, monkeypatch):
         "pyproject.toml",
         "README.md",
         "LICENSE",
-        "robots/efe/cli.py",
+        "robots/efe/robot_spec.py",
         "robots/__init__.py",
         "rpent/cli/main.py",
     ):

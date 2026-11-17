@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Values shared by the EFE CLI, the Harbor adapter, and the runner."""
+"""Values shared by the EFE robot extension and Harbor adapter."""
 
 from rpent.planner.base import CODEX_SANDBOX_CHOICES
 

@@ -188,7 +188,7 @@ def test_parse_config_rejects_a_missing_instruction(tmp_path):
         _parse_config(args)
 
 
-def test_exploration_is_rejected_because_the_runner_starts_its_own_sessions(tmp_path):
+def test_exploration_is_rejected_for_efe_evaluation(tmp_path):
     args = _args(tmp_path)
     args.explore = True
 
