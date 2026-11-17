@@ -273,12 +273,13 @@ class ApiAgentLoop(Planner):
     def _external_toolsets(self, recorder: "_HarnessToolkit") -> list[Any]:
         """Build one MCP toolset per planner-layer external server.
 
-        Each server's tools are prefixed with its name (``<server>_<tool>``) so
-        two servers cannot collide. Remote tool names are only known after the
-        server connects, so a name that still collides with an RPent tool is
-        reported by pydantic-ai during the first run step. A spec that names
-        its tools is filtered before dispatch, so coordinated tools adopted by
-        the robot's Toolkit cannot leak back into the planner layer. The
+        Each server's tools are prefixed with its name (``<server>_<tool>``).
+        The single-underscore join is not injective, so a name that collides
+        with another server's or with an RPent tool is reported by pydantic-ai
+        during the first run step. A spec that names its tools is filtered
+        before dispatch, so coordinated tools adopted by the robot's Toolkit
+        cannot leak back into the planner layer. Requests use the same
+        ``MCP_CALL_TIMEOUT_S`` deadline as RPent's own MCP client. The
         pydantic-ai MCP client is an optional import: it is only needed when a
         server is actually attached.
         """
@@ -296,8 +297,10 @@ class ApiAgentLoop(Planner):
                 '`pip install "pydantic-ai-slim[mcp]"`.'
             ) from exc
 
+        from rpent.tools.mcp_tools import call_timeout_s
         from rpent.utils.mcp_servers import ALL_TOOLS, request_headers
 
+        timeout = call_timeout_s()
         toolsets: list[Any] = []
         for server in servers:
             toolset = MCPToolset(
@@ -305,6 +308,8 @@ class ApiAgentLoop(Planner):
                 id=server.name,
                 headers=request_headers(server) or None,
                 process_tool_call=recorder.external_tool_hook(server.name),
+                init_timeout=timeout,
+                read_timeout=timeout,
             )
             if server.planner_tools != ALL_TOOLS:
                 allowed = frozenset(server.planner_tools or ())

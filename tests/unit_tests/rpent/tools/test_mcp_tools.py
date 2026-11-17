@@ -525,10 +525,10 @@ def test_call_timeout_defaults_to_sixty_seconds(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.delenv("MCP_CALL_TIMEOUT_S", raising=False)
-    assert mcp_tools._call_timeout_s() == 60.0
+    assert mcp_tools.call_timeout_s() == 60.0
 
     monkeypatch.setenv("MCP_CALL_TIMEOUT_S", "5")
-    assert mcp_tools._call_timeout_s() == 5.0
+    assert mcp_tools.call_timeout_s() == 5.0
 
 
 @pytest.mark.parametrize("raw", ["abc", "0", "-1"])
@@ -538,7 +538,7 @@ def test_call_timeout_rejects_invalid_values(
     monkeypatch.setenv("MCP_CALL_TIMEOUT_S", raw)
 
     with pytest.raises(ValueError, match="MCP_CALL_TIMEOUT_S"):
-        mcp_tools._call_timeout_s()
+        mcp_tools.call_timeout_s()
 
 
 class _ServerToolkit(Toolkit):
@@ -620,3 +620,65 @@ def test_adopted_tool_reaches_a_real_server(tmp_path: Path) -> None:
 
     assert received == ["high"]
     assert not result.is_error
+
+
+def test_adopted_tool_forwards_arguments_the_schema_admits(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The remote schema, not the local model, decides which keys reach it."""
+    init_output_dir(tmp_path / "log")
+    adopted = _toolkit(tmp_path)
+    sent: list[dict[str, Any]] = []
+
+    def call(spec, name, arguments):  # noqa: ANN001
+        sent.append(arguments)
+        return SimpleNamespace(content=[], isError=False, structuredContent=None)
+
+    # A schema without declared properties is how most servers express a free
+    # form request; every argument the model sends is valid under it.
+    monkeypatch.setattr(
+        mcp_tools, "list_remote_tools", lambda server: [_remote_tool("set_level")]
+    )
+    monkeypatch.setattr(mcp_tools, "_call_remote_tool", call)
+    try:
+        mcp_tools.register_mcp_tools(
+            adopted,
+            (McpServerSpec(name="facility", url="https://facility.example/mcp"),),
+            tools={"facility": ["set_level"]},
+        )
+        result = adopted.execute_tool("set_level", {"level": "high", "fade_s": 2})
+    finally:
+        adopted.close()
+
+    assert sent == [{"level": "high", "fade_s": 2}]
+    assert not result.is_error
+
+
+def test_rejects_adopting_from_a_server_the_planner_attaches_whole() -> None:
+    with pytest.raises(ValueError, match="planner_tools is '\\*'"):
+        mcp_tools.register_mcp_tools(
+            FakeToolkit(),
+            (
+                McpServerSpec(
+                    name="facility",
+                    url="https://facility.example/mcp",
+                    planner_tools="*",
+                ),
+            ),
+            tools={"facility": ["dock"]},
+        )
+
+
+def test_rejects_adopting_a_tool_the_planner_also_attaches() -> None:
+    with pytest.raises(ValueError, match="also attached to the planner"):
+        mcp_tools.register_mcp_tools(
+            FakeToolkit(),
+            (
+                McpServerSpec(
+                    name="facility",
+                    url="https://facility.example/mcp",
+                    planner_tools=("read_power_meter", "dock"),
+                ),
+            ),
+            tools={"facility": ["dock"]},
+        )

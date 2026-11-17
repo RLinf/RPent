@@ -216,6 +216,27 @@ def request_headers(spec: McpServerSpec) -> dict[str, str]:
     return headers
 
 
+#: Placeholder for a header value in serialized run configuration.
+REDACTED_HEADER_VALUE = "<redacted>"
+
+
+def public_spec(spec: McpServerSpec) -> dict[str, Any]:
+    """Return a serializable view of a spec that omits header values.
+
+    A site config resolves ``${oc.env:...}`` in ``headers`` when it is loaded,
+    so the values may be credentials. Task records keep the run configuration,
+    and that payload is written to ``task.json`` and the Dashboard task record,
+    so only header names are kept.
+    """
+    return {
+        "name": spec.name,
+        "url": spec.url,
+        "headers": dict.fromkeys(spec.headers, REDACTED_HEADER_VALUE),
+        "env_http_headers": dict(spec.env_http_headers),
+        "planner_tools": spec.planner_tools,
+    }
+
+
 def _parse_one(name: str, value: Any) -> McpServerSpec:
     """Validate one ``mcp_servers.<name>`` entry."""
     where = f"mcp_servers.{name}"

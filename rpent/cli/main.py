@@ -42,7 +42,7 @@ import shlex
 import sys
 import time
 from collections.abc import Callable
-from dataclasses import asdict, replace
+from dataclasses import replace
 from pathlib import Path
 
 from rpent.cli.tui import (
@@ -63,7 +63,11 @@ from rpent.planner.base import (
 )
 from rpent.planner.check import EXTERNALLY_CONFIGURED_PLANNERS
 from rpent.robots import RunConfig, enumerate_robots, get_robot_spec, get_toolkit
-from rpent.session.planner_capture import end_planner_task, start_planner_task
+from rpent.session.planner_capture import (
+    end_planner_task,
+    start_planner_task,
+    task_config_snapshot,
+)
 from rpent.utils.logging import get_logger, init_output_dir
 from rpent.utils.mcp_servers import (
     McpServerSpec,
@@ -735,7 +739,7 @@ def main() -> int:
                     task_state = start_planner_task(
                         toolkit.state,
                         instruction=session_msg,
-                        config={"arguments": vars(args), "run": asdict(run_config)},
+                        config=task_config_snapshot(vars(args), run_config),
                     )
                 result = planner.solve(
                     system_prompt=system_prompt,

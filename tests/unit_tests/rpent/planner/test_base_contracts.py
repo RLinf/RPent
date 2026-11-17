@@ -15,6 +15,7 @@
 from __future__ import annotations
 
 import asyncio
+from types import SimpleNamespace
 
 import httpx
 import pytest
@@ -26,7 +27,6 @@ from rpent.planner.base import (
     build_api_model,
     check_planner_mcp_servers,
     display_tool_name,
-    strip_mcp_prefix,
 )
 
 
@@ -119,14 +119,6 @@ def test_google_endpoint_rejects_conflicting_explicit_model(monkeypatch, source)
 def test_add_mcp_prefix_namespaces_bare_names_once() -> None:
     assert add_mcp_prefix("finish") == "mcp__rpent__finish"
     assert add_mcp_prefix("mcp__rpent__finish") == "mcp__rpent__finish"
-
-
-def test_strip_mcp_prefix_recognizes_rpent_tools_only() -> None:
-    assert strip_mcp_prefix("mcp__rpent__finish") == "finish"
-    # An external server's ``finish`` keeps its namespace, so finish detection
-    # never mistakes it for RPent's own.
-    assert strip_mcp_prefix("mcp__web__finish") == "mcp__web__finish"
-    assert strip_mcp_prefix("Read") == "Read"
 
 
 def test_display_tool_name_shortens_mcp_names() -> None:
@@ -223,3 +215,59 @@ def test_check_planner_mcp_servers_reports_a_missing_client(
 
     # The install hint, not the bare ImportError, is what the run reports.
     assert error is not None and "pydantic-ai-slim[mcp]" in error
+
+
+def test_check_planner_mcp_servers_requires_the_named_tools(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from rpent.tools import mcp_tools
+    from rpent.utils.mcp_servers import McpServerSpec
+
+    monkeypatch.setattr(
+        mcp_tools,
+        "list_remote_tools",
+        lambda spec: [SimpleNamespace(name="read_power_meter")],
+    )
+
+    error = check_planner_mcp_servers(
+        (
+            McpServerSpec(
+                name="facility",
+                url="https://facility.example/mcp",
+                planner_tools=("read_power_meter", "set_outlet"),
+            ),
+        )
+    )
+
+    # Same contract as Toolkit adoption: a name the server does not expose is
+    # a configuration error, not a tool the model silently does without.
+    assert error == (
+        "mcp_servers.facility did not expose tool(s) ['set_outlet']; "
+        "available: ['read_power_meter']"
+    )
+
+
+def test_check_planner_mcp_servers_accepts_exposed_names(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from rpent.tools import mcp_tools
+    from rpent.utils.mcp_servers import McpServerSpec
+
+    monkeypatch.setattr(
+        mcp_tools,
+        "list_remote_tools",
+        lambda spec: [SimpleNamespace(name="read_power_meter")],
+    )
+
+    assert (
+        check_planner_mcp_servers(
+            (
+                McpServerSpec(
+                    name="facility",
+                    url="https://facility.example/mcp",
+                    planner_tools=("read_power_meter",),
+                ),
+            )
+        )
+        is None
+    )

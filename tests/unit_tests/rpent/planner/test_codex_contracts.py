@@ -1118,7 +1118,9 @@ def test_external_server_finish_item_is_not_promoted() -> None:
 
     assert recorder.finish_result is None
     assert recorder.tool_calls == 1
-    assert "finish" in rendered
+    # The SDK reports the server separately; the transcript keeps its tag so an
+    # external ``finish`` is not shown as RPent's own tool.
+    assert "docs:finish" in rendered
 
 
 def test_rejected_finish_item_is_not_promoted() -> None:

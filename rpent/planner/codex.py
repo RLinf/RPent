@@ -492,7 +492,10 @@ class _Recorder:
             self.tool_calls += 1
             if item_type == "mcpToolCall":
                 server = str(get_field(item, "server", ""))
-                name = display_tool_name(str(get_field(item, "tool", item_type)))
+                tool = str(get_field(item, "tool", item_type))
+                # The SDK separates the server from the bare tool name; rejoin
+                # them so an external server keeps its ``<server>:<tool>`` tag.
+                name = display_tool_name(f"mcp__{server}__{tool}")
                 self._maybe_capture_finish(name, item, server=server)
             elif item_type == "dynamicToolCall":
                 name = display_tool_name(str(get_field(item, "tool", item_type)))

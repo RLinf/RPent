@@ -41,7 +41,7 @@ if TYPE_CHECKING:
     from rpent.utils.mcp_servers import McpServerSpec
 
 #: MCP namespace prefix for RPent tools (``mcp__<server>__<tool>``).
-#: Toolkits expose plain tool names; planners add/strip this prefix.
+#: Toolkits expose plain tool names; the MCP-based planners add this prefix.
 MCP_TOOL_PREFIX = "mcp__rpent__"
 REASONING_EFFORTS = ("none", "low", "medium", "high", "xhigh")
 CODEX_SANDBOX_CHOICES = ("read-only", "workspace-write", "full-access")
@@ -57,11 +57,6 @@ def add_mcp_prefix(name: str) -> str:
     if name.startswith(MCP_TOOL_PREFIX):
         return name
     return f"{MCP_TOOL_PREFIX}{name}"
-
-
-def strip_mcp_prefix(name: str) -> str:
-    """Return the bare tool name, dropping the MCP namespace if present."""
-    return name.removeprefix(MCP_TOOL_PREFIX)
 
 
 def _normalize_google_endpoint(
@@ -133,8 +128,9 @@ def display_tool_name(name: str) -> str:
     RPent's own tools drop the ``mcp__rpent__`` namespace (``finish``); a tool
     from an external server keeps a short ``<server>:<tool>`` tag so the
     transcript shows which server answered. Non-MCP names pass through. This is
-    display only — finish detection stays on :func:`strip_mcp_prefix`, so an
-    external server's ``finish`` tool is never mistaken for RPent's.
+    display only: finish detection uses the toolkit's verdict
+    (``claude_code``) or the SDK's ``server`` field (``codex``), so an external
+    server's ``finish`` tool is never mistaken for RPent's.
     """
     if name.startswith(MCP_TOOL_PREFIX):
         return name[len(MCP_TOOL_PREFIX) :]
@@ -288,22 +284,24 @@ def check_planner_mcp_servers(
     error instead of continuing without it. Every backend consults this before
     its first model request, because the SDKs and CLIs differ in how (and
     whether) they report a failed MCP connection. The check also resolves
-    ``env_http_headers``, so an unset variable fails here.
+    ``env_http_headers``, so an unset variable fails here, and verifies that a
+    named ``planner_tools`` entry is actually exposed.
 
     Args:
         mcp_servers: Servers available to this run.
 
     Returns:
-        ``None`` when every planner-layer server answered, otherwise a message
-        naming the first one that did not.
+        ``None`` when every planner-layer server answered and exposed its
+        declared tools, otherwise a message naming the first failure.
     """
     from rpent.tools.mcp_tools import list_remote_tools
+    from rpent.utils.mcp_servers import ALL_TOOLS
 
     for spec in mcp_servers:
         if spec.planner_tools is None:
             continue
         try:
-            list_remote_tools(spec)
+            exposed = {tool.name for tool in list_remote_tools(spec)}
         except ImportError as exc:
             return (
                 "attaching external MCP servers requires the MCP client; "
@@ -312,6 +310,16 @@ def check_planner_mcp_servers(
             )
         except Exception as exc:  # noqa: BLE001 - reported, not raised
             return f"mcp_servers.{spec.name}: {type(exc).__name__}: {exc}"
+        if spec.planner_tools != ALL_TOOLS:
+            missing = sorted(set(spec.planner_tools) - exposed)
+            if missing:
+                # Same contract as Toolkit adoption: a named tool the server
+                # does not expose is a configuration error, not an empty
+                # toolset the model silently does without.
+                return (
+                    f"mcp_servers.{spec.name} did not expose tool(s) {missing}; "
+                    f"available: {sorted(exposed) or 'none'}"
+                )
     return None
 
 

@@ -42,7 +42,7 @@ from pydantic import BaseModel, ConfigDict, create_model
 from rpent.tools.base import Tool, ToolResult
 from rpent.tools.toolkit import Toolkit
 from rpent.utils.logging import get_logger
-from rpent.utils.mcp_servers import McpServerSpec, request_headers
+from rpent.utils.mcp_servers import ALL_TOOLS, McpServerSpec, request_headers
 
 logger = get_logger("mcp_tools")
 
@@ -86,8 +86,9 @@ def register_mcp_tools(
         The registered tool names, in the order given.
 
     Raises:
-        ValueError: On an unknown server or tool name, or a name that already
-            belongs to the toolkit or another adopted server.
+        ValueError: On an unknown server or tool name, a name that already
+            belongs to the toolkit or another adopted server, or a tool the
+            planner layer also attaches.
         RuntimeError: If the MCP client dependency is missing.
     """
     # Fail at toolkit construction with an install hint instead of on the
@@ -110,6 +111,22 @@ def register_mcp_tools(
     taken = {tool.name for tool in toolkit.list_tools()}
     for server_name, names in tools.items():
         spec = by_name[server_name]
+        # A coordinated tool must not also be callable directly: the planner
+        # layer would bypass the operation slot and observation capture that
+        # are the reason to adopt it.
+        if spec.planner_tools == ALL_TOOLS:
+            raise ValueError(
+                f"cannot adopt MCP tool(s) {sorted(names)} from {server_name!r}: "
+                "planner_tools is '*', so every tool is also attached to the "
+                "planner; list only the independent tools under planner_tools "
+                "and adopt the coordinated ones"
+            )
+        overlap = sorted(set(names) & set(spec.planner_tools or ()))
+        if overlap:
+            raise ValueError(
+                f"cannot adopt MCP tool(s) {overlap} from {server_name!r}: they "
+                "are also attached to the planner by planner_tools"
+            )
         # Fail at toolkit construction, not on the first tool call.
         request_headers(spec)
         remote = {tool.name: tool for tool in list_remote_tools(spec)}
@@ -272,7 +289,7 @@ def _mcp_client() -> tuple[Any, Any]:
     return ClientSession, streamablehttp_client
 
 
-def _call_timeout_s() -> float:
+def call_timeout_s() -> float:
     """Return the response deadline for one MCP request.
 
     The HTTP transport's connect timeout and the SSE idle read timeout do not
@@ -323,7 +340,7 @@ def _run_remote(spec: McpServerSpec, action: Callable[[Any], Awaitable[Any]]) ->
     """
     ClientSession, streamablehttp_client = _mcp_client()
     headers = request_headers(spec) or None
-    timeout = timedelta(seconds=_call_timeout_s())
+    timeout = timedelta(seconds=call_timeout_s())
 
     async def main() -> Any:
         async with streamablehttp_client(spec.url, headers=headers) as (

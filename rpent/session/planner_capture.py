@@ -17,8 +17,9 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import AsyncIterator, Iterator
+from collections.abc import AsyncIterator, Iterator, Mapping
 from contextlib import asynccontextmanager, contextmanager
+from dataclasses import asdict
 from datetime import datetime, timezone
 from importlib.metadata import version
 from typing import TYPE_CHECKING, Any
@@ -34,9 +35,11 @@ from pydantic_core import to_jsonable_python
 from rpent.session import EnvState, MissingInfo, Payload
 from rpent.session.env_capture import ToolCallCapture
 from rpent.utils.logging import get_logger
+from rpent.utils.mcp_servers import public_spec
 
 if TYPE_CHECKING:
     from rpent.planner.base import PlannerResult
+    from rpent.robots.robot_spec import RunConfig
 
 logger = get_logger("task_capture")
 
@@ -59,6 +62,25 @@ def start_planner_task(
         ),
     )
     return state
+
+
+def task_config_snapshot(
+    arguments: Mapping[str, Any], run_config: "RunConfig"
+) -> dict[str, Any]:
+    """Build the task record's config payload for one run.
+
+    The payload is written to ``task.json`` and the Dashboard task record, so
+    MCP header values are replaced with a placeholder: a site config resolves
+    ``${oc.env:...}`` in ``headers`` at load time, and the result may be a
+    credential. Header names, URLs, and ``planner_tools`` are kept.
+    """
+    config = dict(arguments)
+    config["site_mcp_servers"] = [
+        public_spec(spec) for spec in config.get("site_mcp_servers", ())
+    ]
+    run = asdict(run_config)
+    run["mcp_servers"] = [public_spec(spec) for spec in run_config.mcp_servers]
+    return {"arguments": config, "run": run}
 
 
 def end_planner_task(

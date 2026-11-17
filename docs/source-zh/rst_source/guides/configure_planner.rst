@@ -257,7 +257,7 @@ RPent 的 ``--model`` 必须与 vLLM 的 ``--served-model-name`` 保持一致。
 ~~~~~~~~
 
 - **Env/robot 层。** 执行循环必须与之协调的设备——安全联锁、状态会改变运动限制的充电底座、电池或任务调度、影响相机曝光的照明——应成为 Toolkit 的一等工具。robot 通过 :meth:`~rpent.tools.toolkit.Toolkit.add_mcp_tools` 采纳这些工具；它们随后成为普通 Toolkit 工具，``claude_code`` 和 ``codex`` 将其显示为 ``mcp__rpent__<name>``，``api`` 则直接使用工具自身的名称。它们会记录观测，并按照服务返回的 ``readOnlyHint`` 被标为 ``readonly``。采纳的调用是同步执行的，会一直占用 Toolkit 的操作槽，直到调用返回或请求时限到期（默认 60 秒，见下文）；只有 ``image/png`` 结果会以原生图片形式到达规划器。参见 :ref:`add-robot-toolkit`。
-- **规划器层。** 无需协调的独立工具——装饰性照明、与任务无关的站点插座或电子设备——直接挂到所选规划器上。同一个服务可以同时服务两层：按工具边界拆分，把需要协调的工具采纳进 Toolkit，其余工具列入 ``planner_tools``。
+- **规划器层。** 无需协调的独立工具——装饰性照明、与任务无关的站点插座或电子设备——直接挂到所选规划器上。同一个服务可以同时服务两层：按工具边界拆分，把需要协调的工具采纳进 Toolkit，其余工具列入 ``planner_tools``。同一个工具只能属于一层：采纳一个同时被 ``planner_tools`` 挂载的工具会在构建 Toolkit 时被拒绝，否则模型可以绕过 Toolkit 直接调用它。
 
 两层都只接受 Streamable HTTP 服务，不支持 stdio 服务（``command``）。
 
@@ -295,9 +295,9 @@ CLI 会把站点服务合并进每次运行，对所有 robot 生效，无需改
 
 所有在线规划器（``api``、``claude_code``、``codex``）都会接入声明了 ``planner_tools`` 的服务。服务名会成为工具的命名空间：``claude_code`` 和 ``codex`` 将工具显示为 ``mcp__<server>__<tool>``；``api`` 规划器显示为 ``<server>_<tool>``。服务名必须以字母或数字开头，其余字符可以是字母、数字、``_``、``-``，且不能包含 ``__`` （命名空间分隔符）；它也不能是 ``rpent``——该名字保留给 RPent 自身的 toolkit 服务。
 
-声明过的服务是这次运行的一部分，而不是可选项：``api``、``claude_code`` 和 ``codex`` 会在第一次模型请求之前连接每个规划器层服务；某个服务不可达或 ``env_http_headers`` 中引用的环境变量未设置时，本回合会以规划器错误结束，而不会带着剩余服务继续。与 RPent 工具重名的远程工具，也会在规划器首次运行时以同样的方式报错。运行缺了也能活的可选设施服务，就不要放进 ``planner_tools``。``gemini_cli`` 暂不接入规划器层服务：带 ``planner_tools`` 的服务会让本回合以规划器错误结束，而不是在缺少已向模型承诺的工具的情况下继续运行。
+声明过的服务是这次运行的一部分，而不是可选项：``api``、``claude_code`` 和 ``codex`` 会在第一次模型请求之前连接每个规划器层服务；某个服务不可达、``env_http_headers`` 中引用的环境变量未设置，或 ``planner_tools`` 中的某个工具名并未被服务暴露时，本回合会以规划器错误结束，而不会带着剩余服务继续。与 RPent 工具重名的远程工具，也会在规划器首次运行时以同样的方式报错。运行缺了也能活的可选设施服务，就不要放进 ``planner_tools``。``gemini_cli`` 暂不接入规划器层服务：带 ``planner_tools`` 的服务会让本回合以规划器错误结束，而不是在缺少已向模型承诺的工具的情况下继续运行。
 
-每个 MCP 请求（``initialize``、``tools/list``、``tools/call``）默认有 60 秒的响应时限；用 ``MCP_CALL_TIMEOUT_S`` （单位：秒）可以修改。取消时等待正在调用的采纳工具，也以该时限为上界。
+在 RPent 进程内发出的 MCP 请求——采纳进 Toolkit 的工具、上述启动预检，以及 ``api`` 规划器的服务连接——默认有 60 秒的响应时限；用 ``MCP_CALL_TIMEOUT_S`` （单位：秒）可以修改。取消时等待正在调用的采纳工具，也以该时限为上界。``claude_code`` 和 ``codex`` 由各自的 CLI 子进程连接规划器层服务，这些调用遵循 CLI 自身的超时。启动预检在 ``--planner-timeout-s`` 开始计时之前执行，因此不可达的服务会先占用最多一个 MCP 时限。
 
 ``api`` 规划器通过 Pydantic AI 的 MCP 客户端接入 MCP 服务，该客户端由 ``pydantic-ai-slim[mcp]`` extra 安装，RPent 默认列出该 extra。未接入任何 MCP 服务的运行不会加载它。
 

@@ -362,7 +362,9 @@ Two layers
   lighting, unrelated site outlets or electronics — attach directly to the
   selected planner. A single server may serve both layers: split it at the tool
   boundary, adopting the tools that need coordination and listing the rest
-  under ``planner_tools``.
+  under ``planner_tools``. A tool belongs to exactly one layer: adopting a tool
+  that ``planner_tools`` also attaches is rejected when the toolkit is built,
+  because the model could otherwise call it out of band.
 
 Both layers accept only Streamable HTTP servers; stdio servers (``command``)
 are not supported.
@@ -435,19 +437,23 @@ which is reserved for RPent's own toolkit server.
 
 A declared server is part of the run, not an optional extra. ``api``,
 ``claude_code``, and ``codex`` contact every planner-layer server before the
-first model request; if one is unreachable or a variable named in its
-``env_http_headers`` is unset, the episode ends with a planner error instead of
-continuing with the remaining servers. A remote tool that still collides with
-an RPent tool name is reported the same way when the planner first runs. Keep
-facility servers that a run can survive without out of ``planner_tools``.
-``gemini_cli`` does not attach planner-layer servers: a server with
-``planner_tools`` ends the run with a planner error instead of running without
-the tools it promised the model.
+first model request; if one is unreachable, a variable named in its
+``env_http_headers`` is unset, or a tool named in ``planner_tools`` is not
+exposed, the episode ends with a planner error instead of continuing with the
+remaining servers. A remote tool that still collides with an RPent tool name is
+reported the same way when the planner first runs. Keep facility servers that a
+run can survive without out of ``planner_tools``. ``gemini_cli`` does not
+attach planner-layer servers: a server with ``planner_tools`` ends the run with
+a planner error instead of running without the tools it promised the model.
 
-Every MCP request — ``initialize``, ``tools/list``, and ``tools/call`` — has a
+MCP requests made inside the RPent process — adopted Toolkit tools, the
+preflight above, and the ``api`` planner's server connections — have a
 60-second response deadline by default; set ``MCP_CALL_TIMEOUT_S`` (in seconds)
-to change it. The deadline also bounds how long cancellation waits for an
-adopted tool that is mid-call.
+to change it. The deadline also bounds how long cancellation waits for
+an adopted tool that is mid-call. ``claude_code`` and ``codex`` reach
+planner-layer servers from their own CLI processes, so those calls follow the
+CLIs' timeouts instead. The preflight runs before ``--planner-timeout-s`` starts
+counting, so an unreachable server can add up to the MCP deadline first.
 
 The ``api`` planner attaches MCP servers through Pydantic AI's MCP client,
 installed by the ``pydantic-ai-slim[mcp]`` extra, which RPent lists by default.
