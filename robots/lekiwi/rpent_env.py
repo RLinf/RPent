@@ -78,9 +78,9 @@ class RPentLeKiwiEnv(LeKiwiDriveEnv):
         )
         self.robot.connect()
 
-    def _get_observation(self) -> dict[str, Any]:
+    def _get_observation(self, reading: dict[str, Any] | None = None) -> dict[str, Any]:
         sampled_at, sampled_monotonic = time.time(), time.monotonic()
-        observation = super()._get_observation()
+        observation = super()._get_observation(reading)
         self._velocity_sample = {
             "velocity": np.asarray(observation["state"]["velocity"]).tolist(),
             "sampled_at": sampled_at,

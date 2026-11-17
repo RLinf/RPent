@@ -75,6 +75,43 @@ def test_runtime_declares_local_rlinf_hardware(monkeypatch):
     assert Camera.backend(info.camera_type) is not None
 
 
+def test_environment_step_preserves_velocity_before_stop():
+    import gymnasium as gym
+
+    from robots.lekiwi.rpent_env import RPentLeKiwiEnv
+
+    velocity = np.array([0.05, 0.0, 2.0], dtype=np.float32)
+    stopped = False
+
+    def stop():
+        nonlocal stopped
+        stopped = True
+
+    def read_state():
+        return {"base": {"velocity": np.zeros(3) if stopped else velocity.copy()}}
+
+    env = RPentLeKiwiEnv.__new__(RPentLeKiwiEnv)
+    env.config = SimpleNamespace(is_dummy=False, step_frequency=1000, max_num_steps=10)
+    env.action_space = gym.spaces.Box(-10.0, 10.0, (3,), dtype=np.float32)
+    env.observation_space = gym.spaces.Dict(
+        {"state": gym.spaces.Dict({"velocity": env.action_space})}
+    )
+    env._base_observation_space = env.observation_space
+    env._num_steps = 0
+    env.robot = SimpleNamespace(send_action=Mock())
+    env._state_parts = SimpleNamespace(get_observation=read_state)
+    env._base = SimpleNamespace(reset=stop)
+
+    observation, _, _, _, _ = env.step(np.zeros(3, dtype=np.float32))
+
+    assert stopped
+    np.testing.assert_array_equal(observation["state"]["velocity"], velocity)
+    np.testing.assert_array_equal(env.get_velocity_sample()["velocity"], velocity)
+    resting, _ = env.reset()
+    np.testing.assert_array_equal(resting["state"]["velocity"], np.zeros(3))
+    np.testing.assert_array_equal(env.get_velocity_sample()["velocity"], np.zeros(3))
+
+
 def test_stereo_rpc_recovers_after_missing_and_stale_frames(camera):
     from robots.lekiwi.env_server import LeKiwiEnvBackend
 
