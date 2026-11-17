@@ -8,8 +8,11 @@ at image pixels, segment objects or measure their parts using recorded RGB-D
 observations.
 
 For example, if the planner selects a pixel on the side of a cup,
-``back_project`` can return the 3D coordinates of that surface point. With
-sufficient observations, ``geometry`` can fit the rim to find its center and
+``back_project`` can return the 3D coordinates of that surface point.
+Given that pixel or the description "white cup", ``segment`` can return a
+candidate mask for the cup's visible region. The planner can inspect the
+overlay to check whether the mask covers the intended cup.
+With sufficient observations, ``geometry`` can fit the rim to find its center and
 radius, or estimate the cup's height from its rim and base centers. The
 ``world_frame_id`` in the result identifies the world frame for the surface
 point and the rim center. The coordinate components, rim radius and cup height
@@ -39,11 +42,16 @@ the latest record. When selecting a pixel on a preview, use the preview's
      - A target description in ``query``. Request a surface point, a visible region or a set of fitted quantities in ``required_geometry``.
      - The tool selects pixels, verifies the target and checks other available views from the same step when needed. Only accepted fits include a value.
 
-Use the tools in LIBERO
------------------------
+Use the tools in a simulator
+----------------------------
 
-LIBERO is the first adapter. Its API planner enables ``back_project`` and
-``segment`` with SAM3 by default. For ``geometry``, set ``MOLMO_ENDPOINT`` to a
+LIBERO
+~~~~~~
+
+For the requested camera (``agentview`` or ``wrist``) and step, LIBERO's
+adapter loads the RGB image, world XYZ map and calibration. Its API planner
+exposes ``back_project`` and SAM3-backed ``segment`` by default. To enable
+``geometry``, set ``MOLMO_ENDPOINT`` to a
 running local Molmo service and add ``--geometry --molmo-endpoint "$MOLMO_ENDPOINT"``
 to the :doc:`LIBERO run command <../simulators/libero>`.
 
@@ -62,17 +70,23 @@ can be estimated but one fails a quality check, ``warning`` includes only the
 accepted value. If neither passes, ``insufficient_evidence`` lets the planner
 choose another action.
 
-Register tools for a robot
---------------------------
+Integrate the tools on a real robot
+-----------------------------------
 
-The robot's observation adapter implements ``get_observation(camera=..., step=...)``
-to return the RGB image for that camera and step along with its 3D data in a
-single ``toolkits.observation.GeometryObservation``. The adapter can supply an
+Observation adapters and tool registration
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+For a simulator or a real robot, implement ``get_observation(camera=..., step=...)``
+on the platform's observation adapter. The method returns a
+``toolkits.observation.GeometryObservation`` containing the RGB image and its
+3D data for that camera and step. The adapter can supply an
 aligned world XYZ map giving each pixel's surface coordinates in metres, or an
 aligned optical-axis depth map in metres together with the camera intrinsics
 and the camera-to-world transform.
 
-Measuring a named target also requires the camera pose and world up direction.
+To filter ``back_project`` samples by height, supply the world up direction
+(``up_direction``). To measure a named target with ``geometry``, supply both
+``up_direction`` and the camera pose (``camera_to_world``).
 If the robot has multiple calibrated cameras, the adapter can implement
 ``additional_observations(primary)`` to return other views from the same step
 in the same world frame.
