@@ -31,9 +31,11 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import os
 import threading
 from collections.abc import Awaitable, Callable, Mapping, Sequence
-from typing import Any, Literal
+from datetime import timedelta
+from typing import Any, Literal, Optional, Union
 
 from pydantic import BaseModel, ConfigDict, create_model
 
@@ -47,6 +49,10 @@ logger = get_logger("mcp_tools")
 #: Marks an optional argument the model did not send, so it is not forwarded
 #: to the remote server as an explicit ``null``.
 _OMITTED = object()
+
+#: Default response deadline for one MCP request. The environment variable
+#: ``MCP_CALL_TIMEOUT_S`` overrides it.
+DEFAULT_CALL_TIMEOUT_S = 60.0
 
 _JSON_TYPES: dict[str, Any] = {
     "string": str,
@@ -106,7 +112,7 @@ def register_mcp_tools(
         spec = by_name[server_name]
         # Fail at toolkit construction, not on the first tool call.
         request_headers(spec)
-        remote = {tool.name: tool for tool in _list_remote_tools(spec)}
+        remote = {tool.name: tool for tool in list_remote_tools(spec)}
         missing = [name for name in names if name not in remote]
         if missing:
             raise ValueError(
@@ -141,7 +147,14 @@ def _adopted_tool(spec: McpServerSpec, tool: Any) -> Tool:
 
 
 def _args_model(name: str, schema: dict[str, Any]) -> type[BaseModel]:
-    """Build the validator Toolkit applies to the remote tool's arguments."""
+    """Build the validator Toolkit applies to the remote tool's arguments.
+
+    The remote ``inputSchema`` stays authoritative: this model only rejects
+    what the schema rejects. Additional properties are accepted unless the
+    schema sets ``additionalProperties: false``, nullable and multi-type
+    properties keep every type the schema allows, and nested shapes stay
+    permissive.
+    """
     required = set(schema.get("required") or ())
     fields = {
         prop: (
@@ -150,9 +163,10 @@ def _args_model(name: str, schema: dict[str, Any]) -> type[BaseModel]:
         )
         for prop, prop_schema in (schema.get("properties") or {}).items()
     }
+    extra = "forbid" if schema.get("additionalProperties") is False else "allow"
     return create_model(
         f"{name}Args",
-        __config__=ConfigDict(extra="forbid", allow_inf_nan=False),
+        __config__=ConfigDict(extra=extra, allow_inf_nan=False),
         **fields,
     )
 
@@ -160,8 +174,10 @@ def _args_model(name: str, schema: dict[str, Any]) -> type[BaseModel]:
 def _argument_annotation(schema: Any) -> Any:
     """Map a JSON-Schema property onto the annotation Toolkit validates.
 
-    Nested shapes stay permissive: the remote server owns their validation,
-    and the model already sees the original schema.
+    ``null`` becomes ``Optional`` and a ``type`` list becomes a ``Union`` so
+    arguments the remote schema allows are not rejected locally. Nested shapes
+    stay permissive: the remote server owns their validation, and the model
+    already sees the original schema.
     """
     if not isinstance(schema, dict):
         return Any
@@ -169,7 +185,17 @@ def _argument_annotation(schema: Any) -> Any:
         return Literal[tuple(schema["enum"])]
     kind = schema.get("type")
     if isinstance(kind, list):
-        kind = next((item for item in kind if item != "null"), None)
+        kinds = [item for item in kind if item != "null"]
+        if not kinds:
+            return Any
+        annotations = tuple(_kind_annotation(item, schema) for item in kinds)
+        annotation = annotations[0] if len(annotations) == 1 else Union[annotations]
+        return Optional[annotation] if len(kinds) != len(kind) else annotation
+    return _kind_annotation(kind, schema)
+
+
+def _kind_annotation(kind: Any, schema: dict[str, Any]) -> Any:
+    """Map one JSON-Schema ``type`` value onto a Python annotation."""
     if kind == "array":
         return list[_argument_annotation(schema.get("items"))]
     if kind == "object":
@@ -199,11 +225,26 @@ def _make_handler(spec: McpServerSpec, name: str) -> Callable[..., ToolResult]:
     return handler
 
 
-def _list_remote_tools(spec: McpServerSpec) -> list[Any]:
-    """Fetch one server's tool descriptors."""
+def list_remote_tools(spec: McpServerSpec) -> list[Any]:
+    """Fetch every tool descriptor a server exposes, following pagination.
+
+    ``tools/list`` returns one page per request; the SDK does not follow
+    ``nextCursor`` for the caller. Adoption and the planner-layer preflight
+    both need the complete list, so a tool on a later page must not be
+    reported as missing.
+    """
 
     async def list_tools(session: Any) -> list[Any]:
-        return list((await session.list_tools()).tools)
+        tools: list[Any] = []
+        cursor: str | None = None
+        seen: set[str] = set()
+        while True:
+            page = await session.list_tools(cursor=cursor)
+            tools.extend(page.tools)
+            cursor = page.nextCursor
+            if not cursor or cursor in seen:
+                return tools
+            seen.add(cursor)
 
     return _run_remote(spec, list_tools)
 
@@ -218,11 +259,52 @@ def _call_remote_tool(spec: McpServerSpec, name: str, arguments: dict[str, Any])
 
 
 def _mcp_client() -> tuple[Any, Any]:
-    """Import the optional MCP client lazily."""
+    """Import the optional MCP client lazily.
+
+    ``streamablehttp_client`` is the SDK's deprecated spelling; its
+    replacement, ``streamable_http_client``, takes headers only through a
+    pre-built ``httpx.AsyncClient`` and drops ``sse_read_timeout``, so the
+    idle-event-stream guard would need a hand-rolled client here.
+    """
     from mcp import ClientSession
     from mcp.client.streamable_http import streamablehttp_client
 
     return ClientSession, streamablehttp_client
+
+
+def _call_timeout_s() -> float:
+    """Return the response deadline for one MCP request.
+
+    The HTTP transport's connect timeout and the SSE idle read timeout do not
+    bound a request: a server that keeps sending keep-alives, or that ends the
+    event stream without an event id, leaves the pending request open forever.
+    The session deadline is what makes cancellation and cleanup terminate.
+    """
+    raw = os.environ.get("MCP_CALL_TIMEOUT_S")
+    if raw is None:
+        return DEFAULT_CALL_TIMEOUT_S
+    try:
+        timeout_s = float(raw)
+    except ValueError as exc:
+        raise ValueError(
+            f"MCP_CALL_TIMEOUT_S must be a number of seconds, got {raw!r}"
+        ) from exc
+    if timeout_s <= 0:
+        raise ValueError(f"MCP_CALL_TIMEOUT_S must be positive, got {timeout_s}")
+    return timeout_s
+
+
+def _leaf_error(exc: BaseException) -> BaseException:
+    """Return the single exception wrapped by transport task groups.
+
+    Closing the SDK's transport after a failed request wraps the real error in
+    nested ``ExceptionGroup``s. Unwrapping a single-cause group keeps the
+    message the model and the planner error report show (a timeout, a refused
+    connection) instead of ``unhandled errors in a TaskGroup``.
+    """
+    while isinstance(exc, BaseExceptionGroup) and len(exc.exceptions) == 1:
+        exc = exc.exceptions[0]
+    return exc
 
 
 def _run_remote(spec: McpServerSpec, action: Callable[[Any], Awaitable[Any]]) -> Any:
@@ -232,12 +314,16 @@ def _run_remote(spec: McpServerSpec, action: Callable[[Any], Awaitable[Any]]) ->
     safe. If a handler is ever invoked from a thread that already owns a loop,
     the action runs on a short-lived helper thread instead of failing.
 
-    Each call opens its own session. A server that accepts the connection but
-    never answers is bounded by the MCP client's request and SSE read
-    timeouts (30 and 300 seconds by default), not by a separate RPent timeout.
+    Each call opens its own session and bounds every request — ``initialize``,
+    ``tools/list``, and ``tools/call`` — by ``MCP_CALL_TIMEOUT_S`` (60 seconds
+    by default). Toolkit cancellation is cooperative and the handler has no
+    checkpoint while the remote call is in flight, so this deadline is also
+    the bound on how long ``Toolkit.cancel_active_and_wait`` waits for an
+    adopted tool.
     """
     ClientSession, streamablehttp_client = _mcp_client()
     headers = request_headers(spec) or None
+    timeout = timedelta(seconds=_call_timeout_s())
 
     async def main() -> Any:
         async with streamablehttp_client(spec.url, headers=headers) as (
@@ -245,12 +331,17 @@ def _run_remote(spec: McpServerSpec, action: Callable[[Any], Awaitable[Any]]) ->
             write,
             _,
         ):
-            async with ClientSession(read, write) as session:
+            async with ClientSession(
+                read, write, read_timeout_seconds=timeout
+            ) as session:
                 await session.initialize()
                 return await action(session)
 
     def run() -> Any:
-        return asyncio.run(main())
+        try:
+            return asyncio.run(main())
+        except BaseExceptionGroup as exc:
+            raise _leaf_error(exc) from None
 
     try:
         asyncio.get_running_loop()

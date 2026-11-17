@@ -24,6 +24,7 @@ from pydantic_ai.models import ModelRequestParameters
 from rpent.planner.base import (
     add_mcp_prefix,
     build_api_model,
+    check_planner_mcp_servers,
     display_tool_name,
     strip_mcp_prefix,
 )
@@ -134,3 +135,91 @@ def test_display_tool_name_shortens_mcp_names() -> None:
     assert display_tool_name("Read") == "Read"
     # Non-MCP names, including pydantic-ai's ``<server>_<tool>``, pass through.
     assert display_tool_name("web_search") == "web_search"
+
+
+def test_check_planner_mcp_servers_skips_the_toolkit_layer(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from rpent.tools import mcp_tools
+    from rpent.utils.mcp_servers import McpServerSpec
+
+    def unreachable(spec):
+        raise ConnectionError("connection refused")
+
+    monkeypatch.setattr(mcp_tools, "list_remote_tools", unreachable)
+
+    # A server reserved for the robot's Env/Toolkit layer is not attached to
+    # the planner, so a planner-side connection failure is not this run's.
+    assert (
+        check_planner_mcp_servers(
+            (McpServerSpec(name="dock", url="https://dock.example/mcp"),)
+        )
+        is None
+    )
+
+
+def test_check_planner_mcp_servers_names_the_first_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from rpent.tools import mcp_tools
+    from rpent.utils.mcp_servers import McpServerSpec
+
+    checked: list[str] = []
+
+    def unreachable(spec):
+        checked.append(spec.name)
+        raise ConnectionError("connection refused")
+
+    monkeypatch.setattr(mcp_tools, "list_remote_tools", unreachable)
+
+    error = check_planner_mcp_servers(
+        (
+            McpServerSpec(name="web", url="https://web.example/mcp", planner_tools="*"),
+            McpServerSpec(
+                name="docs", url="https://docs.example/mcp", planner_tools="*"
+            ),
+        )
+    )
+
+    assert error == ("mcp_servers.web: ConnectionError: connection refused")
+    assert checked == ["web"]
+
+
+def test_check_planner_mcp_servers_resolves_env_headers(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from rpent.utils.mcp_servers import McpServerSpec
+
+    monkeypatch.delenv("FACILITY_TOKEN", raising=False)
+
+    error = check_planner_mcp_servers(
+        (
+            McpServerSpec(
+                name="facility",
+                url="https://facility.example/mcp",
+                env_http_headers={"Authorization": "FACILITY_TOKEN"},
+                planner_tools="*",
+            ),
+        )
+    )
+
+    assert error is not None and "FACILITY_TOKEN" in error
+
+
+def test_check_planner_mcp_servers_reports_a_missing_client(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from rpent.tools import mcp_tools
+    from rpent.utils.mcp_servers import McpServerSpec
+
+    def missing_client(spec):
+        raise ImportError("No module named 'mcp'")
+
+    monkeypatch.setattr(mcp_tools, "list_remote_tools", missing_client)
+
+    error = check_planner_mcp_servers(
+        (McpServerSpec(name="web", url="https://web.example/mcp", planner_tools="*"),)
+    )
+
+    # The install hint, not the bare ImportError, is what the run reports.
+    assert error is not None and "pydantic-ai-slim[mcp]" in error

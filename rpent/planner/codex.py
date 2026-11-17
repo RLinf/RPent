@@ -45,6 +45,7 @@ from rpent.planner.base import (
     REASONING_EFFORTS,
     Planner,
     PlannerResult,
+    check_planner_mcp_servers,
     display_tool_name,
 )
 from rpent.planner.utils.agent_runtime import (
@@ -75,6 +76,11 @@ _SANDBOX_MODES = {
     "workspace-write": openai_codex.Sandbox.workspace_write,
     "full-access": openai_codex.Sandbox.full_access,
 }
+
+#: MCP server name Codex uses for RPent's own toolkit (``mcp_servers.rpent``).
+#: MCP tool items name the server separately from the tool, so completion is
+#: detected by ``(server, tool)``; an external server may declare ``finish``.
+RPENT_MCP_SERVER = "rpent"
 
 
 # ---------------------------------------------------------------------------
@@ -144,6 +150,8 @@ class CodexPlanner(Planner):
             raise ValueError(
                 "input_queue and dashboard_interaction cannot be used together"
             )
+        if error := check_planner_mcp_servers(self._mcp_servers):
+            return PlannerResult(error=error, stop_reason="planner_error")
         try:
             capture_state = toolkit.state
         except RuntimeError:
@@ -482,9 +490,12 @@ class _Recorder:
 
         if _is_tool_item(item):
             self.tool_calls += 1
-            if item_type in {"mcpToolCall", "dynamicToolCall"}:
+            if item_type == "mcpToolCall":
+                server = str(get_field(item, "server", ""))
                 name = display_tool_name(str(get_field(item, "tool", item_type)))
-                self._maybe_capture_finish(name, item)
+                self._maybe_capture_finish(name, item, server=server)
+            elif item_type == "dynamicToolCall":
+                name = display_tool_name(str(get_field(item, "tool", item_type)))
             elif item_type == "commandExecution":
                 name = str(get_field(item, "command", item_type))
             else:
@@ -561,8 +572,12 @@ class _Recorder:
         )
         return True
 
-    def _maybe_capture_finish(self, name: str, item: Any) -> None:
+    def _maybe_capture_finish(self, name: str, item: Any, *, server: str) -> None:
         if self.finish_result is not None:
+            return
+        # An external MCP server may also expose a ``finish`` tool. Only
+        # RPent's own server can complete the episode.
+        if server != RPENT_MCP_SERVER:
             return
         if name.lower() != "finish":
             return
@@ -780,13 +795,18 @@ def _codex_mcp_config_overrides(
 ) -> list[str]:
     config: list[tuple[str, Any]] = []
     if mcp_url:
-        config.append(("mcp_servers.rpent.url", mcp_url))
+        config.append((f"mcp_servers.{RPENT_MCP_SERVER}.url", mcp_url))
         # A restricted sandbox asks for approval before every MCP call, and
         # RPent's policy denies all prompts. The server is the planner's own
         # tool boundary, so approve its tools explicitly. This does not grant
         # shell permissions.
         if sandbox != "full-access":
-            config.append(("mcp_servers.rpent.default_tools_approval_mode", "approve"))
+            config.append(
+                (
+                    f"mcp_servers.{RPENT_MCP_SERVER}.default_tools_approval_mode",
+                    "approve",
+                )
+            )
     from rpent.utils.mcp_servers import ALL_TOOLS
 
     for server in mcp_servers:

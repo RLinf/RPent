@@ -1851,6 +1851,99 @@ def test_external_tool_hook_records_failed_calls() -> None:
     ]
 
 
+def test_unreachable_planner_server_ends_the_run_before_the_model() -> None:
+    from pydantic_ai import ModelResponse
+
+    events = Events()
+    requests = 0
+
+    def model_function(messages, info):
+        nonlocal requests
+        requests += 1
+        return ModelResponse(parts=[TextPart("unused")])
+
+    planner = ApiAgentLoop(
+        model=FunctionModel(model_function),
+        dashboard_events=events,
+        mcp_servers=(
+            # Port 1 refuses connections immediately on every platform.
+            McpServerSpec(
+                name="facility", url="http://127.0.0.1:1/mcp", planner_tools="*"
+            ),
+        ),
+    )
+
+    result = planner.solve(
+        system_prompt="Use the robot toolkit. Finish when done.",
+        user_message="Do the task.",
+        toolkit=RobotToolkit(events),
+        max_turns=2,
+    )
+
+    assert result.stop_reason == "planner_error"
+    assert result.error is not None and "mcp_servers.facility" in result.error
+    # The episode must not run without the tools the site declared.
+    assert requests == 0
+
+
+def test_external_tool_capture_records_the_call_as_completed(tmp_path) -> None:
+    from rpent.memory.manager import MemoryManager
+    from rpent.planner.utils.http_mcp_server import HttpMcpServer
+    from rpent.tools import Toolkit
+    from rpent.tools import ToolResult as Result
+    from rpent.utils.logging import init_output_dir
+
+    init_output_dir(tmp_path / "log")
+    events = Events()
+    state = EnvState(tmp_path / "state")
+    state.start_task(instruction="Do the task.", config=Payload("test", {}))
+    toolkit = RobotToolkit(events, state=state)
+    server_toolkit = Toolkit(
+        dashboard_events=events, memory=MemoryManager(tmp_path / "memory")
+    )
+
+    @declare_tool(readonly=True)
+    def lookup(q: str) -> Result:
+        return Result(data={"q": q, "hits": 1})
+
+    server_toolkit.add_tool(lookup)
+    server = HttpMcpServer(server_toolkit)
+
+    async def stream(messages, info):
+        if len(messages) == 1:
+            yield {
+                0: DeltaToolCall(name="web_lookup", json_args=json.dumps({"q": "x"}))
+            }
+        else:
+            yield finish()
+
+    url = server.start()
+    try:
+        planner = ApiAgentLoop(
+            model=FunctionModel(stream_function=stream),
+            dashboard_events=events,
+            mcp_servers=(McpServerSpec(name="web", url=url, planner_tools="*"),),
+        )
+        result = planner.solve(
+            system_prompt="Use the robot toolkit. Finish when done.",
+            user_message="Do the task.",
+            toolkit=toolkit,
+            max_turns=4,
+        )
+    finally:
+        server.stop()
+        toolkit.close()
+        server_toolkit.close()
+
+    assert result.error is None, result.error
+    call = state.planner_records()[0].tool_calls[0]
+    assert call.name == "web_lookup"
+    # Toolkit starts and finishes local calls; an external call that never
+    # starts would settle as not_executed despite the server having answered.
+    assert call.status == "completed" and call.started_at is not None
+    assert call.raw_result.format == "mcp.tool_result"
+
+
 def test_external_result_text_renders_result_shapes() -> None:
     assert _external_result_text("hi") == "hi"
     assert _external_result_text({"a": 1}) == '{"a": 1}'

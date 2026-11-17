@@ -354,8 +354,9 @@ Two layers
   ``mcp__rpent__<name>``, while ``api`` calls them by their own names. They
   capture observations and honor the ``readonly`` marker derived from the
   server's ``readOnlyHint``. An adopted call runs synchronously, so it holds the
-  Toolkit's operation slot until it returns or the MCP client's request timeout
-  expires, and only ``image/png`` results reach the planners as native images.
+  Toolkit's operation slot until it returns or the request deadline expires (60
+  seconds by default; see below), and only ``image/png`` results reach the
+  planners as native images.
   See :ref:`add-robot-toolkit`.
 - **Planner layer.** Independent tools that need no coordination — decorative
   lighting, unrelated site outlets or electronics — attach directly to the
@@ -384,6 +385,9 @@ declare them in a shared YAML and pass it with ``--site-config``:
        url: https://docs.example.com/mcp
        planner_tools: "*"
 
+The server and tool names above are illustrative; declare the services your
+site actually runs.
+
 .. code-block:: bash
 
    rpent --robot myrobot --site-config /path/to/site.yaml --planner claude_code ...
@@ -406,9 +410,10 @@ Fields:
   and ``codex`` pass these values on the child process command line, where
   other local users can read them; keep credentials in ``env_http_headers``.
 - ``env_http_headers`` — optional mapping of header name to environment
-  variable name. Values are resolved when a request is made. ``codex`` receives
-  the mapping itself, and ``claude_code`` passes ``${VAR}`` for the CLI to
-  expand, so the secret never appears on a child process command line. A
+  variable name. Values are resolved when a request is made and sent verbatim:
+  for a bearer token, the variable itself must hold ``Bearer <token>``. ``codex``
+  receives the mapping itself, and ``claude_code`` passes ``${VAR}`` for the CLI
+  to expand, so the secret never appears on a child process command line. A
   header cannot appear in both ``headers`` and ``env_http_headers``.
 - ``planner_tools`` — ``"*"`` admits every tool the server exposes; a list of
   names admits only those tools; omit it to keep the server out of the planner
@@ -428,11 +433,21 @@ letter or digit, may otherwise contain letters, digits, ``_``, and ``-``, and
 must not contain ``__`` (the namespace separator). It cannot be ``rpent``,
 which is reserved for RPent's own toolkit server.
 
-A declared server is part of the run, not an optional extra: if one is
-unreachable, a variable named in its ``env_http_headers`` is unset, or one of
-its tools collides with an RPent tool name, the episode ends with a planner
-error instead of continuing with the remaining servers. Keep facility servers
-that a run can survive without out of ``planner_tools``.
+A declared server is part of the run, not an optional extra. ``api``,
+``claude_code``, and ``codex`` contact every planner-layer server before the
+first model request; if one is unreachable or a variable named in its
+``env_http_headers`` is unset, the episode ends with a planner error instead of
+continuing with the remaining servers. A remote tool that still collides with
+an RPent tool name is reported the same way when the planner first runs. Keep
+facility servers that a run can survive without out of ``planner_tools``.
+``gemini_cli`` does not attach planner-layer servers: a server with
+``planner_tools`` ends the run with a planner error instead of running without
+the tools it promised the model.
+
+Every MCP request — ``initialize``, ``tools/list``, and ``tools/call`` — has a
+60-second response deadline by default; set ``MCP_CALL_TIMEOUT_S`` (in seconds)
+to change it. The deadline also bounds how long cancellation waits for an
+adopted tool that is mid-call.
 
 The ``api`` planner attaches MCP servers through Pydantic AI's MCP client,
 installed by the ``pydantic-ai-slim[mcp]`` extra, which RPent lists by default.

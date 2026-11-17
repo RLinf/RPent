@@ -74,6 +74,7 @@ from rpent.planner.base import (
     PlannerResult,
     _wait_for_cleanup,
     cancel_and_wait,
+    check_planner_mcp_servers,
     execute_tool,
 )
 from rpent.prompt.api import API_PLANNER_INSTRUCTIONS, render_environment_context
@@ -144,6 +145,8 @@ class ApiAgentLoop(Planner):
             raise ValueError("api does not use RPent's terminal input queue")
         if self.interactive and dashboard_interaction is not None:
             raise ValueError("clai and Dashboard cannot run together")
+        if error := check_planner_mcp_servers(self.mcp_servers):
+            return PlannerResult(error=error, stop_reason="planner_error")
         return asyncio.run(
             self._solve(
                 system_prompt,
@@ -593,18 +596,37 @@ class _HarnessToolkit(FunctionToolset):
             args: dict[str, Any],
         ) -> Any:
             tool = f"{server}_{name}"
-            self._record_call(tool, args, ctx)
-            try:
-                result = await call_tool(name, args)
-            except Exception as exc:
-                # Keep tool_call/tool_result paired even when the remote fails;
-                # pydantic-ai converts the exception into a retry for the model.
-                self._record_result(
-                    tool, ctx, json.dumps({"error": f"{type(exc).__name__}: {exc}"})
-                )
-                raise
-            self._record_result(tool, ctx, _external_result_text(result))
-            return _omit_external_images(result) if self.no_images else result
+            scope = self.capture.tool(ctx) if self.capture else nullcontext()
+            with scope as call:
+                self._record_call(tool, args, ctx)
+                if call is not None:
+                    # External calls do not pass through Toolkit, which starts
+                    # and finishes the capture for local tools; record them in
+                    # the same lifecycle so a successful call is not settled as
+                    # an undispatched one.
+                    call.start()
+                try:
+                    result = await call_tool(name, args)
+                except Exception as exc:
+                    # Keep tool_call/tool_result paired even when the remote
+                    # fails; pydantic-ai converts the exception into a retry.
+                    text = json.dumps({"error": f"{type(exc).__name__}: {exc}"})
+                    self._record_result(tool, ctx, text)
+                    if call is not None:
+                        call.finish("failed", text)
+                    if self.capture is not None:
+                        self.capture.feedback(
+                            ctx, "pydantic_ai.model_retry", {"message": text}
+                        )
+                    raise
+                text = _external_result_text(result)
+                if call is not None:
+                    call.result(sdk_payload("mcp.tool_result", text))
+                    call.finish("completed")
+                self._record_result(tool, ctx, text)
+                if self.capture is not None:
+                    self.capture.feedback(ctx, "mcp.tool_result", text)
+                return _omit_external_images(result) if self.no_images else result
 
         return hook
 

@@ -48,6 +48,7 @@ from rpent.planner.base import (
     _wait_for_cleanup,
     add_mcp_prefix,
     cancel_and_wait,
+    check_planner_mcp_servers,
     display_tool_name,
     execute_tool,
 )
@@ -124,6 +125,8 @@ class ClaudeCodePlanner(Planner):
             raise ValueError(
                 "input_queue and dashboard_interaction cannot be used together"
             )
+        if error := check_planner_mcp_servers(self._mcp_servers):
+            return PlannerResult(error=error, stop_reason="planner_error")
         prompt = f"{system_prompt}\n\n{user_message}" if system_prompt else user_message
         return asyncio.run(
             self._solve_async(

@@ -279,6 +279,42 @@ def build_api_model(model: str | None, base_url: str | None = None) -> "Model":
     return infer_model(model, provider_factory=_provider_factory)
 
 
+def check_planner_mcp_servers(
+    mcp_servers: tuple["McpServerSpec", ...],
+) -> str | None:
+    """Return an error message when a planner-layer server cannot be reached.
+
+    A declared server is part of the run: the episode must end with a planner
+    error instead of continuing without it. Every backend consults this before
+    its first model request, because the SDKs and CLIs differ in how (and
+    whether) they report a failed MCP connection. The check also resolves
+    ``env_http_headers``, so an unset variable fails here.
+
+    Args:
+        mcp_servers: Servers available to this run.
+
+    Returns:
+        ``None`` when every planner-layer server answered, otherwise a message
+        naming the first one that did not.
+    """
+    from rpent.tools.mcp_tools import list_remote_tools
+
+    for spec in mcp_servers:
+        if spec.planner_tools is None:
+            continue
+        try:
+            list_remote_tools(spec)
+        except ImportError as exc:
+            return (
+                "attaching external MCP servers requires the MCP client; "
+                'install it with `pip install "pydantic-ai-slim[mcp]"`: '
+                f"{exc}"
+            )
+        except Exception as exc:  # noqa: BLE001 - reported, not raised
+            return f"mcp_servers.{spec.name}: {type(exc).__name__}: {exc}"
+    return None
+
+
 def build_planner(
     planner_type: str,
     *,
@@ -391,6 +427,7 @@ def build_planner(
             output_path=Path(output_dir) / f"gemini_{recipe_tag}.txt",
             dashboard_events=dashboard_events,
             reasoning_effort=reasoning_effort,
+            mcp_servers=planner_servers,
         )
     if planner_type == "flash":
         from rpent.planner.flash import FlashPlanner

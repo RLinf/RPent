@@ -14,15 +14,24 @@
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import json
+import time
+from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
 import pytest
 from mcp import types
 
-from rpent.tools import mcp_tools
+from rpent.dashboard.events import NullDashboardEventSink
+from rpent.memory.manager import MemoryManager
+from rpent.planner.utils.http_mcp_server import HttpMcpServer
+from rpent.session import EnvState, Payload
+from rpent.tools import Toolkit, ToolResult, mcp_tools
+from rpent.tools import tool as declare_tool
+from rpent.utils.logging import init_output_dir
 from rpent.utils.mcp_servers import McpServerSpec
 
 
@@ -71,7 +80,7 @@ def test_registers_named_tools_with_remote_schemas(
         _remote_tool("set_scene", description="Change the lights."),
         _remote_tool("unused"),
     ]
-    monkeypatch.setattr(mcp_tools, "_list_remote_tools", lambda server: remote)
+    monkeypatch.setattr(mcp_tools, "list_remote_tools", lambda server: remote)
     toolkit = FakeToolkit()
 
     registered = mcp_tools.register_mcp_tools(
@@ -91,7 +100,7 @@ def test_read_only_hint_maps_to_the_readonly_marker(
 ) -> None:
     monkeypatch.setattr(
         mcp_tools,
-        "_list_remote_tools",
+        "list_remote_tools",
         lambda server: [
             _remote_tool("get_battery", read_only=True),
             _remote_tool("dock", read_only=False),
@@ -111,7 +120,7 @@ def test_handler_calls_the_remote_tool_and_renders_its_result(
     monkeypatch: pytest.MonkeyPatch, spec: McpServerSpec
 ) -> None:
     monkeypatch.setattr(
-        mcp_tools, "_list_remote_tools", lambda server: [_remote_tool("status")]
+        mcp_tools, "list_remote_tools", lambda server: [_remote_tool("status")]
     )
     calls: list[tuple[str, str, dict[str, Any]]] = []
 
@@ -138,7 +147,7 @@ def test_png_images_become_tool_result_images(
 ) -> None:
     image = b"\x89PNG\r\n\x1a\n"
     monkeypatch.setattr(
-        mcp_tools, "_list_remote_tools", lambda server: [_remote_tool("snapshot")]
+        mcp_tools, "list_remote_tools", lambda server: [_remote_tool("snapshot")]
     )
     monkeypatch.setattr(
         mcp_tools,
@@ -179,7 +188,7 @@ def test_non_png_images_do_not_embed_base64(
         },
     )
     monkeypatch.setattr(
-        mcp_tools, "_list_remote_tools", lambda server: [_remote_tool("snapshot")]
+        mcp_tools, "list_remote_tools", lambda server: [_remote_tool("snapshot")]
     )
     monkeypatch.setattr(
         mcp_tools,
@@ -210,7 +219,7 @@ def test_multiple_png_blocks_all_become_images(
 ) -> None:
     blobs = [b"\x89PNG\r\n\x1a\nfirst", b"\x89PNG\r\n\x1a\nsecond"]
     monkeypatch.setattr(
-        mcp_tools, "_list_remote_tools", lambda server: [_remote_tool("snapshot")]
+        mcp_tools, "list_remote_tools", lambda server: [_remote_tool("snapshot")]
     )
     monkeypatch.setattr(
         mcp_tools,
@@ -241,7 +250,7 @@ def test_invalid_base64_image_keeps_the_text_result(
     monkeypatch: pytest.MonkeyPatch, spec: McpServerSpec
 ) -> None:
     monkeypatch.setattr(
-        mcp_tools, "_list_remote_tools", lambda server: [_remote_tool("snapshot")]
+        mcp_tools, "list_remote_tools", lambda server: [_remote_tool("snapshot")]
     )
     monkeypatch.setattr(
         mcp_tools,
@@ -308,7 +317,7 @@ def test_optional_arguments_are_not_forwarded_as_null(
     }
     monkeypatch.setattr(
         mcp_tools,
-        "_list_remote_tools",
+        "list_remote_tools",
         lambda server: [_remote_tool("status", schema=schema)],
     )
     calls: list[dict[str, Any]] = []
@@ -371,7 +380,7 @@ def test_rejects_unknown_remote_tool(
     monkeypatch: pytest.MonkeyPatch, spec: McpServerSpec
 ) -> None:
     monkeypatch.setattr(
-        mcp_tools, "_list_remote_tools", lambda server: [_remote_tool("status")]
+        mcp_tools, "list_remote_tools", lambda server: [_remote_tool("status")]
     )
 
     with pytest.raises(ValueError, match=r"did not expose tool\(s\) \['dock'\]"):
@@ -384,7 +393,7 @@ def test_rejects_name_already_registered_on_the_toolkit(
     monkeypatch: pytest.MonkeyPatch, spec: McpServerSpec
 ) -> None:
     monkeypatch.setattr(
-        mcp_tools, "_list_remote_tools", lambda server: [_remote_tool("finish")]
+        mcp_tools, "list_remote_tools", lambda server: [_remote_tool("finish")]
     )
     toolkit = FakeToolkit(existing=("finish",))
 
@@ -396,7 +405,7 @@ def test_rejects_the_same_name_from_two_servers(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(
-        mcp_tools, "_list_remote_tools", lambda server: [_remote_tool("status")]
+        mcp_tools, "list_remote_tools", lambda server: [_remote_tool("status")]
     )
 
     with pytest.raises(ValueError, match="already registered"):
@@ -408,3 +417,206 @@ def test_rejects_the_same_name_from_two_servers(
             ),
             tools={"one": ["status"], "two": ["status"]},
         )
+
+
+def test_additional_properties_follow_the_remote_schema() -> None:
+    permissive = mcp_tools._args_model(
+        "status", {"type": "object", "properties": {"detail": {"type": "string"}}}
+    )
+    strict = mcp_tools._args_model(
+        "status",
+        {
+            "type": "object",
+            "properties": {"detail": {"type": "string"}},
+            "additionalProperties": False,
+        },
+    )
+
+    # The remote server stays the authority unless it forbids extra keys.
+    assert permissive.model_validate(
+        {"detail": "high", "bogus": 1}, strict=True
+    ).model_dump(exclude_unset=True) == {"detail": "high", "bogus": 1}
+    with pytest.raises(ValueError):
+        strict.model_validate({"detail": "high", "bogus": 1}, strict=True)
+
+
+@pytest.mark.parametrize(
+    "property_schema, accepted, rejected",
+    [
+        ({"type": ["string", "null"]}, ["high", None], [1]),
+        ({"type": ["integer", "string"]}, [3, "three"], [1.5]),
+        ({"type": "string", "enum": ["low", "high"]}, ["high"], ["medium"]),
+        ({"type": "array", "items": {"type": "string"}}, [["a", "b"]], [[1]]),
+    ],
+)
+def test_argument_types_follow_the_remote_schema(
+    property_schema: dict[str, Any],
+    accepted: list[Any],
+    rejected: list[Any],
+) -> None:
+    args = mcp_tools._args_model(
+        "status",
+        {
+            "type": "object",
+            "properties": {"value": property_schema},
+            "required": ["value"],
+        },
+    )
+
+    for value in accepted:
+        args.model_validate({"value": value}, strict=True)
+    for value in rejected:
+        with pytest.raises(ValueError):
+            args.model_validate({"value": value}, strict=True)
+
+
+def test_tools_list_follows_server_pagination(
+    monkeypatch: pytest.MonkeyPatch, spec: McpServerSpec
+) -> None:
+    pages = {
+        None: SimpleNamespace(tools=[_remote_tool("first")], nextCursor="page-2"),
+        "page-2": SimpleNamespace(tools=[_remote_tool("second")], nextCursor=None),
+    }
+    cursors: list[str | None] = []
+
+    class FakeSession:
+        async def list_tools(self, cursor: str | None = None) -> Any:
+            cursors.append(cursor)
+            return pages[cursor]
+
+    monkeypatch.setattr(
+        mcp_tools,
+        "_run_remote",
+        lambda server, action: asyncio.run(action(FakeSession())),
+    )
+
+    assert [tool.name for tool in mcp_tools.list_remote_tools(spec)] == [
+        "first",
+        "second",
+    ]
+    assert cursors == [None, "page-2"]
+
+
+def test_a_repeated_cursor_ends_pagination(
+    monkeypatch: pytest.MonkeyPatch, spec: McpServerSpec
+) -> None:
+    requests: list[str | None] = []
+
+    class FakeSession:
+        async def list_tools(self, cursor: str | None = None) -> Any:
+            requests.append(cursor)
+            return SimpleNamespace(tools=[_remote_tool("only")], nextCursor="page-2")
+
+    monkeypatch.setattr(
+        mcp_tools,
+        "_run_remote",
+        lambda server, action: asyncio.run(action(FakeSession())),
+    )
+
+    remote = mcp_tools.list_remote_tools(spec)
+
+    # The second page repeats its own cursor; pagination must stop there
+    # instead of requesting it forever.
+    assert [tool.name for tool in remote] == ["only", "only"]
+    assert requests == [None, "page-2"]
+
+
+def test_call_timeout_defaults_to_sixty_seconds(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("MCP_CALL_TIMEOUT_S", raising=False)
+    assert mcp_tools._call_timeout_s() == 60.0
+
+    monkeypatch.setenv("MCP_CALL_TIMEOUT_S", "5")
+    assert mcp_tools._call_timeout_s() == 5.0
+
+
+@pytest.mark.parametrize("raw", ["abc", "0", "-1"])
+def test_call_timeout_rejects_invalid_values(
+    monkeypatch: pytest.MonkeyPatch, raw: str
+) -> None:
+    monkeypatch.setenv("MCP_CALL_TIMEOUT_S", raw)
+
+    with pytest.raises(ValueError, match="MCP_CALL_TIMEOUT_S"):
+        mcp_tools._call_timeout_s()
+
+
+class _ServerToolkit(Toolkit):
+    """Toolkit whose state capture answers, so a real server can return results."""
+
+    def get_env_state(self, *, command, result, elapsed_s):  # noqa: ANN001
+        return ToolResult(data={"observed": True})
+
+
+def _toolkit(root: Path) -> Toolkit:
+    state = EnvState(root)
+    state.start_task(instruction="Sense.", config=Payload("test", {}))
+    return _ServerToolkit(
+        dashboard_events=NullDashboardEventSink(),
+        state=state,
+        memory=MemoryManager(root / "memory"),
+    )
+
+
+def test_adopted_tool_deadline_ends_a_slow_call(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("MCP_CALL_TIMEOUT_S", "0.2")
+    init_output_dir(tmp_path / "log")
+    server_toolkit = _toolkit(tmp_path)
+
+    @declare_tool(readonly=True)
+    def slow_sense() -> ToolResult:
+        time.sleep(3)
+        return ToolResult(data={"observed": True})
+
+    server_toolkit.add_tool(slow_sense)
+    server = HttpMcpServer(server_toolkit)
+    adopted = _toolkit(tmp_path)
+    try:
+        url = server.start()
+        mcp_tools.register_mcp_tools(
+            adopted,
+            (McpServerSpec(name="facility", url=url),),
+            tools={"facility": ["slow_sense"]},
+        )
+        started = time.monotonic()
+        result = adopted.execute_tool("slow_sense", {})
+        elapsed = time.monotonic() - started
+    finally:
+        server.stop()
+        server_toolkit.close()
+        adopted.close()
+
+    assert "Timed out" in result.data["error"]
+    assert elapsed < 3
+
+
+def test_adopted_tool_reaches_a_real_server(tmp_path: Path) -> None:
+    init_output_dir(tmp_path / "log")
+    server_toolkit = _toolkit(tmp_path)
+    received: list[str] = []
+
+    @declare_tool(readonly=True)
+    def get_level(label: str) -> ToolResult:
+        received.append(label)
+        return ToolResult(data={"label": label})
+
+    server_toolkit.add_tool(get_level)
+    server = HttpMcpServer(server_toolkit)
+    adopted = _toolkit(tmp_path)
+    try:
+        url = server.start()
+        mcp_tools.register_mcp_tools(
+            adopted,
+            (McpServerSpec(name="facility", url=url),),
+            tools={"facility": ["get_level"]},
+        )
+        result = adopted.execute_tool("get_level", {"label": "high"})
+    finally:
+        server.stop()
+        server_toolkit.close()
+        adopted.close()
+
+    assert received == ["high"]
+    assert not result.is_error

@@ -228,6 +228,39 @@ def test_options_construct_with_the_installed_claude_sdk(tmp_path: Path) -> None
     ]
 
 
+def test_unreachable_planner_server_ends_the_run_before_the_sdk_starts(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from rpent.tools import mcp_tools
+
+    monkeypatch.setattr(
+        mcp_tools,
+        "list_remote_tools",
+        Mock(side_effect=ConnectionError("connection refused")),
+    )
+    planner = ClaudeCodePlanner(
+        output_dir=str(tmp_path),
+        repo_root=tmp_path,
+        model="fake-claude",
+        allowed_tools="Read",
+        timeout_s=1,
+        max_budget_usd=1.0,
+        extra_dirs=[],
+        output_path=tmp_path / "claude.out",
+        dashboard_events=RecordingSink(),
+        mcp_servers=(
+            McpServerSpec(name="web", url="https://web.example/mcp", planner_tools="*"),
+        ),
+    )
+
+    result = planner.solve(
+        system_prompt="", user_message="task", toolkit=FakeToolkit(), max_turns=2
+    )
+
+    assert result.stop_reason == "planner_error"
+    assert result.error == "mcp_servers.web: ConnectionError: connection refused"
+
+
 def test_options_attach_external_mcp_servers(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
