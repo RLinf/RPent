@@ -16,9 +16,10 @@
 
 The task container exposes one episode through ``rcb_client``. RPent treats
 that service as the robot: no simulator internals and no privileged state. A
-task that declares a reset budget exposes a limited reset; RPent never resets
-on its own. ``robots.efe.harbor_agent`` runs this integration inside a Harbor
-trial.
+task that declares a reset budget exposes a limited reset; between planner
+sessions the runner spends one when an attempt ends early, while an episode
+the agent ends itself is graded as it stands. ``robots.efe.harbor_agent`` runs
+this integration inside a Harbor trial.
 """
 
 from typing import Any

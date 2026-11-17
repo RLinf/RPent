@@ -162,9 +162,11 @@ def run_efe(
     """Run one EFE trial with RPent's planner and the EFE robot tools.
 
     The session uses RPent's prompt, memory corpus, and the EFE toolkit. It may
-    hand off across sessions; all sessions share the one episode. Without
-    ``memory_dir`` the corpus starts empty, so the run measures RPent without
-    prior experience.
+    hand off across sessions. When a session ends early and the task's reset
+    budget remains, the next session starts a fresh attempt, spending one
+    reset; an episode the agent ends with ``finish`` is graded as it stands.
+    Without ``memory_dir`` the corpus starts empty, so the run measures RPent
+    without prior experience.
 
     Args:
         instruction: The task instruction supplied by Harbor.
@@ -175,7 +177,10 @@ def run_efe(
         max_turns: Maximum model responses per session.
         reasoning_effort: A reasoning level supported by the planner.
         memory_dir: An existing RPent memory corpus.
-        explore_sessions: Number of independent planner sessions.
+        explore_sessions: Number of independent planner sessions. A session
+            that ends early hands off by resetting when the reset budget allows
+            it, so later sessions may run on fresh attempts. An episode the
+            agent ends itself is graded without a reset.
         skills: Replace the joint-level submit tool with the high-level skills.
         sandbox: Codex shell sandbox. ``read-only`` keeps shell commands away
             from the simulator, so only RPent tools act on the episode;
@@ -269,6 +274,7 @@ def run_efe(
     sessions: list[dict[str, object]] = report["sessions"]  # type: ignore[assignment]
     started = time.monotonic()
     deadline = started + timeout_s
+    terminal_stop_reason: str | None = None
     try:
         from rpent.planner.codex import CodexPlanner
 
@@ -282,7 +288,29 @@ def run_efe(
             "action_types": sorted(client.spec["action_types"]),
         }
         with _trial_codex_home(output_dir), _trial_repo_root(workdir):
+            agent_finished = False
             for number in range(1, explore_sessions + 1):
+                # Only a planner result can report a clean budget stop; reset
+                # this before anything else so an exception between sessions
+                # is never attributed to the previous session's timeout.
+                terminal_stop_reason = None
+                if client.done and agent_finished:
+                    # ``efe_end_episode`` is the model's own decision to be
+                    # graded; a reset would discard that episode.
+                    logger.info(
+                        "the agent ended the episode; grading it without a reset"
+                    )
+                    break
+                # Check the budget before resetting: a reset at the deadline
+                # would leave a fresh, never-run episode as the graded one.
+                remaining = math.ceil(deadline - time.monotonic())
+                if remaining <= 0:
+                    if not sessions:
+                        report["budget_stop"] = (
+                            "The planner timeout expired before the session "
+                            f"started ({timeout_s}s)."
+                        )
+                    break
                 if client.done:
                     # The service refuses a reset only once the trial is
                     # settled. An attempt that ended early on a failure can
@@ -306,14 +334,7 @@ def run_efe(
                     except (RuntimeError, ValueError) as exc:
                         logger.info("the service refused the reset: %s", exc)
                         break
-                remaining = math.ceil(deadline - time.monotonic())
-                if remaining <= 0:
-                    if not sessions:
-                        report["budget_stop"] = (
-                            "The planner timeout expired before the session "
-                            f"started ({timeout_s}s)."
-                        )
-                    break
+                finish_calls_at_start = client.finish_calls
                 session_dir = (
                     output_dir
                     if explore_sessions == 1
@@ -365,6 +386,8 @@ def run_efe(
                 finally:
                     solved = toolkit.solved()
                     toolkit.close()
+                agent_finished = client.finish_calls > finish_calls_at_start
+                terminal_stop_reason = result.stop_reason
                 sessions.append(
                     {
                         "session": number,
@@ -401,7 +424,9 @@ def run_efe(
         # Report it separately so the CLI exits zero: Harbor treats a non-zero
         # agent exit as a failed trial, rescans the whole run.log for transient
         # messages, and can mark the reward of a validly graded episode invalid.
-        if report["error"] is not None and _is_budget_stop(str(report["error"])):
+        if report["error"] is not None and (
+            terminal_stop_reason == "timeout" or _is_budget_stop(str(report["error"]))
+        ):
             report["budget_stop"] = report["error"]
             report["error"] = None
             logger.info("the planner used its time budget: %s", report["budget_stop"])

@@ -142,12 +142,17 @@ def _add_cli_args(parser: argparse.ArgumentParser, use_dashboard: bool) -> None:
 def _validate_args(args: argparse.Namespace) -> None:
     # EFE does not declare ``supports_exploration``, so the generic CLI rejects
     # ``--explore`` before robot hooks run. Keep the guard for callers that
-    # invoke this hook directly: EFE never drives exploration sessions, and it
-    # defines no ``--explore-sessions`` option. The Harbor adapter owns the
-    # session count (``RPentEfeAgent(explore_sessions=...)``).
+    # invoke this hook directly. This CLI has no ``--explore-sessions`` option:
+    # the Harbor adapter and ``run_efe`` own the session count.
     if getattr(args, "explore", False):
         raise ValueError(
-            "The EFE runner starts its own sessions; use --explore-sessions"
+            "The EFE runner starts its own sessions; set explore_sessions on "
+            "RPentEfeAgent or pass explore_sessions to run_efe"
+        )
+    if getattr(args, "memory_repo", None) is not None:
+        raise ValueError(
+            "--memory-repo is not supported for EFE; use --memory-profile local "
+            "with --memory-dir, or pass memory_source to RPentEfeAgent"
         )
     if args.instruction_file is not None and not args.instruction_file.is_file():
         raise ValueError(
@@ -176,6 +181,13 @@ def _parse_config(args: argparse.Namespace) -> RunConfig:
         if args.output_dir is not None
         else get_repo_root() / "logs" / f"{datetime.now():%Y%m%d-%H:%M:%S}_{tag}"
     )
+    # ``build_planner`` and ``MemoryManager`` resolve their root through
+    # ``get_repo_root()``. The planner is built before ``init_runtime`` runs, so
+    # bind the trial workspace here rather than in that hook; otherwise a manual
+    # run resolves relative paths and the Codex working directory against the
+    # installed package instead of the task workspace.
+    if not os.environ.get("RPENT_REPO_ROOT"):
+        os.environ["RPENT_REPO_ROOT"] = str(workdir)
     prompt_vars = {
         **session_vars.prompt_vars(
             workdir=workdir,
@@ -214,13 +226,6 @@ def _init_runtime(
     """Connect to the existing simulator service. This starts no subprocess."""
     from robots.efe.env_client import EfeEnvClient
 
-    # ``--workdir`` is the trial workspace, but ``MemoryManager`` and
-    # ``build_planner`` resolve relative paths against ``get_repo_root()``,
-    # which is the installed package root. Bind the root to the workspace so a
-    # manual run reads the same tree the runner does.
-    workdir = getattr(args, "workdir", None)
-    if workdir is not None and not os.environ.get("RPENT_REPO_ROOT"):
-        os.environ["RPENT_REPO_ROOT"] = str(Path(workdir).expanduser().resolve())
     client = EfeEnvClient(
         base_url=args.efe_base_url,
         connect_timeout_s=args.efe_connect_timeout_s,

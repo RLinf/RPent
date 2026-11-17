@@ -16,12 +16,11 @@
 
 from __future__ import annotations
 
-import asyncio
 import json
 import socket
 import subprocess
 import sys
-from collections.abc import Iterator
+from collections.abc import AsyncIterator
 from pathlib import Path
 
 import httpx
@@ -45,7 +44,10 @@ class LocalTurn:
             "summary": "The Python child wrote control-result.txt.",
         }
 
-    def stream(self) -> Iterator[dict[str, object]]:
+    async def interrupt(self) -> None:
+        """The local turn always completes; there is nothing to interrupt."""
+
+    async def stream(self) -> AsyncIterator[dict[str, object]]:
         command = [
             sys.executable,
             "-c",
@@ -75,25 +77,20 @@ class LocalTurn:
             },
         }
 
-        async def finish_over_http() -> None:
-            async with httpx.AsyncClient(trust_env=False, timeout=10) as client:
-                async with streamable_http_client(self.mcp_url, http_client=client) as (
-                    read,
-                    write,
-                    _get_session_id,
-                ):
-                    async with ClientSession(read, write) as session:
-                        await session.initialize()
-                        declarations = await session.list_tools()
-                        self.tools = [tool.name for tool in declarations.tools]
-                        response = await session.call_tool(
-                            "finish", self.finish_arguments
-                        )
-                        self.finish_response = response.model_dump(
-                            mode="json", by_alias=True
-                        )
-
-        asyncio.run(finish_over_http())
+        async with httpx.AsyncClient(trust_env=False, timeout=10) as client:
+            async with streamable_http_client(self.mcp_url, http_client=client) as (
+                read,
+                write,
+                _get_session_id,
+            ):
+                async with ClientSession(read, write) as session:
+                    await session.initialize()
+                    declarations = await session.list_tools()
+                    self.tools = [tool.name for tool in declarations.tools]
+                    response = await session.call_tool("finish", self.finish_arguments)
+                    self.finish_response = response.model_dump(
+                        mode="json", by_alias=True
+                    )
         yield {
             "method": "item/completed",
             "payload": {
@@ -137,7 +134,7 @@ class LocalThread:
         self.prompt = ""
         self.turn_options: dict[str, object] = {}
 
-    def turn(self, prompt: str, **options: object) -> LocalTurn:
+    async def turn(self, prompt: str, **options: object) -> LocalTurn:
         self.prompt = prompt
         self.turn_options = options
         return self.local_turn
@@ -156,15 +153,12 @@ class LocalCodex:
         mcp_url = json.loads(mcp_override.split("=", 1)[1])
         self.thread = LocalThread(LocalTurn(Path(config.cwd), mcp_url))
 
-    def __enter__(self) -> LocalCodex:
-        return self
-
-    def __exit__(self, *args: object) -> None:
-        self.closed = True
-
-    def thread_start(self, **options: object) -> LocalThread:
+    async def thread_start(self, **options: object) -> LocalThread:
         self.thread_options = options
         return self.thread
+
+    async def close(self) -> None:
+        self.closed = True
 
 
 @pytest.fixture
@@ -185,7 +179,7 @@ def local_backend(
         return instance
 
     monkeypatch.setattr(socket.socket, "connect", connect_loopback)
-    monkeypatch.setattr(openai_codex, "Codex", create_codex)
+    monkeypatch.setattr(openai_codex, "AsyncCodex", create_codex)
     return instances
 
 

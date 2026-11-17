@@ -111,6 +111,8 @@ RPent 的整体进程划分、服务职责和通信方式见 :doc:`系统说明 
 
 ``resolve_dashboard(args)`` 回调接收解析后的会话参数，可根据 ``--am-backend`` 等选项选择组件。固定布局直接返回静态配置即可，如上例所示。实体环境检查和 Dashboard 启动均调用此回调。
 
+``prepare_prompt_vars`` 是可选钩子：在 ``init_runtime`` 连接任务后细化 Prompt 变量，例如列出服务实际注册的工具。返回的映射会合并到 ``RunConfig.prompt_vars``，同时用于用户 Prompt 与系统 Prompt 的渲染；交互式 CLI 的首条消息仍使用合并前的渲染结果作为可编辑默认值。若 ``get_toolkit`` 也读取其中某个值，必须从相同的运行时事实推导，保证 Prompt 描述的工具栏与 Toolkit 注册一致。参考 ``robots/efe/robot_spec.py``。
+
 下文依次说明这些模块需要实现的内容。``_add_cli_args`` 和 ``_parse_config`` 见第 4 节，runtime 钩子见第 5 节。
 
 .. _add-robot-env-rpc:

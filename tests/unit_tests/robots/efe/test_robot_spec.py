@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import argparse
 import copy
+import os
 import sys
 from dataclasses import replace
 from pathlib import Path
@@ -39,6 +40,15 @@ from rpent.planner.base import PlannerResult
 from rpent.robots.robot_spec import RobotSpec
 from rpent.utils.logging import init_output_dir
 from tests.unit_tests.robots.efe.efe_support import SPEC, FakeEfeClient
+
+
+@pytest.fixture(autouse=True)
+def _restore_repo_root(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Keep ``_parse_config``'s workspace binding out of later tests."""
+    if "RPENT_REPO_ROOT" in os.environ:
+        monkeypatch.setenv("RPENT_REPO_ROOT", os.environ["RPENT_REPO_ROOT"])
+    else:
+        monkeypatch.delenv("RPENT_REPO_ROOT", raising=False)
 
 
 def _args(tmp_path: Path) -> argparse.Namespace:
@@ -87,6 +97,28 @@ def test_parse_config_uses_the_task_instruction(tmp_path):
     assert config.prompt_vars["session_max"] == 1
 
 
+def test_parse_config_binds_the_workspace_as_the_repo_root(
+    tmp_path, monkeypatch: pytest.MonkeyPatch
+):
+    """The planner is built before ``init_runtime``, so bind the root here."""
+    monkeypatch.delenv("RPENT_REPO_ROOT", raising=False)
+
+    _parse_config(_args(tmp_path))
+
+    assert os.environ["RPENT_REPO_ROOT"] == str(tmp_path.resolve())
+
+
+def test_parse_config_keeps_an_explicit_repo_root(
+    tmp_path, monkeypatch: pytest.MonkeyPatch
+):
+    explicit = str(tmp_path / "repo")
+    monkeypatch.setenv("RPENT_REPO_ROOT", explicit)
+
+    _parse_config(_args(tmp_path))
+
+    assert os.environ["RPENT_REPO_ROOT"] == explicit
+
+
 def test_parse_config_uses_the_shared_prompt_variables(tmp_path):
     args = _args(tmp_path)
 
@@ -113,7 +145,15 @@ def test_exploration_is_rejected_because_the_runner_starts_its_own_sessions(tmp_
     args = _args(tmp_path)
     args.explore = True
 
-    with pytest.raises(ValueError, match="explore-sessions"):
+    with pytest.raises(ValueError, match="starts its own sessions"):
+        _validate_args(args)
+
+
+def test_memory_repo_is_rejected_because_efe_prepares_its_own_memory(tmp_path):
+    args = _args(tmp_path)
+    args.memory_repo = "org/dataset"
+
+    with pytest.raises(ValueError, match="--memory-repo is not supported"):
         _validate_args(args)
 
 

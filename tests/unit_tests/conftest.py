@@ -12,17 +12,37 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Loopback RPC fixtures shared by core and robot tests."""
+"""Shared logging isolation and loopback RPC fixtures."""
 
 import threading
 from contextlib import contextmanager
 
 import pytest
 
+from rpent.utils import logging as run_logging
 from rpent.utils.rpc.http_rpc import HttpRpcClient, HttpRpcServer
 from rpent.utils.rpc.socket_rpc import SocketRpcClient, SocketRpcServer
 
 TRANSPORTS = ["socket", "http"]
+
+
+@pytest.fixture(autouse=True)
+def isolate_run_logging(monkeypatch):
+    """Restore process-wide logging after planner, CLI, or robot tests."""
+    logger = run_logging.get_logger()
+    handlers = list(logger.handlers)
+    level, propagate = logger.level, logger.propagate
+    monkeypatch.setattr(run_logging, "_log_initialized", run_logging._log_initialized)
+    monkeypatch.setattr(run_logging, "_output_dir", run_logging._output_dir)
+    try:
+        yield
+    finally:
+        for handler in logger.handlers:
+            if handler not in handlers:
+                handler.close()
+        logger.handlers[:] = handlers
+        logger.setLevel(level)
+        logger.propagate = propagate
 
 
 @pytest.fixture(params=TRANSPORTS)

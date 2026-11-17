@@ -14,8 +14,8 @@
 
 """In-process streamable-HTTP MCP server that wraps a :class:`Toolkit`.
 
-The Codex CLI accepts streamable-HTTP MCP servers via
-``mcp_servers.<name>.url``. This module builds an MCP
+Codex and Gemini CLI connect to the same streamable-HTTP MCP bridge through
+their respective server configuration. This module builds an MCP
 :class:`~mcp.server.lowlevel.Server` and serves it through a
 :class:`~mcp.server.streamable_http_manager.StreamableHTTPSessionManager`
 on a background uvicorn thread — no separate subprocess, no second
@@ -25,7 +25,7 @@ Usage::
 
     server = HttpMcpServer(toolkit)
     server.start()  # binds 127.0.0.1 on a free port
-    codex_url = server.url  # e.g. "http://127.0.0.1:54321/mcp/"
+    mcp_url = server.url  # e.g. "http://127.0.0.1:54321/mcp/"
     ...
     server.stop()
 """
@@ -36,6 +36,7 @@ import asyncio
 import base64
 import socket
 import threading
+from collections.abc import Callable
 from typing import Any
 
 import httpx
@@ -83,9 +84,17 @@ def _strip_mcp_prefix(name: str) -> str:
     return name
 
 
-def build_mcp_server(toolkit: Toolkit) -> Server:
-    """Expose native declarations through MCP, with Toolkit owning validation."""
+def build_mcp_server(
+    toolkit: Toolkit,
+    on_tool_result: Callable[[str, dict[str, Any], ToolResult], None] | None = None,
+) -> Server:
+    """Expose native declarations through MCP, with Toolkit owning validation.
+
+    The optional observer receives actual tool results on the server event loop;
+    consumers must marshal updates to their own loop without blocking this one.
+    """
     mcp_app: Server = Server(SERVER_NAME, version="0.1.0")
+    finished = False
     try:
         state = toolkit.state
     except RuntimeError:
@@ -106,81 +115,96 @@ def build_mcp_server(toolkit: Toolkit) -> Server:
 
     @mcp_app.call_tool(validate_input=False)
     async def _call_tool(name: str, arguments: dict[str, Any]) -> types.CallToolResult:
+        nonlocal finished
         lookup = _strip_mcp_prefix(name)
         arguments = arguments or {}
-        if state is None or state.get_task() is None:
+        if finished:
+            tr = ToolResult(data={"error": "The agent session has already finished."})
+            result = types.CallToolResult(**mcp_result(tr))
+        elif state is None or state.get_task() is None:
             tr = await execute_tool(toolkit, lookup, arguments)
-            return types.CallToolResult(**mcp_result(tr))
-
-        meta = mcp_app.request_context.meta
-        bridge_id = (
-            meta.model_dump().get("codex_bridge_mcp_call_id")
-            if meta is not None
-            else None
-        )
-        tool_id = state.register_tool_call(
-            planner_id=None,
-            origin="unknown",
-            name=lookup,
-            arguments=Payload("mcp.tool_args", arguments, completeness="complete"),
-            source_ids={"codex_bridge_mcp_call_id": bridge_id}
-            if isinstance(bridge_id, str)
-            else {},
-            missing={
-                "planner_id": MissingInfo(
-                    "pending", "Waiting for native trace association."
-                ),
-                "raw_result": MissingInfo("pending", "Waiting for execution."),
-                "feedback": MissingInfo("pending", "Waiting for the MCP adapter."),
-            },
-        )
-        capture = ToolCallCapture(state, tool_id)
-        with capture.bind():
-            try:
-                tr = await execute_tool(toolkit, lookup, arguments)
-                result = types.CallToolResult(**mcp_result(tr))
-            except BaseException as exc:
-                if not capture.finished:
-                    capture.finish(
-                        "cancelled"
-                        if isinstance(exc, (asyncio.CancelledError, KeyboardInterrupt))
-                        else "failed",
-                        f"{type(exc).__name__}: {exc}",
+            result = types.CallToolResult(**mcp_result(tr))
+        else:
+            meta = mcp_app.request_context.meta
+            bridge_id = (
+                meta.model_dump().get("codex_bridge_mcp_call_id")
+                if meta is not None
+                else None
+            )
+            tool_id = state.register_tool_call(
+                planner_id=None,
+                origin="unknown",
+                name=lookup,
+                arguments=Payload("mcp.tool_args", arguments, completeness="complete"),
+                source_ids={"codex_bridge_mcp_call_id": bridge_id}
+                if isinstance(bridge_id, str)
+                else {},
+                missing={
+                    "planner_id": MissingInfo(
+                        "pending", "Waiting for native trace association."
+                    ),
+                    "raw_result": MissingInfo("pending", "Waiting for execution."),
+                    "feedback": MissingInfo("pending", "Waiting for the MCP adapter."),
+                },
+            )
+            capture = ToolCallCapture(state, tool_id)
+            with capture.bind():
+                try:
+                    tr = await execute_tool(toolkit, lookup, arguments)
+                    result = types.CallToolResult(**mcp_result(tr))
+                except BaseException as exc:
+                    if not capture.finished:
+                        capture.finish(
+                            "cancelled"
+                            if isinstance(
+                                exc, (asyncio.CancelledError, KeyboardInterrupt)
+                            )
+                            else "failed",
+                            f"{type(exc).__name__}: {exc}",
+                        )
+                    state.update_tool_call(
+                        tool_id,
+                        missing={
+                            "feedback": MissingInfo(
+                                "not_recorded", "MCP adapter did not return feedback."
+                            )
+                        },
                     )
+                    raise
+                if not capture.finished:
+                    capture.finish("failed", str(tr.data.get("error", "")))
                 state.update_tool_call(
                     tool_id,
-                    missing={
-                        "feedback": MissingInfo(
-                            "not_recorded", "MCP adapter did not return feedback."
-                        )
-                    },
+                    feedback=Payload(
+                        "mcp.call_tool_result",
+                        result.model_dump(
+                            mode="json", by_alias=True, exclude_none=True
+                        ),
+                        completeness="complete",
+                        base64_paths={
+                            f"/content/{index}/data": ""
+                            for index, content in enumerate(result.content)
+                            if isinstance(content, types.ImageContent)
+                        },
+                    ),
+                    missing={"feedback": None},
                 )
-                raise
-            if not capture.finished:
-                capture.finish("failed", str(tr.data.get("error", "")))
-            state.update_tool_call(
-                tool_id,
-                feedback=Payload(
-                    "mcp.call_tool_result",
-                    result.model_dump(mode="json", by_alias=True, exclude_none=True),
-                    completeness="complete",
-                    base64_paths={
-                        f"/content/{index}/data": ""
-                        for index, content in enumerate(result.content)
-                        if isinstance(content, types.ImageContent)
-                    },
-                ),
-                missing={"feedback": None},
-            )
-            return result
+        if lookup == "finish" and not tr.is_error and tr.data.get("_finish") is True:
+            finished = True
+        if on_tool_result is not None:
+            on_tool_result(lookup, arguments, tr)
+        return result
 
     return mcp_app
 
 
-def _build_asgi_app(toolkit: Toolkit) -> Any:
+def _build_asgi_app(
+    toolkit: Toolkit,
+    on_tool_result: Callable[[str, dict[str, Any], ToolResult], None] | None = None,
+) -> Any:
     """Build a raw ASGI3 app wrapping an MCP ``Server`` + streamable HTTP."""
     session_manager = StreamableHTTPSessionManager(
-        app=build_mcp_server(toolkit),
+        app=build_mcp_server(toolkit, on_tool_result),
         stateless=True,
         json_response=True,
     )
@@ -258,8 +282,10 @@ class HttpMcpServer:
         host: str = "127.0.0.1",
         port: int = 0,
         path: str = "/mcp",
+        on_tool_result: Callable[[str, dict[str, Any], ToolResult], None] | None = None,
     ) -> None:
         self._toolkit = toolkit
+        self._on_tool_result = on_tool_result
         self._host = host
         self._port = port or _pick_free_port(host)
         self._path = path if path.startswith("/") else f"/{path}"
@@ -275,7 +301,7 @@ class HttpMcpServer:
         if self._thread is not None:
             return self.url
 
-        app = _build_asgi_app(self._toolkit)
+        app = _build_asgi_app(self._toolkit, self._on_tool_result)
 
         config = uvicorn.Config(
             app,

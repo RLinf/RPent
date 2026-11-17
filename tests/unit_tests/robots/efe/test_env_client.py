@@ -15,6 +15,7 @@
 """EFE client checks must reject commands before the service executes them."""
 
 import copy
+import sys
 from types import SimpleNamespace
 
 import numpy as np
@@ -369,6 +370,27 @@ def test_finish_ends_a_hidden_success_episode(monkeypatch):
     assert client.done is True
     assert client.done_reason == "finished"
     assert client.finish_calls == 1
+
+
+def test_finish_falls_back_to_the_configured_base_url(monkeypatch):
+    class UrlOnlyRobot(FakeRobot):
+        def __init__(self, base_url=None, timeout=None):
+            super().__init__({**_SPEC, "success_signal": "hidden"})
+            self.base = None
+
+    monkeypatch.setitem(sys.modules, "rcb_client", SimpleNamespace(Robot=UrlOnlyRobot))
+    client = EfeEnvClient(base_url="http://sim:8000/")
+    calls = []
+
+    def fake_post(url, payload):
+        calls.append((url, payload))
+        return {"ok": True, "done": True, "reason": "finished"}
+
+    monkeypatch.setattr(client, "_post_json", fake_post)
+
+    client.finish()
+
+    assert calls == [("http://sim:8000/finish", {})]
 
 
 def test_finish_reports_a_client_without_a_base_url():

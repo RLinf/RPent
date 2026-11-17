@@ -22,7 +22,7 @@ import imageio.v2 as imageio
 import numpy as np
 import pytest
 
-from robots.efe.tools import EfeTools, dump_state, view_env_state
+from robots.efe.tools import EfeTools, dump_state, proprio_map, view_env_state
 from rpent.session import EnvState
 from tests.unit_tests.robots.efe.efe_support import FakeEfeClient
 
@@ -45,6 +45,11 @@ def test_spec_reports_action_layout_and_kinematics(tools):
     assert data["cameras"] == ["table_cam_front", "table_cam_left", "wrist_cam"]
     assert data["tcp_frames"] == ["tcp"]
     assert data["budget"]["reset"] == 0
+
+
+def test_proprio_map_tolerates_a_missing_layout():
+    assert proprio_map({}, {}) == {}
+    assert proprio_map({}, {"layout": ["tcp_x"], "now": [1.5]}) == {"tcp_x": 1.5}
 
 
 def test_observe_returns_images_and_named_proprioception(tools):
@@ -99,6 +104,15 @@ def test_observe_saves_frames_for_view_env_state(tmp_path):
     assert view.data["camera_images"]["wrist_cam"].endswith(
         "camera_wrist_cam_ep000_s000000.png"
     )
+
+
+def test_view_state_before_the_first_record_reports_a_clean_error(tmp_path):
+    state = EnvState(tmp_path)
+
+    view = view_env_state(-1, state=state)
+
+    assert view.is_error is True
+    assert "state step not available" in view.data["error"]
 
 
 def test_view_state_without_an_observation_has_no_images(tmp_path):

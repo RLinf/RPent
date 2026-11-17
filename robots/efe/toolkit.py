@@ -51,8 +51,8 @@ _EFE_TOOL_DESCRIPTIONS = {
     "write_text_file": (
         "Write a UTF-8 text file (creates parent dirs). Use for working notes "
         "only. Published memory is read-only; during exploration, write only "
-        "to the current memory inbox. Files under /app/output are collected "
-        "with the trial."
+        "to the current memory inbox. Notes outside the run output directory "
+        "stay in the task container and do not survive the trial."
     ),
     "list_dir": (
         "List files in a directory (non-recursive). Default = the run output "

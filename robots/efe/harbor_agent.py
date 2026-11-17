@@ -246,8 +246,27 @@ class RPentEfeAgent(BaseInstalledAgent):
         the agent as a non-root ``USER``, so the root lives under the agent log
         directory and is extracted as the agent user.
         """
-        remote_root = (self.environment_logs_dir / "rpent" / "memory").as_posix()
-        remote_archive = self.environment_logs_dir / "rpent" / "memory.tar.gz"
+        remote_dir = self.environment_logs_dir / "rpent"
+        remote_root = remote_dir / "memory"
+        remote_archive = remote_dir / "memory.tar.gz"
+        # ``docker cp`` needs the destination directory, and the agent can only
+        # delete the archive from a directory it may write. Ask the agent
+        # process for its ids: Harbor passes neither ``agent.user`` nor a
+        # non-root image ``USER`` to this adapter, so reading the ids is the
+        # only way to give the staging tree to the user that extracts into it.
+        identity = await self.exec_as_agent(environment, command="id -u; id -g")
+        ids = (identity.stdout or "").split()
+        if len(ids) != 2:
+            raise RuntimeError(
+                "Cannot determine the agent user for the memory corpus: "
+                f"{identity.stdout!r}"
+            )
+        owner = ":".join(ids)
+        quoted_dir = shlex.quote(remote_dir.as_posix())
+        await self.exec_as_root(
+            environment,
+            command=f"mkdir -p {quoted_dir} && chown -R {owner} {quoted_dir}",
+        )
         with tempfile.TemporaryDirectory(prefix="rpent-efe-memory-") as temporary_dir:
             archive_path = Path(temporary_dir) / "memory.tar.gz"
             with tarfile.open(archive_path, "w:gz") as archive:
@@ -255,26 +274,15 @@ class RPentEfeAgent(BaseInstalledAgent):
             await environment.upload_file(
                 source_path=archive_path, target_path=str(remote_archive)
             )
-        quoted_root = shlex.quote(remote_root)
-        # Create the root as root, then hand it to the agent user: the agent
-        # cannot widen the permissions of a directory it does not own.
-        default_user = getattr(environment, "default_user", None)
-        owner = (
-            shlex.quote(str(default_user))
-            if default_user is not None
-            else "$(id -u):$(id -g)"
-        )
-        await self.exec_as_root(
-            environment,
-            command=f"mkdir -p {quoted_root} && chown -R {owner} {quoted_root}",
-        )
         # ``--no-same-owner`` keeps the host UID/GIDs out of the container, so
-        # the agent user owns what it has to append to.
+        # the agent user owns what it has to append to. The archive itself is
+        # removed before the trial reads the memory root.
         await self.exec_as_agent(
             environment,
             command=(
+                f"mkdir -p {shlex.quote(remote_root.as_posix())} && "
                 f"tar -xzf {shlex.quote(str(remote_archive))} "
-                f"--no-same-owner -C {quoted_root} && "
+                f"--no-same-owner -C {shlex.quote(remote_root.as_posix())} && "
                 f"rm -f {shlex.quote(str(remote_archive))}"
             ),
         )
@@ -388,8 +396,21 @@ class RPentEfeAgent(BaseInstalledAgent):
                         event = json.loads(line)
                     except json.JSONDecodeError:
                         continue
-                    if event.get("method") == "thread/tokenUsage/updated":
-                        last = event["payload"]["token_usage"]["total"]
+                    if event.get("method") != "thread/tokenUsage/updated":
+                        continue
+                    payload = event.get("payload")
+                    token_usage = (
+                        payload.get("token_usage")
+                        if isinstance(payload, dict)
+                        else None
+                    )
+                    total = (
+                        token_usage.get("total")
+                        if isinstance(token_usage, dict)
+                        else None
+                    )
+                    if isinstance(total, dict):
+                        last = total
             if last is None:
                 continue
             values = {

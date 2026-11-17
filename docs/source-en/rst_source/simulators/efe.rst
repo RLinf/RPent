@@ -27,7 +27,7 @@ Harbor calls one task run a **trial**.
 
    .. grid-item-card:: Tasks
 
-      EFE's standard and standard-realtime tasks.
+      EFE's standard-mode tasks.
 
    .. grid-item-card:: Hardware
 
@@ -55,18 +55,18 @@ they are not counts of tasks evaluated with RPent, and upstream may add tasks.
      - Behavior
    * - ``standard``
      - 1066
-     - Supported. The simulator advances when the agent sends actions.
+     - Supported when the service speaks ``eai-standard/2.2`` or ``2.4``. The simulator advances when the agent sends actions.
    * - ``standard-realtime``
      - 84
-     - Supported. The simulator keeps running while the model thinks.
+     - Not supported. These tasks use ``eai-standard/2.3`` or ``eai-standard-realtime/1.0``; this integration handles ``2.2`` and ``2.4``.
    * - ``privileged``
      - 959
      - Not supported. The agent delivers a complete trajectory or policy for evaluation.
 
-In ``standard-realtime``, the robot continues following the most recently
-commanded joint positions or other control targets while waiting for a new
-action. The scene keeps changing during this wait, so model response time
-can affect the outcome.
+This integration handles standard-mode tasks whose service speaks
+``eai-standard/2.2`` or ``2.4``. Check ``metadata.protocol`` in the task's
+``task.toml`` before selecting a benchmark; a task with another protocol fails
+at connection time with an explicit error.
 
 Observation and Action
 ~~~~~~~~~~~~~~~~~~~~~~
@@ -96,8 +96,12 @@ RPent automatically uses Raw instead.
 
 Some tasks allow another attempt. For those tasks, the model can call
 ``efe_reset`` to abandon the current episode (one attempt), return to the same
-initial scene, and spend one reset from the task's budget. Only the last
-episode is graded; RPent does not reset automatically.
+initial scene, and spend one reset from the task's budget. When
+``explore_sessions`` is greater than 1, RPent also resets on its own between
+planner sessions: a session that ended early hands off by spending one reset,
+and the next session starts a fresh attempt. An episode the agent ends with
+``efe_end_episode`` is graded as it stands and is not reset. Only the last
+episode is graded.
 
 Other tasks withhold the success signal from the agent. For those tasks,
 RPent provides ``efe_end_episode`` so the model can declare that it has finished
@@ -208,7 +212,8 @@ timestamped job directory below it.
        │   ├── setup/           # Agent install log
        │   └── rpent/
        │       ├── session.json # Agent execution metrics, errors, per-session stats
-       │       ├── codex*.txt   # Planner transcript
+       │       ├── codex*.txt   # Planner transcript (under sessions/ when explore_sessions > 1)
+       │       ├── sessions/    # Per-session artifacts when explore_sessions > 1
        │       ├── codex-home/  # CODEX_HOME for this trial
        │       └── memory/      # Memory root for this trial
        ├── verifier/            # Verifier logs and reward.json
@@ -235,8 +240,8 @@ Run a Benchmark
 ---------------
 
 To run a benchmark, replace ``<benchmark>`` below with its name. Check its
-task modes first: use a directory containing
-supported standard or standard-realtime tasks only, not privileged tasks.
+task modes first: use a directory containing only supported standard-mode
+tasks, not realtime or privileged tasks.
 
 ``--path`` points at a benchmark directory. Each child directory is one task;
 together, they form the task set to run. ``-d embodied-first-exam@all`` is
@@ -285,9 +290,12 @@ Task Memory and Exploration
 
 - ``--agent-kwarg memory_source=/path``: uploads an existing RPent memory
   directory for the trial. Without it, the trial starts with an empty ``memory/``.
-- ``--agent-kwarg explore_sessions=N``: runs up to ``N`` planner sessions in
-  the same episode, stopping early if the task ends or time runs out. Later
-  sessions can read working notes from earlier sessions.
+- ``--agent-kwarg explore_sessions=N``: runs up to ``N`` planner sessions,
+  stopping early when the reset budget is spent or time runs out. A session
+  that ends early hands off by resetting while the reset budget remains, so
+  the next session starts a fresh attempt; an episode the agent ends itself is
+  graded without a reset, and only the final episode is graded. Later sessions
+  can read working notes from earlier sessions.
 - Each trial uses its own ``codex-home/``; the model is selected by ``--model``,
   and credentials come from the forwarded environment variables.
 

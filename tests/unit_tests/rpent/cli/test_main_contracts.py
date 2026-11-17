@@ -108,6 +108,8 @@ def _capture_validated_args(
     monkeypatch: pytest.MonkeyPatch,
     argv: list[str],
 ) -> tuple[str, Any]:
+    from rpent.cli import dashboard
+
     cli = _cli_module()
     captured: dict[str, Any] = {}
 
@@ -135,6 +137,11 @@ def _capture_validated_args(
         cli, "enumerate_robots", lambda: ("libero", "robocasa", "robotwin")
     )
     monkeypatch.setattr(cli, "get_robot_spec", get_robot_spec)
+    monkeypatch.setattr(
+        dashboard,
+        "run_dashboard_session",
+        lambda args, robot_spec, *, parser: parse_config(args),
+    )
     monkeypatch.setattr(sys, "argv", ["rpent", *argv])
 
     with pytest.raises(ConfigCaptured):
@@ -185,6 +192,7 @@ def test_shared_cli_defaults_reach_robot_config_parser(
     assert robot_name == "libero"
     assert args.robot_name == "libero"
     assert args.planner == "api"
+
     assert args.model is None
     assert args.max_turns == 100
     assert args.max_tokens == 8192
@@ -195,6 +203,20 @@ def test_shared_cli_defaults_reach_robot_config_parser(
     assert args.dashboard_language == "en"
     assert args.memory_profile == "hf"
     assert args.record_trajectory is False
+
+
+@pytest.mark.parametrize(
+    ("channel", "attribute"),
+    [("--tui", "tui"), ("--interactive", "tui"), ("--dashboard", "dashboard")],
+)
+def test_gemini_interactive_modes_reach_robot_configuration(
+    monkeypatch, channel, attribute
+):
+    _, args = _capture_validated_args(
+        monkeypatch, ["--robot", "libero", "--planner", "gemini_cli", channel]
+    )
+    assert args.planner == "gemini_cli"
+    assert getattr(args, attribute) is True
 
 
 @pytest.mark.parametrize(
@@ -287,6 +309,17 @@ def test_robot_and_env_aliases_are_mutually_exclusive(
             [
                 "--robot",
                 "libero",
+                "--planner",
+                "gemini_cli",
+                "--reasoning-effort",
+                "high",
+            ],
+            "--reasoning-effort is not supported by the gemini_cli planner",
+        ),
+        (
+            [
+                "--robot",
+                "libero",
                 "--memory-profile",
                 "hf",
                 "--memory-dir",
@@ -341,18 +374,17 @@ def test_shared_cli_validation_stops_before_robot_runtime(
 
 
 @pytest.mark.parametrize(
-    ("planner", "env_var"),
-    [("claude_code", "ANTHROPIC_BASE_URL"), ("codex", "CODEX_BASE_URL")],
+    "planner",
+    ["claude_code", "codex", "gemini_cli"],
 )
 def test_run_cli_rejects_base_url_for_the_backends_that_ignore_it(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
     planner: str,
-    env_var: str,
 ) -> None:
     """build_planner forwards base_url to the api model alone.
 
-    Accepting the flag for these two would drop it without a word, which is
+    Accepting the flag for these backends would drop it without a word, which is
     how a run ends up talking to an endpoint the user thought they had
     overridden.
     """
@@ -378,7 +410,7 @@ def test_run_cli_rejects_base_url_for_the_backends_that_ignore_it(
     with pytest.raises(SystemExit):
         cli.main()
 
-    assert env_var in capsys.readouterr().err
+    assert "uses its existing backend configuration" in capsys.readouterr().err
 
 
 def test_transcript_serialization_strips_nested_images_without_mutating_input() -> None:
@@ -1024,6 +1056,72 @@ def test_full_cli_calls_robot_result_finalizer_without_robot_special_case(
         "planner_claim": {"status": "success", "summary": "planner claim"},
     }
     assert robot_toolkit.closed is True
+    assert daemon.stopped is True
+
+
+def test_prompt_hook_failure_stops_the_started_runtime(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The hook runs after ``init_runtime`` and before the agent-loop cleanup."""
+    cli = _cli_module()
+    from rpent.robots import PromptBundle, RobotSpec, RunConfig
+
+    class FakeDaemon:
+        stopped = False
+
+        def stop(self) -> None:
+            self.stopped = True
+
+    def add_cli_args(parser: Any, use_dashboard: bool) -> None:
+        del use_dashboard
+        parser.add_argument("--task-name", required=True)
+
+    def parse_config(args: Any) -> RunConfig:
+        return RunConfig(
+            recipe_tag=args.task_name,
+            output_dir=Path(args.output_dir),
+            prompt_vars={"memory_dir": args.memory_dir},
+            task_desc={"task_name": args.task_name},
+        )
+
+    def prepare_prompt_vars(*args: Any) -> dict[str, Any]:
+        raise RuntimeError("capability probe failed")
+
+    daemon = FakeDaemon()
+    robot_spec = RobotSpec(
+        name="testrobot",
+        prompts=PromptBundle(
+            system=lambda variables: "system",
+            user=lambda variables: "task",
+        ),
+        add_cli_args=add_cli_args,
+        parse_config=parse_config,
+        init_runtime=lambda *args: ([daemon], {"runtime": "simulated"}),
+        prepare_prompt_vars=prepare_prompt_vars,
+    )
+
+    monkeypatch.setattr(cli, "enumerate_robots", lambda: ("testrobot",))
+    monkeypatch.setattr(cli, "get_robot_spec", lambda name: robot_spec)
+    monkeypatch.setattr(cli, "build_planner", lambda *args, **kwargs: SimpleNamespace())
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "rpent",
+            "--robot",
+            "testrobot",
+            "--task-name",
+            "OpenDrawer",
+            "--memory-profile",
+            "local",
+            "--output-dir",
+            str(tmp_path),
+        ],
+    )
+
+    with pytest.raises(RuntimeError, match="capability probe failed"):
+        cli.main()
+
     assert daemon.stopped is True
 
 

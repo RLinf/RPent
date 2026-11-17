@@ -77,8 +77,13 @@ def depth_artifact(camera: str, episode: int, step: int | None) -> str:
 
 
 def proprio_map(spec: dict[str, Any], payload: dict[str, Any]) -> dict[str, float]:
-    """Return one response's proprioception as ``name -> value``."""
-    layout = payload.get("layout") or spec["proprio_layout"]
+    """Return one response's proprioception as ``name -> value``.
+
+    The spec layout is optional: a response may carry its own, so either side
+    may be absent. Without a layout the payload names nothing and the caller
+    reports the missing columns from an empty map.
+    """
+    layout = payload.get("layout") or spec.get("proprio_layout") or []
     values = payload.get("now") or []
     return {name: float(value) for name, value in zip(layout, values, strict=False)}
 
@@ -393,7 +398,10 @@ def view_env_state(
     written, bound by artifact name when the record was captured. A record
     written before any observation has no images.
     """
-    record = state.get(step)
+    try:
+        record = state.get(step)
+    except (LookupError, ValueError) as exc:
+        return ToolResult(data={"error": f"state step not available: {exc}"})
     data = record.to_blob()
     images: list[bytes] = []
     frame_paths: dict[str, str] = {}

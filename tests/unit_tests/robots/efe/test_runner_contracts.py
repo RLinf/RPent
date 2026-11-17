@@ -411,6 +411,7 @@ class _RecordingPlanner:
     instances: list["_RecordingPlanner"] = []
     probe: dict[str, str] | None = None
     session_errors: list[str | None] = []
+    session_stop_reasons: list[str | None] = []
 
     def __init__(self, **options):
         self.options = options
@@ -424,6 +425,11 @@ class _RecordingPlanner:
         error = (
             _RecordingPlanner.session_errors[index]
             if index < len(_RecordingPlanner.session_errors)
+            else None
+        )
+        stop_reason = (
+            _RecordingPlanner.session_stop_reasons[index]
+            if index < len(_RecordingPlanner.session_stop_reasons)
             else None
         )
         if _RecordingPlanner.probe is not None:
@@ -443,6 +449,7 @@ class _RecordingPlanner:
                 "total_reasoning_output_tokens": 0,
             },
             error=error,
+            stop_reason=stop_reason,
         )
 
 
@@ -453,6 +460,7 @@ def recording_planner(monkeypatch):
     _RecordingPlanner.instances = []
     _RecordingPlanner.probe = None
     _RecordingPlanner.session_errors = []
+    _RecordingPlanner.session_stop_reasons = []
     monkeypatch.setattr(codex, "CodexPlanner", _RecordingPlanner)
     return _RecordingPlanner
 
@@ -703,8 +711,36 @@ def test_a_spent_planner_budget_is_a_clean_stop(
     assert report["sessions"][0]["error"] == "Codex SDK timed out after 5s"
 
 
-def test_budget_expired_before_the_first_session_is_a_clean_stop(tmp_path, efe_client):
+def test_a_structured_timeout_is_a_clean_stop_whatever_the_error_says(
+    tmp_path, recording_planner, efe_client
+):
+    """Do not make Harbor's exit code depend on the planner's error wording."""
+    recording_planner.session_errors = ["the model returned no final message"]
+    recording_planner.session_stop_reasons = ["timeout"]
+
+    report = run_efe(
+        "Task",
+        workdir=tmp_path,
+        output_dir=tmp_path / "logs",
+        model="test-model",
+        client=efe_client,
+    )
+
+    assert report["error"] is None
+    assert report["budget_stop"] == "the model returned no final message"
+
+
+def test_budget_expired_before_the_first_session_is_a_clean_stop(
+    tmp_path, efe_client, monkeypatch
+):
     """Reaching the deadline is a budget stop even with no session result."""
+    import robots.efe.runner as runner
+
+    clock = [0.0, 100.0]
+    monkeypatch.setattr(
+        runner.time, "monotonic", lambda: clock.pop(0) if clock else 100.0
+    )
+
     report = run_efe(
         "Task",
         workdir=tmp_path,
@@ -766,6 +802,89 @@ def test_an_early_episode_end_stops_once_the_reset_budget_is_spent(
     )
 
     assert report["sessions"] == []
+
+
+def test_an_agent_finished_episode_is_not_reset(tmp_path, monkeypatch, efe_client):
+    import rpent.planner.codex as codex
+
+    efe_client.spec["success_signal"] = "hidden"
+    efe_client.spec["budget"] = {"reset": 2}
+    resets = []
+
+    def reset(*, cameras=None):
+        resets.append(cameras)
+        return {}
+
+    efe_client.reset = reset
+
+    class FinishingPlanner:
+        def __init__(self, **options):
+            pass
+
+        def solve(self, **options):
+            efe_client.finish_calls += 1
+            efe_client.done = True
+            efe_client.done_reason = "finished"
+            return PlannerResult()
+
+    monkeypatch.setattr(codex, "CodexPlanner", FinishingPlanner)
+
+    report = run_efe(
+        "Task",
+        workdir=tmp_path,
+        output_dir=tmp_path / "logs",
+        model="test-model",
+        explore_sessions=2,
+        client=efe_client,
+    )
+
+    assert resets == []
+    assert len(report["sessions"]) == 1
+
+
+def test_the_planner_deadline_is_checked_before_a_reset(
+    tmp_path, monkeypatch, efe_client
+):
+    import robots.efe.runner as runner
+    import rpent.planner.codex as codex
+
+    efe_client.spec["budget"] = {"reset": 2}
+    resets = []
+
+    def reset(*, cameras=None):
+        resets.append(cameras)
+        efe_client.done = False
+        return {}
+
+    efe_client.reset = reset
+
+    class FailingPlanner:
+        def __init__(self, **options):
+            pass
+
+        def solve(self, **options):
+            efe_client.done = True
+            efe_client.done_reason = "failed"
+            return PlannerResult()
+
+    monkeypatch.setattr(codex, "CodexPlanner", FailingPlanner)
+    clock = [0.0, 0.0, 100.0]
+    monkeypatch.setattr(
+        runner.time, "monotonic", lambda: clock.pop(0) if clock else 100.0
+    )
+
+    report = run_efe(
+        "Task",
+        workdir=tmp_path,
+        output_dir=tmp_path / "logs",
+        model="test-model",
+        timeout_s=1,
+        explore_sessions=2,
+        client=efe_client,
+    )
+
+    assert resets == []
+    assert len(report["sessions"]) == 1
 
 
 def test_a_missing_codex_wheel_does_not_abort_the_report(
