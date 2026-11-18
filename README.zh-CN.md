@@ -72,8 +72,10 @@ RPent 面向以下四类用户：
     <tr>
       <td>
         <ul style="margin-left: 0; padding-left: 16px;">
-          <li><a href="https://rpent.readthedocs.io/zh-cn/latest/rst_source/guides/configure_planner.html#claude-code-planner">Claude Code</a> ✅</li>
-          <li><a href="https://rpent.readthedocs.io/zh-cn/latest/rst_source/guides/configure_planner.html#codex-planner">Codex</a> ✅</li>
+          <li><a href="https://rpent.readthedocs.io/zh-cn/latest/rst_source/guides/configure_planner.html#planner-claude-code">Claude Code</a> ✅</li>
+          <li><a href="https://rpent.readthedocs.io/zh-cn/latest/rst_source/guides/configure_planner.html#planner-codex">Codex</a> ✅</li>
+          <li><a href="https://rpent.readthedocs.io/zh-cn/latest/rst_source/guides/configure_planner.html#planner-gemini-cli">Gemini CLI</a> ✅</li>
+          <li><a href="https://rpent.readthedocs.io/zh-cn/latest/rst_source/guides/configure_planner.html#planner-opencode">OpenCode</a> ✅</li>
           <li><a href="https://rpent.readthedocs.io/zh-cn/latest/rst_source/development/add_planner.html">Custom Planner</a> ✅</li>
         </ul>
       </td>
