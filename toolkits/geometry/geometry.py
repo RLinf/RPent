@@ -838,6 +838,13 @@ def fit_part(
     raise ValueError(f"unsupported geometric part: {part}")
 
 
+def observed_silhouette(mask: np.ndarray, valid: np.ndarray) -> np.ndarray:
+    """Select material pixels adjacent to an in-frame, measured non-object pixel."""
+    from scipy.ndimage import binary_dilation
+
+    return mask & valid & binary_dilation(~mask & valid)
+
+
 def part_candidate_mask(
     mask: np.ndarray,
     world: np.ndarray,
@@ -849,8 +856,6 @@ def part_candidate_mask(
     options: FitOptions | None = None,
 ) -> np.ndarray:
     """Use observed mask/RGB/depth edges for circular boundaries, not cup interiors."""
-    from scipy.ndimage import binary_dilation
-
     options = options or FitOptions()
     if part not in ("rim", "bottom"):
         return mask.copy()
@@ -862,8 +867,7 @@ def part_candidate_mask(
         if z is not None:
             valid_mask &= z > 0
     material = mask & valid_mask
-    # A silhouette needs a measured neighbor outside the segmented material.
-    boundary = material & binary_dilation(~mask & valid_mask)
+    boundary = observed_silhouette(mask, valid_mask)
     if part == "bottom" or not material.any():
         return boundary
     # A whole-cup SAM mask may include its inner floor. RGB edges and the

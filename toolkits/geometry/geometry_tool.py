@@ -147,8 +147,11 @@ class GeometryTool:
             required_geometry: Optional list of part and whole-object quantities for
                 this target. Each is evaluated separately. Overrides measurement.
                 Use height for the distance between fitted rim and bottom centers.
-                The object_height value (visible vertical extent) is available
-                only in the saved geometry artifact.
+                Use height_above_support for the highest observed surface above
+                a measured support plane. The saved geometry artifact also
+                contains inspection-only estimates for object_height (visible
+                extent), supported_height (assumed contact), body_segment_center
+                (inferred endpoints), and cuboid_corners (projected base).
         """
         query = query.strip()
         if not query:

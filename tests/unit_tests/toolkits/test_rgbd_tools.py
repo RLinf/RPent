@@ -140,23 +140,50 @@ def test_text_segmentation_checks_the_positive_point_on_the_native_mask(tmp_path
 
 
 @pytest.mark.parametrize(
-    ("name", "peer", "accepted"),
-    [("bowl", False, True), ("ramekin", False, False), ("bowl", True, False)],
+    ("relation", "name", "scene_answer", "peer", "reason"),
+    [
+        ("between", "bowl", "yes", False, None),
+        ("between", "ramekin", "yes", False, "independent_object_name_not_confirmed"),
+        ("between", "bowl", "yes", True, "another_visually_compatible_instance"),
+        ("left of the plate", "blue cup", "yes", False, None),
+        (
+            "left of the plate",
+            "plate",
+            "yes",
+            False,
+            "independent_object_name_not_confirmed",
+        ),
+        (
+            "to the right of the plate",
+            "blue cup",
+            "no",
+            False,
+            "local_model_did_not_confirm_target",
+        ),
+    ],
 )
-def test_between_checks_the_target_name_and_the_landmark_relation(
-    monkeypatch, name, peer, accepted
+def test_spatial_relation_checks_the_scene_and_the_isolated_target(
+    monkeypatch, relation, name, scene_answer, peer, reason
 ):
-    from types import SimpleNamespace
+    from io import BytesIO
+
+    from PIL import Image
 
     from toolkits.geometry import target_identity
 
-    query = "patterned black bowl between the red-rim plate and the silver gray ramekin"
+    if relation == "between":
+        subject = "patterned black bowl"
+        relation = "between the red-rim plate and the silver gray ramekin"
+    else:
+        subject = "blue cup"
+    query = f"{subject} {relation}"
     mask = np.zeros((100, 120), bool)
     mask[30:70, 10:50] = True
     other = np.roll(mask, 60, axis=1)
     obs = SimpleNamespace(
         valid_mask=np.ones_like(mask), rgb=np.full((100, 120, 3), 128, np.uint8)
     )
+    obs.rgb[85:95, 108:118] = [255, 0, 0]  # Landmark outside the target crop.
     monkeypatch.setattr(
         target_identity, "_opening_evidence", lambda *args: {"resolved": True}
     )
@@ -169,23 +196,26 @@ def test_between_checks_the_target_name_and_the_landmark_relation(
 
     def verify(image, prompt, *, isolated=False):
         questions.append((prompt, isolated))
-        return name if prompt is None else "yes"
+        if isolated:
+            return name if prompt is None else "yes"
+        panels = np.asarray(Image.open(BytesIO(image)))
+        context = panels[:, panels.shape[1] // 2 :]
+        assert np.all(context == [255, 0, 0], axis=-1).any()
+        return scene_answer
 
     out = target_identity.verify_region(
         obs, mask, query, SimpleNamespace(verify=verify), {"calls": {}}, [45, 20]
     )
-    assert out["accepted"] is accepted
+    assert out["accepted"] is (reason is None)
     assert query in questions[0][0] and questions[0][1] is False
-    assert (None, True) in questions
-    if name == "bowl":
-        assert ("patterned black bowl", True) in questions
-    if name == "ramekin":
-        assert out["reason"] == "independent_object_name_not_confirmed"
+    if reason:
+        assert out["reason"] == reason
+    if scene_answer == "yes":
+        assert (None, True) in questions
+    if reason is None:
+        assert out["relation_verified"] and (subject, True) in questions
     if peer:
-        assert (
-            out["reason"] == "another_visually_compatible_instance"
-            and query in questions[-1][0]
-        )
+        assert query in questions[-1][0]
 
 
 def _obs(camera, x=0, frame="table", step=0):
@@ -306,7 +336,7 @@ def test_only_synchronized_overlapping_material_can_complete_partial_geometry(ov
         "front",
         0,
         "surface_point",
-        ["rectangle_center", "supported_height"],
+        ["rectangle_center", "height_above_support"],
         lambda: None,
     ).data
     assert [item["reason"] for item in result["view_evidence"]["skipped"]][:3] == [
@@ -316,7 +346,7 @@ def test_only_synchronized_overlapping_material_can_complete_partial_geometry(ov
     ]
     if overlap:
         assert result["status"] == "usable"
-        assert result["geometry"]["supported_height"]["source_camera"] == "side"
+        assert result["geometry"]["height_above_support"]["source_camera"] == "side"
     else:
         assert (
             result["view_evidence"]["skipped"][-1]["reason"]
@@ -324,9 +354,9 @@ def test_only_synchronized_overlapping_material_can_complete_partial_geometry(ov
         )
         assert (
             result["status"] == "partial"
-            and result["geometry"]["supported_height"]["value"] is None
+            and result["geometry"]["height_above_support"]["value"] is None
         )
-        assert result["missing_geometry"] == ["supported_height"]
+        assert result["missing_geometry"] == ["height_above_support"]
         assert "observation_request" not in result
 
 
@@ -419,6 +449,13 @@ def test_geometry_verifies_identity_and_reuses_evidence_only_within_a_step(tmp_p
     center = mixed["geometry"]["rectangle_center"]
     assert "value" not in center and center["warnings"]
     assert mixed["missing_geometry"] == ["rectangle_center"]
+    heights = tool.geometry(
+        "toy block",
+        "overhead",
+        required_geometry=["height_above_support", "supported_height"],
+    ).data
+    assert heights["geometry"]["height_above_support"]["value"] == pytest.approx(0.038)
+    assert heights["missing_geometry"] == ["supported_height"]
     rgb[25:44, 15:34] = [215, 15, 13]
     xyz[25:44, 15:34, 2] = 0.038
     tool.reset_cache()
@@ -529,6 +566,57 @@ def test_rim_depth_edges_use_only_adjacent_pixels_in_the_frame():
     )
     assert candidates[-2, 5] and candidates[5, -2]
     assert not candidates[0, 5] and not candidates[5, 0]
+
+
+@pytest.mark.parametrize("with_wrist", [False, True])
+def test_plate_clipped_by_two_edges_needs_a_second_view(tmp_path, with_wrist):
+    rows, cols = np.indices((96, 128))
+    k = np.array([[300.0, 0, 64], [0, 300.0, 48], [0, 0, 1]])
+
+    def view(camera, col, row):
+        # Both cameras see the same 12 cm plate centered at (0, 0, 0.03) m.
+        depth = 0.72
+        disc = np.hypot(cols - col, rows - row) <= 0.06 * k[0, 0] / depth
+        rgb = np.full((*disc.shape, 3), 110, dtype=np.uint8)
+        rgb[disc] = 225
+        pose = np.diag([1.0, -1.0, -1.0, 1.0])
+        pose[:3, 3] = [(64 - col) * depth / 300, (row - 48) * depth / 300, 0.75]
+        return GeometryObservation(
+            camera,
+            0,
+            "table",
+            rgb,
+            depth_m=np.where(disc, depth, 0.75),
+            intrinsics=k,
+            camera_to_world=pose,
+            up_direction=[0, 0, 1],
+        )
+
+    clipped = view("front", 3, 3)
+    state = EnvState(tmp_path)
+    with state.record_step(state={}):
+        pass
+    tool = GeometryTool(
+        observations=SimpleNamespace(
+            get_observation=lambda **_: clipped,
+            additional_observations=lambda _: (
+                [view("wrist", 64, 48)] if with_wrist else []
+            ),
+        ),
+        grounder=SimpleNamespace(
+            ground=lambda *_: MolmoResult(True, (9.0, 9.0), (128, 96)),
+            verify=lambda image, query, **_: "yes" if query else "plate",
+        ),
+        state=state,
+    )
+    out = tool.geometry("plate", "front", required_geometry=["plate_center"]).data
+    field = out["geometry"]["plate_center"]
+    if with_wrist:
+        assert out["status"] == "usable" and field["source_camera"] == "wrist"
+        np.testing.assert_allclose(field["value"], [0, 0, 0.03], atol=0.001)
+    else:
+        assert out["status"] == "insufficient_evidence" and "value" not in field
+        assert "insufficient_circle_angular_coverage" in field["warnings"]
 
 
 def test_part_measurements_keep_independent_fits_and_reject_inconsistent_ends():

@@ -21,7 +21,7 @@ from scipy.ndimage import binary_erosion, label
 from scipy.optimize import least_squares
 
 from toolkits.geometry.depth_foreground import local_depth_range
-from toolkits.geometry.geometry import _basis
+from toolkits.geometry.geometry import FitOptions, _basis, fit_circle
 
 
 def _circle(points, normal, *, tolerance=0.0025):
@@ -165,7 +165,9 @@ def _face(points, up):
     return max(choices, key=lambda c: c[0])[1:] if choices else None
 
 
-def measure(points, up, quantity, camera_right=None, camera_toward=None):
+def measure(
+    points, up, quantity, camera_right=None, camera_toward=None, *, boundary_points=None
+):
     """Return metric scalar/vector geometry and diagnostics without object class information."""
     points = np.asarray(points, dtype=float)
     points = points[np.isfinite(points).all(axis=1)]
@@ -209,6 +211,36 @@ def measure(points, up, quantity, camera_right=None, camera_toward=None):
     if face is None:
         return None, {"reason": "upward_face_not_resolved"}
     p, n, support = face
+    if quantity == "plate_center":
+        if boundary_points is None or not len(boundary_points):
+            return None, {"reason": "plate_rim_not_observed"}
+        # Fit the observed silhouette in the plane of the plate's supporting face.
+        # The lip may sit above the surface on which an object would be placed.
+        options = FitOptions()
+        if len(boundary_points) > options.max_points:
+            idx = np.linspace(
+                0, len(boundary_points) - 1, options.max_points, dtype=int
+            )
+            boundary_points = boundary_points[idx]
+        flat_rim = boundary_points - np.outer((boundary_points - p) @ n, n)
+        fit = fit_circle(flat_rim, options)
+        if not fit.parameters:
+            return None, {"reason": fit.reason}
+        center = np.asarray(fit.parameters["center"])
+        radius = fit.parameters["radius"]
+        quality = {
+            **fit.quality,
+            "n_support": len(fit.inlier_indices),
+            "radius": radius,
+            "warnings": fit.warnings,
+        }
+        delta = points - center
+        projected = delta - np.outer(delta @ n, n)
+        middle = points[np.linalg.norm(projected, axis=1) < 0.48 * radius]
+        if len(middle) >= 15:
+            center = center + np.median((middle - center) @ n) * n
+            quality["central_face_support"] = len(middle)
+        return center.tolist(), quality
     resolved_cap = False
     if quantity == "lid_center" and n @ up < 0.85:
         # An obliquely viewed can may expose more of its wall than of its lid.
@@ -273,14 +305,6 @@ def measure(points, up, quantity, camera_right=None, camera_toward=None):
     quality = {"n_support": int(active.sum()), "radius": r}
     if resolved_cap:
         quality["warnings"] = ["upper_lid_plane_selected_above_side_wall"]
-    if quantity == "plate_center":
-        delta = points - center
-        projected = delta - np.outer(delta @ n, n)
-        middle = points[np.linalg.norm(projected, axis=1) < 0.48 * r]
-        if len(middle) >= 15:
-            offset = np.median((middle - center) @ n)
-            center = center + offset * n
-            quality["central_face_support"] = len(middle)
     return center.tolist(), quality
 
 

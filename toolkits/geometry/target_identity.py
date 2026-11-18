@@ -33,15 +33,21 @@ from toolkits.geometry.chromatic_region import described_hue
 from toolkits.geometry.depth_foreground import local_depth_range
 
 
-def between_subject(query: str) -> str:
-    """Keep landmark names out of tests on the target's material."""
-    words = re.split(r"\bbetween\b", query, maxsplit=1, flags=re.I)
-    if len(words) == 1:
+def target_subject(query: str) -> str:
+    """Separate the material to identify in a crop from its scene landmarks."""
+    parts = re.split(
+        r"\b(?:between|(?:(?:to|on)\s+(?:the\s+)?)?(?:left|right)\s+of"
+        r"|next\s+to|in\s+front\s+of)\b",
+        query,
+        maxsplit=1,
+        flags=re.I,
+    )
+    if len(parts) == 1:
         return query.strip()
     return re.sub(
-        r"\s+(?:(?:that|which)\s+)?(?:is\s+)?(?:sitting|standing|lying|located|positioned|placed)\s*$",
+        r"\s+(?:(?:that|which)\s+)?(?:is\s+)?(?:sitting|standing|lying|located|positioned|placed|is)$",
         "",
-        words[0].strip(),
+        parts[0].strip().rstrip(","),
         flags=re.I,
     ).strip()
 
@@ -329,7 +335,7 @@ def verify_region(
     verify = getattr(grounder, "verify", None)
     if verify is None:
         return {**evidence, "reason": "local_identity_evidence_unavailable"}
-    subject = between_subject(query)
+    subject = target_subject(query)
     relational = subject != query.strip()
     if not subject:
         return {**evidence, "reason": "target_description_missing"}

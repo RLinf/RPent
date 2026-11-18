@@ -17,6 +17,7 @@
 import numpy as np
 
 from toolkits.geometry import target_identity
+from toolkits.geometry.geometry import observed_silhouette
 from toolkits.geometry.measured_rectangle import observed_face, rectangle_value
 from toolkits.geometry.package_identity import package_description, select_package
 from toolkits.geometry.rgbd_parts import (
@@ -85,7 +86,7 @@ def run(
     faces = {}
     decisions = {}
     reason = "target_not_identified"
-    subject = target_identity.between_subject(data["query"])
+    subject = target_identity.target_subject(data["query"])
     relational = subject != data["query"]
     # Color/label shortcuts do not verify the relation to the landmarks.
     hue = None if relational else target_identity.box_color(subject)
@@ -444,10 +445,9 @@ def run(
                 quality = {
                     "support_height_m": z0,
                     "observed_contact_gap_m": float(low - z0),
-                    "warnings": ["resting_on_observed_support_assumed"]
-                    if name == "supported_height"
-                    else ["distance_to_support_plane"],
                 }
+                if name == "supported_height":
+                    quality["warnings"] = ["resting_on_observed_support_assumed"]
             elif measured_rectangle:
                 basis = direction_camera if direction_camera is not None else cam
                 value = rectangle_value(face, name, basis)
@@ -461,6 +461,14 @@ def run(
                     warnings.append("clipped_roof_center_uses_observed_side_wall")
                 if value is None:
                     quality["reason"] = "camera_relative_corner_order_unresolved"
+            elif name == "plate_center":
+                rim = observed_silhouette(regions[source], observation.valid_mask)
+                value, quality = measure(
+                    cloud,
+                    observation.up_direction,
+                    name,
+                    boundary_points=observation.world_xyz[rim],
+                )
             else:
                 basis = direction_camera if direction_camera is not None else cam
                 value, quality = measure(
