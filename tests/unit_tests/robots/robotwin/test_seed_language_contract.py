@@ -180,3 +180,35 @@ def test_action_spec_uses_native_robot_layout(left_joints, right_joints):
     assert specs["qpos"]["low"][left_joints] == 0.0
     assert specs["qpos"]["high"][-1] == 1.0
     assert len(specs["ee"]["low"]) == 16
+
+
+@pytest.mark.parametrize("action_type,dimension", [("qpos", 14), ("ee", 16)])
+def test_chunk_reports_each_executed_state_without_rendering(action_type, dimension):
+    task = SimpleNamespace(take_action_cnt=0, step_lim=3, ep_num=7, eval_success=False)
+    task.robot = SimpleNamespace(
+        get_left_arm_jointState=lambda: [float(task.take_action_cnt)] * 7,
+        get_right_arm_jointState=lambda: [float(task.take_action_cnt)] * 7,
+    )
+
+    def take_action(action, *, action_type):
+        task.take_action_cnt += 1
+
+    task.take_action = take_action
+    env = RoboTwinAgentEnv.__new__(RoboTwinAgentEnv)
+    env.record_metrics = False
+    env.venv = SimpleNamespace(
+        envs=[SimpleNamespace(lock=Lock(), task=task)],
+        get_obs=lambda: {},
+    )
+    env._extract_obs_image = lambda obs: obs
+    env._robot_state = lambda sub: {"qpos_target14": env._qpos_target14(sub)}
+    _, _, _, truncated, infos = env.chunk_step(
+        np.full((8, dimension), -99.0), action_type=action_type
+    )
+    info = infos[0]
+    assert info["executed_actions"] == 3
+    assert truncated[0, -1]
+    np.testing.assert_array_equal(
+        np.stack([step["qpos_target14"] for step in info["per_step"]]),
+        np.repeat(np.arange(1, 4)[:, None], 14, axis=1),
+    )

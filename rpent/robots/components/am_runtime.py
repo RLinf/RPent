@@ -28,6 +28,7 @@ from rpent.utils.daemon import ProcessDaemon, pick_free_port
 from rpent.utils.rpc import RpcClient, make_rpc_client
 
 WAM_BACKENDS = {
+    "uniwam": "uniwam",
     "cosmos-policy": "cosmos_policy",
     "cosmos3": "cosmos3",
     "fast-wam": "fast_wam",
