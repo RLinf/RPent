@@ -51,7 +51,6 @@ def system_prompt(variables: Mapping[str, object] | None = None) -> str:
         paths.extend(
             [
                 COMMON / "memory.md",
-                COMMON / "memory-write.md",
                 PROMPTS / "exploration.md",
             ]
         )

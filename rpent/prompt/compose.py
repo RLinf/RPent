@@ -29,6 +29,9 @@ def compose(
 ) -> str:
     """Bind each UTF-8 template once and join its Markdown with blank lines.
 
+    A trailing ``<!-- explore-only -->`` section is included only when
+    ``mode`` is ``explore``. Select it before binding its variables.
+
     Args:
         paths: Module-relative resource paths, in the order the model reads them.
         variables: Values for all placeholders in the selected templates.
@@ -39,11 +42,16 @@ def compose(
     Raises:
         KeyError: A template variable is missing; includes its file and name.
     """
+    values = variables or {}
     parts = []
     for path in paths:
-        template = path.read_text(encoding="utf-8")
+        template, _, exploration = path.read_text(encoding="utf-8").partition(
+            "<!-- explore-only -->"
+        )
+        if values.get("mode") == "explore":
+            template += exploration.lstrip("\n")
         try:
-            part = substitute_text(template, variables or {}, strict=True).strip()
+            part = substitute_text(template, values, strict=True).strip()
         except KeyError as exc:
             raise KeyError(f"{path}: missing prompt variable {exc.args[0]!r}") from exc
         if part:

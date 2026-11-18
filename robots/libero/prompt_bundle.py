@@ -45,7 +45,6 @@ def system_prompt(variables: Mapping[str, object] | None = None) -> str:
             COMMON / "memory.md",
             PROMPTS / "tools.md",
             PROMPTS / "policies/pi05.md",
-            *([COMMON / "memory-write.md"] if explore else []),
             PROMPTS / ("exploration.md" if explore else "evaluation.md"),
         ],
         values,

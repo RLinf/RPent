@@ -273,8 +273,9 @@ startup, reset, success and output differences; optional ``policies/<backend>.md
 files define backend protocols. Select applicable fragments in reading order.
 
 Reuse ``common/memory.md`` with a ``memory_sources`` string listing authorized
-paths. Exploration also uses ``common/memory-write.md`` with ``memory_kinds``
-listing allowed global lesson kinds. Compute these data fields in the bundle;
+paths and ``memory_kinds`` listing allowed global lesson kinds. Its trailing
+``<!-- explore-only -->`` section is included only in exploration, before variable
+binding. Compute these data fields in the bundle;
 keep robot-specific publication rules and metadata in ``exploration.md``.
 YAM retains its own read order and operator-supervised memory protocol.
 

@@ -162,6 +162,8 @@ def test_robot_prompts_render_from_public_spec(
     )
     variables.setdefault("recipe_tag", "current")
     variables.setdefault("memory_dir", "/memory")
+    if mode == "eval":
+        variables.pop("memory_inbox")
     if robot_name == "robocasa":
         memory_dir = tmp_path / "robocasa"
         (memory_dir / "global").mkdir(parents=True)
@@ -174,6 +176,9 @@ def test_robot_prompts_render_from_public_spec(
     assert user.strip()
     assert "{{" not in system
     assert "{{" not in user
+    assert "<!-- explore-only -->" not in system
+    if mode == "eval":
+        assert "## Task-family write-up" not in system
     tool_contract = {
         "libero": "SAM3 localization aid",
         "robocasa": "back_project_batch",
