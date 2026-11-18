@@ -70,6 +70,8 @@ PY
 
 SGLang `0.5.12.post1` 使用 RLinf 的外部 Qwen 图像处理器。RLinf 保存服务端的 prompt ID、预处理像素、图像区间、grid 和 M-RoPE，供 learner 回放。离线包安装未修改的 SGLang 发布版，保留镜像的 CUDA 12 内核。Megatron-Core `0.18.0+rpent.cu128.1` 包含 offload checkpoint 修补；Bridge `0.5.0+rpent.cu128.1` 使用配套 CUDA 12 配置。构建源码与依赖锁随离线包保留。
 
+激活脚本为已准备的 Qwen3.8-27B 教师设置 `RPENT_REASONING_EFFORT=none`，省略 SGLang API 不接受的档位字段。thinking 仍然开启，模型模板使用默认的 xhigh 提示词。直接启动时也可用 `--reasoning-effort none`。
+
 四节点 80 候选 smoke 的每个节点各启动一个服务管理进程：
 
 ```bash

@@ -94,6 +94,11 @@ CUDA 12 kernels. Megatron-Core `0.18.0+rpent.cu128.1` includes the offload
 checkpoint repair; Bridge `0.5.0+rpent.cu128.1` uses the compatible CUDA 12
 profile. Build sources and the lock are included in the offline package.
 
+Activation sets `RPENT_REASONING_EFFORT=none` for the prepared Qwen3.8-27B
+teacher. This omits a tier the SGLang API rejects; thinking stays enabled and
+the model template uses its default xhigh prompt. `--reasoning-effort none`
+has the same effect when launching directly.
+
 Start one service manager per node for the four-node 80-candidate smoke:
 
 ```bash
