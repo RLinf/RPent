@@ -24,10 +24,10 @@ from typing import Any
 import numpy as np
 
 
-def iter_trajectories(
+def iter_tasks(
     input_root: Path | str, pattern: str = "*"
-) -> Iterator[dict[str, Any]]:
-    """Read task, action, and prediction records without loading attachments."""
+) -> Iterator[tuple[Path, dict[str, Any]]]:
+    """Yield the trajectory root and task of each matching schema-v5 recording."""
     root = Path(input_root).expanduser().resolve()
     if not root.exists():
         raise FileNotFoundError(f"Trajectory input directory does not exist: {root}")
@@ -59,18 +59,25 @@ def iter_trajectories(
         if not isinstance(document.get("task"), dict):
             raise ValueError(f"{task_path}: expected a task object")
 
-        trajectory_root = task_path.parent
+        yield task_path.parent, document["task"]
+
+
+def iter_trajectories(
+    input_root: Path | str, pattern: str = "*"
+) -> Iterator[dict[str, Any]]:
+    """Read task, action, and prediction records without loading attachments."""
+    for trajectory_root, task in iter_tasks(input_root, pattern):
         yield {
             "root": trajectory_root,
-            "schema_version": document["schema_version"],
-            "task": document["task"],
-            "actions": _read_jsonl(trajectory_root / "actions.jsonl"),
-            "predictions": _read_jsonl(trajectory_root / "predictions.jsonl"),
+            "schema_version": 5,
+            "task": task,
+            "actions": list(iter_jsonl(trajectory_root / "actions.jsonl")),
+            "predictions": list(iter_jsonl(trajectory_root / "predictions.jsonl")),
         }
 
 
-def _read_jsonl(path: Path) -> list[dict[str, Any]]:
-    records = []
+def iter_jsonl(path: Path) -> Iterator[dict[str, Any]]:
+    """Yield recorded JSON objects with file and line context for parse errors."""
     with path.open(encoding="utf-8") as file:
         for line_number, line in enumerate(file, start=1):
             if not line.strip():
@@ -81,8 +88,7 @@ def _read_jsonl(path: Path) -> list[dict[str, Any]]:
                 raise ValueError(f"{path}:{line_number}: {exc.msg}") from exc
             if not isinstance(record, dict):
                 raise ValueError(f"{path}:{line_number}: expected a record object")
-            records.append(record)
-    return records
+            yield record
 
 
 def read_array(trajectory_root: Path | str, value: dict[str, Any]) -> np.ndarray:

@@ -34,9 +34,11 @@ from pydantic_core import to_jsonable_python
 from rpent.session import EnvState, MissingInfo, Payload
 from rpent.session.env_capture import ToolCallCapture
 from rpent.utils.logging import get_logger
+from rpent.utils.templates import substitute
 
 if TYPE_CHECKING:
     from rpent.planner.base import PlannerResult
+    from rpent.tools.base import Tool
 
 logger = get_logger("task_capture")
 
@@ -46,9 +48,27 @@ _SDK_VALUES = TypeAdapter(Any)
 
 
 def start_planner_task(
-    state: EnvState, *, instruction: str, config: dict[str, Any]
+    state: EnvState,
+    *,
+    instruction: str,
+    system_prompt: str,
+    config: dict[str, Any],
+    tools: tuple[Tool, ...],
 ) -> EnvState:
-    """Start task capture with a serializable snapshot of the execution config."""
+    """Capture the task's prompts, execution config, and registered tools."""
+    config = {
+        **config,
+        "system_prompt": system_prompt,
+        "tools": [
+            {
+                "name": tool.name,
+                "description": tool.description,
+                "input_schema": substitute(tool.input_schema),
+                "readonly": tool.readonly,
+            }
+            for tool in tools
+        ],
+    }
     state.start_task(
         instruction=instruction,
         config=Payload(

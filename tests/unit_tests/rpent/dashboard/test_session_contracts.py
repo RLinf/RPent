@@ -15,6 +15,7 @@
 from __future__ import annotations
 
 import json
+from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -202,6 +203,7 @@ def test_dashboard_exploration_finalizes_memory_and_reports_merge_failures(
     from rpent.cli import dashboard as dashboard_cli
     from rpent.cli.main import _build_argparser
     from rpent.session import EnvState
+    from rpent.tools.common import CommonTools
 
     merge_calls: list[dict[str, Any]] = []
     stores = []
@@ -223,6 +225,16 @@ def test_dashboard_exploration_finalizes_memory_and_reports_merge_failures(
         def __init__(self):
             self.state = EnvState(tmp_path / f"state-{len(stores)}")
             stores.append(self.state)
+            self.tools = (
+                replace(
+                    CommonTools.finish, description=f"Finish session {len(stores)}"
+                ),
+            )
+
+        def list_tools(self):
+            """Return the tools declared for the current dashboard test session."""
+            assert record_trajectory
+            return self.tools
 
         def cancel_active_and_wait(self) -> None:
             self.drained = True
@@ -275,6 +287,11 @@ def test_dashboard_exploration_finalizes_memory_and_reports_merge_failures(
             task = kwargs["toolkit"].state.get_task()
             if record_trajectory:
                 assert task.status == "running"
+                assert task.config.data["system_prompt"] == kwargs["system_prompt"]
+                assert task.instruction == kwargs["user_message"]
+                assert task.config.data["tools"][0]["description"] == (
+                    kwargs["toolkit"].tools[0].description
+                )
             else:
                 assert task is None
             planner_runs.append(True)
@@ -301,7 +318,9 @@ def test_dashboard_exploration_finalizes_memory_and_reports_merge_failures(
         parse_config=lambda args: run_config,
         init_runtime=lambda *args: ([], {}),
         prompts=PromptBundle(
-            system=lambda variables: "system",
+            system=lambda variables: (
+                f"System for session {variables['session_number']}"
+            ),
             user=lambda variables: "user",
         ),
     )
@@ -355,10 +374,21 @@ def test_dashboard_exploration_finalizes_memory_and_reports_merge_failures(
             store.get_task().task_id for store in stores
         }
         assert all(task["status"] == "completed" for task in saved_tasks)
+        assert {task["config"]["data"]["system_prompt"] for task in saved_tasks} == {
+            f"System for session {i}\n" for i in range(1, sessions + 1)
+        }
+        assert {
+            task["config"]["data"]["tools"][0]["description"] for task in saved_tasks
+        } == {f"Finish session {i}" for i in range(1, sessions + 1)}
         for task in saved_tasks:
             assert task["config"]["data"]["arguments"]["planner"] == planner_name
             assert task["config"]["data"]["arguments"]["record_trajectory"] is True
             assert task["config"]["data"]["run"]["output_dir"] == str(output_dir)
+            assert task["config"]["data"]["tools"][0]["name"] == "finish"
+            assert (
+                task["config"]["data"]["tools"][0]["input_schema"]
+                == CommonTools.finish.input_schema
+            )
     else:
         assert all(store.get_task() is None for store in stores)
         assert not list(tmp_path.glob("**/trajectories"))

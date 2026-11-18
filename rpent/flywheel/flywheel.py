@@ -202,6 +202,14 @@ def read_frame(
     }
 
 
+def has_confirmed_environment_success(task: dict[str, Any]) -> bool:
+    """Return whether the recorded environment explicitly confirmed task success."""
+    result = task.get("result") or {}
+    return (result.get("data") or {}).get("environment_success") is True and not any(
+        key in result.get("missing", {}) for key in ("", "/environment_success")
+    )
+
+
 def select_vla_segments(trajectory: dict[str, Any]) -> dict[str, list[dict]]:
     """Return continuous ranges of executed VLA actions and exclusion reasons.
 
@@ -217,11 +225,8 @@ def select_vla_segments(trajectory: dict[str, Any]) -> dict[str, list[dict]]:
         raise ValueError(f"Trajectory data selection is not supported for {robot}")
 
     actions = trajectory["actions"]
-    result = task.get("result") or {}
     stop = 0
-    if (result.get("data") or {}).get("environment_success") is True and not any(
-        key in result.get("missing", {}) for key in ("", "/environment_success")
-    ):
+    if has_confirmed_environment_success(task):
         stop = successful_prefix(actions, config)
     segments = []
     rejected = []

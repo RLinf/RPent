@@ -332,10 +332,12 @@ def _run_dashboard_task(
                         task_state = start_planner_task(
                             toolkit.state,
                             instruction=session_message,
+                            system_prompt=system_prompt,
                             config={
                                 "arguments": vars(task_args),
                                 "run": asdict(run_config),
                             },
+                            tools=toolkit.list_tools(),
                         )
                     planner = build_planner(
                         task_args.planner,

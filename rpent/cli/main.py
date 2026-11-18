@@ -693,7 +693,9 @@ def main() -> int:
                     task_state = start_planner_task(
                         toolkit.state,
                         instruction=session_msg,
+                        system_prompt=system_prompt,
                         config={"arguments": vars(args), "run": asdict(run_config)},
+                        tools=toolkit.list_tools(),
                     )
                 result = planner.solve(
                     system_prompt=system_prompt,
