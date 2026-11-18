@@ -53,12 +53,13 @@ adapter loads the RGB image, world XYZ map and calibration. LIBERO runs keep
 their own ``back_project`` and ``segment`` unless you add ``--rgbd-tools``,
 which replaces them with the generic tools and their schemas for any planner.
 
-``geometry`` is experimental. To enable it, start a Molmo service from the same
-RPent revision as described in :doc:`../guides/flash`, set ``MOLMO_ENDPOINT`` to
-its address and add ``--geometry --molmo-endpoint "$MOLMO_ENDPOINT"`` to the
-LIBERO run command. ``--geometry`` also registers the generic tools. It uses the
-service's native point mode and ``molmo.verify``, which older Molmo services
-do not provide.
+``geometry`` is experimental and requires a Molmo service that supports native
+pointing and target verification (``molmo.verify``). For startup instructions,
+see `Configure Molmo <../guides/flash.html#configure-molmo>`_.
+
+Set ``MOLMO_ENDPOINT`` to the service address and add
+``--geometry --molmo-endpoint "$MOLMO_ENDPOINT"`` to the LIBERO run command.
+``--geometry`` also enables the generic ``back_project`` and ``segment`` tools.
 
 For example, a planner can request the rim radius and full height of the same cup
 in one ``geometry`` call.
