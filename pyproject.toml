@@ -76,7 +76,7 @@ test = [
     "gymnasium",
 ]
 rlinf = [
-    "rlinf @ git+https://github.com/RLinf/RLinf.git@release/v0.4",
+    "rlinf @ git+https://github.com/RLinf/RLinf.git@main",
 ]
 sam3 = [
     "sam3 @ git+https://github.com/RLinf/sam3.git@main",

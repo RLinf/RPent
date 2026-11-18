@@ -1,7 +1,7 @@
 RoboLab
 =======
 
-通过 RPent 的观测和动作工具运行 Isaac Lab RoboLab 任务，每次运行连接一个 DROID 关节位置控制环境。任务成功由 RoboLab 原生评估器判定。
+通过 RPent 的观测和动作工具，调用 RLinf 的 RoboLab 环境运行 Isaac Lab 任务，每次运行连接一个 DROID 关节位置控制环境。任务成功由 RoboLab 原生评估器判定。
 
 概览
 ----
@@ -75,32 +75,34 @@ RoboLab
    source .venv-robolab-policy/bin/activate
    uv pip install -e ".[robolab]"
 
-RoboLab 从源码包相邻的目录读取 USD 资产。在 RPent 仓库外安装固定版本 ``b6cfcf6`` 及其 LFS 资产，并为 Isaac Sim 5.0 / Isaac Lab 2.2.0 创建独立环境：
+按照 `RLinf RoboLab 指南 <https://rlinf.readthedocs.io/zh-cn/latest/rst_source/evaluations/guides/robolab.html>`_，使用 RLinf ``main`` 分支的安装器创建仿真环境。在 RPent 仓库根目录运行以下命令，并保留 RLinf 源码目录。``--install-rlinf`` 会将 RLinf 安装到仿真环境，使 RPent 在 RLinf 仓库之外也能导入 ``RoboLabEnv``。
 
 .. code-block:: bash
 
-   export ROBOLAB_SOURCE="$HOME/.cache/rpent/RoboLab"
-   git lfs install
-   mkdir -p "$(dirname "$ROBOLAB_SOURCE")"
-   GIT_LFS_SKIP_SMUDGE=1 git clone https://github.com/NVlabs/RoboLab.git "$ROBOLAB_SOURCE"
-   git -C "$ROBOLAB_SOURCE" checkout b6cfcf6
-   git -C "$ROBOLAB_SOURCE" lfs pull
    export RPENT_ROOT="$PWD"
-   uv venv --python 3.11 .venv-robolab-sim
+   export RLINF_SOURCE="$HOME/.cache/rpent/RLinf"
+   git lfs install
+   mkdir -p "$(dirname "$RLINF_SOURCE")"
+   git clone --branch main https://github.com/RLinf/RLinf.git "$RLINF_SOURCE"
    (
-     cd "$ROBOLAB_SOURCE"
-     UV_PROJECT_ENVIRONMENT="$RPENT_ROOT/.venv-robolab-sim" \
-       uv sync --python 3.11 --extra isaac50 --no-dev --locked
-     uv pip install --python "$RPENT_ROOT/.venv-robolab-sim/bin/python" \
-       -e ".[isaac50]" openpi-client
+     cd "$RLINF_SOURCE"
+     bash requirements/install.sh embodied --model openpi --env robolab \
+       --venv "$RPENT_ROOT/.venv-robolab-sim" --install-rlinf
    )
+   git -C "$RPENT_ROOT/.venv-robolab-sim/robolab" lfs pull
 
-完整 RPent 包仅安装在策略环境中。仿真进程通过启动器设置的 ``PYTHONPATH`` 从本仓库加载环境服务和共享 RPC 模块。将规划器依赖装入仿真环境，会与 Isaac Sim 固定的版本冲突。第二条安装命令需要保留 Isaac 可选依赖，以便解析器继续遵守这些版本约束。安装完成后检查两个环境：
+安装器负责选择 RoboLab 版本，安装 Isaac Sim 5.0、Isaac Lab 2.2.0 和 OpenPI，并处理 Isaac/Kit 的包文件。默认情况下，RoboLab 及其 USD 资产位于 ``.venv-robolab-sim/robolab``。若系统依赖已安装，可添加 ``--no-root`` 跳过系统包安装；完整系统前提见 RLinf 指南。
+
+复用已有 RLinf 安装时，请确保源码已同步到 ``main``，且仿真环境已安装 RLinf，再将所有运行命令中的 ``--sim-python`` 指向该环境的 ``bin/python``。如果设置了 ``ROBOLAB_PATH``，安装器会使用该源码目录；相应地，在该目录执行 ``git -C "$ROBOLAB_PATH" lfs pull``。
+
+完整 RPent 包仅安装在策略环境中。仿真进程通过启动器设置的 ``PYTHONPATH`` 从本仓库加载环境服务和共享 RPC 模块。将规划器依赖装入仿真环境，会与 Isaac Sim 固定的版本冲突。仅在策略环境安装 RLinf 不够：仿真解释器还要运行 RLinf 的 RoboLab 适配器及其 Isaac 子进程。安装完成后检查两个环境及适配器导入：
 
 .. code-block:: bash
 
    uv pip check --python .venv-robolab-policy/bin/python
    uv pip check --python .venv-robolab-sim/bin/python
+   .venv-robolab-sim/bin/python -c \
+     "from rlinf.envs.sim.robolab.robolab_env import RoboLabEnv; print(RoboLabEnv.__module__)"
 
 模型权重
 ~~~~~~~~
@@ -131,7 +133,7 @@ RoboLab 从源码包相邻的目录读取 USD 资产。在 RPent 仓库外安装
 
 动作模型部署使用共享的 ``--am-checkpoint``、``--am-python``、``--am-root`` 和 ``--am-cuda-device`` 参数。复用已有模型服务时，传入 ``--am-endpoint``，不要同时传入本地部署参数。
 
-使用 ``--env-cuda-device`` 可单独覆盖仿真环境的 ``--cuda-device``，与动作模型独立选卡。显式选择服务 GPU 后，该服务使用自身 CUDA 掩码内的 ``cuda:0``；否则，``--device`` 在继承的 CUDA 命名空间中选择 Isaac 设备，默认为 ``cuda:0``。在调度器或容器中，省略服务 GPU 参数可保留分配的掩码，包括 GPU UUID。只有对应 GPU 设备节点可见时，才会重映射数字形式的宿主机掩码；容器 GPU 编号按容器中挂载的设备确定。使用 ``--env-endpoint`` 可连接已有的同任务、同 seed 环境服务，其 GPU 无需与本地设备设置相同。
+使用 ``--env-cuda-device`` 可单独覆盖仿真环境的 ``--cuda-device``，与动作模型独立选卡。显式选择服务 GPU 后，该服务使用自身 CUDA 掩码内的 ``cuda:0``；否则，``--device`` 在继承的 CUDA 命名空间中选择 Isaac 设备，默认为 ``cuda:0``。在调度器或容器中，省略服务 GPU 参数可继承分配的掩码，包括 GPU UUID。RLinf 会将数字形式的 CUDA 掩码映射为 Isaac 和 Kit 使用的 GPU 编号，并保留非数字掩码。使用容器或 UUID 分配 GPU 时，请通过 Isaac 日志确认实际渲染设备。使用 ``--env-endpoint`` 可连接已有的同任务、同 seed 环境服务，其 GPU 无需与本地设备设置相同。
 
 不加载模型权重、仅使用环境动作时，加入 ``--policy-backend none``。此时可使用 ``execute_action`` 和 ``view_env_state``，但没有 ``pi05_act``。
 
@@ -182,8 +184,8 @@ RoboLab 从源码包相邻的目录读取 USD 资产。在 RPent 仓库外安装
 问题排查
 --------
 
-若环境启动失败，查看 ``env_server.log``，确认 ``--sim-python`` 指向的 Isaac 环境以 editable 模式安装了带 ``assets/`` 的 RoboLab。若策略启动失败，查看 ``vla_server.log`` 和 checkpoint 路径。
+若环境启动失败，查看 ``env_server.log``，确认 ``--sim-python`` 指向通过 RLinf 安装器创建的仿真环境，能够导入 ``rlinf.envs.sim.robolab.robolab_env``，并以 editable 模式安装了带完整 ``assets/`` 的 RoboLab。若策略启动失败，查看 ``vla_server.log`` 和 checkpoint 路径。
 
 遇到 Vulkan 初始化错误或缺少 ``libGLU.so.1`` 时，检查 NVIDIA 驱动和上文列出的系统图形库，并查看 Isaac 日志。渲染和物理仿真使用选定的物理 GPU，并禁用多 GPU 渲染；Isaac 仍可能在其他 GPU 创建少量 CUDA 上下文。在共享机器上使用 ``nvidia-smi`` 检查实际显存占用。
 
-下载 wheel 超时时，可使用相同环境和缓存重试失败的 ``uv`` 命令。依赖冲突应分别查看两个环境的 ``uv pip check`` 输出。进程正常退出本身不能证明原生任务成功。
+下载 wheel 超时时，可使用相同的 ``--venv`` 路径和缓存重新运行 RLinf 安装器。依赖冲突应分别查看两个环境的 ``uv pip check`` 输出。进程正常退出本身不能证明原生任务成功。

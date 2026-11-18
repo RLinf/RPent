@@ -2,7 +2,8 @@ RoboLab
 =======
 
 Run an Isaac Lab RoboLab benchmark task through RPent's observation and action
-tools. The integration serves one DROID joint-position environment per run.
+tools using RLinf's RoboLab environment. The integration serves one DROID
+joint-position environment per run.
 RoboLab's own evaluator supplies the success result.
 
 Overview
@@ -83,39 +84,52 @@ extra, following the :doc:`../get_started/quickstart` workflow:
    source .venv-robolab-policy/bin/activate
    uv pip install -e ".[robolab]"
 
-RoboLab reads USD assets beside its source package. Install RoboLab revision
-``b6cfcf6`` and its LFS assets outside the RPent repository, in a separate
-Isaac Sim 5.0 / Isaac Lab 2.2.0 environment:
+Create the simulator environment with the installer from RLinf ``main``,
+following the `RLinf RoboLab guide <https://rlinf.readthedocs.io/en/latest/rst_source/evaluations/guides/robolab.html>`_.
+Run the following from the RPent root. Keep the RLinf checkout available:
+``--install-rlinf`` installs it into the simulator environment so that RPent
+can import ``RoboLabEnv`` from outside the RLinf repository.
 
 .. code-block:: bash
 
-   export ROBOLAB_SOURCE="$HOME/.cache/rpent/RoboLab"
-   git lfs install
-   mkdir -p "$(dirname "$ROBOLAB_SOURCE")"
-   GIT_LFS_SKIP_SMUDGE=1 git clone https://github.com/NVlabs/RoboLab.git "$ROBOLAB_SOURCE"
-   git -C "$ROBOLAB_SOURCE" checkout b6cfcf6
-   git -C "$ROBOLAB_SOURCE" lfs pull
    export RPENT_ROOT="$PWD"
-   uv venv --python 3.11 .venv-robolab-sim
+   export RLINF_SOURCE="$HOME/.cache/rpent/RLinf"
+   git lfs install
+   mkdir -p "$(dirname "$RLINF_SOURCE")"
+   git clone --branch main https://github.com/RLinf/RLinf.git "$RLINF_SOURCE"
    (
-     cd "$ROBOLAB_SOURCE"
-     UV_PROJECT_ENVIRONMENT="$RPENT_ROOT/.venv-robolab-sim" \
-       uv sync --python 3.11 --extra isaac50 --no-dev --locked
-     uv pip install --python "$RPENT_ROOT/.venv-robolab-sim/bin/python" \
-       -e ".[isaac50]" openpi-client
+     cd "$RLINF_SOURCE"
+     bash requirements/install.sh embodied --model openpi --env robolab \
+       --venv "$RPENT_ROOT/.venv-robolab-sim" --install-rlinf
    )
+   git -C "$RPENT_ROOT/.venv-robolab-sim/robolab" lfs pull
+
+The installer selects the RoboLab revision and installs Isaac Sim 5.0,
+Isaac Lab 2.2.0, and OpenPI, including Isaac/Kit package file setup.
+RoboLab and its USD assets live under ``.venv-robolab-sim/robolab`` by default.
+If system dependencies are already installed, add ``--no-root`` to skip
+system package installation. See the RLinf guide for system prerequisites.
+
+To reuse an existing RLinf installation, ensure its checkout is up to date
+with ``main`` and its simulator environment has RLinf installed, then set
+``--sim-python`` to that environment's ``bin/python`` in all run commands.
+If ``ROBOLAB_PATH`` is set, the installer uses that source checkout; run
+``git -C "$ROBOLAB_PATH" lfs pull`` there instead.
 
 Install the full RPent package only in the policy environment. The simulator
 loads the environment server and shared RPC modules from this checkout using
 the launcher's ``PYTHONPATH``. Installing planner dependencies in the simulator
-environment conflicts with Isaac Sim's pinned versions. Keep the Isaac extra
-in the second install command so the resolver preserves those constraints.
-Check both environments after installation:
+environment conflicts with Isaac Sim's pinned versions. Installing RLinf only
+in the policy environment is insufficient: the simulator interpreter also
+runs RLinf's RoboLab adapter and its Isaac child process.
+Check both environments and the adapter import after installation:
 
 .. code-block:: bash
 
    uv pip check --python .venv-robolab-policy/bin/python
    uv pip check --python .venv-robolab-sim/bin/python
+   .venv-robolab-sim/bin/python -c \
+     "from rlinf.envs.sim.robolab.robolab_env import RoboLabEnv; print(RoboLabEnv.__module__)"
 
 Checkpoint
 ~~~~~~~~~~
@@ -165,8 +179,9 @@ independently of the action model. Explicit service selection uses ``cuda:0``
 inside that service's CUDA mask. Otherwise, ``--device`` selects an Isaac device
 in the inherited CUDA namespace (default ``cuda:0``). In a scheduler or container,
 omit the service GPU options to retain its assigned mask, including GPU UUIDs.
-Numeric host masks are remapped only when their GPU device nodes are visible;
-container GPU ordinals follow the devices mounted in that container.
+RLinf maps numeric CUDA masks to the selected GPU index for Isaac and Kit,
+and preserves nonnumeric masks. Verify the rendered device in the Isaac log
+when using container or UUID-based GPU assignments.
 Use ``--env-endpoint`` to attach to an existing task/seed server; its GPU need
 not match the local device settings.
 
@@ -254,8 +269,9 @@ Diagnostics
 -----------
 
 If the environment does not start, inspect ``env_server.log`` and verify that
-``--sim-python`` points to the Isaac environment with an editable RoboLab
-installation and a populated ``assets/`` directory. If the policy does not
+``--sim-python`` points to the RLinf-installed simulator environment with
+an importable ``rlinf.envs.sim.robolab.robolab_env``, an editable RoboLab
+installation, and a populated ``assets/`` directory. If the policy does not
 start, inspect ``vla_server.log`` and the checkpoint path.
 
 For Vulkan initialization errors or missing ``libGLU.so.1``, check the NVIDIA
@@ -264,7 +280,7 @@ Rendering and physics use the selected physical GPU with multi-GPU rendering
 disabled; Isaac may still create small CUDA contexts on other GPUs. Check
 actual memory use with ``nvidia-smi`` on shared machines.
 
-If a wheel download times out, retry the failed ``uv`` command using the same
-environment and cache. For dependency conflicts, inspect ``uv pip check`` in
+If a wheel download times out, rerun the RLinf installer with the same
+``--venv`` path and cache. For dependency conflicts, inspect ``uv pip check`` in
 each environment separately. A clean process exit alone does not establish
 native task success.
