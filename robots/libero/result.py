@@ -20,7 +20,7 @@ from collections.abc import Mapping
 from pathlib import Path
 
 from rpent.evaluation import RunFinalizationContext, write_json_atomic
-from rpent.planner.base import normalize_stop_info
+from rpent.planner.stop import resolve_stop_info
 
 
 def finalize_libero_result(context: RunFinalizationContext) -> Path:
@@ -49,11 +49,12 @@ def finalize_libero_result(context: RunFinalizationContext) -> Path:
         if context.stop_info is not None
         else context.stats.get("stop_info")
     )
-    normalized = normalize_stop_info(
+    normalized = resolve_stop_info(
         boundary if isinstance(boundary, Mapping) else None,
         reason=context.stop_reason or context.stats.get("stop_reason"),
         error=context.agent_error,
-        finish_accepted=accepted,
+        finish_result=finish,
+        cancelled_reason=context.cancelled_reason,
     )
     stop_reason = normalized["reason"]
     stop_info = None
@@ -74,6 +75,24 @@ def finalize_libero_result(context: RunFinalizationContext) -> Path:
                 )
             },
         }
+    planner_error = normalized["category"] == "error"
+    boundary_complete = boundary is None or (
+        isinstance(boundary, Mapping)
+        and all(
+            boundary.get(name) is True
+            for name in (
+                "execution_certain",
+                "result_delivery_complete",
+                "cleanup_complete",
+            )
+        )
+    )
+    valid = (
+        isinstance(context.environment_success, bool)
+        and normalized["category"] in {"finish", "budget", "timeout"}
+        and verdict != "abort"
+        and boundary_complete
+    )
     return write_json_atomic(
         context.output_dir / "result.json",
         {
@@ -88,12 +107,11 @@ def finalize_libero_result(context: RunFinalizationContext) -> Path:
             "success_source": "native_terminated"
             if context.environment_success is not None
             else None,
-            "valid": context.environment_success is not None
-            and context.agent_error is None,
+            "valid": valid,
             "finish_accepted": accepted,
             "finish_status": status,
             "operator_verdict": verdict,
-            "planner_error": context.agent_error is not None,
+            "planner_error": planner_error,
             "termination_reason": stop_reason,
             "termination_category": normalized["category"],
             "stop_info": stop_info,

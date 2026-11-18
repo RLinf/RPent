@@ -30,6 +30,7 @@ from mcp.shared.memory import create_connected_server_and_client_session
 
 from rpent.dashboard.events import TranscriptEvent, UsageEvent
 from rpent.memory import MemoryManager
+from rpent.planner.base import is_recoverable_planner_result
 from rpent.planner.claude_code import (
     ClaudeCodePlanner,
     _build_rpent_server,
@@ -399,6 +400,9 @@ def test_fake_sdk_failure_and_timeout_are_returned(
 
     assert failure.error == "RuntimeError: sdk unavailable"
     assert timeout.error == "Claude Agent SDK timed out after 0.01s"
+    assert timeout.stop_reason == "timeout"
+    assert is_recoverable_planner_result(timeout)
+    assert failure.stop_reason == "planner_error"
     assert slow_stream_closed is True
 
 
@@ -435,6 +439,55 @@ def test_noninteractive_timeout_cancels_active_toolkit_work(
     assert result.error == "Claude Agent SDK timed out after 0.01s"
     assert stream_closed is True
     assert toolkit.cancel_calls == 1
+
+
+@pytest.mark.parametrize(
+    "failure",
+    [TimeoutError("provider TIMEOUT"), RuntimeError("fetch failed / TRANSPORT")],
+)
+def test_provider_failures_are_not_planner_deadlines(tmp_path, monkeypatch, failure):
+    patch_sdk_surface(monkeypatch, FakeSdkTools())
+
+    async def stream(**kwargs):
+        raise failure
+        yield  # pragma: no cover
+
+    patch_client_stream(monkeypatch, stream)
+    result = make_planner(tmp_path, RecordingSink()).solve(
+        system_prompt="", user_message="task", toolkit=FakeToolkit(), max_turns=1
+    )
+    assert result.stop_reason == "planner_error"
+    assert not is_recoverable_planner_result(result)
+    assert result.error == f"{type(failure).__name__}: {failure}"
+
+
+@pytest.mark.parametrize("stage", ["toolkit", "stream"])
+def test_deadline_cleanup_failure_preserves_both_causes(tmp_path, monkeypatch, stage):
+    patch_sdk_surface(monkeypatch, FakeSdkTools())
+
+    async def stream(**kwargs):
+        try:
+            await asyncio.Event().wait()
+            yield  # pragma: no cover
+        finally:
+            if stage == "stream":
+                raise RuntimeError("stream cleanup failed: drain failed")
+
+    patch_client_stream(monkeypatch, stream)
+    toolkit = FakeToolkit()
+    if stage == "toolkit":
+        monkeypatch.setattr(
+            toolkit,
+            "cancel_active_and_wait",
+            Mock(side_effect=RuntimeError("drain failed")),
+        )
+    result = make_planner(tmp_path, RecordingSink(), timeout_s=0.01).solve(
+        system_prompt="", user_message="task", toolkit=toolkit, max_turns=1
+    )
+    assert result.stop_reason == "planner_error"
+    assert not is_recoverable_planner_result(result)
+    assert "Claude Agent SDK timed out after 0.01s" in result.error
+    assert "cleanup failed: drain failed" in result.error
 
 
 def test_stateful_sdk_driver_drains_tools_before_closing_tasks_and_client():
@@ -972,7 +1025,10 @@ def test_terminal_startup_failure_closes_input_and_drains_tools(
         if cleanup_error
         else None
     )
+    if stage and cleanup_error:
+        expected += "; Toolkit cleanup failed: toolkit boom with <ANTHROPIC_API_KEY>"
     assert result.error == expected
+    assert result.stop_reason == ("planner_error" if expected else None)
     assert toolkit.cancel_calls == 1
     assert closed == ([] if stage == "connect" else [True])
     assert secret not in caplog.text

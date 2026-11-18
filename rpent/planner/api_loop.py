@@ -23,7 +23,7 @@ import asyncio
 import json
 import threading
 from collections.abc import AsyncIterator, Sequence
-from contextlib import asynccontextmanager, nullcontext
+from contextlib import asynccontextmanager, nullcontext, suppress
 from functools import partial
 from typing import Any
 from uuid import uuid4
@@ -209,14 +209,21 @@ class ApiAgentLoop(Planner):
                 defer_message_ack=True,
                 submit_while_busy=True,
             )
+        run_task = asyncio.create_task(
+            session.run(_ConversationAgent(agent), user_message)
+        )
         try:
-            await asyncio.wait_for(
-                session.run(_ConversationAgent(agent), user_message),
-                timeout=None if self.interactive else self.timeout_s,
+            done, _ = await asyncio.wait(
+                (run_task,), timeout=None if self.interactive else self.timeout_s
             )
-        except asyncio.TimeoutError:
-            session.stop_reason = "timeout"
-            session.error = f"planner timed out after {self.timeout_s:g}s"
+            if not done:
+                session.stop_reason = "timeout"
+                session.error = f"planner timed out after {self.timeout_s:g}s"
+                run_task.cancel()
+                with suppress(asyncio.CancelledError):
+                    await run_task
+            else:
+                await run_task
         except _RequestBudgetExhausted as exc:
             session.stop_reason = "request_limit"
             session.error = None
@@ -226,12 +233,25 @@ class ApiAgentLoop(Planner):
             if isinstance(exc, UnexpectedModelBehavior) and _is_response_truncation(
                 exc
             ):
+                session.stop_info = None
                 session.error = f"planner response truncated (length): {exc}"
                 logger.warning("%s", session.error)
             else:
-                session.error = f"{type(exc).__name__}: {exc}"
+                session.stop_info = {
+                    "reason": "planner_error",
+                    "category": "error",
+                    "allow_new_session": False,
+                }
+                failure = f"{type(exc).__name__}: {exc}"
+                session.error = "; ".join(
+                    dict.fromkeys(item for item in (session.error, failure) if item)
+                )
                 logger.exception("Harness planner failed")
         finally:
+            if not run_task.done():
+                run_task.cancel()
+                with suppress(asyncio.CancelledError):
+                    await _wait_for_cleanup(run_task)
             session.emit_usage()
         return PlannerResult(
             finish_result=adapter.finish_result,
@@ -245,6 +265,7 @@ class ApiAgentLoop(Planner):
             },
             error=session.error,
             stop_reason=session.stop_reason,
+            stop_info=session.stop_info,
         )
 
 
@@ -536,7 +557,9 @@ class _Session(AbstractCapability):
         self.usage = RunUsage()
         self.interactive = interactive
         self.error: str | None = None
+        self.stop_info: dict[str, Any] | None = None
         self.stop_reason = "model_output"
+        self._closing = False
         self.control: PlannerInteractionControl | None = None
         self.inbox: asyncio.Queue[DashboardMessage] = asyncio.Queue()
         self.enqueued: dict[str, DashboardMessage] = {}
@@ -552,6 +575,7 @@ class _Session(AbstractCapability):
             raise UserError("The task has finished. Use /exit to close the session.")
         self.toolkit.toolkit.resume_calls()
         self.toolkit.stopping.clear()
+        self.stop_info = None
         if self.interactive and ctx.prompt:
             self.emit_user(ctx.prompt)
         try:
@@ -567,8 +591,9 @@ class _Session(AbstractCapability):
             self.error = None
             raise
         except RunCancelled:
-            self.stop_reason = "cancelled"
-            self.error = None
+            if not self._closing:
+                self.stop_reason = "cancelled"
+                self.error = None
             raise
         except Exception as exc:
             self.stop_reason = "planner_error"
@@ -577,6 +602,11 @@ class _Session(AbstractCapability):
             ):
                 self.error = f"planner response truncated (length): {exc}"
             else:
+                self.stop_info = {
+                    "reason": "planner_error",
+                    "category": "error",
+                    "allow_new_session": False,
+                }
                 self.error = f"{type(exc).__name__}: {exc}"
             raise
         finally:
@@ -757,6 +787,7 @@ class _Session(AbstractCapability):
             for task in done:
                 await task
         finally:
+            self._closing = True
             if self.control is not None:
                 self.control.end()
             # Stop new physical work before cancelling the SDK task. Toolkit
@@ -783,8 +814,9 @@ class _Session(AbstractCapability):
                     cancellation_token=self.cancellation,
                 )
             except RunCancelled:
-                self.stop_reason = "cancelled"
-                self.error = None
+                if not self._closing:
+                    self.stop_reason = "cancelled"
+                    self.error = None
             finally:
                 self.cancellation = None
                 self.run_done.set()
@@ -792,7 +824,11 @@ class _Session(AbstractCapability):
                     for pending in self.enqueued.values():
                         self.control.message_discarded(pending.message_id)
                 self.enqueued.clear()
-            if self.toolkit.finish_result is not None or self.control is None:
+            if (
+                self._closing
+                or self.toolkit.finish_result is not None
+                or self.control is None
+            ):
                 return
             if self.usage.requests >= self.limits.request_limit:
                 return

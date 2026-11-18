@@ -172,7 +172,9 @@ def test_runners_require_stop_evidence_and_preserve_finalization_fields(
         assert error == ("second session failed" if fail_second else planner_error)
     assert len(solve_calls) == expected_sessions
     assert len(captured) == 1
-    assert captured[0].stop_info == (None if fail_second else stop_info)
+    assert captured[0].stop_info == (
+        {"category": "error"} if fail_second else stop_info
+    )
     assert captured[0].stop_reason == (
         None if fail_second or stop_info is None else "request_limit"
     )
@@ -185,10 +187,261 @@ def test_runners_require_stop_evidence_and_preserve_finalization_fields(
         assert captured[0].stats == usage
         assert result["termination_reason"] == "planner_error"
         assert result["termination_category"] == "error"
-        assert result["stop_info"] is None
+        assert result["stop_info"]["category"] == "error"
+        assert result["stop_info"]["execution_certain"] is None
     else:
         assert captured[0].stats == returned_stats[-1]
         assert result["termination_reason"] == (
             (stop_info or {}).get("reason")
             or ("request_limit" if stop_info is not None else "budget")
         )
+
+
+@pytest.mark.parametrize(
+    "entrypoint,event",
+    [
+        (entrypoint, event)
+        for entrypoint in ("cli", "dashboard")
+        for event in (
+            "timeout",
+            "drain",
+            "metrics",
+            "close",
+            "legacy_close",
+            "daemon",
+            "planner_and_close",
+            "interrupt",
+            "result_write",
+        )
+    ]
+    + [
+        ("dashboard", event)
+        for event in (
+            "replace",
+            "shutdown",
+            "fatal",
+            "success",
+            "failure",
+            "abort",
+        )
+    ],
+)
+def test_runner_finalization_and_capture_share_terminal_boundary(
+    tmp_path, monkeypatch, entrypoint, event
+):
+    from rpent.session import EnvState
+
+    captured = []
+    original_stop = {
+        **_SAFE_STOP,
+        "reason": "timeout",
+        "category": "timeout",
+    }
+    original_result = PlannerResult(
+        error="planner timed out after 1s",
+        stop_reason="timeout",
+        stop_info=None if event == "legacy_close" else original_stop,
+        stats={"stop_info": original_stop} if event == "legacy_close" else {},
+    )
+    state = DashboardState(
+        output_dir=tmp_path,
+        dashboard_spec={
+            "task": {
+                "command": "/task",
+                "usage": "/task",
+                "fields": (),
+                "display": "task",
+                "output_slug": "task",
+            },
+            "runtime_components": (),
+            "primitives": (),
+        },
+    )
+    state.shared_services_ready()
+    state.request_task({})
+    claimed = state.wait_for_task(timeout=0)
+
+    class Toolkit:
+        memory = None
+        direct_verdict_requested = False
+        closed = False
+
+        def __init__(self):
+            self.state = EnvState(tmp_path / "trajectory")
+
+        def cancel_active_and_wait(self):
+            if event == "drain":
+                raise RuntimeError("drain failed")
+
+        def solved(self):
+            return False
+
+        def evaluation_metrics(self, *, success):
+            if event == "metrics":
+                raise RuntimeError("metrics failed")
+            return {}
+
+        def close(self):
+            self.closed = True
+            if event in ("close", "legacy_close", "planner_and_close"):
+                raise RuntimeError("close failed")
+
+        def request_direct_verdict(self, verdict):
+            self.direct_verdict_requested = True
+            return True
+
+        def finalize_direct_verdict(self):
+            return {
+                "operator_finished": True,
+                "operator_verdict": event,
+                "operator_aborted": event == "abort",
+            }
+
+    toolkit = Toolkit()
+    if event == "interrupt":
+        toolkit.memory = SimpleNamespace(
+            merge_memory=lambda **kwargs: pytest.fail(
+                "interrupted run published memory"
+            )
+        )
+
+    class Daemon:
+        stopped = False
+
+        def stop(self):
+            self.stopped = True
+            if event == "daemon":
+                raise RuntimeError("daemon failed")
+
+    daemon = Daemon()
+
+    def solve(**kwargs):
+        if event == "planner_and_close":
+            raise ValueError("model failed")
+        if event == "interrupt":
+            raise KeyboardInterrupt
+        if event == "replace":
+            state.request_task({})
+        elif event == "shutdown":
+            state.request_shutdown()
+        elif event == "fatal":
+            state.fail_session("shared service failed")
+        elif event in ("success", "failure", "abort"):
+            state.submit_input(
+                f"/{event}",
+                operator_context={"generation": claimed.number, "request_id": None},
+            )
+        return original_result
+
+    def finalize(context):
+        assert toolkit.closed and daemon.stopped
+        captured.append(context)
+        if event == "result_write":
+            raise OSError("result write failed")
+        return finalize_libero_result(context)
+
+    spec = RobotSpec(
+        name="libero",
+        prompts=PromptBundle(
+            system=lambda variables: "system", user=lambda variables: "task"
+        ),
+        add_cli_args=lambda parser, use_dashboard: parser.add_argument(
+            "--auto-merge-memory", action="store_true"
+        ),
+        parse_config=lambda args: RunConfig(
+            recipe_tag="task", output_dir=tmp_path / "run", prompt_vars={}, task_desc={}
+        ),
+        init_runtime=lambda *args: ([daemon], {}),
+        finalize_run=finalize,
+        supports_exploration=True,
+        is_real_robot=entrypoint == "dashboard",
+        supports_human_interactive_exploration=entrypoint == "dashboard",
+    )
+    argv = [
+        "--robot",
+        "libero",
+        "--planner",
+        "api",
+        "--model",
+        "test",
+        "--memory-profile",
+        "local",
+        "--memory-dir",
+        str(tmp_path / "memory"),
+        "--output-dir",
+        str(tmp_path / "run"),
+        "--record-trajectory",
+    ]
+    runner = cli if entrypoint == "cli" else dashboard
+    monkeypatch.setattr(
+        runner, "build_planner", lambda *a, **kw: SimpleNamespace(solve=solve)
+    )
+    monkeypatch.setattr(runner, "get_toolkit", lambda *a, **kw: toolkit)
+    if entrypoint == "cli":
+        monkeypatch.setattr(cli, "get_robot_spec", lambda name: spec)
+        monkeypatch.setattr(cli, "enumerate_robots", lambda: ("libero",))
+        if event == "interrupt":
+            argv += ["--explore", "--auto-merge-memory"]
+        monkeypatch.setattr(sys, "argv", ["rpent", *argv])
+        assert cli.main() == 1
+    else:
+        args = cli._build_argparser().parse_args([*argv, "--explore"])
+        args.auto_merge_memory = event == "interrupt"
+        error = dashboard._run_dashboard_task(
+            args=args,
+            robot_spec=spec,
+            state=state,
+            claimed=claimed,
+            shared_runtime_kwargs={},
+            unique_components=set(),
+            session_root=tmp_path,
+        )
+
+    if event == "result_write":
+        assert not (tmp_path / "run" / "result.json").exists()
+        if entrypoint == "dashboard":
+            assert "result finalization failed: OSError: result write failed" in error
+        return
+    context = captured[0]
+    record = json.loads((tmp_path / "run" / "result.json").read_text())
+    task = toolkit.state.get_task()
+    assert task.stop_reason == record["termination_reason"]
+    assert record["termination_category"] == (
+        "timeout"
+        if event == "timeout"
+        else "finish"
+        if event in ("success", "failure")
+        else "cancelled"
+        if event in ("interrupt", "replace", "shutdown", "abort")
+        else "error"
+    )
+    assert task.status == (
+        "completed"
+        if record["termination_category"] in ("finish", "timeout")
+        else "cancelled"
+        if record["termination_category"] == "cancelled"
+        else "failed"
+    )
+    assert record["valid"] is (event in ("timeout", "success", "failure"))
+    assert context.cancelled_reason == (
+        "task_replaced"
+        if event == "replace"
+        else "operator"
+        if event in ("interrupt", "shutdown", "abort")
+        else None
+    )
+    if event in ("drain", "close", "legacy_close", "daemon", "planner_and_close"):
+        assert context.stop_info["cleanup_complete"] is False
+    if event == "metrics":
+        assert context.stop_info["cleanup_complete"] is True
+    if event == "planner_and_close":
+        assert "model failed" in context.agent_error
+        assert "close failed" in context.agent_error
+    assert original_result.stop_info == (
+        None if event == "legacy_close" else original_stop
+    )
+    if event == "legacy_close":
+        assert context.stop_info["reason"] == "timeout"
+        assert context.stop_info["execution_certain"] is True
+        assert original_result.stats == {"stop_info": original_stop}
+    assert original_stop["category"] == "timeout"

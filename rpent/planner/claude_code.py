@@ -157,7 +157,10 @@ class ClaudeCodePlanner(Planner):
         run_id = uuid4().hex if task is not None and task.status == "running" else None
         capture = None
         error = None
+        stop_reason = None
         reader = None
+        driver = None
+        run_task = None
         with (
             artifacts.output_path.open("w") as output,
             artifacts.raw_stream_path.open("w") as raw,
@@ -217,27 +220,43 @@ class ClaudeCodePlanner(Planner):
                 if terminal is not None:
                     reader = asyncio.create_task(terminal.read_input())
                 # Human-supervised terminal sessions have no wall-clock cap.
-                await asyncio.wait_for(
-                    driver.run(prompt),
+                run_task = asyncio.create_task(driver.run(prompt))
+                done, _ = await asyncio.wait(
+                    (run_task,),
                     timeout=None if terminal is not None else self._timeout_s,
                 )
-                error = recorder.error or driver.error
-                if error:
-                    write_jsonl(raw, {"type": "error", "message": error})
-            except asyncio.TimeoutError:
-                error = f"Claude Agent SDK timed out after {self._timeout_s}s"
-                write_jsonl(raw, {"type": "timeout", "message": error})
+                if not done:
+                    stop_reason = "timeout"
+                    error = f"Claude Agent SDK timed out after {self._timeout_s}s"
+                    write_jsonl(raw, {"type": "timeout", "message": error})
+                    run_task.cancel()
+                    with contextlib.suppress(asyncio.CancelledError):
+                        await run_task
+                else:
+                    await run_task
             except Exception as exc:
-                error = redact_secrets(f"{type(exc).__name__}: {exc}")
-                write_jsonl(raw, {"type": "error", "message": error})
+                stop_reason = "planner_error"
+                failure = redact_secrets(f"{type(exc).__name__}: {exc}")
+                error = f"{error}; {failure}" if error else failure
             finally:
+                if run_task is not None and not run_task.done():
+                    run_task.cancel()
+                    with contextlib.suppress(asyncio.CancelledError):
+                        await _wait_for_cleanup(run_task)
                 if control is not None:
                     control.end()
                 if reader is not None:
                     await reader
                 if capture is not None:
                     await _wait_for_cleanup(asyncio.create_task(capture.finish()))
+            failures = [recorder.error, driver.error if driver is not None else None]
+            if any(failures):
+                stop_reason = "planner_error"
+                error = "; ".join(
+                    dict.fromkeys(item for item in [error, *failures] if item)
+                )
             if error:
+                write_jsonl(raw, {"type": "error", "message": error})
                 output.write(f"\n[cc-planner] {error}\n")
                 logger.info("[cc-planner] %s", error)
 
@@ -248,7 +267,8 @@ class ClaudeCodePlanner(Planner):
                 **recorder.stats(),
                 **({"claude_trace": capture.stats} if capture else {}),
             },
-            error=error or recorder.error,
+            error=error,
+            stop_reason=stop_reason,
         )
 
     # -- options + tool bridge ---------------------------------------------
@@ -357,7 +377,18 @@ class _ClaudeSessionDriver:
                 finally:
                     for task in tasks:
                         task.cancel()
-                    await asyncio.gather(*tasks, return_exceptions=True)
+                    outcomes = await asyncio.gather(*tasks, return_exceptions=True)
+                    failures = [
+                        redact_secrets(f"{type(outcome).__name__}: {outcome}")
+                        for outcome in outcomes
+                        if isinstance(outcome, Exception)
+                    ]
+                    if failures:
+                        self.error = "; ".join(
+                            dict.fromkeys(
+                                item for item in [self.error, *failures] if item
+                            )
+                        )
                     self._client = None
 
     async def query(self, text: str) -> None:

@@ -162,7 +162,7 @@ class GeminiCliPlanner(Planner):
                     redact=redact,
                 )
 
-            error = await run_agent(
+            error, stop_reason = await run_agent(
                 prompt=prompt,
                 toolkit=toolkit,
                 artifacts=artifacts,
@@ -186,6 +186,7 @@ class GeminiCliPlanner(Planner):
             finish_result=recorder.finish_result,
             final_response=recorder.final_response,
             stats=recorder.stats(),
+            stop_reason=stop_reason,
             error=error,
             stderr_path=stderr_path,
         )
@@ -327,8 +328,11 @@ class _GeminiSession:
         self._closing = True
         try:
             if self._task is not None:
-                with contextlib.suppress(Exception):
+                try:
                     await self.interrupt()
+                except Exception as exc:
+                    failure = self._redact(f"Prompt interruption failed: {exc}")
+                    self.error = f"{self.error}; {failure}" if self.error else failure
                 if not self._task.done():
                     self._task.cancel()
                 with contextlib.suppress(asyncio.CancelledError, Exception):

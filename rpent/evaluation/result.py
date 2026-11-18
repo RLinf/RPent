@@ -44,6 +44,7 @@ class RunFinalizationContext:
     environment_metrics: Mapping[str, Any] = field(default_factory=dict)
     stop_info: Mapping[str, Any] | None = None
     stop_reason: str | None = None
+    cancelled_reason: str | None = None
 
 
 RunFinalizer = Callable[[RunFinalizationContext], Path | str | None]

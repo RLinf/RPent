@@ -29,9 +29,9 @@ from rpent.session.planner_capture import end_planner_task
 @pytest.mark.parametrize(
     "exception,cancelled_reason,expected_status,expected_reason",
     [
-        (None, None, "failed", "timeout"),
+        (None, None, "completed", "timeout"),
         (KeyboardInterrupt(), None, "cancelled", "operator"),
-        (RuntimeError("cleanup failed"), None, "failed", "execution_error"),
+        (RuntimeError("cleanup failed"), None, "failed", "timeout"),
         (None, "task_replaced", "cancelled", "task_replaced"),
     ],
 )
@@ -85,12 +85,12 @@ def test_task_end_keeps_partial_records_and_actual_stop_cause(
         ("operator_aborted", "cancelled", "operator"),
     ],
 )
-def test_operator_verdict_is_separate_from_planner_error(
+def test_operator_verdict_is_separate_from_native_success(
     tmp_path, verdict, status, reason
 ):
     state = EnvState(tmp_path)
     state.start_task(instruction="Task", config=Payload("test", {}))
-    result = PlannerResult(error="interrupted model", stop_reason="planner_error")
+    result = PlannerResult()
     end_planner_task(
         state,
         result,
@@ -100,7 +100,7 @@ def test_operator_verdict_is_separate_from_planner_error(
     )
     task = state.get_task()
     assert task.status == status and task.stop_reason == reason
-    assert task.result.data["error"] == "interrupted model"
+    assert task.result.data["error"] is None
     root = tmp_path / "trajectories" / task.task_id
     assert json.loads((root / "task.json").read_text())["task"]["status"] == status
 
@@ -133,3 +133,135 @@ def test_save_failure_is_logged_without_replacing_execution_error(
     assert state.get_task().result.data["error"] == "RuntimeError: model failed"
     assert "Failed to save planner trajectory" in caplog.text
     assert "disk full" in caplog.text
+
+
+@pytest.mark.parametrize(
+    "boundary,error,cancelled_reason,verdict,status,reason",
+    [
+        (
+            {"reason": "provider_limit", "category": "error"},
+            None,
+            None,
+            None,
+            "failed",
+            "provider_limit",
+        ),
+        (
+            {"reason": "operator_pause", "category": "cancelled"},
+            None,
+            None,
+            None,
+            "cancelled",
+            "operator_pause",
+        ),
+        (
+            {"reason": "step_budget", "category": "budget"},
+            None,
+            None,
+            None,
+            "completed",
+            "step_budget",
+        ),
+        (
+            {"reason": "finish", "category": "finish"},
+            None,
+            "task_replaced",
+            None,
+            "cancelled",
+            "task_replaced",
+        ),
+        (
+            {"reason": "provider_limit", "category": "error"},
+            None,
+            "operator",
+            None,
+            "failed",
+            "provider_limit",
+        ),
+        (
+            {"reason": "finish", "category": "finish"},
+            "cleanup failed",
+            None,
+            None,
+            "failed",
+            "finish",
+        ),
+        (
+            {"reason": "provider_limit", "category": "error"},
+            None,
+            None,
+            "success",
+            "failed",
+            "provider_limit",
+        ),
+        (
+            {"reason": "finish", "category": "finish"},
+            None,
+            None,
+            "abort",
+            "cancelled",
+            "operator",
+        ),
+    ],
+)
+def test_structured_stop_priority_matches_finalization(
+    tmp_path, boundary, error, cancelled_reason, verdict, status, reason
+):
+    from robots.libero.result import finalize_libero_result
+    from rpent.evaluation import RunFinalizationContext
+
+    state = EnvState(tmp_path)
+    state.start_task(instruction="Task", config=Payload("test", {}))
+    result = PlannerResult(stop_info=boundary, stop_reason="stale_reason", error=error)
+    finish = (
+        {"operator_finished": True, "operator_verdict": verdict} if verdict else None
+    )
+    end_planner_task(
+        state,
+        result,
+        finish_result=finish,
+        environment_success=False,
+        exception=None,
+        cancelled_reason=cancelled_reason,
+    )
+    task = state.get_task()
+    assert (task.status, task.stop_reason) == (status, reason)
+    record = json.loads(
+        finalize_libero_result(
+            RunFinalizationContext(
+                output_dir=tmp_path,
+                robot_name="libero",
+                task_desc={},
+                environment_success=False,
+                agent_error=error,
+                elapsed_s=1,
+                planner="api",
+                model=None,
+                reasoning_effort="high",
+                max_turns=1,
+                planner_timeout_s=1,
+                finish_result=finish,
+                stats={},
+                stop_info=boundary,
+                stop_reason="stale_reason",
+                cancelled_reason=cancelled_reason,
+            )
+        ).read_text()
+    )
+    assert record["termination_reason"] == task.stop_reason
+    assert record["termination_category"] == task.result.data["stop_info"]["category"]
+
+
+def test_runner_cleanup_diagnostic_is_not_duplicated(tmp_path):
+    state = EnvState(tmp_path)
+    state.start_task(instruction="Task", config=Payload("test", {}))
+    diagnostic = "Planner timed out; RuntimeError: cleanup failed"
+    end_planner_task(
+        state,
+        PlannerResult(error=diagnostic, stop_reason="timeout"),
+        finish_result=None,
+        environment_success=False,
+        exception=RuntimeError("cleanup failed"),
+    )
+    assert state.get_task().result.data["error"] == diagnostic
+    assert state.get_task().result.data["stop_info"]["category"] == "error"

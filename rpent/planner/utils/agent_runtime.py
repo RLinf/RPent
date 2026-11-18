@@ -73,9 +73,6 @@ class AgentArtifacts:
         self.output_path = output_path
         self.raw_stream_path = self.sidecar(".stream.jsonl")
         self.started = time.monotonic()
-        # The session runner records why planning ended when it is not an error
-        # the caller can infer, such as reaching the time budget.
-        self.stop_reason: str | None = None
 
     def sidecar(self, suffix: str) -> Path:
         """Return a companion artifact path without replacing the output suffix."""
@@ -88,6 +85,7 @@ class AgentArtifacts:
         final_response: str | None,
         stats: dict[str, Any],
         error: str | None,
+        stop_reason: str | None = None,
         **extra_paths: Path,
     ) -> PlannerResult:
         """Build a result with backend statistics and companion artifact paths.
@@ -97,6 +95,7 @@ class AgentArtifacts:
             final_response: Last assistant response used for size reporting.
             stats: Backend-specific usage and turn counters.
             error: Execution or backend error, when present.
+            stop_reason: Explicit termination cause, including a planner deadline.
             **extra_paths: Backend-specific artifact names and paths.
 
         Returns:
@@ -119,7 +118,14 @@ class AgentArtifacts:
                 **stats,
             },
             error=error,
-            stop_reason=self.stop_reason,
+            stop_reason=stop_reason,
+            stop_info={
+                "reason": "planner_error",
+                "category": "error",
+                "allow_new_session": False,
+            }
+            if stop_reason == "planner_error"
+            else None,
         )
 
 

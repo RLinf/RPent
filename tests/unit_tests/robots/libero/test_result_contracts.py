@@ -91,7 +91,7 @@ def test_operator_abort_and_planner_error_preserve_native_evidence(context):
     assert result["planner_error"] is True
     assert result["valid"] is False
     assert result["termination_reason"] == "interrupted"
-    assert result["termination_category"] == "cancelled"
+    assert result["termination_category"] == "error"
     assert "private provider diagnostic" not in json.dumps(result)
 
 
@@ -177,6 +177,8 @@ def test_explicit_category_and_raw_boundary_reason_take_precedence(context):
     assert result["termination_reason"] == "provider_limit"
     assert result["termination_category"] == "error"
     assert result["stop_info"]["allow_new_session"] is False
+    assert result["planner_error"] is True
+    assert result["valid"] is False
 
 
 def test_context_stop_info_takes_precedence_over_legacy_stats(context):
@@ -216,3 +218,123 @@ def test_standalone_reason_precedes_legacy_stats_without_inventing_safety(
     assert result["termination_reason"] == reason
     assert result["termination_category"] == category
     assert result["stop_info"] is None
+
+
+@pytest.mark.parametrize(
+    "reason,category,error,valid,planner_error",
+    [
+        ("finish", "finish", None, True, False),
+        ("request_limit", "budget", None, True, False),
+        ("timeout", "timeout", "Planner timed out", True, False),
+        ("timeout", "timeout", None, True, False),
+        ("provider_timeout", "error", "TIMEOUT", False, True),
+        ("provider_transport", "error", "fetch failed", False, True),
+        ("provider_limit", "error", None, False, True),
+        ("cancelled", "cancelled", None, False, False),
+        ("future_reason", "unknown", None, False, False),
+        ("finish", "finish", "unexpected failure", False, True),
+        ("timeout", "error", "cleanup failed", False, True),
+    ],
+)
+def test_validity_uses_category_and_keeps_success_independent(
+    context, reason, category, error, valid, planner_error
+):
+    boundary = {
+        "reason": reason,
+        "category": category,
+        "execution_certain": True,
+        "result_delivery_complete": True,
+        "cleanup_complete": True,
+        "allow_new_session": False,
+    }
+    result = json.loads(
+        finalize_libero_result(
+            replace(context, stop_info=boundary, agent_error=error)
+        ).read_text()
+    )
+    assert result["valid"] is valid
+    assert result["planner_error"] is planner_error
+    assert result["environment_success"] is False
+    assert result["finish_accepted"] is True
+    assert result["termination_reason"] == reason
+    assert boundary["category"] == category
+
+
+@pytest.mark.parametrize(
+    "field", ["execution_certain", "result_delivery_complete", "cleanup_complete"]
+)
+@pytest.mark.parametrize("value", [False, None, 1, "true", "missing"])
+def test_incomplete_boundary_excludes_otherwise_normal_results(context, field, value):
+    boundary = dict.fromkeys(
+        ["execution_certain", "result_delivery_complete", "cleanup_complete"], True
+    )
+    if value == "missing":
+        del boundary[field]
+    else:
+        boundary[field] = value
+    result = json.loads(
+        finalize_libero_result(replace(context, stop_info=boundary)).read_text()
+    )
+    assert result["valid"] is False
+    assert result["environment_success"] is False
+
+
+@pytest.mark.parametrize("reason", ["task_replaced", "operator", "shutdown"])
+def test_runner_cancellation_supersedes_old_finish(context, reason):
+    result = json.loads(
+        finalize_libero_result(replace(context, cancelled_reason=reason)).read_text()
+    )
+    assert result["valid"] is False
+    assert result["planner_error"] is False
+    assert result["termination_category"] == "cancelled"
+    assert result["termination_reason"] == reason
+
+
+@pytest.mark.parametrize(
+    "verdict,valid", [("success", True), ("failure", True), ("abort", False)]
+)
+def test_operator_verdict_is_not_native_success(context, verdict, valid):
+    result = json.loads(
+        finalize_libero_result(
+            replace(
+                context,
+                finish_result={"operator_finished": True, "operator_verdict": verdict},
+            )
+        ).read_text()
+    )
+    assert result["valid"] is valid
+    assert result["operator_verdict"] == verdict
+    assert result["finish_accepted"] is False
+    assert result["success"] is False
+
+
+def test_flash_completion_has_known_reason_without_fabricating_finish(
+    context, monkeypatch
+):
+    from types import SimpleNamespace
+
+    from rpent.planner import flash
+
+    monkeypatch.setattr(
+        flash,
+        "get_robot_spec",
+        lambda _: SimpleNamespace(run_flash=lambda *args: {"done": False, "plan": 2}),
+    )
+    planner = flash.FlashPlanner(recipe_tag="test", robot_name="libero")
+    outcome = planner.solve(
+        system_prompt="", user_message="", toolkit=None, max_turns=1
+    )
+    result = json.loads(
+        finalize_libero_result(
+            replace(
+                context,
+                planner="flash",
+                finish_result=outcome.finish_result,
+                stop_reason=outcome.stop_reason,
+                stats=outcome.stats,
+            )
+        ).read_text()
+    )
+    assert result["valid"] is True
+    assert result["termination_category"] == "finish"
+    assert result["finish_accepted"] is False

@@ -194,7 +194,7 @@ class CodexPlanner(Planner):
                 control=control,
             )
 
-        error = await run_agent(
+        error, stop_reason = await run_agent(
             prompt=prompt,
             toolkit=toolkit,
             artifacts=artifacts,
@@ -209,11 +209,17 @@ class CodexPlanner(Planner):
         last_message_path = artifacts.sidecar(".last")
         if recorder.final_response is not None:
             last_message_path.write_text(recorder.final_response)
+        if recorder.error:
+            stop_reason = "planner_error"
+            error = "; ".join(
+                dict.fromkeys(item for item in (error, recorder.error) if item)
+            )
         return artifacts.result(
             finish_result=recorder.finish_result,
             final_response=recorder.final_response,
             stats=recorder.stats(),
-            error=error or recorder.error,
+            stop_reason=stop_reason,
+            error=error,
             last_message_path=last_message_path,
         )
 
@@ -310,12 +316,13 @@ class _CodexSession:
             except asyncio.TimeoutError:
                 if self._turn_task is not None:
                     self._turn_task.cancel()
+                failure = "Codex did not finish the interrupted turn"
+                self.error = f"{self.error}; {failure}" if self.error else failure
         if self._turn_task is not None:
             with contextlib.suppress(asyncio.CancelledError, Exception):
                 await self._turn_task
         if self._codex is not None:
-            with contextlib.suppress(Exception):
-                await self._codex.close()
+            await self._codex.close()
 
     async def _consume_turn(self, turn: Any, done: asyncio.Event) -> None:
         limit_reached = False
@@ -488,7 +495,11 @@ class _Recorder:
             )
             self.dashboard_events.emit(
                 TranscriptEvent(
-                    {"type": "tool_result", "tool": name, "result": payload}
+                    {
+                        "type": "tool_result",
+                        "tool": name,
+                        "result": payload,
+                    }
                 )
             )
             return f"[tool<-] {name}: {json.dumps(payload, ensure_ascii=False)}\n"

@@ -386,7 +386,10 @@ def test_claude_confirmed_finish_does_not_send_pending_input(
         ("startup_error", "RuntimeError: backend startup failed"),
         ("timeout", "test agent timed out after 0.05s"),
         ("cleanup_error", "Toolkit cleanup failed: <redacted>"),
-        ("both_errors", "RuntimeError: backend startup failed"),
+        (
+            "both_errors",
+            "RuntimeError: backend startup failed; Toolkit cleanup failed: <redacted>",
+        ),
         ("finish", None),
     ],
 )
@@ -448,7 +451,7 @@ def test_interactive_cleanup_and_finish_preserve_unsent_input(
         if outcome in {"cleanup_error", "both_errors"}:
             raise RuntimeError("private-key-value")
 
-    error = asyncio.run(
+    error, stop_reason = asyncio.run(
         interactive.run_agent(
             prompt="initial",
             toolkit=SimpleNamespace(
@@ -471,6 +474,9 @@ def test_interactive_cleanup_and_finish_preserve_unsent_input(
         expected_events.append("agent_close")
     assert events == [*expected_events, "mcp_stop"]
     assert error == expected_error
+    assert stop_reason == (
+        "timeout" if outcome == "timeout" else "planner_error" if error else None
+    )
     assert dashboard.planner_activity == "ended"
     assert "private-key-value" not in caplog.text
     for path in (artifacts.output_path, artifacts.raw_stream_path):

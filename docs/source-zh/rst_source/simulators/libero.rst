@@ -196,9 +196,13 @@ Fast-WAM 使用 ``--am-backend fast-wam`` 及其 worker 地址。LIBERO-Pro 需�
 查看结果
 ------------
 
-终端会显示服务器启动、规划器对话和工具调用。结束后查看输出目录中的 ``episode.mp4``、``transcript_*.json`` 和 ``run.log``；默认目录与逐步观测文件见 :ref:`run-output-files`。
+终端会显示服务器启动、规划器对话和工具调用。结束后查看输出目录中的 ``result.json``、``episode.mp4``、``transcript_*.json`` 和 ``run.log``；默认目录与逐步观测文件见 :ref:`run-output-files`。
 
 通过 ``view_env_state(step=-1)`` 查看最终状态，顶层 ``terminated`` 表示环境是否判定成功。规划器调用 ``finish`` 只表示结束规划。实时观察方法见 :doc:`../guides/dashboard`。
+
+``result.json`` 分别记录原生结果 ``environment_success``、``finish_accepted``、``operator_verdict``，以及终止原因和分类。``valid`` 表示本次尝试是否可纳入评测，与任务是否成功独立。规划器总时限或步骤预算耗尽时，若原生结果已知且执行、结果交付和清理状态确定，仍可计为有效尝试。provider 错误、取消、操作员中止及状态不确定的尝试均无效。
+
+CLI 与 Dashboard 运行进入最终结果写入阶段时生成此文件；早期初始化失败可能不生成结果文件。写入失败会报告运行错误：CLI 返回非零退出码，Dashboard 记录任务错误。
 
 .. _libero-exploration:
 

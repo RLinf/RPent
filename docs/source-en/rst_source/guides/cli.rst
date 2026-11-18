@@ -248,6 +248,8 @@ The table uses LIBERO as an example. Files depend on the environment, recording,
 
    * - File or path
      - Purpose
+   * - ``result.json``
+     - Native success, planner termination, evaluation validity, and operator verdict. See :doc:`../simulators/libero` for result interpretation.
    * - ``transcript_*.json``
      - Planner conversation, tool calls, and completion information.
    * - ``trajectories/<task_id>/``

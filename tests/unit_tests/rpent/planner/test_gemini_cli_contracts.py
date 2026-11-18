@@ -27,6 +27,7 @@ import pytest
 import rpent.planner.gemini_cli as gemini_module
 import rpent.planner.utils.agent_session as session_module
 from rpent.dashboard.events import NullDashboardEventSink, TranscriptEvent, UsageEvent
+from rpent.planner.base import is_recoverable_planner_result
 from rpent.planner.gemini_cli import GeminiCliPlanner, _Recorder
 from rpent.tools import ToolResult
 
@@ -280,7 +281,10 @@ def acp_backend(monkeypatch):
 
             async def cancel(self, session_id):
                 seen["events"].append("cancel")
-                stopped.set()
+                if "cancel_error" in seen:
+                    raise seen["cancel_error"]
+                if not seen.get("ignore_cancel"):
+                    stopped.set()
 
         try:
             yield Connection(), SimpleNamespace(stderr=stderr)
@@ -289,6 +293,74 @@ def acp_backend(monkeypatch):
 
     monkeypatch.setattr(acp, "spawn_agent_process", spawn)
     return seen
+
+
+@pytest.mark.parametrize("stage", ["startup_error", "prompt_error"])
+@pytest.mark.parametrize(
+    "failure",
+    [TimeoutError("provider TIMEOUT"), RuntimeError("fetch failed / TRANSPORT")],
+)
+def test_provider_failures_are_not_planner_deadlines(
+    tmp_path, acp_backend, stage, failure
+):
+    acp_backend[stage] = failure
+    toolkit = Mock()
+    toolkit.list_tools.return_value = (SimpleNamespace(name="finish"),)
+    result = make_planner(tmp_path).solve(
+        system_prompt="", user_message="task", toolkit=toolkit, max_turns=1
+    )
+    assert result.stop_reason == "planner_error"
+    assert not is_recoverable_planner_result(result)
+    assert result.error == f"{type(failure).__name__}: {failure}"
+    assert FakeMcpServer.instances[0].stopped
+    assert acp_backend["events"][-1] == "close"
+
+
+def test_deadline_cleanup_failure_preserves_both_causes(tmp_path, acp_backend):
+    acp_backend["block"] = True
+    toolkit = Mock()
+    toolkit.list_tools.return_value = (SimpleNamespace(name="finish"),)
+    toolkit.cancel_active_and_wait.side_effect = RuntimeError("drain failed")
+    result = make_planner(tmp_path, timeout_s=0.05).solve(
+        system_prompt="", user_message="task", toolkit=toolkit, max_turns=1
+    )
+    assert result.stop_reason == "planner_error"
+    assert not is_recoverable_planner_result(result)
+    assert "Gemini CLI timed out after 0.05s" in result.error
+    assert "Toolkit cleanup failed: drain failed" in result.error
+    assert acp_backend["events"][-1] == "close"
+
+
+@pytest.mark.parametrize("outcome", ["cancel_error", "drain_timeout"])
+def test_deadline_interrupt_failure_is_reported_after_transport_close(
+    tmp_path, monkeypatch, acp_backend, outcome
+):
+    acp_backend["block"] = True
+    if outcome == "cancel_error":
+        acp_backend["cancel_error"] = RuntimeError("cancel request rejected")
+    else:
+        acp_backend["ignore_cancel"] = True
+    wait_for = asyncio.wait_for
+
+    async def bounded_wait(awaitable, timeout):
+        return await wait_for(awaitable, timeout=0.01 if timeout == 15 else timeout)
+
+    monkeypatch.setattr(asyncio, "wait_for", bounded_wait)
+    toolkit = Mock()
+    toolkit.list_tools.return_value = (SimpleNamespace(name="finish"),)
+    result = make_planner(tmp_path, timeout_s=0.05).solve(
+        system_prompt="", user_message="task", toolkit=toolkit, max_turns=1
+    )
+    assert result.stop_reason == "planner_error"
+    assert not is_recoverable_planner_result(result)
+    assert "Gemini CLI timed out after 0.05s" in result.error
+    assert (
+        "cancel request rejected"
+        if outcome == "cancel_error"
+        else "Gemini did not finish the interrupted prompt"
+    ) in result.error
+    assert acp_backend["events"][-2:] == ["cancel", "close"]
+    assert FakeMcpServer.instances[0].stopped
 
 
 def test_relative_output_directory_uses_absolute_session_workspace(
@@ -364,6 +436,8 @@ def test_session_result_artifacts_and_cleanup(
             assert "<GEMINI_API_KEY>" in text
     if outcome == "timeout":
         assert result.error == "Gemini CLI timed out after 0.05s"
+        assert result.stop_reason == "timeout"
+        assert is_recoverable_planner_result(result)
         assert acp_backend["events"][-4:] == [
             "cancel_tools",
             "cancel",
