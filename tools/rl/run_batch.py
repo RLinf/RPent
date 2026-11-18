@@ -736,7 +736,12 @@ def build_parser() -> tuple[argparse.ArgumentParser, argparse.ArgumentParser]:
     collection.add_argument("--seeds", type=seed_values)
     collection.add_argument("--gpus", required=True)
     collection.add_argument("--per-gpu", type=int, default=1)
-    collection.add_argument("--max-initializing-per-gpu", type=int, default=8)
+    collection.add_argument(
+        "--max-initializing-per-gpu",
+        type=int,
+        default=2,
+        help="Concurrent cold starts per GPU; does not limit resident episodes.",
+    )
     collection.add_argument(
         "--sam3-timeout-s",
         type=float,

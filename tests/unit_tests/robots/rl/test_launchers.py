@@ -247,4 +247,6 @@ def test_services_assign_sam_replicas_and_clean_up_owned_processes(
     ]
     backend = next(d for d in daemons if d.name == "backend")
     assert backend.cmd[backend.cmd.index("--gpu-slots") + 1] == "1:60,3:60"
+    assert backend.cmd[backend.cmd.index("--max-initializing-per-gpu") + 1] == "2"
+    assert manifest["max_initializing_per_gpu"] == 2
     assert all(d.cmd[0] == sys.executable and d.stopped for d in daemons)

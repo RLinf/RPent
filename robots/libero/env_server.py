@@ -182,7 +182,11 @@ class LiberoEnvFacade(BaseEnvFacade):
                 "env.get_task_language": self.get_task_language,
             }
         )
-        self._readonly_methods.add("env.get_task_language")
+        # These queries share the worker's request/reply Pipe with reset and
+        # actions. Read-only simulator operations still need exclusive access.
+        self._readonly_methods.difference_update(
+            {"env.get_action_spec", "env.get_camera_meta", "env.render_camera"}
+        )
 
     # ---- shape helpers ----
 
@@ -316,11 +320,12 @@ class LiberoEnvFacade(BaseEnvFacade):
         return dict(self._meta)
 
     def close(self) -> None:
-        """Release the server-owned LIBERO environment once."""
-        if self._closed:
-            return
-        self._env.env.close()
-        self._closed = True
+        """Drain an in-flight native request before closing its shared Pipe."""
+        with self._dispatch_lock.write():
+            if self._closed:
+                return
+            self._env.env.close()
+            self._closed = True
 
     def render_camera(
         self,

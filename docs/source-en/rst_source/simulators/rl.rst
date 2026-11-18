@@ -188,6 +188,13 @@ infrastructure retries and interruption/resume behavior. Use a fresh batch
 directory, start with one episode per GPU, and size concurrency from measured
 scene memory. ``tools/rl/jobs`` contains example task/seed manifests.
 
+Batch collection, the remote backend and the local service launcher default to
+two concurrent cold starts per GPU. ``--max-initializing-per-gpu`` limits
+initialization, independently of the number of resident episodes. Keep this
+limit bounded when running multiple collectors on one host: each collector
+has its own limit. LIBERO reset RPCs allow up to 900 seconds for the spawned
+simulator and EGL initialization; action and planner budgets are unchanged.
+
 Remote simulator host
 ---------------------
 

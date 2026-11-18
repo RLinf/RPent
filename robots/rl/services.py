@@ -36,6 +36,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--gpus", default="0,1,2,3,4,5,6,7")
     parser.add_argument("--envs-per-gpu", type=int, default=3)
+    parser.add_argument("--max-initializing-per-gpu", type=int, default=2)
     parser.add_argument("--sam3-per-gpu", type=int, default=1)
     parser.add_argument("--sam3-checkpoint", type=Path, required=True)
     parser.add_argument("--output-dir", type=Path, required=True)
@@ -51,6 +52,7 @@ def main() -> None:
         or len(set(gpus)) != len(gpus)
         or min(gpus) < 0
         or args.envs_per_gpu < 1
+        or args.max_initializing_per_gpu < 1
         or args.sam3_per_gpu < 1
     ):
         parser.error(
@@ -125,7 +127,7 @@ def main() -> None:
                 "--gpu-slots",
                 ",".join(f"{gpu}:{args.envs_per_gpu}" for gpu in gpus),
                 "--max-initializing-per-gpu",
-                str(args.envs_per_gpu),
+                str(args.max_initializing_per_gpu),
                 "--sam3-endpoint",
                 pool_endpoint,
                 "--port",
@@ -139,6 +141,7 @@ def main() -> None:
             "prefix": sys.prefix,
             "gpus": gpus,
             "envs_per_gpu": args.envs_per_gpu,
+            "max_initializing_per_gpu": args.max_initializing_per_gpu,
             "sam3_per_gpu": args.sam3_per_gpu,
             "sam3_workers": endpoints,
             "sam3_endpoint": pool_endpoint,
