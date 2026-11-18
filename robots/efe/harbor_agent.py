@@ -36,7 +36,7 @@ from harbor.agents.installed.base import BaseInstalledAgent
 from harbor.environments.base import BaseEnvironment
 from harbor.models.agent.context import AgentContext, ModelUsage
 
-from robots.efe.constants import SANDBOX_CHOICES
+from robots.efe.constants import SANDBOX_CHOICES, is_budget_stop
 
 # Harbor kills the agent process when its resolved ``agent_timeout_sec``
 # expires. Keep connection and planner budgets inside that limit so the generic
@@ -47,11 +47,8 @@ from robots.efe.constants import SANDBOX_CHOICES
 # finalization.
 _TIMEOUT_MARGIN_S = 30
 _DEFAULT_CONNECT_TIMEOUT_S = 60
-_BUDGET_STOP_MARKERS = (
-    "sdk timed out after",
-    "planner timed out after",
-    "planner timeout expired",
-)
+# Fallback planner budget for trials whose Harbor timeout cannot be detected.
+_DEFAULT_TIMEOUT_S = 3500
 
 
 class RPentEfeAgent(BaseInstalledAgent):
@@ -106,12 +103,15 @@ class RPentEfeAgent(BaseInstalledAgent):
         # Deriving the inner connection/planner budget keeps finalization inside
         # the Harbor kill deadline.
         self.agent_timeout_s = agent_timeout_s
+        # An explicit ``timeout_s`` caps the planner budget; an unset one lets
+        # the detected Harbor budget decide how long the planner may run.
+        self._timeout_s_is_explicit = timeout_s is not None
         if agent_timeout_s is not None:
             budget = agent_timeout_s - 2 * _TIMEOUT_MARGIN_S
             if budget <= 0:
                 raise ValueError("agent_timeout_s is too small for one session.")
             timeout_s = budget if timeout_s is None else min(timeout_s, budget)
-        self.timeout_s = 3500 if timeout_s is None else timeout_s
+        self.timeout_s = _DEFAULT_TIMEOUT_S if timeout_s is None else timeout_s
         self.connect_timeout_s = connect_timeout_s
         self.max_turns = max_turns
         self.reasoning_effort = reasoning_effort
@@ -179,17 +179,23 @@ class RPentEfeAgent(BaseInstalledAgent):
         The adapter uploads the instruction into the agent log directory, so
         the instruction file names the logs rather than the task. Results and
         artifact names need the task identity, which Harbor records in the
-        trial configuration.
+        trial configuration. A local task records its directory path; a
+        dataset task records only the registry name.
         """
         trial_config_path = self.logs_dir.parent / "config.json"
         if not trial_config_path.is_file():
             return None
 
         with trial_config_path.open(encoding="utf-8") as config_file:
-            task_path = json.load(config_file).get("task", {}).get("path")
-        if not task_path:
-            return None
-        return Path(task_path).expanduser().name
+            task_config = json.load(config_file).get("task", {})
+        task_path = task_config.get("path")
+        if task_path:
+            return Path(task_path).expanduser().name
+        task_name = task_config.get("name")
+        if task_name:
+            # Registry names keep an ``org/name`` shape; the task is the last part.
+            return str(task_name).rsplit("/", 1)[-1]
+        return None
 
     def _apply_agent_timeout(self, agent_timeout_s: int) -> None:
         """Keep connection, planning, and finalization inside Harbor's timeout."""
@@ -197,7 +203,11 @@ class RPentEfeAgent(BaseInstalledAgent):
             raise ValueError("Harbor agent timeout is too small for one session.")
         self.agent_timeout_s = agent_timeout_s
         budget = agent_timeout_s - 2 * _TIMEOUT_MARGIN_S
-        self.timeout_s = min(self.timeout_s, budget)
+        # A detected Harbor budget replaces the fallback default; an explicit
+        # ``timeout_s`` still caps it.
+        self.timeout_s = (
+            min(self.timeout_s, budget) if self._timeout_s_is_explicit else budget
+        )
 
     async def install(self, environment: BaseEnvironment) -> None:
         """Build and install one wheel from the RPent checkout."""
@@ -435,9 +445,7 @@ class RPentEfeAgent(BaseInstalledAgent):
                 continue
             if not isinstance(transcript, dict):
                 continue
-            error = transcript.get("error")
-            lowered = error.lower() if isinstance(error, str) else ""
-            if any(marker in lowered for marker in _BUDGET_STOP_MARKERS):
+            if is_budget_stop(transcript.get("error")):
                 return True
         return False
 

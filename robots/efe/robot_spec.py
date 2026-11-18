@@ -202,6 +202,14 @@ def _parse_config(args: argparse.Namespace) -> RunConfig:
     task_name = args.task_name or instruction_path.parent.name or "efe"
     tag = session_vars.recipe_tag(task_name, instruction)
     workdir = Path(args.workdir or Path.cwd()).expanduser().resolve()
+    # ``build_planner`` and ``MemoryManager`` resolve their root through
+    # ``get_repo_root()``. The planner is built before ``init_runtime`` runs, so
+    # bind the trial workspace here rather than in that hook; otherwise a manual
+    # run resolves relative paths and the Codex working directory against the
+    # installed package instead of the task workspace. The CLI is a one-shot
+    # process, so this binding lasts for the run; tests restore the variable.
+    if not os.environ.get("RPENT_REPO_ROOT"):
+        os.environ["RPENT_REPO_ROOT"] = str(workdir)
     memory_dir = (
         Path(args.memory_dir).expanduser().resolve()
         if args.memory_dir is not None
@@ -212,14 +220,6 @@ def _parse_config(args: argparse.Namespace) -> RunConfig:
         if args.output_dir is not None
         else get_repo_root() / "logs" / f"{datetime.now():%Y%m%d-%H:%M:%S}_{tag}"
     )
-    # ``build_planner`` and ``MemoryManager`` resolve their root through
-    # ``get_repo_root()``. The planner is built before ``init_runtime`` runs, so
-    # bind the trial workspace here rather than in that hook; otherwise a manual
-    # run resolves relative paths and the Codex working directory against the
-    # installed package instead of the task workspace. The CLI is a one-shot
-    # process, so this binding lasts for the run; tests restore the variable.
-    if not os.environ.get("RPENT_REPO_ROOT"):
-        os.environ["RPENT_REPO_ROOT"] = str(workdir)
     prompt_vars = {
         **session_vars.prompt_vars(
             workdir=workdir,

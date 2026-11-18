@@ -31,6 +31,8 @@ from urllib.parse import urlsplit
 
 import pytest
 
+from robots.efe.constants import is_budget_stop
+
 # A task may declare ``[verifier.env]`` entries that read host variables. Harbor
 # asks for confirmation before forwarding them, so a non-interactive run must
 # accept on the command line or it hangs under ``pytest -s`` and raises
@@ -139,8 +141,12 @@ def test_harbor_task_records_agent_session_and_verifier_result(
     transcript_path = next(job_dir.glob("*/agent/**/transcript_*.json"))
     efe_result = json.loads(efe_result_path.read_text())
     transcript = json.loads(transcript_path.read_text())
-    assert efe_result["agent_error"] is None
-    assert transcript["error"] is None
+    # A trial that exhausts the planner's time budget is still graded, so the
+    # recorded error may name that budget instead of a failure.
+    assert efe_result["agent_error"] is None or is_budget_stop(
+        efe_result["agent_error"]
+    )
+    assert transcript["error"] is None or is_budget_stop(transcript["error"])
     assert "reward" not in efe_result
     assert len(list(job_dir.glob("*/agent/**/efe-result.json"))) == 1
     assert len(list(job_dir.glob("*/agent/**/transcript_*.json"))) == 1

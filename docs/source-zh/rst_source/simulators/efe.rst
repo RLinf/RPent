@@ -4,7 +4,7 @@ Embodied First Exam
 通过 `Harbor <https://github.com/laude-institute/harbor>`_ 使用 RPent 运行 \
 `Embodied First Exam（EFE） <https://www.embodied-first-exam.ai/>`_ 机器人评测任务。\
 本页以仅需 CPU 的 AutoBio 实验室任务为例，说明在配有 Docker 与模型 API 的 Linux \
-宿主机上的完整运行与评分流程。
+宿主机上的完整运行与评分流程；从 `运行一个任务`_ 开始即可跑通一次评测。
 
 概览
 ----
@@ -184,6 +184,7 @@ Linux 宿主机前置要求：
 
 - **任务成功指标**：以 ``<trial_name>/result.json`` 中的 ``verifier_result.rewards.success`` 为准（源自 ``verifier/reward.json``）。支持重试的任务还会记录首次尝试的 ``first_success``，最终得分取最后一次尝试。
 - 规划器调用 ``finish(status="completed")`` 或 CLI 退出码为 ``0`` 仅代表进程正常结束，不代表任务成功。
+- 规划器用完时间预算时，Trial 仍会评分：适配器把预算耗尽当作正常结束，评分程序照常检查最后一次尝试的最终状态。
 
 批量运行 benchmark
 ------------------
@@ -340,22 +341,6 @@ IK 技能（**Skills**）：
 复现对比实验时，请固定 RPent 与 EFE 仓库的 commit，保持任务目录、模型标识、\
 ``reasoning_effort``、时间上限与尝试次数完全一致，并归档保存 Harbor Job 目录下的 \
 ``result.json`` 与 ``config.json``。
-
-开发者集成说明
---------------
-
-.. code-block:: text
-
-   Harbor Trial
-   ├── Agent 容器（main）
-   │   └── RPent / Codex 规划器 ── rcb_client ──▶ sim:8000
-   └── 仿真器容器（sim）
-       └── EFE 任务服务
-
-- **容器打包与安装**：``RPentEfeAgent`` 按 ``pyproject.toml`` 规则从宿主机源码构建干净的 Wheel（不含 ``.git``、测试、缓存与日志），上传并安装至 Agent 容器内的 ``/opt/rpent-efe/venv``。
-- **执行与收尾**：适配器在容器内调用 ``rpent --robot efe --planner codex``，显式传入记忆目录、任务名与截止时间。``EfeEnvClient`` 为规划器关闭和 ``finalize_run``\ （写出 ``efe-result.json``）预留时间，并将规划器预算耗尽视为正常退出以便 Harbor 完成评分。
-- **密钥转发**：转发模型环境变量及 ``--agent-env`` 指定变量；未设置 ``CODEX_*`` 时自动将 ``OPENAI_API_KEY`` / ``OPENAI_BASE_URL`` 映射为 ``CODEX_API_KEY`` / ``CODEX_BASE_URL``。
-- **协议边界**：仅支持 ``eai-standard/2.2`` 与 ``2.4``。``2.1`` / ``2.3``\ （使用 ``control_dt`` 与不同的 ``rcb_client`` 接口）及 ``privileged`` 任务（评测离线 ``trajectory.npz`` 或策略文件）会在连接阶段直接报错拒绝。
 
 下一步
 ------

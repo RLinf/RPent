@@ -121,6 +121,21 @@ def test_run_names_the_task_from_the_trial_configuration(tmp_path, monkeypatch):
     assert command[command.index("--task-name") + 1] == "pick_the_tube"
 
 
+def test_run_names_a_dataset_task_from_its_registry_name(tmp_path, monkeypatch):
+    trial_config = {"task": {"name": "embodied-first-exam/pick-the-tube"}}
+    (tmp_path / "config.json").write_text(json.dumps(trial_config), encoding="utf-8")
+    agent = RPentEfeAgent(logs_dir=tmp_path / "logs", model_name="openai/test-model")
+    environment = UploadEnvironment()
+    execute = AsyncMock()
+    monkeypatch.setattr(agent, "exec_as_agent", execute)
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+
+    asyncio.run(agent.run("Task", environment, AgentContext()))
+
+    command = shlex.split(execute.call_args.kwargs["command"])
+    assert command[command.index("--task-name") + 1] == "pick-the-tube"
+
+
 def test_run_without_a_trial_configuration_leaves_the_task_name_implicit(
     tmp_path, monkeypatch
 ):
@@ -534,6 +549,15 @@ def test_a_planner_budget_shorter_than_the_agent_timeout_is_kept(tmp_path):
 
     assert agent.timeout_s == 120
     assert agent.exec_timeout_s < 3600
+
+
+def test_detected_harbor_timeout_replaces_the_default_planner_budget(tmp_path):
+    agent = RPentEfeAgent(logs_dir=tmp_path, model_name="openai/test-model")
+
+    agent._apply_agent_timeout(5000)
+
+    assert agent.timeout_s == 5000 - 2 * 30
+    assert agent.exec_timeout_s == 5000 - 30
 
 
 def test_an_agent_timeout_too_small_for_one_session_is_rejected(tmp_path):

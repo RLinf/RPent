@@ -159,6 +159,22 @@ def test_parse_config_binds_the_workspace_as_the_repo_root(
     assert os.environ["RPENT_REPO_ROOT"] == str(tmp_path.resolve())
 
 
+def test_parse_config_resolves_default_paths_under_the_workspace(
+    tmp_path, monkeypatch: pytest.MonkeyPatch
+):
+    args = _args(tmp_path)
+    args.memory_dir = None
+    args.output_dir = None
+    monkeypatch.delenv("RPENT_REPO_ROOT", raising=False)
+
+    config = _parse_config(args)
+
+    assert config.prompt_vars["memory_dir"] == str(
+        (tmp_path / "memory" / "efe").resolve()
+    )
+    assert config.output_dir == (tmp_path / "logs" / config.output_dir.name).resolve()
+
+
 def test_parse_config_keeps_an_explicit_repo_root(
     tmp_path, monkeypatch: pytest.MonkeyPatch
 ):

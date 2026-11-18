@@ -4,7 +4,7 @@ Embodied First Exam
 Run `Embodied First Exam (EFE) <https://www.embodied-first-exam.ai/>`_ tasks
 with RPent through `Harbor <https://github.com/laude-institute/harbor>`_. This
 guide walks through a CPU-only AutoBio laboratory task on a Linux host with
-Docker and a model API key.
+Docker and a model API key; start with `Run a Task`_ to run one evaluation.
 
 Overview
 --------
@@ -188,6 +188,9 @@ Success Criterion
 
 - **Native evaluation score**: read ``verifier_result.rewards.success`` in ``<trial_name>/result.json`` (copied from ``verifier/reward.json``). Tasks with retries also log ``first_success`` for the first attempt, while ``success`` reflects the final attempt.
 - Neither ``finish(status="completed")`` nor a ``0`` CLI exit code indicates task success.
+- A trial whose planner exhausts its time budget is still graded: the adapter
+  treats budget exhaustion as a normal stop, so the verifier checks the final
+  state of the last attempt as usual.
 
 Run a Benchmark
 ---------------
@@ -351,22 +354,6 @@ To reproduce a comparison, pin both the RPent commit and the EFE repository
 commit, keep the task directory, model, ``reasoning_effort``, timeout, and
 attempt count identical across runs, and archive ``result.json`` and
 ``config.json`` from the Harbor job directory.
-
-Integration Details for Developers
-----------------------------------
-
-.. code-block:: text
-
-   Harbor trial
-   ├── agent container (main)
-   │   └── RPent / Codex planner ── rcb_client ──▶ sim:8000
-   └── simulator container (sim)
-       └── EFE task service
-
-- **Container packaging**: ``RPentEfeAgent`` builds a clean wheel from the RPent checkout (following ``pyproject.toml`` rules, excluding ``.git``, tests, caches, and logs) and installs it into ``/opt/rpent-efe/venv`` inside the agent container.
-- **Execution lifecycle**: the adapter invokes ``rpent --robot efe --planner codex`` with explicit memory, task name, and deadline flags. ``EfeEnvClient`` reserves time for planner shutdown and ``finalize_run`` (which writes ``efe-result.json``), treating planner budget exhaustion as a clean exit so Harbor still grades the episode.
-- **Credential forwarding**: forwards model environment variables and ``--agent-env`` values into the container, mapping ``OPENAI_API_KEY`` / ``OPENAI_BASE_URL`` to ``CODEX_API_KEY`` / ``CODEX_BASE_URL`` when ``CODEX_*`` are unset.
-- **Protocol boundary**: supports ``eai-standard/2.2`` and ``2.4``. Versions ``2.1`` and ``2.3`` (which use ``control_dt`` and a different ``rcb_client`` signature) and ``privileged`` tasks (which evaluate offline ``trajectory.npz`` or policy files) are rejected at connection time.
 
 Next Steps
 ----------

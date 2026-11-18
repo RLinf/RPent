@@ -16,9 +16,27 @@
 
 from __future__ import annotations
 
+import os
+from collections.abc import Iterator
+
 import pytest
 
 from tests.unit_tests.robots.efe.efe_support import FakeEfeClient
+
+
+@pytest.fixture(autouse=True)
+def _restore_efe_environment() -> Iterator[None]:
+    """Undo the workspace bindings one CLI run leaves in the environment."""
+    names = ("RPENT_REPO_ROOT", "CODEX_HOME")
+    original = {name: os.environ.get(name) for name in names}
+    try:
+        yield
+    finally:
+        for name, value in original.items():
+            if value is None:
+                os.environ.pop(name, None)
+            else:
+                os.environ[name] = value
 
 
 @pytest.fixture

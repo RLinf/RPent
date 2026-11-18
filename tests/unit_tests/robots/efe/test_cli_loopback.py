@@ -16,6 +16,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import socket
 import subprocess
@@ -30,13 +31,16 @@ from mcp import ClientSession
 from mcp.client.streamable_http import streamable_http_client
 
 from robots.efe import env_client
+from robots.efe.constants import is_budget_stop
 from tests.unit_tests.robots.efe.efe_support import FakeEfeClient
 
 
 class LocalTurn:
-    def __init__(self, workdir: Path, mcp_url: str) -> None:
+    def __init__(self, workdir: Path, mcp_url: str, *, hang: bool = False) -> None:
         self.workdir = workdir
         self.mcp_url = mcp_url
+        self.hang = hang
+        self._released = asyncio.Event()
         self.tools: list[str] = []
         self.finish_response: dict[str, object] = {}
         self.finish_arguments = {
@@ -45,9 +49,14 @@ class LocalTurn:
         }
 
     async def interrupt(self) -> None:
-        """The local turn always completes; there is nothing to interrupt."""
+        """Release a hanging turn so the session can shut down."""
+        self._released.set()
 
     async def stream(self) -> AsyncIterator[dict[str, object]]:
+        if self.hang:
+            # Never completes on its own, so the planner reaches its budget.
+            await self._released.wait()
+            return
         command = [
             sys.executable,
             "-c",
@@ -141,7 +150,7 @@ class LocalThread:
 
 
 class LocalCodex:
-    def __init__(self, config: openai_codex.CodexConfig) -> None:
+    def __init__(self, config: openai_codex.CodexConfig, *, hang: bool = False) -> None:
         self.config = config
         self.closed = False
         self.thread_options: dict[str, object] = {}
@@ -151,7 +160,7 @@ class LocalCodex:
             if value.startswith("mcp_servers.rpent.url=")
         )
         mcp_url = json.loads(mcp_override.split("=", 1)[1])
-        self.thread = LocalThread(LocalTurn(Path(config.cwd), mcp_url))
+        self.thread = LocalThread(LocalTurn(Path(config.cwd), mcp_url, hang=hang))
 
     async def thread_start(self, **options: object) -> LocalThread:
         self.thread_options = options
@@ -166,6 +175,36 @@ def local_backend(
     monkeypatch: pytest.MonkeyPatch,
 ) -> list[LocalCodex]:
     instances: list[LocalCodex] = []
+    _reject_outbound_connections(monkeypatch)
+
+    def create_codex(config: openai_codex.CodexConfig) -> LocalCodex:
+        instance = LocalCodex(config)
+        instances.append(instance)
+        return instance
+
+    monkeypatch.setattr(openai_codex, "AsyncCodex", create_codex)
+    return instances
+
+
+@pytest.fixture
+def hanging_backend(
+    monkeypatch: pytest.MonkeyPatch,
+) -> list[LocalCodex]:
+    """Return a Codex backend whose turn never finishes on its own."""
+    instances: list[LocalCodex] = []
+    _reject_outbound_connections(monkeypatch)
+
+    def create_codex(config: openai_codex.CodexConfig) -> LocalCodex:
+        instance = LocalCodex(config, hang=True)
+        instances.append(instance)
+        return instance
+
+    monkeypatch.setattr(openai_codex, "AsyncCodex", create_codex)
+    return instances
+
+
+def _reject_outbound_connections(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Fail any connection that leaves the loopback interface."""
     socket_connect = socket.socket.connect
 
     def connect_loopback(connection: socket.socket, address: tuple[str, int]) -> None:
@@ -173,14 +212,7 @@ def local_backend(
             raise AssertionError(f"The offline test rejected a connection: {address}")
         socket_connect(connection, address)
 
-    def create_codex(config: openai_codex.CodexConfig) -> LocalCodex:
-        instance = LocalCodex(config)
-        instances.append(instance)
-        return instance
-
     monkeypatch.setattr(socket.socket, "connect", connect_loopback)
-    monkeypatch.setattr(openai_codex, "AsyncCodex", create_codex)
-    return instances
 
 
 def _run_generic_cli(
@@ -190,6 +222,7 @@ def _run_generic_cli(
     output_dir: Path,
     instruction: str,
     memory_dir: Path | None = None,
+    extra_args: list[str] | None = None,
 ) -> int:
     from rpent.cli import main as cli
 
@@ -229,6 +262,7 @@ def _run_generic_cli(
         "--efe-trial-timeout-s",
         "30",
     ]
+    arguments.extend(extra_args or [])
     (workdir / "instruction.txt").write_text(instruction, encoding="utf-8")
     monkeypatch.setattr(sys, "argv", arguments)
     exit_code = cli.main()
@@ -314,10 +348,16 @@ def test_generic_cli_preserves_child_output_and_accounts_mcp_finish(
         }.items()
     )
     assert (workdir / "control-result.txt").read_text() == "control program executed\n"
-    assert "control child completed" in (output_dir / "codex.txt").read_text()
-    assert (output_dir / "codex.txt.last").read_text() == "Local control program ended."
+    codex_output = next(output_dir.glob("codex_*.txt"))
+    assert "control child completed" in codex_output.read_text(encoding="utf-8")
+    assert (
+        codex_output.with_suffix(".txt.last").read_text(encoding="utf-8")
+        == "Local control program ended."
+    )
     assert json.loads(
-        (output_dir / "codex.txt.stream.jsonl").read_text().splitlines()[-1]
+        codex_output.with_suffix(".txt.stream.jsonl")
+        .read_text(encoding="utf-8")
+        .splitlines()[-1]
     ) == {"method": "turn/completed", "payload": {"turn": {"status": "completed"}}}
     assert len(local_backend) == 1
     assert local_backend[0].closed
@@ -342,6 +382,36 @@ def test_generic_cli_preserves_child_output_and_accounts_mcp_finish(
         "set_gripper",
     ]
     assert local_backend[0].thread.local_turn.finish_response["isError"] is False
-    assert json.loads(
-        local_backend[0].thread.local_turn.finish_response["content"][0]["text"]
-    ) == transcript["finish"]
+    assert (
+        json.loads(
+            local_backend[0].thread.local_turn.finish_response["content"][0]["text"]
+        )
+        == transcript["finish"]
+    )
+
+
+def test_generic_cli_records_a_planner_timeout_as_a_budget_stop(
+    tmp_path: Path,
+    hanging_backend: list[LocalCodex],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A planner that runs out of time is a graded stop, not a failed run."""
+    workdir = tmp_path / "public workspace"
+    workdir.mkdir()
+    output_dir = tmp_path / "agent logs"
+
+    exit_code = _run_generic_cli(
+        monkeypatch,
+        workdir=workdir,
+        output_dir=output_dir,
+        instruction="Never finish this turn.",
+        extra_args=["--planner-timeout-s", "1"],
+    )
+
+    transcript = json.loads(
+        next(output_dir.glob("transcript_*.json")).read_text(encoding="utf-8")
+    )
+    result = json.loads((output_dir / "efe-result.json").read_text(encoding="utf-8"))
+    assert exit_code == 1
+    assert is_budget_stop(transcript["error"])
+    assert result["agent_error"] == transcript["error"]

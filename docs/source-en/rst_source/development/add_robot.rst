@@ -148,7 +148,7 @@ connected service actually registers. The returned mapping is merged over
 ``RunConfig.prompt_vars`` for both the user- and system-prompt renders; the
 interactive CLI keeps its earlier user render as the editable default of the
 first prompt. If ``get_toolkit`` reads one of these values, derive it from the
-same runtime facts so the prompt and the toolkit describe one tool set. See
+same runtime source so the prompt and the toolkit describe one tool set. See
 ``robots/efe/robot_spec.py``.
 
 That's the entire registration step — ``_resolve_robot(name)`` does an
