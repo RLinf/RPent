@@ -1,7 +1,3 @@
-# CPU-only planner for a remote robots.rl.remote_manager backend.
-# Run from the RPent root with uv pip install --torch-backend cpu -r this-file.
--e .
-transformers==5.19.0
-torch==2.14.1
-torchvision
-pillow>=10
+# Compatibility entry: planner, simulator and training share the reason environment.
+# Install the validated offline package; this file preserves the old entry name.
+-r episode-ppo-env.txt

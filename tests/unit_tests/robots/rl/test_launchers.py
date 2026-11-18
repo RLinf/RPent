@@ -184,3 +184,67 @@ def test_single_episode_launcher_preserves_the_selected_simulator_and_workflow(
     ] == workflow
     assert "--libero-type" not in argv
     assert request["libero_type"] == "standard"
+
+
+@pytest.mark.parametrize("sam3_per_gpu", [1, 2])
+def test_services_assign_sam_replicas_and_clean_up_owned_processes(
+    tmp_path, monkeypatch, sam3_per_gpu
+):
+    from robots.rl import services
+
+    daemons = []
+
+    class Daemon:
+        def __init__(self, **kwargs):
+            self.__dict__.update(kwargs)
+            self.stopped = False
+            daemons.append(self)
+
+        def start(self):
+            pass
+
+        def stop(self):
+            self.stopped = True
+
+    checkpoint = tmp_path / "sam3.pt"
+    checkpoint.touch()
+    output = tmp_path / "services"
+    monkeypatch.setattr(services, "ProcessDaemon", Daemon)
+    monkeypatch.setattr(
+        services, "wait_for_endpoint", lambda daemon, **_: f"http://{daemon.name}"
+    )
+    monkeypatch.setattr(services.signal, "signal", lambda *_: None)
+
+    def end_run(_):
+        raise SystemExit(0)
+
+    monkeypatch.setattr(services.time, "sleep", end_run)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "services",
+            "--gpus",
+            "1,3",
+            "--sam3-per-gpu",
+            str(sam3_per_gpu),
+            "--envs-per-gpu",
+            "60",
+            "--sam3-checkpoint",
+            str(checkpoint),
+            "--output-dir",
+            str(output),
+        ],
+    )
+    with pytest.raises(SystemExit, match="0"):
+        services.main()
+    manifest = json.loads((output / "services.json").read_text())
+    assert manifest["sam3_per_gpu"] == sam3_per_gpu
+    assert len(manifest["sam3_workers"]) == 2 * sam3_per_gpu
+    sam = [d for d in daemons if d.name.startswith("sam3-gpu")]
+    assert [d.cmd[d.cmd.index("--cuda-device") + 1] for d in sam] == [
+        str(gpu) for gpu in (1, 3) for _ in range(sam3_per_gpu)
+    ]
+    backend = next(d for d in daemons if d.name == "backend")
+    assert backend.cmd[backend.cmd.index("--gpu-slots") + 1] == "1:60,3:60"
+    assert all(d.cmd[0] == sys.executable and d.stopped for d in daemons)

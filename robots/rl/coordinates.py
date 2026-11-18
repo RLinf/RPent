@@ -35,6 +35,8 @@ class Coordinates:
             return cls(mode, np.zeros(3), np.eye(3), height)
         if mode != "general":
             raise ValueError("world_cord must be base or general")
+        if not isinstance(control, dict):
+            raise ValueError("general requires native robot control calibration")
         try:
             calibration = control["coordinate_calibration"]
             origin = np.asarray(calibration["base_xyz"], dtype=np.float64)

@@ -70,9 +70,11 @@ def native_scene():
     return SimpleNamespace(
         robots=[robot],
         sim=SimpleNamespace(model=model, data=data),
-        mujoco_arena=SimpleNamespace(
-            table_body=ET.Element("body", name="table"),
-            table_top_abs=np.array([4, -3, 999]),
+        model=SimpleNamespace(
+            mujoco_arena=SimpleNamespace(
+                table_body=ET.Element("body", name="table"),
+                table_top_abs=np.array([4, -3, 999]),
+            )
         ),
         reset=lambda: None,
     )
@@ -98,7 +100,7 @@ def test_native_calibration_is_fixed_per_reset_but_tcp_is_measured():
 
 def test_legacy_control_does_not_require_new_calibration():
     scene = native_scene()
-    del scene.mujoco_arena
+    del scene.model.mujoco_arena
     state = ControlObservation(scene).rpent_control_state
     assert state["reference"] == "grip_site"
     assert "coordinate_calibration" not in state
@@ -109,7 +111,7 @@ def test_legacy_control_does_not_require_new_calibration():
 )
 def test_table_height_uses_compiled_collision_surface_not_nominal_offset(field):
     scene = native_scene()
-    scene.mujoco_arena = SimpleNamespace(
+    scene.model.mujoco_arena = SimpleNamespace(
         **{
             field: ET.Element("body", name="table"),
             "table_top_abs": np.array([0, 0, 999]),

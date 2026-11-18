@@ -28,7 +28,12 @@ class ControlObservation:
     def _table_top(native) -> np.ndarray:
         """Measure the arena's support surface from compiled collision boxes."""
         model, data = native.sim.model, native.sim.data
-        arena = native.mujoco_arena
+        try:
+            arena = native.model.mujoco_arena
+        except AttributeError as exc:
+            raise ValueError(
+                "general requires the compiled LIBERO arena model"
+            ) from exc
         table = next(
             (
                 body

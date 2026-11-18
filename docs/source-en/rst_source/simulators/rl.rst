@@ -247,17 +247,31 @@ Train the Planner with RLinf
 
 Use the paired `RLinf episode PPO/GRPO guide <https://github.com/zhexuanxu/RLinf/blob/rpent-ppo/docs/source-en/rst_source/examples/agentic/rpent_episode_sync.rst>`__ for environment installation, full Qwen3.5 SFT model files, native task manifests, service routing, training, checkpoint export and the 60-episode regression panel.
 
-The model hosts run RLinf and a CPU RPent planner; the environment host runs LIBERO-PRO and SAM3. From the RPent checkout, prepare the CPU planner independently:
+For the H200 profile, model serving, training, RPent planner subprocesses,
+LIBERO-PRO and SAM3 share ``/opt/venv/reason``. Install the offline package on
+each node, then start its local services:
 
 .. code-block:: bash
 
-   uv venv --python 3.12 .venv-planner
-   uv pip install --python .venv-planner/bin/python --prerelease=allow \
-     --torch-backend cpu -r requirements/episode-planner.txt
+   bash "$STACK_ROOT/envs/offline_package/install.sh"
+   source "$STACK_ROOT/envs/offline_package/activate.sh"
+   python -m robots.rl.services --sam3-checkpoint "$SAM3_CHECKPOINT_PATH" \
+     --envs-per-gpu 3 --output-dir "$STACK_ROOT/logs/services-node0"
 
-Point RLinf's ``tools.rpent.python`` to this interpreter. Install ``requirements/episode-ppo-env.txt`` in a separate environment on the simulator host, with ``RLINF_ROOT`` pointing to the paired checkout. That environment serves both PPO and GRPO. The remote ``episode`` workflow uses SAM3 and native scene assets, without Pi0.5 weights. Keep the SFT workflow, prompts, action batch size and explicit perception tools unchanged.
+Set ``tools.rpent.python`` to ``/opt/venv/reason/bin/python``. Run one SAM3 and three environment slots per GPU. Across four nodes, this
+supports the smoke test’s 80 concurrent candidates.
+The episode workflow uses SAM3 and native scene assets. Keep the SFT workflow,
+prompt, action batch size and explicit perception tools unchanged.
 
-Episode runs save task outcomes and training artifacts by default. Full HTTP and compaction traces are optional: direct trainer launches accept ``--record-api-trace``, and RLinf exposes ``tools.rpent.record_api_trace=true``. This switch records transport details; it does not change model input or compaction behavior.
+For collection on separate environment GPUs, ``--sam3-per-gpu 2`` starts two
+SAM3 workers per GPU. Set ``--envs-per-gpu`` to the capacity measured on that
+host; the default is three. SAM3 and the environment backend use the same
+interpreter. The service manager stops all child processes when it exits.
+
+Episodes save task outcomes and training data. Enable ``--record-api-trace``
+when launching RPent directly, or ``tools.rpent.record_api_trace=true`` in
+RLinf, to retain full HTTP and compaction traces. This records transport details
+without changing model inputs or history compaction.
 
 The trainer supplies ``task`` and ``planner`` objects in a request JSON. Planner options include ``max_turns``, ``max_tokens``, timeouts, ``history_compaction``, ``thinking`` and ``sampling_params``. Explicit sampling values override standalone defaults. RLinf retains sampled token IDs, behavior logprobs and ordered training images. Existing SFT encoding in ``ms-swift/examples/rpent`` must preserve those requests and image order; see ``tools/rl/REFERENCE.md`` for the integration contract.
 

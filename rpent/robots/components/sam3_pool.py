@@ -167,6 +167,7 @@ def main() -> None:
     parser.add_argument("--max-pending", type=int, default=256)
     parser.add_argument("--per-backend-concurrency", type=int, default=1)
     parser.add_argument("--metrics", type=Path)
+    parser.add_argument("--parent-watch", action="store_true")
     args = parser.parse_args()
     clients = [make_rpc_client(endpoint) for endpoint in args.backends]
     for client in clients:
@@ -179,7 +180,12 @@ def main() -> None:
         metrics_path=args.metrics,
     )
     try:
-        pool.serve(transport="http", host=args.host, port=args.port)
+        pool.serve(
+            transport="http",
+            host=args.host,
+            port=args.port,
+            parent_watch=args.parent_watch,
+        )
     finally:
         pool.close()
 

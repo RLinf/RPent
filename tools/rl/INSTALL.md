@@ -2,60 +2,45 @@
 
 [Run tasks](README.md) · [简体中文](INSTALL_zh.md)
 
-This guide starts from a fresh Linux checkout. Install the common planner,
-SAM3 and LIBERO environment first, then the isolated RoboCasa and/or RoboTwin
-runtime you need. All paths are derived from your checkout and chosen data
-root. No cluster activation scripts, existing checkpoints or VLA weights are
-assumed. Run commands from the checkout root unless stated otherwise.
+Use one `reason` environment for LIBERO rollout and RL training. Install
+separate RoboCasa or RoboTwin environments if needed.
 
 ## 1. System prerequisites and checkout
 
-Use Linux x86_64, Git, [uv](https://docs.astral.sh/uv/getting-started/installation/)
-and NVIDIA GPUs with a working driver. `nvidia-smi` must succeed. The example
-SGLang wheels use CUDA 13 and require a compatible driver; the simulator stack
-uses CUDA 12.8. Activating a Python environment does not install the host
-driver or repair inherited CUDA library paths. RoboTwin also needs NVIDIA
-Vulkan/EGL support, a CUDA 12.8 toolkit (`nvcc`) and a C++ compiler for cuRobo.
-On Ubuntu install the remaining system libraries:
-
-```bash
-sudo apt-get update
-sudo apt-get install -y git build-essential ffmpeg libegl1 libopengl0 libgl1 libglib2.0-0 libvulkan1 vulkan-tools
-# Install uv using its linked official instructions if it is not available.
-uv python install 3.12 3.11
-git clone --branch rpent-ppo https://github.com/zhexuanxu/RPent.git
-cd RPent
-cp tools/rl/config.example.sh .rl-env.sh
-```
-
-Use a revision containing `robots/rl`; record `git rev-parse HEAD` with your
-results. Edit `.rl-env.sh` to select the data disk, model/SAM3 locations and
-service endpoints. Its default data root is `${XDG_DATA_HOME:-$HOME/.local/share}/rpent`.
-Open new terminals from this checkout before activating each environment;
-do not inherit `PYTHONPATH` or CUDA library overrides from an RL/SFT job.
+Use the Linux x86_64 `reason` image with `/opt/venv/reason`, the NVIDIA driver,
+CUDA 12.8 development toolkit, a C++ compiler and EGL/OpenGL. Keep both
+`rpent-ppo` repositories under `$STACK_ROOT/repos/{RLinf,RPent}` and record
+their revisions. The prepared package lives at
+`$STACK_ROOT/envs/offline_package`; copy it in full to each node.
 
 ## 2. Planner, SAM3 and LIBERO
 
-The common environment owns the planner, geometry, SAM3 and LIBERO. RoboCasa
-and RoboTwin run as subprocesses in their own environments to avoid conflicting
-robosuite, NumPy, SciPy and Torch requirements.
+Install completely offline, then activate the existing environment:
 
 ```bash
-uv venv --python 3.12 .venv
-uv pip install --python .venv/bin/python --prerelease=allow --torch-backend cu128 -r requirements/libero-rl.txt
-source .venv/bin/activate
-source .rl-env.sh
-source tools/rl/env.sh
-uv pip check --python .venv/bin/python
+export STACK_ROOT=/mnt/public/xzxuan
+bash "$STACK_ROOT/envs/offline_package/install.sh"
+source "$STACK_ROOT/envs/offline_package/activate.sh"
+python -m pip check
 rpent --help
 ```
 
-The requirements select the matching RLinf `rpent-ppo` runtime, SAM3 and public
-LIBERO forks. They do not use the older `rpent[rlinf]` extra on its own, and do
-not need OpenPi/Pi0.5. The tested main versions are Python 3.12, Torch 2.11.0
-(CUDA 12.8), torchvision 0.26.0, Transformers 4.57.6, MuJoCo 3.3.0,
-robosuite 1.5.2 and NumPy 1.26.4. These requirement files are not full
-transitive lockfiles; save `uv pip freeze` for reproducible deployments.
+The package verifies hashes and image versions, backs up replaced packages
+and installs local wheels. Repeated installation keeps the same versions.
+Models and scene assets remain separate shared inputs. The environment uses
+Python 3.12.12, Torch 2.11.0/CUDA 12.8, torchvision 0.26.0, FA2 2.8.3,
+Transformer Engine 2.17, Transformers 5.8.1, NumPy 1.26.4, MuJoCo 3.3.0 and
+robosuite 1.5.2. It supplies SAM3 and LIBERO without OpenPI/VLA dependencies.
+RLinf, SGLang, planner and simulator child processes all use this interpreter.
+
+For dedicated collection GPUs, `python -m robots.rl.services` accepts
+`--sam3-per-gpu 2` and `--envs-per-gpu N`. Measure environment capacity before
+setting `N`; these options allocate service capacity without changing the
+planner's workflow or episode budgets.
+
+The package's activation file supplies the prepared shared paths. For a new
+data root, configure the model, SAM3 and LIBERO paths in
+`tools/rl/config.example.sh` and save a local copy as `.rl-env.sh`.
 
 Request access to [facebook/sam3](https://huggingface.co/facebook/sam3) before
 logging in. Download the full Qwen3.8-27B directory, including its tokenizer, processor
@@ -100,22 +85,35 @@ after relocating the environment or assets, because its paths are absolute.
 The guide uses LIBERO-PRO (`LIBERO_TYPE=pro`); standard/plus variants require
 the corresponding package and asset/config setup.
 
-## 3. Model serving
+## 3. Model and local environment services
 
-In a new terminal at the checkout root, install SGLang separately:
+SGLang `0.5.12.post1` uses RLinf's external Qwen image processor. RLinf captures
+serving prompt IDs, processed pixels, image spans, grid and M-RoPE for learner
+replay. The package installs the unmodified SGLang release with the image's
+CUDA 12 kernels. Megatron-Core `0.18.0+rpent.cu128.1` includes the offload
+checkpoint repair; Bridge `0.5.0+rpent.cu128.1` uses the compatible CUDA 12
+profile. Build sources and the lock are included in the offline package.
+
+Start one service manager per node for the four-node 80-candidate smoke:
 
 ```bash
-uv venv --python 3.12 .venv-sglang
-uv pip install --python .venv-sglang/bin/python --prerelease=allow "sglang==0.5.23" "torchvision==0.29.2"
-uv pip check --python .venv-sglang/bin/python
+python -m robots.rl.services --sam3-checkpoint "$SAM3_CHECKPOINT_PATH" \
+  --envs-per-gpu 3 --output-dir "$STACK_ROOT/logs/services-node0"
 ```
 
-The validated serving stack is SGLang 0.5.23, sgl-kernel 0.4.10,
-Torch 2.14.1/CUDA 13.0 and Transformers 5.19.0. Keep it separate from the
-simulator's CUDA 12.8 wheels. [README.md](README.md#start-the-shared-services)
-starts the service, checks `/v1/models`, starts SAM3 and runs the first LIBERO
-task. A remote compatible endpoint can replace this local serving install.
-For a checkpoint without MTP weights set `ENABLE_MTP=0` when running `serve.sh`.
+It starts one SAM3 per GPU, a pooled endpoint on port 28424 and the environment
+backend on port 28490. The service manager stops its child processes on exit. Use a fresh output
+directory and keep the service manager alive while collecting. Three slots per GPU fit
+80 concurrent candidates across 32 GPUs; a larger run needs its own capacity
+check. The model service also uses `/opt/venv/reason/bin/python`:
+
+```bash
+MODEL_PATH="$MODEL_QWEN38_27B" ENABLE_MTP=0 bash tools/rl/serve.sh
+```
+
+[Run tasks](README.md#run-one-task) describes the standalone trajectory command.
+Use the paired RLinf guide for Ray startup, the SFT model, complete groups,
+training and checkpoint validation.
 
 ## 4. RoboCasa runtime and assets
 
@@ -146,7 +144,7 @@ version's downloader. [The reference](REFERENCE.md#relocating-robocasa-assets)
 provides the optional relocation command.
 
 The example `.rl-env.sh` points `RPENT_ROBOCASA_PYTHON` at this venv. Activate
-the common `.venv` for rollout commands; `--simulator robocasa` launches the
+`/opt/venv/reason` for rollout commands; `--simulator robocasa` launches the
 native server with the isolated interpreter. RLDX weights are not used.
 
 ## 5. RoboTwin runtime and assets
@@ -187,7 +185,7 @@ uv pip check --python .venv-robotwin/bin/python
 `.robotwin-assets.json` and `assets/`, not the inner `assets/` directory.
 The pinned runtime validates its asset snapshot. The default task preset is
 `demo_randomized`; choose a published valid seed for that task/preset.
-Activate the common planner `.venv` to launch tasks. The example configuration
+Activate `/opt/venv/reason` to launch tasks. The example configuration
 selects `.venv-robotwin/bin/python` via `RPENT_ROBOTWIN_PYTHON`; LingBot/VLA
 weights are unnecessary.
 

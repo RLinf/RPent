@@ -2,55 +2,29 @@
 
 [运行任务](README_zh.md) · [English](INSTALL.md)
 
-本指南从新的 Linux checkout 开始：先安装公共 planner、SAM3 与 LIBERO 环境，
-再按需安装隔离的 RoboCasa、RoboTwin 环境。所有路径由自己的 checkout 与数据
-目录推导，不依赖集群激活脚本、已有 checkpoint 或 VLA 权重。除特别说明外，
-所有命令均在 checkout 根目录执行。
+LIBERO rollout 与 RL 训练共用 `reason` 环境。需要 RoboCasa 或 RoboTwin 时，另装对应的独立环境。
 
 ## 1. 系统条件与源码
 
-需要 Linux x86_64、Git、[uv](https://docs.astral.sh/uv/getting-started/installation/)
-和正常工作的 NVIDIA 驱动，先确认 `nvidia-smi` 可用。示例 SGLang wheels 使用
-CUDA 13，需要兼容驱动；仿真环境使用 CUDA 12.8。激活 Python 环境不会安装系统
-驱动，也不会清理继承的 CUDA 库路径。RoboTwin 还需要 NVIDIA Vulkan/EGL、
-CUDA 12.8 toolkit（含 `nvcc`）及编译 cuRobo 的 C++ 编译器。
-Ubuntu 上安装其余系统依赖：
-
-```bash
-sudo apt-get update
-sudo apt-get install -y git build-essential ffmpeg libegl1 libopengl0 libgl1 libglib2.0-0 libvulkan1 vulkan-tools
-# 如果尚未安装 uv，先按上方官方链接安装。
-uv python install 3.12 3.11
-git clone --branch rpent-ppo https://github.com/zhexuanxu/RPent.git
-cd RPent
-cp tools/rl/config.example.sh .rl-env.sh
-```
-
-使用包含 `robots/rl` 的版本，并随实验保存 `git rev-parse HEAD`。编辑 `.rl-env.sh`
-选择磁盘、模型/SAM3 位置和服务地址。默认数据根目录为
-`${XDG_DATA_HOME:-$HOME/.local/share}/rpent`。分别打开新的终端并进入 checkout，
-再激活对应环境；不要继承 RL/SFT 任务的 `PYTHONPATH` 或 CUDA 库覆盖设置。
+使用 Linux x86_64 的 `reason` 镜像，需具备 `/opt/venv/reason`、NVIDIA 驱动、CUDA 12.8 开发工具链、C++ 编译器及 EGL/OpenGL。两个 `rpent-ppo` checkout 放在 `$STACK_ROOT/repos/{RLinf,RPent}`，记录各自版本。完整离线包位于 `$STACK_ROOT/envs/offline_package`，每个节点都使用这份包。
 
 ## 2. Planner、SAM3 与 LIBERO
 
-公共环境负责 planner、几何计算、SAM3 和 LIBERO。RoboCasa、RoboTwin 使用独立
-子进程与 Python 环境，避免 robosuite、NumPy、SciPy、Torch 的版本冲突。
+完全离线安装，再激活现有环境：
 
 ```bash
-uv venv --python 3.12 .venv
-uv pip install --python .venv/bin/python --prerelease=allow --torch-backend cu128 -r requirements/libero-rl.txt
-source .venv/bin/activate
-source .rl-env.sh
-source tools/rl/env.sh
-uv pip check --python .venv/bin/python
+export STACK_ROOT=/mnt/public/xzxuan
+bash "$STACK_ROOT/envs/offline_package/install.sh"
+source "$STACK_ROOT/envs/offline_package/activate.sh"
+python -m pip check
 rpent --help
 ```
 
-依赖文件选择匹配的 RLinf `rpent-ppo` runtime、SAM3 和公开 LIBERO forks，
-不单独使用旧版 `rpent[rlinf]` extra，也不需要 OpenPi/Pi0.5。验证过的主版本为
-Python 3.12、Torch 2.11.0/CUDA 12.8、torchvision 0.26.0、Transformers 4.57.6、
-MuJoCo 3.3.0、robosuite 1.5.2、NumPy 1.26.4。依赖文件不是完整传递依赖锁文件，
-部署时还应保存 `uv pip freeze`。
+安装器核验哈希与镜像版本，备份替换前的包，再安装本地 wheel；重复执行保持相同版本。模型和场景资源单独存放在共享目录。环境使用 Python 3.12.12、Torch 2.11.0/CUDA 12.8、torchvision 0.26.0、FA2 2.8.3、Transformer Engine 2.17、Transformers 5.8.1、NumPy 1.26.4、MuJoCo 3.3.0、robosuite 1.5.2，包含 SAM3、LIBERO，不引入 OpenPI/VLA 依赖。RLinf、SGLang、planner 与仿真子进程均使用同一解释器。
+
+采集时若使用独立的环境 GPU，`python -m robots.rl.services` 可加 `--sam3-per-gpu 2` 和 `--envs-per-gpu N`。先实测容量再设置 `N`；这两个选项只分配服务容量，不改变 planner 工作流和 episode 预算。
+
+离线包的激活脚本提供已准备好的共享路径。使用新的数据目录时，可编辑 `tools/rl/config.example.sh` 中的模型、SAM3 和 LIBERO 路径，另存为本地 `.rl-env.sh`。
 
 先在 [facebook/sam3](https://huggingface.co/facebook/sam3) 获得访问权限，再登录
 下载。Qwen 需下载完整目录，包括 tokenizer、processor 和 chat template。
@@ -92,21 +66,24 @@ PY
 须重新生成。本指南使用 LIBERO-PRO（`LIBERO_TYPE=pro`）；standard/plus 需安装
 对应包并配置对应资产及配置文件。
 
-## 3. 模型服务
+## 3. 模型与本机环境服务
 
-在 checkout 根目录的新终端中单独安装 SGLang：
+SGLang `0.5.12.post1` 使用 RLinf 的外部 Qwen 图像处理器。RLinf 保存服务端的 prompt ID、预处理像素、图像区间、grid 和 M-RoPE，供 learner 回放。离线包安装未修改的 SGLang 发布版，保留镜像的 CUDA 12 内核。Megatron-Core `0.18.0+rpent.cu128.1` 包含 offload checkpoint 修补；Bridge `0.5.0+rpent.cu128.1` 使用配套 CUDA 12 配置。构建源码与依赖锁随离线包保留。
+
+四节点 80 候选 smoke 的每个节点各启动一个服务管理进程：
 
 ```bash
-uv venv --python 3.12 .venv-sglang
-uv pip install --python .venv-sglang/bin/python --prerelease=allow "sglang==0.5.23" "torchvision==0.29.2"
-uv pip check --python .venv-sglang/bin/python
+python -m robots.rl.services --sam3-checkpoint "$SAM3_CHECKPOINT_PATH" \
+  --envs-per-gpu 3 --output-dir "$STACK_ROOT/logs/services-node0"
 ```
 
-验证过的服务栈为 SGLang 0.5.23、sgl-kernel 0.4.10、Torch 2.14.1/CUDA 13.0、
-Transformers 5.19.0；与仿真环境的 CUDA 12.8 wheels 分开。
-[运行指南](README_zh.md#启动公共服务)给出模型启动、`/v1/models` 检查、SAM3
-启动及第一个 LIBERO 任务。已有兼容远程模型端点时，可跳过本地模型安装。
-checkpoint 不含 MTP 权重时，运行 `serve.sh` 设置 `ENABLE_MTP=0`。
+它启动每卡一个 SAM3、端口 28424 的 pool 和端口 28490 的环境 backend，退出时清理自己的子进程。每次使用新的输出目录，采集期间保持该进程运行。每卡三个槽位可在 32 卡上同时容纳 80 候选，更大的实验须另行验证容量。模型服务也使用 `/opt/venv/reason/bin/python`：
+
+```bash
+MODEL_PATH="$MODEL_QWEN38_27B" ENABLE_MTP=0 bash tools/rl/serve.sh
+```
+
+独立轨迹命令见[运行指南](README_zh.md#运行一个任务)。Ray 启动、SFT 模型、完整组采样、训练和 checkpoint 验证见配套 RLinf 指南。
 
 ## 4. RoboCasa 环境与资产
 
@@ -132,8 +109,7 @@ uv pip check --python .venv-robocasa/bin/python
 `ROBOCASA_ASSETS_PATH` 不会改变此版本下载器的位置；[参考文档](REFERENCE_zh.md#迁移-robocasa-资产)
 提供可选的迁移命令。
 
-`.rl-env.sh` 示例已将 `RPENT_ROBOCASA_PYTHON` 指向此 venv。运行轨迹时激活公共
-`.venv`，`--simulator robocasa` 会用隔离解释器启动原生服务，无需 RLDX 权重。
+`.rl-env.sh` 示例已将 `RPENT_ROBOCASA_PYTHON` 指向此 venv。运行轨迹时激活 `/opt/venv/reason`，`--simulator robocasa` 会用隔离解释器启动原生服务，无需 RLDX 权重。
 
 ## 5. RoboTwin 环境与资产
 
@@ -172,7 +148,7 @@ uv pip check --python .venv-robotwin/bin/python
 `ROBOTWIN_ASSETS_PATH` 指向包含 `.robotwin-assets.json` 和 `assets/` 的快照
 **根目录**，不是内部的 `assets/`。固定版本 runtime 会验证资产快照。
 默认 preset 为 `demo_randomized`，seed 应从该任务/preset 公开的有效列表选择。
-激活公共 planner `.venv` 来启动任务；配置示例通过 `RPENT_ROBOTWIN_PYTHON`
+激活 `/opt/venv/reason` 来启动任务；配置示例通过 `RPENT_ROBOTWIN_PYTHON`
 选择 `.venv-robotwin/bin/python`，无需 LingBot/VLA 权重。
 
 ## 6. 验证与排错

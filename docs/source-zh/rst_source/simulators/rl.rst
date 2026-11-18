@@ -214,15 +214,20 @@ slot 数是容量上限，采集前须用真实驻留环境验证布局。后端
 
 环境安装、完整 Qwen3.5 SFT 模型、原生任务清单、服务路由、训练、checkpoint 导出和 包含 60 条 episode 的训练池回归评测集，统一参见配套的 `RLinf episode PPO/GRPO 指南 <https://github.com/zhexuanxu/RLinf/blob/rpent-ppo/docs/source-zh/rst_source/examples/agentic/rpent_episode_sync.rst>`__。
 
-模型主机运行 RLinf 和 CPU RPent planner，环境主机运行 LIBERO-PRO 与 SAM3。在 RPent checkout 中独立安装 CPU planner：
+H200 配置的模型服务、训练、RPent planner 子进程、LIBERO-PRO 和 SAM3 共用 ``/opt/venv/reason``。每个节点安装离线包，再启动本机服务：
 
 .. code-block:: bash
 
-   uv venv --python 3.12 .venv-planner
-   uv pip install --python .venv-planner/bin/python --prerelease=allow \
-     --torch-backend cpu -r requirements/episode-planner.txt
+   bash "$STACK_ROOT/envs/offline_package/install.sh"
+   source "$STACK_ROOT/envs/offline_package/activate.sh"
+   python -m robots.rl.services --sam3-checkpoint "$SAM3_CHECKPOINT_PATH" \
+     --envs-per-gpu 3 --output-dir "$STACK_ROOT/logs/services-node0"
 
-将 RLinf 的 ``tools.rpent.python`` 指向该解释器。仿真主机使用另一环境安装 ``requirements/episode-ppo-env.txt``，并将 ``RLINF_ROOT`` 指向配套 checkout；该环境同时服务 PPO 和 GRPO。远端 ``episode`` 使用 SAM3 和原生场景资源，不使用 Pi0.5 权重。保持 SFT 的工作流、prompt、动作 batch 大小和显式感知工具。
+将 ``tools.rpent.python`` 设为 ``/opt/venv/reason/bin/python``。每卡一个 SAM3、三个环境槽位，可容纳四节点共 80 个并发 smoke 候选。episode 使用 SAM3 和原生场景资源；保持 SFT 的工作流、prompt、动作 batch 大小和显式感知工具。
+
+采集时若用独立的环境 GPU，可加 ``--sam3-per-gpu 2``，在每卡启动两个 SAM3。
+
+``--envs-per-gpu`` 应按这台机器实测的容量设置，默认值为 3。SAM3 与环境 backend 共用同一解释器。服务管理进程退出时停止所有子进程。
 
 episode 默认保存任务结果和训练数据；完整 HTTP 与压缩过程抓取需要显式开启。trainer 直接启动 RPent 时使用 ``--record-api-trace``，RLinf 中设置 ``tools.rpent.record_api_trace=true``。这个开关只记录传输细节，不改变模型输入或压缩行为。
 

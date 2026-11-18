@@ -399,6 +399,7 @@ def main() -> None:
     )
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=28090)
+    parser.add_argument("--parent-watch", action="store_true")
     args = parser.parse_args()
     try:
         slots = dict(
@@ -414,7 +415,9 @@ def main() -> None:
         parser.error("GPU ordinals must be nonnegative and capacities positive")
     BackendManager(
         args.output_dir, slots, args.max_initializing_per_gpu, args.sam3_endpoint
-    ).serve(transport="http", host=args.host, port=args.port)
+    ).serve(
+        transport="http", host=args.host, port=args.port, parent_watch=args.parent_watch
+    )
 
 
 if __name__ == "__main__":
