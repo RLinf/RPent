@@ -176,7 +176,6 @@ def test_robot_prompts_render_from_public_spec(
     assert user.strip()
     assert "{{" not in system
     assert "{{" not in user
-    assert "<!-- explore-only -->" not in system
     if mode == "eval":
         assert "## Task-family write-up" not in system
     tool_contract = {

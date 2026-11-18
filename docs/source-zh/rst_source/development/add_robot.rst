@@ -212,7 +212,7 @@ RPent 的整体进程划分、服务职责和通信方式见 :doc:`系统说明 
 
 ``robot.md`` 保存机器人背景，``tools.md`` 保存工具用法，``user.md`` 保存当前任务。本地 ``evaluation.md``、``exploration.md`` 只保留启动、重置、成功判据和产物差异；按需用 ``policies/<backend>.md`` 定义后端协议。bundle 按阅读顺序选择适用片段。
 
-复用 ``common/memory.md``，通过 ``memory_sources`` 字符串传入允许读取的路径列表；用 ``memory_kinds`` 指定允许的全局经验类别。文件末尾的 ``<!-- explore-only -->`` 分节只在探索模式下参与变量替换和组装。这些数据由 bundle 生成，机器人特有的发布规则和元数据留在 ``exploration.md``。YAM 保留自己的读取顺序和人工监督记忆协议。
+复用 ``common/memory.md``，通过 ``memory_sources`` 提供允许读取的路径列表。记忆写作规则放在 ``modes/explore.md`` 中，用 ``memory_kinds`` 指定允许的全局经验类别。bundle 选择模式文件并提供所需变量，机器人特有的发布规则和元数据留在 ``exploration.md``。YAM 保留自己的人工监督记忆协议。
 
 模板使用 ``{{name}}`` 占位符，例如 ``user.md`` 中的 ``{{instruction}}``。``compose`` 只替换一次，缺变量或文件时报告错误，插入的值不会再次展开。配置需提供所选文件的全部变量；使用公共探索模板时，还需提供会话字段和 ``explore_attempts_per_session``。
 
