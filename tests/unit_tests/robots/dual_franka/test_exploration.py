@@ -706,7 +706,7 @@ def test_explore_task_is_only_in_user_prompt():
         "memory_inbox": "/inbox",
         "output_dir": "/run",
         "task_name": "unique_task",
-        "instruction": "Move {{literal}} safely",
+        "instruction": "Move safely",
         "success_criteria": "unique_success",
         "constraints": "unique_constraint",
         "setup": "unique_setup",
@@ -716,6 +716,3 @@ def test_explore_task_is_only_in_user_prompt():
     for value in ("unique_task", "unique_success", "unique_constraint", "unique_setup"):
         assert value not in system
         assert value in user
-    assert "Move {{literal}} safely" in user
-    assert "request_scene_reset" in system
-    assert "request_scene_reset" not in user

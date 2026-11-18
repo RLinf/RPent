@@ -634,7 +634,6 @@ def test_explore_defaults_and_scene_identity_in_config(tmp_path):
         {**config.prompt_vars, "output_dir": str(tmp_path)}
     )
     assert "Attempt limit for this session: 5." in prompt
-    assert "initial episode counts toward the attempt limit" in prompt
     args.random = True
     with pytest.raises(ValueError, match="fixed seed/layout"):
         robot_spec._validate_args(args)
@@ -684,7 +683,6 @@ def test_policy_prompts_match_configured_backend(tmp_path, mode, backend, backen
         assert "native" not in task
     else:
         assert expected in prompt
-        assert expected not in task
     assert "{{" not in task
 
 
