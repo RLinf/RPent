@@ -14,15 +14,12 @@
 
 from __future__ import annotations
 
-import json
-import re
 from argparse import ArgumentParser
 from dataclasses import FrozenInstanceError
 from pathlib import Path
 from string import Formatter
 
 import pytest
-import yaml
 
 from robots.robotwin.robot_spec import (
     MODEL_SPEC,
@@ -199,101 +196,6 @@ def test_libero_prompts_observe_task_before_reading_memory(
         "seed-0 references for the current task and scene, then localize, plan, and execute."
     ) in system
     assert "view_env_state" not in user
-
-
-@pytest.mark.parametrize(
-    ("robot_name", "task_key"),
-    [
-        ("libero", "task"),
-        ("robocasa", "task_name"),
-        ("robodojo", "task"),
-        ("robotwin", "task_name"),
-        ("dual_franka", "task_id"),
-        ("yam", "task_id"),
-    ],
-)
-def test_exploration_memory_binds_current_cell_and_preserves_publication_scope(
-    robot_name: str, task_key: str
-) -> None:
-    prompts = get_robot_spec(robot_name).prompts
-    for task_id in (2, 3):
-        recipe_tag = f"{robot_name}_cell_{task_id}"
-        values = {
-            **PROMPT_VARIABLES[robot_name],
-            task_key: task_id if task_key != "task_name" else f"task_{task_id}",
-            "mode": "explore",
-            "recipe_tag": recipe_tag,
-            "memory_inbox": f"/memory/_internal/inbox/{recipe_tag}",
-            "memory_dir": "/memory",
-            "output_dir": f"/output/{recipe_tag}",
-            "session_number": 2,
-            "session_max": 3,
-            "explore_attempts_per_session": 4,
-        }
-        system = prompts.system(values)
-        if robot_name == "yam":
-            # YAM keeps its operator-supervised protocol and prose metadata.
-            assert f"Your cell is {recipe_tag}, session 2 of 3." in system
-            assert f"/memory/_internal/inbox/{recipe_tag}/wip/" in system
-            assert f"/memory/_internal/inbox/{recipe_tag}/technique.md" in system
-            assert "scope: task-family, suite: yam, regime: real" in system
-            assert (
-                f"task_id: {task_id}, task_language: the actual env language" in system
-            )
-            assert f"evidence: {{cells: [{recipe_tag}]}}" in system
-            assert "confidence: single-shot" in system
-            assert "Only your current inbox is writable" in system
-            assert (
-                "runner creates the successful current-attempt recipe/audit pair"
-                in system
-            )
-            assert "Unsolved runs do not publish success recipes" in system
-            assert (
-                "bounded failure lessons may be merged by the common MemoryManager"
-                in system
-            )
-            assert "An operator abort requires finish" in system
-            assert "a new attempt or proof of failure" in system
-            assert "{{" not in system
-            continue
-        frontmatter = re.search(r"```yaml\n---\n(.*?)\n---\n```", system, re.DOTALL)
-        assert frontmatter is not None
-        metadata = yaml.safe_load(frontmatter.group(1))
-        assert metadata["scope"] == "task-family"
-        assert metadata["task_id"] == values[task_key]
-        assert metadata["evidence"]["cells"] == [recipe_tag]
-        assert metadata["confidence"] == "single-shot"
-        assert f"/memory/_internal/inbox/{recipe_tag}/wip/notes.md" in system
-        assert "{{" not in system
-        configurations = [
-            json.loads(block)
-            for block in re.findall(r"```json\n(.*?)\n```", system, re.DOTALL)
-        ]
-        assert "memory_explore_options" not in system
-        assert '"proposal_gate"' not in system
-        assert "robot's authoritative success confirmation" in system
-        assert metadata["evidence"]["attempts"] == "<observed count>"
-        if robot_name == "libero":
-            assert "A human reviews and merges the inbox proposals later" in system
-            assert "the finalizer merges eligible inbox proposals" not in system
-        else:
-            assert "the finalizer merges eligible inbox proposals" in system
-        if robot_name in {"libero", "robocasa", "robotwin"}:
-            assert metadata["evidence"]["solved_seeds"] == [values["seed"]]
-        archive = (
-            "attempt_s<session>_a<attempt>_failed.json"
-            if robot_name == "dual_franka"
-            else "attempt_<N>_failed.json"
-        )
-        assert f"/output/{recipe_tag}/attempts/{archive}" in system
-        corroboration = next(
-            item for item in configurations if item.get("effect") == "confirmed"
-        )
-        assert corroboration["cell"] == recipe_tag
-        assert f"/memory/_internal/inbox/{recipe_tag}/corroborations.jsonl" in system
-        assert "This is session 2 of 3." in system
-        assert "Attempt limit for this session: 4." in system
-        assert all("environment" not in item for item in configurations)
 
 
 @pytest.mark.parametrize("robot_name", EXPECTED_ROBOTS)

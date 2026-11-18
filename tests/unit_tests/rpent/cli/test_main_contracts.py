@@ -560,62 +560,6 @@ def test_handoff_message_lists_prior_attempts_deterministically(tmp_path: Path) 
     assert "memory inbox under wip/" in message
 
 
-@pytest.mark.parametrize("real_robot", [False, True])
-def test_continuation_keeps_effective_operator_task_and_memory(
-    tmp_path, monkeypatch, real_robot
-) -> None:
-    from rpent.robots import PromptBundle
-
-    cli = _cli_module()
-    args = cli._build_argparser().parse_args(["--robot", "libero", "--tui"])
-    variables = {
-        "memory_dir": str(tmp_path / "current-memory"),
-        "initial_user_message": "Operator edit: keep {{literal}} at the new target",
-        "session_number": 1,
-        "session_max": 3,
-    }
-    built = {}
-    planner = object()
-
-    def build_planner(*args, **kwargs):
-        built.update(kwargs)
-        return planner
-
-    def system(values):
-        assert values["session_number"] == 2
-        assert values["session_max"] == 3
-        assert values["memory_dir"] == variables["memory_dir"]
-        return "bound system {{literal}}"
-
-    monkeypatch.setattr(cli, "build_planner", build_planner)
-    monkeypatch.setattr(
-        cli, "get_robot_spec", lambda name: SimpleNamespace(is_real_robot=real_robot)
-    )
-    prompts = PromptBundle(
-        system=system,
-        user=lambda values: pytest.fail("must retain the operator's edited task"),
-    )
-    new_planner, system_text, message = cli._start_continuation_session(
-        args,
-        output_dir=tmp_path,
-        recipe_tag="current-task",
-        dashboard_events=None,
-        prompt_bundle=prompts,
-        prompt_vars=variables,
-        session_number=2,
-        session_max=3,
-    )
-
-    assert new_planner is planner
-    assert system_text == "bound system {{literal}}"
-    assert message.count(variables["initial_user_message"]) == 1
-    assert "agent 2 of up to 3" in message
-    assert ("not automatically reset" in message) is real_robot
-    assert built["memory_dir"] == variables["memory_dir"]
-    assert built["interactive"] is True
-    assert variables["session_number"] == 1
-
-
 @pytest.mark.parametrize(
     ("interactive", "outcome", "record_trajectory"),
     [

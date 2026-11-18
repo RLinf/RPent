@@ -272,10 +272,8 @@ local exploration output and custom sources.
    known; shared services may already be running. Local mode checks the directory
    and global layer before shared startup, then validates each task.
 
-   After inspecting the current task and scene, the planner must read the available
-   selected task references before acting, followed by matching family and relevant
-   global references. It reads only the allowed file list; the root index remains
-   unavailable. Missing layers are skipped. Live task language, RGB-D, progress and
+   Before acting, inspect the scene and read applicable memory from the allowed
+   files, skipping missing layers. Live task language, RGB-D, progress and
    tool results take precedence. Continue VLA calls while contact, a held object
    or visible progress persists; after two consecutive calls without contact or
    progress, re-ground and make a bounded pose adjustment. Each call uses the
