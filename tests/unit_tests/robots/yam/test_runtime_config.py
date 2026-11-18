@@ -133,7 +133,7 @@ def test_task_zero_does_not_connect_or_expose_vla(env, receipt, tmp_path, monkey
     args.output_dir = str(tmp_path / "output")
     monkeypatch.setattr("rpent.utils.logging._output_dir", tmp_path / "output")
     config = robot_spec._parse_config(args)
-    assert config.prompt_vars["vla_enabled"] is False
+    assert config.prompt_vars["policy_backend"] == "primitives-only"
     monkeypatch.setattr(
         robot_spec,
         "make_rpc_client",

@@ -325,8 +325,8 @@ def test_task_model_changes_resolve_root_again_without_changing_effort(
         root = config.prompt_vars["memory_dir"]
         assert root.name == version
         assert args.reasoning_effort == "low"
-        prompt = spec.prompts.render(
-            "system", variables={**config.prompt_vars, "output_dir": config.output_dir}
+        prompt = spec.prompts.system(
+            {**config.prompt_vars, "output_dir": config.output_dir}
         )
         assert str(root / "MEMORY.md") in prompt
         assert "MULTI-ATTEMPT EXPLORE MODE" not in prompt
@@ -346,8 +346,8 @@ def test_task_model_changes_resolve_root_again_without_changing_effort(
         config = spec.parse_config(args)
         loading.prepare_run_memory(args, spec, config)
         assert config.prompt_vars["memory_dir"] == str(root)
-        prompt = spec.prompts.render(
-            "system", variables={**config.prompt_vars, "output_dir": config.output_dir}
+        prompt = spec.prompts.system(
+            {**config.prompt_vars, "output_dir": config.output_dir}
         )
         assert str(root / "MEMORY.md") in prompt
         assert ("MULTI-ATTEMPT EXPLORE MODE" in prompt) is explore

@@ -281,6 +281,7 @@ def _handoff_message(
     session_max: int,
     *,
     robot_name: str,
+    task_message: str = "",
 ) -> str:
     """Build the opening message for a continuation session."""
     attempts_dir = Path(output_dir) / "attempts"
@@ -302,7 +303,7 @@ def _handoff_message(
         )
     else:
         reset_note = "A fresh toolkit has already restored a clean scene; inspect it before acting."
-    return (
+    message = (
         f"You are agent {session_number} of up to {session_max} on this cell. "
         f"{len(prior)} attempt(s) by earlier agents are archived in "
         f"{attempts_dir}/ ({', '.join(prior) if prior else 'none yet'}), and their "
@@ -310,6 +311,9 @@ def _handoff_message(
         "Read every archive and the working notes before acting. Do not repeat "
         f"failed approaches. {reset_note}"
     )
+    if task_message:
+        message += "\n\nCurrent task instruction:\n" + task_message
+    return message
 
 
 def _start_continuation_session(
@@ -330,6 +334,7 @@ def _start_continuation_session(
         output_dir=output_dir,
         recipe_tag=recipe_tag,
         robot_name=args.robot_name,
+        memory_dir=prompt_vars.get("memory_dir"),
         base_url=args.base_url,
         model=args.model,
         max_tokens=args.max_tokens,
@@ -340,9 +345,8 @@ def _start_continuation_session(
         no_images=args.no_images,
         interactive=args.tui,
     )
-    system_prompt = prompt_bundle.render(
-        "system",
-        variables={
+    system_prompt = prompt_bundle.system(
+        {
             **prompt_vars,
             "session_number": session_number,
             "session_max": session_max,
@@ -353,11 +357,9 @@ def _start_continuation_session(
         session_number,
         session_max,
         robot_name=args.robot_name,
+        task_message=prompt_vars.get("initial_user_message")
+        or prompt_bundle.user(prompt_vars),
     )
-    if prompt_vars.get("initial_user_message"):
-        session_message += "\n\nOriginal operator task instruction:\n" + str(
-            prompt_vars["initial_user_message"]
-        )
     return planner, system_prompt, session_message
 
 
@@ -514,14 +516,8 @@ def main() -> int:
     )
     prompt_bundle = robot_spec.prompts
     prompt_vars = {**prompt_vars, "output_dir": output_dir}
-    system_prompt = prompt_bundle.render(
-        "system",
-        variables=prompt_vars,
-    )
-    user_msg = prompt_bundle.render(
-        "user",
-        variables=prompt_vars,
-    )
+    system_prompt = prompt_bundle.system(prompt_vars)
+    user_msg = prompt_bundle.user(prompt_vars)
 
     operator_input = None
     if human_interactive_exploration:
@@ -585,8 +581,7 @@ def main() -> int:
         first_user_msg = await_first_prompt()
         if first_user_msg is None:
             logger.info("no task entered; ending session before start.")
-    if human_interactive_exploration:
-        prompt_vars = {**prompt_vars, "initial_user_message": first_user_msg}
+    prompt_vars = {**prompt_vars, "initial_user_message": first_user_msg}
     # Exploration may hand off between independent planner contexts.
     sessions = max(1, int(getattr(args, "explore_sessions", 1) or 1))
     if not getattr(args, "explore", False):

@@ -272,7 +272,10 @@ local exploration output and custom sources.
    known; shared services may already be running. Local mode checks the directory
    and global layer before shared startup, then validates each task.
 
-   The planner reads memory as needed. Live task language, RGB-D, progress and
+   After inspecting the current task and scene, the planner must read the available
+   selected task references before acting, followed by matching family and relevant
+   global references. It reads only the allowed file list; the root index remains
+   unavailable. Missing layers are skipped. Live task language, RGB-D, progress and
    tool results take precedence. Continue VLA calls while contact, a held object
    or visible progress persists; after two consecutive calls without contact or
    progress, re-ground and make a bounded pose adjustment. Each call uses the
@@ -681,7 +684,7 @@ observation and session details are below.
      is outside observations; ``rldx_skill`` / ``vla_client`` do not handle it.
    - **Session cleanup:** the server periodically removes idle sessions, with a
      default timeout of 3600 seconds. Clients send ``session.close`` via ``atexit``.
-   - **Exploration prompts:** ``robots/robocasa/prompts/explore.py`` covers mobile
+   - **Exploration prompts:** ``robots/robocasa/prompt_bundle.py`` covers mobile
      base use, ``task_progress``, RLDX continuity and failure notes. ``reset`` uses
      the native episode reset; only the winning commands after the final reset
      are exported.

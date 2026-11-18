@@ -405,7 +405,7 @@ def _parse_config(args: argparse.Namespace) -> RunConfig:
             "reference_tag": f"{args.task}_s0_l0",
             "task_summary": summary,
             "memory_dir": str(memory_dir),
-            "vla_backend": am.backend,
+            "policy_backend": am.backend,
             "mode": "explore" if explore else "eval-fair" if eval_fair else "dev",
             **(
                 {

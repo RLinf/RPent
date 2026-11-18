@@ -238,7 +238,8 @@ def _run_dashboard_task(
                 **shared_runtime_kwargs,
             }
             prompt_vars = {**run_config.prompt_vars, "output_dir": output_dir}
-            session_message = robot_spec.prompts.render("user", variables=prompt_vars)
+            initial_user_message = robot_spec.prompts.user(prompt_vars)
+            session_message = initial_user_message
             sessions = max(
                 1,
                 int(getattr(task_args, "explore_sessions", 1) or 1),
@@ -265,10 +266,10 @@ def _run_dashboard_task(
                         session_number,
                         sessions,
                         robot_name=args.robot_name,
+                        task_message=initial_user_message,
                     )
-                system_prompt = robot_spec.prompts.render(
-                    "system",
-                    variables={
+                system_prompt = robot_spec.prompts.system(
+                    {
                         **prompt_vars,
                         "session_number": session_number,
                         "session_max": sessions,

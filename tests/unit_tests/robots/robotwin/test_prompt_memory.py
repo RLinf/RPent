@@ -19,7 +19,6 @@ from __future__ import annotations
 import pytest
 
 from robots.robotwin.prompt_bundle import system_prompt, user_prompt
-from rpent.prompt.utils import format_prompt
 
 
 def test_prompts_render_with_memory_relative_paths():
@@ -31,8 +30,8 @@ def test_prompts_render_with_memory_relative_paths():
         "reference_tag": "robotwin_beat_block_hammer_demo_randomized_s0",
     }
 
-    system = format_prompt(system_prompt(), variables=variables)
-    user = format_prompt(user_prompt(), variables=variables)
+    system = system_prompt(variables)
+    user = user_prompt(variables)
 
     assert "robots/robotwin/guides/GUIDE_RPENT.md" in system
     assert (
@@ -68,8 +67,8 @@ def test_uniwam_prompt_selects_wam_tool_and_memory_for_mode(mode):
         "explore_attempts_per_session": 5,
         "output_dir": "output",
     }
-    system = format_prompt(system_prompt(variables), variables=variables)
-    user = format_prompt(user_prompt(variables), variables=variables)
+    system = system_prompt(variables)
+    user = user_prompt(variables)
     assert "GUIDE_RPENT.md" in system
     assert "{{" not in system + user
     assert "wam_act" in system + user
@@ -78,3 +77,45 @@ def test_uniwam_prompt_selects_wam_tool_and_memory_for_mode(mode):
         assert "shared-memory/MEMORY.md" in system
     else:
         assert "shared-memory/inbox/wip/" in system
+
+
+@pytest.mark.parametrize(
+    "backend", ["lingbot", "uniwam", "cosmos-policy", "cosmos3", "fast-wam"]
+)
+def test_task_and_backend_switch_use_current_data(backend):
+    first = {
+        "task_name": "first",
+        "task_config": "demo_clean",
+        "seed": 1,
+        "memory_dir": "/memory/first",
+        "reference_tag": "first_s0",
+        "policy_backend": "lingbot",
+    }
+    system_prompt(first)
+    values = first | {
+        "task_name": "second {{literal}}",
+        "seed": 8,
+        "task_config": "demo_randomized",
+        "memory_dir": "/memory/second",
+        "reference_tag": "second_s0",
+        "policy_backend": backend,
+    }
+    system, user = system_prompt(values), user_prompt(values)
+    assert "first" not in user
+    assert "/memory/first" not in system
+    assert "task: second {{literal}}" in user
+    assert "seed: 8" in user and "task_config: demo_randomized" in user
+    if backend in {"cosmos-policy", "cosmos3", "fast-wam"}:
+        assert "wam_act" in system and "GUIDE_RPENT" not in system
+        assert "Local memory directory: /memory/second" in user
+    else:
+        assert "/memory/second/task-specific/second_s0.json" in system
+        assert "preserve achieved relations" in system
+        assert "preserve achieved relations" not in user
+        if backend == "uniwam":
+            assert "16 qpos actions" in system
+            assert "concrete subtask instruction" in system
+            # Preserve the old user-role instruction despite its policy tension.
+            assert "complete current task_language unchanged" in system
+        else:
+            assert "use_length=50" in system

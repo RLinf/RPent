@@ -15,12 +15,11 @@ def test_backend_alone_exposes_policy_primitives_geometry_and_memory(
     policy_toolkit, backend
 ):
     from robots.robodojo.prompt_bundle import system_prompt, user_prompt
-    from rpent.prompt.utils import format_prompt
 
     env, policy, kit = policy_toolkit(backend=backend)
     policy_tool = "awomo05_act" if backend == "awomo05" else "vpp2_act"
     variables = {
-        "vla_backend": backend,
+        "policy_backend": backend,
         "task": "stack_blocks",
         "seed": 0,
         "layout": 0,
@@ -31,8 +30,8 @@ def test_backend_alone_exposes_policy_primitives_geometry_and_memory(
         "reference_tag": "stack_blocks_s0_l0",
         "memory_dir": str(kit.memory.root),
     }
-    prompt = format_prompt(system_prompt(variables), variables=variables)
-    prompt += format_prompt(user_prompt(variables), variables=variables)
+    prompt = system_prompt(variables)
+    prompt += user_prompt(variables)
     expected = {
         "view_env_state",
         "render",
@@ -281,18 +280,16 @@ def test_environment_only_toolkit_keeps_motion_and_observation_tools(
 
 def test_default_prompt_preserves_vpp2_capabilities():
     from robots.robodojo.prompt_bundle import system_prompt
-    from rpent.prompt.utils import format_prompt
 
-    prompt = format_prompt(
-        system_prompt(),
-        variables={
+    prompt = system_prompt(
+        {
             "output_dir": "output",
             "recipe_tag": "result",
             "reference_tag": "stack_blocks_s0_l0",
             "env_cfg_type": "arx_x5",
             "task": "stack_blocks",
             "memory_dir": "memory",
-        },
+        }
     )
     for tool in ("vpp2_act", "move_to", "segment", "back_project"):
         assert tool in prompt

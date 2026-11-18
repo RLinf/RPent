@@ -24,24 +24,12 @@ from __future__ import annotations
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 
-from rpent.prompt.utils import PromptNode, format_prompt
-
-PromptFactory = Callable[..., PromptNode]
+PromptFactory = Callable[[Mapping[str, object] | None], str]
 
 
 @dataclass(frozen=True)
 class PromptBundle:
-    """Python-defined prompt factories for one robot."""
+    """Factories returning final, already-bound system and task strings."""
 
     system: PromptFactory
     user: PromptFactory
-
-    def render(
-        self,
-        variant: str,
-        *,
-        variables: Mapping[str, object] | None = None,
-    ) -> str:
-        """Render one prompt variant (``"system"`` or ``"user"``)."""
-        prompt = getattr(self, variant)(variables)
-        return format_prompt(prompt, variables=variables)

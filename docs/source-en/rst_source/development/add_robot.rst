@@ -241,43 +241,155 @@ teardown.
 2. ``prompt_bundle.py``
 -----------------------
 
-Define two prompt factories, ``system_prompt()`` and ``user_prompt()``, and
-build a ``PromptBundle(system=system_prompt, user=user_prompt)`` in the
-robot's ``robot_spec.py`` (see the entry point above). Each factory returns an ordered
-``dict[str, PromptNode]`` of titled sections; ``PromptBundle.render`` assembles
-and fills them. One prompt serves every planner (API loop, Claude Code, Codex):
-refer to tools by their bare names (``move_to``, ...) and note once that the
-Claude Code and Codex SDKs show them as ``mcp__rpent__<name>``. Do not
-maintain separate prompt copies for CLI and API planners.
+Define ``system_prompt(variables)`` and ``user_prompt(variables)`` and register
+``PromptBundle(system=system_prompt, user=user_prompt)`` in ``robot_spec.py``.
+Both factories return final strings. Call ``spec.prompts.system(prompt_vars)``
+and ``spec.prompts.user(prompt_vars)`` directly; do not apply template substitution
+again to their results. One prompt serves API and CLI planners. Use bare tool
+names (``move_to``, ...) and explain once when a planner exposes them as
+``mcp__rpent__<name>``.
+
+Keep only robot-specific instructions in ``robots/myrobot/prompts/``. General
+execution and mode rules belong in ``rpent/prompt/``; memory protocols remain
+robot-owned. The
+builder selects the applicable shared fragments and supplies task identifiers,
+paths and other data; it does not duplicate their prose. Each robot owns its
+``robots/myrobot/prompts/user.md`` template for the current task description,
+task-specific requirements and run context:
 
 .. code-block:: python
 
    # robots/myrobot/prompt_bundle.py
-   from robots.myrobot.prompts import system as system_parts
-   from robots.myrobot.prompts import user as user_parts
-   from rpent.prompt.utils import PromptNode
+   from collections.abc import Mapping
+   from pathlib import Path
 
-   def system_prompt() -> PromptNode:
-       return {
-           "INTRO": system_parts.PREAMBLE,
-           "GOAL": system_parts.GOAL,
-           "RULES": system_parts.RULES,
-           "WORKFLOW": system_parts.WORKFLOW,
-           "ENVIRONMENT": system_parts.ENVIRONMENT,
-           "OUTPUT": system_parts.OUTPUT,
-       }
+   from rpent.prompt.compose import COMMON, MODES, compose
 
-   def user_prompt() -> PromptNode:
-       return {
-           "TASK": user_parts.TASK,
-           "BEGIN": user_parts.BEGIN,
-       }
+   PROMPTS = Path(__file__).with_name("prompts")
 
-Keep the prompt content under the robot package, for example in
-``robots/myrobot/prompts/system.py`` and ``user.py``. Section bodies are plain
-strings (or ``BulletList`` / ``Numbered``) with ``{{suite}}`` / ``{{task}}`` /
-``{{seed}}`` / ``{{output_dir}}`` / ``{{recipe_tag}}`` placeholders filled at
-render time.
+   def system_prompt(variables: Mapping[str, object] | None = None) -> str:
+       values = dict(variables or {})
+       mode = "explore" if values.get("mode") == "explore" else "evaluate"
+       return compose(
+           [COMMON / "base.md", MODES / f"{mode}.md", PROMPTS / "robot.md"],
+           values,
+       )
+
+   def user_prompt(variables: Mapping[str, object] | None = None) -> str:
+       return compose([PROMPTS / "user.md"], variables)
+
+For example, ``robots/myrobot/prompts/user.md`` can contain:
+
+.. code-block:: markdown
+
+   ## Current task
+
+   {{instruction}}
+
+   ## Success criteria
+
+   {{success_criteria}}
+
+   Output directory: {{output_dir}}
+
+``compose`` reads UTF-8 files in the supplied order, substitutes ``{{name}}``
+placeholders once with strict missing-variable errors, and joins fragments with
+blank lines. Missing files and variables identify their source path. Values
+containing literal ``{{braces}}`` remain data. Resolve resource paths relative to
+the module, as above, so installed packages work from any working directory.
+
+Shared rules and robot-owned content
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+``rpent/prompt/common/`` contains general execution and physical-robot rules.
+``rpent/prompt/modes/`` contains evaluation and exploration rules. The shared
+exploration template reads ``session_number``, ``session_max`` and
+``explore_attempts_per_session`` directly. Run configuration must supply the
+actual attempt budget; the prompt bundle does not invent a fallback. Concrete
+reset, readiness and success
+protocols remain with the robot.
+
+Use the same local file names for the same responsibilities:
+
+.. code-block:: text
+
+   prompts/
+       robot.md
+       user.md
+       evaluation.md
+       exploration.md
+       memory.md
+       policies/
+           <backend>.md
+
+``robot.md`` describes the robot, tools, observations and control constraints.
+``user.md`` holds the current task and constraints. ``evaluation.md`` and
+``exploration.md`` contain each mode's workflow, startup checks and output
+requirements. ``memory.md`` describes memory reading and transfer for that robot;
+write and publication rules belong in ``exploration.md``. Each selectable backend
+has one complete protocol under ``policies/``. Put mode-specific backend guidance
+in a clearly labelled section of that file, not a separate mode/backend fragment.
+
+Use lowercase filenames with hyphens. Independent mode variants use
+``<mode>-<variant>.md``, such as RoboDojo's ``evaluation-fair.md``. Create only
+needed files: Franka has no dedicated exploration or memory prompt. Fixed
+controllers can remain in ``robot.md``. Keep startup, publication and metadata
+as sections rather than separate small files.
+
+Prompt parameters
+~~~~~~~~~~~~~~~~~
+
+Use ``policy_backend`` for backend selection in prompt variables. ``policy_kind``
+distinguishes VLA from WAM where needed; toolkit constructor parameters are
+separate interfaces. ``mode`` selects execution rules. Keep task and scene fields
+local to the robot rather than translating them into a shared task schema.
+
+Write fixed robot metadata directly in Markdown and bind the original task
+fields. For example, RoboTwin's task-family template contains:
+
+.. code-block:: yaml
+
+   suite: robotwin
+   regime: {{task_config}}
+   task_id: {{task_name}}
+
+The bundle does not need aliases for these fields or JSON-encoded behavior
+settings. Compute only data that requires resolution, such as authorized memory
+sources or an optional tool list. Keep that logic in small local helpers so
+``system_prompt`` shows the selected files and their order directly.
+
+Memory roots share the ``task-specific/``, ``task-family/``, ``global/`` and
+``_internal/inbox/<cell>/`` layout, but reference names, allowed files, success
+evidence and publication rules remain robot-owned. RoboCasa resolves evaluation
+sources through the same allowlist as its toolkit. Do not broaden access based
+on a prompt's directory list. LIBERO describes human review; RoboCasa, RoboDojo,
+RoboTwin and Dual Franka describe automatic merging unless disabled. YAM retains
+its own operator, runner-owned audit and bounded-failure memory rules.
+
+Assembly and validation
+~~~~~~~~~~~~~~~~~~~~~~~
+
+The bundle explicitly selects the common prefix, robot protocol, optional
+memory and policy files, and the local mode file. Preserve each robot's reading
+and action order when rearranging these sections. Most full branches use the
+common prefix; Franka and Dual Franka also select the physical rules. YAM uses
+its own complete protocol. LIBERO and RoboTwin ordinary WAM branches use only
+``policies/wam.md`` for the system message; RoboTwin UniWAM uses the full branch.
+RoboDojo ``eval-fair`` selects ``evaluation-fair.md`` without memory or normal
+startup instructions. Its Flash planner replays a program and does not consume
+the constructed prompts.
+
+Build fresh system and user strings after resolving task memory and output
+paths for each TaskRun. Retain the actual user instruction across exploration
+handoffs, including TUI edits; update the session fields and follow the robot's
+scene-restoration protocol. Verify rendered prompts for the supported modes
+and backends, including literal braces in task data and task switching.
+
+Include Markdown resources in the wheel:
+
+.. code-block:: toml
+
+   "robots.myrobot" = ["prompts/*.md", "prompts/*/*.md"]
 
 .. _add-robot-toolkit:
 
@@ -371,7 +483,7 @@ validates those fields and returns a
   path (LIBERO: ``f"{suite.replace('libero_', '')}_t{task}_s{seed}"``).
 - ``output_dir`` — path to the working directory for this run (main.py then
   calls ``init_output_dir`` to create it and configure logging).
-- ``prompt_vars`` — dict passed to ``PromptBundle.render`` (typically the run
+- ``prompt_vars`` — dict passed to the system and user prompt factories (typically the run
   identifiers plus anything else the prompts reference).
 - ``task_desc`` — robot-specific dict of task-identifying fields, written into
   the transcript JSON record verbatim (LIBERO:

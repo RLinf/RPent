@@ -187,32 +187,98 @@ RPent 的整体进程划分、服务职责和通信方式见 :doc:`系统说明 
 2. ``prompt_bundle.py``
 -----------------------
 
-定义 ``system_prompt()`` 和 ``user_prompt()`` 两个 prompt 工厂，并在机器人的 ``robot_spec.py`` 中构造 ``PromptBundle(system=system_prompt, user=user_prompt)`` （见上面的“入口”）。每个工厂返回一个有序的 ``dict[str, PromptNode]``，其中包含带标题的分节； ``PromptBundle.render`` 负责组装和填充。一套 prompt 供 API loop、Claude Code 和 Codex 等 planner 共用。正文使用工具的裸名（如 ``move_to``），并说明 Claude Code 和 Codex SDK 会将其显示为 ``mcp__rpent__<name>``；无需分别维护 CLI 与 API 版本。
+定义 ``system_prompt(variables)`` 和 ``user_prompt(variables)``，在 ``robot_spec.py`` 中注册 ``PromptBundle(system=system_prompt, user=user_prompt)``。两个工厂均返回最终字符串，调用方直接使用 ``spec.prompts.system(prompt_vars)`` 和 ``spec.prompts.user(prompt_vars)``，不再对返回值做模板替换。一套 prompt 供 API 与 CLI planner 共用。正文使用工具的裸名（如 ``move_to``），并在需要时说明 planner 会将其显示为 ``mcp__rpent__<name>``。
+
+``robots/myrobot/prompts/`` 保存机器人专属指令和记忆协议。通用执行与模式规则放在 ``rpent/prompt/`` 下。builder 选择适用的公共片段，提供任务标识、路径等数据，不复制公共正文。每个机器人在自己的 ``robots/myrobot/prompts/user.md`` 中定义当前任务描述、任务特有要求和运行信息：
 
 .. code-block:: python
 
    # robots/myrobot/prompt_bundle.py
-   from robots.myrobot.prompts import system as system_parts
-   from robots.myrobot.prompts import user as user_parts
-   from rpent.prompt.utils import PromptNode
+   from collections.abc import Mapping
+   from pathlib import Path
 
-   def system_prompt() -> PromptNode:
-       return {
-           "INTRO": system_parts.PREAMBLE,
-           "GOAL": system_parts.GOAL,
-           "RULES": system_parts.RULES,
-           "WORKFLOW": system_parts.WORKFLOW,
-           "ENVIRONMENT": system_parts.ENVIRONMENT,
-           "OUTPUT": system_parts.OUTPUT,
-       }
+   from rpent.prompt.compose import COMMON, MODES, compose
 
-   def user_prompt() -> PromptNode:
-       return {
-           "TASK": user_parts.TASK,
-           "BEGIN": user_parts.BEGIN,
-       }
+   PROMPTS = Path(__file__).with_name("prompts")
 
-将 prompt 内容保存在机器人包内，例如 ``robots/myrobot/prompts/system.py`` 和 ``user.py``。分节内容可以是普通字符串，也可以使用 ``BulletList`` 或 ``Numbered``。占位符 ``{{suite}}`` / ``{{task}}`` / ``{{seed}}`` / ``{{output_dir}}`` / ``{{recipe_tag}}`` 在渲染时填充。
+   def system_prompt(variables: Mapping[str, object] | None = None) -> str:
+       values = dict(variables or {})
+       mode = "explore" if values.get("mode") == "explore" else "evaluate"
+       return compose(
+           [COMMON / "base.md", MODES / f"{mode}.md", PROMPTS / "robot.md"],
+           values,
+       )
+
+   def user_prompt(variables: Mapping[str, object] | None = None) -> str:
+       return compose([PROMPTS / "user.md"], variables)
+
+例如，``robots/myrobot/prompts/user.md`` 可以包含：
+
+.. code-block:: markdown
+
+   ## Current task
+
+   {{instruction}}
+
+   ## Success criteria
+
+   {{success_criteria}}
+
+   Output directory: {{output_dir}}
+
+``compose`` 按传入顺序读取 UTF-8 文件，严格替换一次 ``{{name}}`` 占位符，再用空行连接。缺文件或变量时，错误会指出来源路径。变量值中的 ``{{braces}}`` 等字面文本不会再次展开。按示例从模块位置解析资源路径，安装后的包即可从任意工作目录读取 prompt。
+
+共享规则与机器人内容
+~~~~~~~~~~~~~~~~~~~~
+
+``rpent/prompt/common/`` 保存通用执行规则和真机规则，``rpent/prompt/modes/`` 保存评估与探索规则。共享探索模板直接读取 ``session_number``、``session_max`` 和 ``explore_attempts_per_session``。运行配置必须提供真实尝试预算，prompt bundle 不补默认文本。具体 reset、ready 和成功判定协议由机器人定义。
+
+相同职责使用相同的本地文件名：
+
+.. code-block:: text
+
+   prompts/
+       robot.md
+       user.md
+       evaluation.md
+       exploration.md
+       memory.md
+       policies/
+           <backend>.md
+
+``robot.md`` 描述机器人、工具、观测和控制约束，``user.md`` 保存当前任务及约束。``evaluation.md`` 和 ``exploration.md`` 分别包含模式流程、启动检查和产物要求。``memory.md`` 描述该机器人的记忆读取与迁移规则，写入及发布规则放在 ``exploration.md``。每个可选后端在 ``policies/`` 下保留一份完整协议，模式专属要求用文件内的明确小节表达，不再拆成模式与后端组合的文件。
+
+文件名使用小写和连字符。独立模式变体使用 ``<mode>-<variant>.md``，例如 RoboDojo 的 ``evaluation-fair.md``。只创建需要的文件；Franka 没有专属探索或记忆提示词。固定控制器协议可留在 ``robot.md``。启动、发布和元数据用小节组织，不另建小文件。
+
+Prompt 参数
+~~~~~~~~~~~
+
+Prompt 变量统一用 ``policy_backend`` 选择后端，需要时用 ``policy_kind`` 区分 VLA 与 WAM；Toolkit 构造参数属于独立接口。``mode`` 选择运行规则。任务和场景字段由各机器人定义，不再映射成统一任务结构。
+
+固定元数据直接写入 Markdown，动态值使用原始任务字段。例如 RoboTwin 的 task-family 模板：
+
+.. code-block:: yaml
+
+   suite: robotwin
+   regime: {{task_config}}
+   task_id: {{task_name}}
+
+Bundle 不需要为这些字段再定义别名，也不把行为规则编码成 JSON 设置。只计算确实需要解析的数据，例如允许读取的记忆来源或可选工具列表。将这类逻辑放在简短的本地辅助函数中，让 ``system_prompt`` 直接展示选定文件和拼装顺序。
+
+记忆根目录共享 ``task-specific/``、``task-family/``、``global/`` 和 ``_internal/inbox/<cell>/`` 的布局，但参考文件名、读取权限、成功证据和发布规则仍由各机器人维护。RoboCasa 的评估来源使用与 Toolkit 相同的允许列表，不能因为提示词列出目录就扩大访问权限。LIBERO 描述人工审核；RoboCasa、RoboDojo、RoboTwin 和 Dual Franka 描述可禁用的自动合并。YAM 保留自己的人工确认、运行时生成审计和有界失败经验规则。
+
+组装与验证
+~~~~~~~~~~
+
+Bundle 显式选择公共前缀、机器人协议、可选的记忆和策略文件以及本地模式文件。调整小节位置时保留各机器人的读取与动作顺序。多数完整分支使用公共前缀，Franka 和 Dual Franka 还加载真机规则；YAM 使用自己的完整协议。LIBERO 和 RoboTwin 的普通 WAM 分支仅使用 ``policies/wam.md`` 作为 system 消息，RoboTwin UniWAM 使用完整分支。RoboDojo 的 ``eval-fair`` 选择 ``evaluation-fair.md``，不加载 memory 或正常启动要求；其 Flash planner 直接回放程序，不消费组装后的提示词。
+
+每个 TaskRun 在任务记忆与输出路径确定后重新生成 system 和 user 字符串。探索交接保留实际用户指令，包括 TUI 修改，更新 session 字段并遵循机器人的场景恢复协议。检查受支持模式和后端的最终提示词，包括任务数据中的字面花括号以及任务切换。
+
+在 wheel 中包含 Markdown 资源：
+
+.. code-block:: toml
+
+   "robots.myrobot" = ["prompts/*.md", "prompts/*/*.md"]
 
 .. _add-robot-toolkit:
 
@@ -263,7 +329,7 @@ toolkit 模块通常包含四部分：
 
 - ``recipe_tag`` —— 单次运行的机器人标签，用于 transcript 文件名和 recipe 路径（LIBERO 使用 ``f"{suite.replace('libero_', '')}_t{task}_s{seed}"``）。
 - ``output_dir`` —— 单次运行的临时目录路径。main.py 随后调用 ``init_output_dir`` 创建目录并配置日志。
-- ``prompt_vars`` —— 传给 ``PromptBundle.render`` 的字典，通常包含运行标识和 prompt 引用的其他变量。
+- ``prompt_vars`` —— 传给 system 和 user prompt 工厂的字典，通常包含运行标识和 prompt 引用的其他变量。
 - ``task_desc`` —— 机器人特定的任务标识字典，会原样写入 transcript JSON 记录（LIBERO 使用 ``{"suite": ..., "task": ..., "seed": ...}``）。
 
 .. code-block:: python

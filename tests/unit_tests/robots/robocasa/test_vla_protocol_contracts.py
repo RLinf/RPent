@@ -36,7 +36,6 @@ from rpent.dashboard.events import NullDashboardEventSink
 from rpent.flywheel.flywheel import select_vla_segments
 from rpent.flywheel.reader import iter_trajectories, read_array
 from rpent.memory import MemoryManager
-from rpent.prompt.utils import format_prompt
 from rpent.robots.components.action_spec import box_action_spec
 from rpent.robots.components.env_facade_base import BaseEnvFacade
 from rpent.session import EnvState, Payload
@@ -82,15 +81,17 @@ def _fake_primitives(task_language: str) -> tuple[RoboCasaPrimitives, _Recording
     return primitives, rldx
 
 
-def test_prompt_requires_live_task_language_and_fresh_geometry(tmp_path: Path) -> None:
-    rendered = format_prompt(
-        system_prompt(),
-        variables={
+def test_prompt_requires_live_task_language_and_fresh_geometry(
+    tmp_path: Path, make_corpus
+) -> None:
+    make_corpus(tmp_path / "results")
+    rendered = system_prompt(
+        {
             "task_name": "OpenDrawer",
             "reference_tag": "OpenDrawer_s0",
             "memory_profile": "hf",
             "memory_dir": str(tmp_path / "results"),
-        },
+        }
     )
 
     assert "complete live task_language" in rendered
@@ -100,7 +101,8 @@ def test_prompt_requires_live_task_language_and_fresh_geometry(tmp_path: Path) -
         "consecutive calls with no contact and no visible semantic progress" in rendered
     )
     assert "Historical entries may name vla_act" in rendered
-    assert "Never replay stored xyz, xy, pixels, base poses" in rendered
+    assert "not old geometry" in rendered
+    assert "Historical values are evidence, not current" in rendered
     assert "{{" not in rendered
 
 

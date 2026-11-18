@@ -14,12 +14,15 @@
 
 from __future__ import annotations
 
+import json
+import re
 from argparse import ArgumentParser
 from dataclasses import FrozenInstanceError
 from pathlib import Path
 from string import Formatter
 
 import pytest
+import yaml
 
 from robots.robotwin.robot_spec import (
     MODEL_SPEC,
@@ -149,8 +152,8 @@ def test_robot_prompts_render_from_public_spec(robot_name: str, tmp_path) -> Non
         (memory_dir / "global").mkdir(parents=True)
         (memory_dir / "global/GLOBAL_MEMORY.md").write_text("# Global memory\n")
         variables["memory_dir"] = str(memory_dir)
-    system = spec.prompts.render("system", variables=variables)
-    user = spec.prompts.render("user", variables=PROMPT_VARIABLES[robot_name])
+    system = spec.prompts.system(variables)
+    user = spec.prompts.user(PROMPT_VARIABLES[robot_name])
 
     assert system.strip()
     assert user.strip()
@@ -169,33 +172,128 @@ def test_libero_prompts_observe_task_before_reading_memory(
         **PROMPT_VARIABLES["libero"],
         "mode": mode,
         "memory_profile": memory_profile,
+        "explore_attempts_per_session": 5,
     }
     prompts = get_robot_spec("libero").prompts
-    system = prompts.render("system", variables=variables)
-    user = prompts.render("user", variables=variables)
-    workflow = system.split("\nWORKFLOW\n", 1)[1]
-    memory_step = (
-        "READ EACH AVAILABLE LOCAL MEMORY LAYER"
-        if mode == "eval" and memory_profile == "local"
-        else "READ MEMORY"
-    )
-
+    system = prompts.system(variables)
+    user = prompts.user(variables)
+    memory_step = "Read memory before acting"
     assert (
-        workflow.index("READ THE GUIDES")
-        < workflow.index("INSPECT INITIAL STATE")
-        < workflow.index(memory_step)
+        system.index("READ THE GUIDES")
+        < system.index("INSPECT INITIAL STATE")
+        < system.index(memory_step)
+        < system.index("RUN THE MANDATORY PRE-TASK PERCEPTION PASS")
+        < system.index("EXECUTE one primitive")
     )
-    if mode != "eval" or memory_profile != "local":
-        assert workflow.index("INSPECT INITIAL STATE") < workflow.index(
-            "READ SEED-0 STRATEGY REFERENCES"
-        )
+    assert (
+        system.index(memory_step)
+        < system.index("The current task's published audit and recipe pair")
+        < system.index("Matching task-family notes")
+        < system.index("Relevant global lessons")
+        < system.index("RUN THE MANDATORY PRE-TASK PERCEPTION PASS")
+    )
     assert "READ MEMORY FIRST" not in system
-    begin = user.split("\nBEGIN\n", 1)[1]
     assert (
-        begin.index("view_env_state")
-        < begin.index("task_language")
-        < begin.index("memory")
-    )
+        'Read the guides, then call `view_env_state({"step": 0})` and inspect\n'
+        "`task_language` and `agentview_high.png`. Read matching memory and available\n"
+        "seed-0 references for the current task and scene, then localize, plan, and execute."
+    ) in system
+    assert "view_env_state" not in user
+
+
+@pytest.mark.parametrize(
+    ("robot_name", "task_key"),
+    [
+        ("libero", "task"),
+        ("robocasa", "task_name"),
+        ("robodojo", "task"),
+        ("robotwin", "task_name"),
+        ("dual_franka", "task_id"),
+        ("yam", "task_id"),
+    ],
+)
+def test_exploration_memory_binds_current_cell_and_preserves_publication_scope(
+    robot_name: str, task_key: str
+) -> None:
+    prompts = get_robot_spec(robot_name).prompts
+    for task_id in (2, 3):
+        recipe_tag = f"{robot_name}_cell_{task_id}"
+        values = {
+            **PROMPT_VARIABLES[robot_name],
+            task_key: task_id if task_key != "task_name" else f"task_{task_id}",
+            "mode": "explore",
+            "recipe_tag": recipe_tag,
+            "memory_inbox": f"/memory/_internal/inbox/{recipe_tag}",
+            "memory_dir": "/memory",
+            "output_dir": f"/output/{recipe_tag}",
+            "session_number": 2,
+            "session_max": 3,
+            "explore_attempts_per_session": 4,
+        }
+        system = prompts.system(values)
+        if robot_name == "yam":
+            # YAM keeps its operator-supervised protocol and prose metadata.
+            assert f"Your cell is {recipe_tag}, session 2 of 3." in system
+            assert f"/memory/_internal/inbox/{recipe_tag}/wip/" in system
+            assert f"/memory/_internal/inbox/{recipe_tag}/technique.md" in system
+            assert "scope: task-family, suite: yam, regime: real" in system
+            assert (
+                f"task_id: {task_id}, task_language: the actual env language" in system
+            )
+            assert f"evidence: {{cells: [{recipe_tag}]}}" in system
+            assert "confidence: single-shot" in system
+            assert "Only your current inbox is writable" in system
+            assert (
+                "runner creates the successful current-attempt recipe/audit pair"
+                in system
+            )
+            assert "Unsolved runs do not publish success recipes" in system
+            assert (
+                "bounded failure lessons may be merged by the common MemoryManager"
+                in system
+            )
+            assert "An operator abort requires finish" in system
+            assert "a new attempt or proof of failure" in system
+            assert "{{" not in system
+            continue
+        frontmatter = re.search(r"```yaml\n---\n(.*?)\n---\n```", system, re.DOTALL)
+        assert frontmatter is not None
+        metadata = yaml.safe_load(frontmatter.group(1))
+        assert metadata["scope"] == "task-family"
+        assert metadata["task_id"] == values[task_key]
+        assert metadata["evidence"]["cells"] == [recipe_tag]
+        assert metadata["confidence"] == "single-shot"
+        assert f"/memory/_internal/inbox/{recipe_tag}/wip/notes.md" in system
+        assert "{{" not in system
+        configurations = [
+            json.loads(block)
+            for block in re.findall(r"```json\n(.*?)\n```", system, re.DOTALL)
+        ]
+        assert "memory_explore_options" not in system
+        assert '"proposal_gate"' not in system
+        assert "robot's authoritative success confirmation" in system
+        assert metadata["evidence"]["attempts"] == "<observed count>"
+        if robot_name == "libero":
+            assert "A human reviews and merges the inbox proposals later" in system
+            assert "the finalizer merges eligible inbox proposals" not in system
+        else:
+            assert "the finalizer merges eligible inbox proposals" in system
+        if robot_name in {"libero", "robocasa", "robotwin"}:
+            assert metadata["evidence"]["solved_seeds"] == [values["seed"]]
+        archive = (
+            "attempt_s<session>_a<attempt>_failed.json"
+            if robot_name == "dual_franka"
+            else "attempt_<N>_failed.json"
+        )
+        assert f"/output/{recipe_tag}/attempts/{archive}" in system
+        corroboration = next(
+            item for item in configurations if item.get("effect") == "confirmed"
+        )
+        assert corroboration["cell"] == recipe_tag
+        assert f"/memory/_internal/inbox/{recipe_tag}/corroborations.jsonl" in system
+        assert "This is session 2 of 3." in system
+        assert "Attempt limit for this session: 4." in system
+        assert all("environment" not in item for item in configurations)
 
 
 @pytest.mark.parametrize("robot_name", EXPECTED_ROBOTS)
