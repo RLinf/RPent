@@ -267,11 +267,16 @@ Use the same prompts for all planners and refer to tools by their bare names.
    def user_prompt(variables: Mapping[str, object] | None = None) -> str:
        return compose([PROMPTS / "user.md"], variables)
 
-Keep robot protocols in ``robot.md`` and the current task template in ``user.md``.
-Add ``memory.md``, ``evaluation.md``, ``exploration.md`` or
-``policies/<backend>.md`` only as needed. The bundle selects applicable shared
-rules and local files in reading order; ``mode`` and ``policy_backend`` select
-local variants. Robot-specific control and memory protocols remain local.
+Keep robot context in ``robot.md``, tool usage in ``tools.md`` and the current
+task in ``user.md``. Local ``evaluation.md`` and ``exploration.md`` contain only
+startup, reset, success and output differences; optional ``policies/<backend>.md``
+files define backend protocols. Select applicable fragments in reading order.
+
+Reuse ``common/memory.md`` with a ``memory_sources`` string listing authorized
+paths. Exploration also uses ``common/memory-write.md`` with ``memory_kinds``
+listing allowed global lesson kinds. Compute these data fields in the bundle;
+keep robot-specific publication rules and metadata in ``exploration.md``.
+YAM retains its own read order and operator-supervised memory protocol.
 
 Templates use ``{{name}}`` placeholders, such as ``{{instruction}}`` in
 ``user.md``. ``compose`` binds them once and reports missing variables or files;

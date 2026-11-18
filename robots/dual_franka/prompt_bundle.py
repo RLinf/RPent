@@ -33,9 +33,28 @@ def system_prompt(variables: Mapping[str, object] | None = None) -> str:
         COMMON / "physical.md",
         MODES / ("explore.md" if explore else "evaluate.md"),
         PROMPTS / "robot.md",
+        PROMPTS / "tools.md",
     ]
     if explore:
-        paths.extend([PROMPTS / "memory.md", PROMPTS / "exploration.md"])
+        values["memory_sources"] = "\n".join(
+            f"- {path}"
+            for path in (
+                f"{values['memory_dir']}/task-specific/",
+                f"{values['memory_dir']}/task-family/",
+                f"{values['memory_dir']}/MEMORY.md",
+                f"{values['memory_dir']}/global/",
+                f"{values['memory_inbox']}/wip/",
+                f"{values['output_dir']}/attempts/",
+            )
+        )
+        values["memory_kinds"] = "primitive|perception|strategy|failure|infra"
+        paths.extend(
+            [
+                COMMON / "memory.md",
+                COMMON / "memory-write.md",
+                PROMPTS / "exploration.md",
+            ]
+        )
     else:
         paths.append(PROMPTS / "evaluation.md")
     return compose(paths, values)

@@ -35,15 +35,18 @@ def system_prompt(variables: Mapping[str, object] | None = None) -> str:
         COMMON / "base.md",
         MODES / ("explore.md" if explore else "evaluate.md"),
         PROMPTS / "robot.md",
+        PROMPTS / "tools.md",
         PROMPTS / f"policies/{backend}.md",
     ]
     if values.get("mode") == "eval-fair":
         return compose([*paths, PROMPTS / "evaluation-fair.md"], values)
 
     values["memory_sources"] = _memory_sources(values)
+    values["memory_kinds"] = "primitive|perception|strategy|failure|infra"
     paths.extend(
         [
-            PROMPTS / "memory.md",
+            COMMON / "memory.md",
+            *([COMMON / "memory-write.md"] if explore else []),
             PROMPTS / ("exploration.md" if explore else "evaluation.md"),
         ]
     )

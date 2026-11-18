@@ -32,6 +32,7 @@ def system_prompt(variables: Mapping[str, object] | None = None) -> str:
 
     explore = values.get("mode", "eval") == "explore"
     values["memory_sources"] = _memory_sources(values)
+    values["memory_kinds"] = "primitive|perception|strategy|failure"
     values["allowed_primitives"] = _allowed_primitives(
         bool(values.get("enable_direct_action", False))
     )
@@ -41,8 +42,10 @@ def system_prompt(variables: Mapping[str, object] | None = None) -> str:
             COMMON / "base.md",
             MODES / ("explore.md" if explore else "evaluate.md"),
             PROMPTS / "robot.md",
-            PROMPTS / "memory.md",
+            COMMON / "memory.md",
+            PROMPTS / "tools.md",
             PROMPTS / "policies/pi05.md",
+            *([COMMON / "memory-write.md"] if explore else []),
             PROMPTS / ("exploration.md" if explore else "evaluation.md"),
         ],
         values,

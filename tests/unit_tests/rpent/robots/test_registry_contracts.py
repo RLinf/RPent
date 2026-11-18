@@ -139,23 +139,62 @@ def test_registry_discovers_exactly_the_source_checkout_robots() -> None:
         )
 
 
-@pytest.mark.parametrize("robot_name", EXPECTED_ROBOTS)
-def test_robot_prompts_render_from_public_spec(robot_name: str, tmp_path) -> None:
+@pytest.mark.parametrize(
+    ("robot_name", "mode"),
+    [
+        (robot, mode)
+        for robot in EXPECTED_ROBOTS
+        for mode in (("eval",) if robot == "franka" else ("eval", "explore"))
+    ],
+)
+def test_robot_prompts_render_from_public_spec(
+    robot_name: str, mode: str, tmp_path
+) -> None:
     spec = get_robot_spec(robot_name)
 
     variables = dict(PROMPT_VARIABLES[robot_name])
+    variables.update(
+        mode=mode,
+        session_number=1,
+        session_max=3,
+        explore_attempts_per_session=4,
+        memory_inbox="/memory/_internal/inbox/current",
+    )
+    variables.setdefault("recipe_tag", "current")
+    variables.setdefault("memory_dir", "/memory")
     if robot_name == "robocasa":
         memory_dir = tmp_path / "robocasa"
         (memory_dir / "global").mkdir(parents=True)
         (memory_dir / "global/GLOBAL_MEMORY.md").write_text("# Global memory\n")
         variables["memory_dir"] = str(memory_dir)
     system = spec.prompts.system(variables)
-    user = spec.prompts.user(PROMPT_VARIABLES[robot_name])
+    user = spec.prompts.user(variables)
 
     assert system.strip()
     assert user.strip()
     assert "{{" not in system
     assert "{{" not in user
+    tool_contract = {
+        "libero": "SAM3 localization aid",
+        "robocasa": "back_project_batch",
+        "robotwin": "Pair RGB and world maps",
+        "robodojo": "sample_world_xyz",
+        "franka": "open the gripper before calling vla_grasp",
+        "dual_franka": "selection_valid=true is necessary but not sufficient",
+        "yam": "world_xyz is [row,col]",
+    }
+    assert tool_contract[robot_name] in system
+    if mode == "explore":
+        literal = spec.prompts.system(
+            variables | {"memory_inbox": "/inbox/{{literal}}"}
+        )
+        assert "/inbox/{{literal}}/wip/" in literal
+        if robot_name != "yam":
+            assert system.count("## Task-family write-up") == 1
+            kinds = "primitive|perception|strategy|failure"
+            if robot_name != "libero":
+                kinds += "|infra"
+            assert f"`{kinds}`" in system
 
 
 @pytest.mark.parametrize(

@@ -27,7 +27,7 @@ PROMPTS = Path(__file__).with_name("prompts")
 def system_prompt(variables: Mapping[str, object] | None = None) -> str:
     """Select the original YAM protocols for the current mode and policy."""
     values = variables or {}
-    paths = [PROMPTS / "robot.md", PROMPTS / "memory.md"]
+    paths = [PROMPTS / "robot.md", PROMPTS / "tools.md"]
     if values.get("mode", "eval") == "explore":
         paths.append(PROMPTS / "exploration.md")
     backend = values.get("policy_backend") or "primitives-only"

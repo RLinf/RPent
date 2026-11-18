@@ -34,6 +34,7 @@ def system_prompt(variables: Mapping[str, object] | None = None) -> str:
             COMMON / "physical.md",
             MODES / "evaluate.md",
             PROMPTS / "robot.md",
+            PROMPTS / "tools.md",
         ],
         values,
     )
