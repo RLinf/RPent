@@ -24,12 +24,16 @@ CELL = """- suite:      {{suite}}
 - recipe:     {{output_dir}}/{{recipe_tag}}_recipe.jsonl"""
 
 
-MODE = """Inspect the agentview image returned by `view_env_state`, then use
-the available perception tools to localize objects before motion."""
+MODE = """Inspect `agentview_high.png` returned by `view_env_state`, then use
+`back_project` or `segment` to localize objects before motion."""
+
+GEOMETRY_MODE = """Identify the target in the recorded agentview image. Use accepted
+`geometry` measurements for motion and localize missing quantities with
+`back_project` or `segment`."""
 
 
 BEGIN = """Read the guides, then call `view_env_state({"step": 0})` and inspect
-`task_language` and the agentview image. Read matching memory and available
+`task_language` and `agentview_high.png`. Read matching memory and available
 seed-0 references for the current task and scene, then localize, plan, and execute."""
 
 WAM_MEMORY = "Local memory directory: {{memory_dir}}."

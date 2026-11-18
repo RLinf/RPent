@@ -49,11 +49,16 @@ LIBERO
 ~~~~~~
 
 For the requested camera (``agentview`` or ``wrist``) and step, LIBERO's
-adapter loads the RGB image, world XYZ map and calibration. Its API planner
-exposes ``back_project`` and SAM3-backed ``segment`` by default. To enable
-``geometry``, set ``MOLMO_ENDPOINT`` to a
-running local Molmo service and add ``--geometry --molmo-endpoint "$MOLMO_ENDPOINT"``
-to the LIBERO run command.
+adapter loads the RGB image, world XYZ map and calibration. LIBERO runs keep
+their own ``back_project`` and ``segment`` unless you add ``--rgbd-tools``,
+which replaces them with the generic tools and their schemas for any planner.
+
+``geometry`` is experimental. To enable it, start a Molmo service from the same
+RPent revision as described in :doc:`../guides/flash`, set ``MOLMO_ENDPOINT`` to
+its address and add ``--geometry --molmo-endpoint "$MOLMO_ENDPOINT"`` to the
+LIBERO run command. ``--geometry`` also registers the generic tools. It uses the
+service's native point mode and ``molmo.verify``, which older Molmo services
+do not provide.
 
 For example, a planner can request the rim radius and full height of the same cup
 in one ``geometry`` call.

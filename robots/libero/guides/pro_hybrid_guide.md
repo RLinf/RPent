@@ -28,9 +28,8 @@ This document layers on the base playbook. Read it first:
 > the benchmark: that is error-prone (wrong task-map index → wrong task) and a
 > perception-isolation breach (the `:init` block holds the GT coordinates this
 > mode withholds). For swap fixtures, localize them **visually** (§3.5), never
-> from `:init`. You never hand-roll projection math — `back_project` applies
-> `K⁻¹` + the cam→world extrinsic and returns the surface `world_xyz` under a
-> pixel; just use it.
+> from `:init`. For manual samples, `back_project` applies the camera
+> calibration and returns world coordinates for the selected pixels.
 
 Whenever this guide says "see the perception protocol" or "the localization
 snippet", it means `strict_hybrid_guide.md`. **Every rule there applies here**;
@@ -211,8 +210,7 @@ carry_z   = 1.10   # safe traversal, well under upper limit 1.15
 release_z = 1.01   # ~7 cm above plate top at z≈0.90
 ```
 
-These are *altitude* knobs (robot-frame), not object positions — you still derive
-the object's **xy** by `back_project` every time.
+These heights are in the robot frame. Measure each object's **xy** in the current scene.
 
 ### 3.2. xy single-step ±0.30 cap
 
@@ -278,9 +276,9 @@ perception protocol** is the source of truth: `agentview.png` / `agentview_high.
 semantic identity authority (decides *which* object/surface satisfies the task
 language + relation); `wrist.png` / `wrist_high.png` refines geometry for the *same* candidate
 (accept only within ~3–5 cm of the agentview anchor, never average, basket/cavity
-excepted). Both maps share one world frame, read via
-`back_project({"camera":"wrist"})`; the optional `segment` honours both cameras
-(`{"camera":"agentview"|"wrist"}`, `min_score` default 0.2, or `point:[row,col]`).
+excepted). Both cameras share one world frame. For manual localization,
+select pixels on the chosen image, use `back_project` for that camera and step,
+and take the median world xy. For a segmented target, inspect the mask overlay.
 
 **PRO implication:** `_swap` (and `_task`) can *invert* target or destination
 semantics, so **never reuse base-task or recipe coordinates** — the object
@@ -300,11 +298,9 @@ cheap insurance, not optional.
 ### 3.6b. Hi-res perception channel (1024×1024)
 
 Also owned by the strict guide's Hi-res perception channel section (1024×1024
-pairs each step; prefer the hi image for identification; `back_project` defaults
-`resolution="high"`; never mix pixel grids). **PRO implication:** hi-res fixes
-*which* object you point at — decisive for the recolored/rescaled Object axis and
-for telling swapped same-shape groceries apart — but does NOT change metric
-accuracy or replace the wrist coarse→fine refinement. **Identity caveat:** SAM3
+pairs each step). Prefer the high-resolution image for identification and keep
+selected pixels in the grid of the image you inspected. Use hi-res label and
+shape details to distinguish recolored, rescaled or swapped groceries. SAM3
 gives two same-shaped, different-brand objects the SAME category (it labelled the
 tomato-sauce and alphabet-soup cans identically) — use its mask only as a category
 candidate, then READ the label yourself in the hi-res crop to assign identity;
@@ -388,16 +384,17 @@ add the PRO fields:
   "perturbed_task_language": "<actual task_language returned by view_env_state(step=0)>",
   "perturbation_semantics": "<what swapped — objects and/or fixtures>",
   "expected_baseline_behavior": "<predicted Pi0 failure: e.g. picks base location>",
-  "strategy_notes": "HOW you localized — which pixel(s) in agentview_high.png, back-projected world xyz; for swap, how you found the relocated object/fixture",
+  "strategy_notes": "Camera, step, localization method and measured coordinates. For a swap, explain how you identified the relocated object or fixture.",
   "pick_result": { /* the pi0_pick step's result */ },
   "final_state": { /* latest view_env_state result's `state` field */ },
   "terminated": true
 }
 ```
 
-`strategy_notes` **must** describe the localization (pixel → `back_project` →
-world xyz). For swap cells, explicitly note that the relocated object/fixture was
-found by perception, not by reading coords. If unrecoverable after honest
+`strategy_notes` **must** describe the evidence used for localization. For
+manual samples, record the pixels and their world coordinates. For a geometry
+measurement, record the accepted quantity. For swap cells, describe the visual
+evidence that identified the relocated object or fixture. If unrecoverable after honest
 exploration, write `terminated: false` with what you tried and which step
 failed — never warp (teleport primitives are deleted; see Rule 4 in the
 perception protocol). Write the audit with `write_text_file` to
@@ -493,7 +490,7 @@ Then, inside the run:
    `agentview_high.png` and call `view_camera_meta`.
 4. Read `memory/libero/MEMORY.md` and the memories and seed-0 references that
    match the current task. Localize the target (and, for `_swap`, the relocated
-   object/fixture) with `back_project` — run the mandatory pre-task perception pass
+   object/fixture) using the run's pre-task perception pass
    (§3.6c). Plan, then execute one structured tool at a time.
 5. `write_text_file` the audit to `{output_dir}/{recipe_tag}.json`
    (`regime: strict_perception`) before `finish`; the recipe

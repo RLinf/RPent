@@ -93,6 +93,10 @@ class SegmentTool:
                 raise ValueError(
                     "Supply a text prompt, a positive point [row,col], or both."
                 )
+            if point is not None and image_shape is None:
+                raise ValueError(
+                    "Give the image_shape of the image where the point was selected."
+                )
             observation = self._observations.get_observation(camera=camera, step=step)
             if observation.camera != camera or (step >= 0 and observation.step != step):
                 raise ValueError("Provider returned a different camera or step.")
@@ -105,6 +109,7 @@ class SegmentTool:
                 image_shape=image_shape,
                 min_score=min_score,
                 summarize=True,
+                prefix="segment",
             )
         except (ValueError, LookupError, OSError, RuntimeError) as exc:
             return ToolResult(
@@ -129,8 +134,13 @@ class SegmentTool:
         image_shape: list[int] | None = None,
         min_score: float = 0.2,
         summarize: bool = False,
+        prefix: str = "geometry_segment",
     ) -> ToolResult:
-        """Segment a pinned snapshot and save the mask with its source identity."""
+        """Segment a pinned snapshot and save the mask with its source identity.
+
+        ``prefix`` names the saved record, mask and overlay, keeping the public
+        tool's ``segment_*`` records separate from intermediate geometry masks.
+        """
         prompt = (prompt or "").strip() or None
         if prompt is None and point is None:
             raise ValueError(
@@ -211,7 +221,7 @@ class SegmentTool:
                     ).tolist()
                 else:
                     data["world_error"] = "too few valid metric samples in mask"
-            mask_name = f"geometry_mask_{tag}_{index:03d}.npz"
+            mask_name = f"{prefix}_mask_{tag}_{index:03d}.npz"
             data["mask_artifact"] = state.save(mask_name, mask, step=step)
             if data["mask_artifact"] is None:
                 raise RuntimeError("failed to persist segmentation mask")
@@ -219,7 +229,7 @@ class SegmentTool:
             red = np.zeros_like(overlay)
             red[..., 0] = 255
             overlay[mask] = (0.55 * overlay[mask] + 0.45 * red[mask]).astype(np.uint8)
-            overlay_name = f"geometry_overlay_{tag}_{index:03d}.png"
+            overlay_name = f"{prefix}_overlay_{tag}_{index:03d}.png"
             data["overlay_artifact"] = state.save(overlay_name, overlay, step=step)
             if data["overlay_artifact"] is None:
                 raise RuntimeError("failed to persist segmentation overlay")
@@ -228,7 +238,7 @@ class SegmentTool:
             data["reason"] = reason or result.reason or "segmenter found no mask"
             if check_text_mask:
                 data["status"] = "need_observation"
-        name = f"geometry_segment_{tag}_{index:03d}.json"
+        name = f"{prefix}_{tag}_{index:03d}.json"
         if state.save(name, data, step=step) is None:
             raise RuntimeError("failed to persist segmentation evidence")
         data["segment_artifact"] = name

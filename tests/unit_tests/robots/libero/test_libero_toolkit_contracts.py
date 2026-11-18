@@ -17,6 +17,8 @@
 from __future__ import annotations
 
 import argparse
+import json
+import re
 import threading
 from concurrent.futures import ThreadPoolExecutor
 from functools import partial
@@ -29,8 +31,10 @@ import pytest
 
 from robots.libero import robot_spec, toolkit
 from robots.libero.observations import LiberoGeometryObservations
+from robots.libero.prompts import evaluate
 from rpent.dashboard.events import NullDashboardEventSink
 from rpent.memory import MemoryManager
+from rpent.prompt.utils import Numbered
 from rpent.robots import RunConfig
 from rpent.robots.components.sam3_client import Sam3Result
 from rpent.session import EnvState
@@ -282,7 +286,9 @@ def test_pinned_wrist_sample_uses_its_own_calibration(tmp_path):
         obs.get_observation(camera="agentview", step=0)
 
 
-def test_default_api_uses_generic_tools_with_geometry_opt_in(tmp_path):
+def test_generic_tools_and_geometry_are_opt_in(
+    tmp_path, monkeypatch, fake_single_arm_primitives
+):
     parser = argparse.ArgumentParser()
     parser.add_argument("--planner", default="api")
     parser.add_argument("--memory-profile")
@@ -290,6 +296,13 @@ def test_default_api_uses_generic_tools_with_geometry_opt_in(tmp_path):
     parser.add_argument("--output-dir")
     spec = robot_spec.get_robot_spec()
     spec.add_cli_args(parser, False)
+    primitives = fake_single_arm_primitives.for_robot(
+        toolkit.libero_tools.LiberoPrimitives
+    )
+    monkeypatch.setattr(toolkit.libero_tools, "LiberoPrimitives", primitives)
+    monkeypatch.setattr(toolkit.libero_tools, "dump_state", lambda *a, **kw: _record())
+    monkeypatch.setattr(robot_spec, "get_memory_dir", lambda _: tmp_path / "memory")
+    monkeypatch.setattr(templates, "get_output_dir", lambda: tmp_path)
     arguments = [
         "--suite",
         "libero_spatial_task",
@@ -298,26 +311,57 @@ def test_default_api_uses_generic_tools_with_geometry_opt_in(tmp_path):
         "--output-dir",
         str(tmp_path / "run"),
     ]
-    for flags, enabled in [
-        ([], False),
-        (["--no-geometry"], False),
-        (["--geometry", "--molmo-endpoint", "http://localhost:8118"], True),
+    for flags, generic, geometry in [
+        ([], False, False),
+        (["--no-rgbd-tools", "--no-geometry"], False, False),
+        (["--rgbd-tools"], True, False),
+        (["--geometry", "--molmo-endpoint", "http://localhost:8118"], True, True),
     ]:
         args = parser.parse_args(arguments + flags)
         config = spec.parse_config(args)
-        assert config.prompt_vars["generic_tools"]
-        assert config.prompt_vars["geometry"] is enabled
-        assert args.geometry is enabled
+        assert config.prompt_vars["generic_tools"] is generic
+        assert config.prompt_vars["geometry"] is geometry
         prompt = spec.prompts.render(
             "system", variables={**config.prompt_vars, "output_dir": str(tmp_path)}
         )
-        assert "points_rc" in prompt and "box_rc" in prompt
-        assert (
-            'back_project({"row":' not in prompt and "mutually exclusive" not in prompt
+        assert ("points_rc" in prompt and "box_rc" in prompt) is generic
+        assert ('back_project({"row":' in prompt) is not generic
+        assert ("mutually exclusive" in prompt) is not generic
+        assert ("For geometry, give query" in prompt) is geometry
+        assert ("insufficient_evidence" in prompt) is geometry
+        assert ("nudge and re-observe" in prompt) is not geometry
+
+        tk = robot_spec.get_toolkit(
+            config=config,
+            runtime_kwargs={
+                "env": object(),
+                "sam3_client": object(),
+                "geometry_grounder": object() if geometry else None,
+            },
+            dashboard_events=NullDashboardEventSink(),
+            state_output_dir=tmp_path / "state",
         )
-        assert ("For geometry, give query" in prompt) is enabled
-        assert ("insufficient_evidence" in prompt) is enabled
-        assert ("nudge and re-observe" in prompt) is not enabled
+        schemas = {tool.name: tool.args_schema for tool in tk.list_tools()}
+        examples = re.findall(
+            r"\b(back_project|segment|geometry)\((\{.*?\})\)", prompt, re.S
+        )
+        expected = {"back_project", "segment"} | ({"geometry"} if geometry else set())
+        assert {name for name, _ in examples} == expected
+        for name, example in examples:
+            # The default prompt uses ROW, COL and NN for the selected pixel and step.
+            payload = json.loads(re.sub(r"\b(?:ROW|COL|NN)\b", "0", example))
+            schemas[name].model_validate(payload, strict=True)
+            if generic and name == "segment" and "point" in payload:
+                assert "image_shape" in payload
+
+
+@pytest.mark.parametrize("guide", ["strict_hybrid_guide.md", "pro_hybrid_guide.md"])
+def test_shared_guides_leave_localization_call_formats_to_the_prompt(guide):
+    text = (Path(robot_spec.__file__).with_name("guides") / guide).read_text()
+    assert not re.search(
+        r'\b(?:back_project|segment|geometry)\(|"row"\s*:|resolution["`]?[=:]|\brow_range\b',
+        text,
+    )
 
 
 @pytest.mark.parametrize(
@@ -335,17 +379,47 @@ def test_rgbd_menu_preserves_the_planners_task_and_memory_instructions(settings)
     original_user = prompts.user(settings)
 
     def task_sections(prompt):
+        # Only localization and the workflow's segment aid name tool arguments.
         return {
-            key: value
+            key: (
+                tuple(
+                    item.replace(evaluate.GENERIC_SEGMENT_AID, evaluate.SEGMENT_AID)
+                    for item in value.items
+                )
+                if isinstance(value, Numbered)
+                else value
+            )
             for key, value in prompt.items()
             if not key.startswith(("LOCALIZATION", "FIRST-STEP ALGORITHM"))
         }
 
-    for enabled in (False, True):
-        variables = {**settings, "generic_tools": True, "geometry": enabled}
-        actual = prompts.system(variables)
-        assert task_sections(actual) == task_sections(baseline)
-        assert prompts.user(variables) == original_user
+    rgbd = {**settings, "generic_tools": True}
+    assert task_sections(prompts.system(rgbd)) == task_sections(baseline)
+    assert prompts.user(rgbd) == original_user
+
+    variables = {**rgbd, "geometry": True}
+    actual = prompts.system(variables)
+    user = prompts.user(variables)
+    for key in original_user.keys() - {"MODE"}:
+        assert user[key] == original_user[key]
+    if settings.get("policy_kind") == "wam":
+        assert "geometry" in actual["WORKFLOW"]
+        assert actual["OUTCOME"] == baseline["OUTCOME"]
+        return
+
+    assert "`geometry`" in user["MODE"]
+    rules = actual["RULES (NON-NEGOTIABLE)"]
+    assert "`geometry`, `back_project` or `segment`" in rules
+    assert "you get object positions ONLY by camera images, depth, and" not in rules
+    workflow = " ".join(" ".join(actual["WORKFLOW"].items).split())
+    assert "`back_project` for median xyz" not in workflow
+    assert "localization table" in workflow
+    assert "wrist-refined target before pi0_pick" not in next(
+        value for key, value in actual.items() if key.startswith("PROVEN LEVERS")
+    )
+    for key in baseline:
+        if key.startswith(("ROLE", "MEMORY", "YOUR GOAL", "OUTPUT DISCIPLINE")):
+            assert actual[key] == baseline[key]
 
 
 def test_toolkit_modes_construct_with_fake_primitives(

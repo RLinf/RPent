@@ -19,6 +19,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 
 from rpent.prompt.utils import Numbered, PromptNode
+from rpent.utils.templates import substitute_text
 
 ROLE_AND_EVALUATION = """You are an LLM-in-the-loop hybrid agent for the LIBERO PRO benchmark, running
 in PERCEPTION-ISOLATED mode: you are NOT given object world coordinates. You
@@ -37,7 +38,23 @@ must localize objects yourself from the camera image + depth + calibration.
 > `terminated:false`). Do NOT call `reset`. Use the PROVEN LEVERS below to
 > get the single attempt right the first time."""
 
-PROVEN_LEVERS = """These are battle-tested on seed 0 of THIS suite. You are now running a DIFFERENT
+
+def proven_levers(geometry: bool) -> str:
+    """Keep the grasp advice tied to the selected localization method."""
+    if geometry:
+        refine = "use its accepted measurement from `geometry` or refine the position manually."
+        grasp_target = "identified target"
+        plate_center = "use the plate's accepted `rim_center` or estimate its center from the visible rim."
+    else:
+        refine = """compute its agentview
+  xyz, move over that candidate, project/track that SAME candidate in wrist, and
+  refine only its surface/center coordinates."""
+        grasp_target = "agentview-identified\n  + wrist-refined target"
+        plate_center = """re-localize each plate
+       rim with the wrist cam and use the x_range/y_range MIDPOINTS as the true
+       center (the visible-fragment median is edge-biased)."""
+    return substitute_text(
+        """These are battle-tested on seed 0 of THIS suite. You are now running a DIFFERENT
 seed — object/fixture positions differ, so RE-LOCALIZE everything per scene
 (never hard-code an xyz). But the TECHNIQUES and the per-task target zones
 transfer directly. After inspecting the initial `task_language`, read the solved
@@ -89,15 +106,13 @@ DISAMBIGUATION / TARGETING:
   weak at reading side labels or distinguishing similar grocery items
   (ketchup/BBQ/tomato sauce, soup cans, cream cheese/butter). Do NOT let the
   wrist freely re-identify a non-basket target; it often locks onto a look-alike.
-  Choose the target in agentview. When refining its coordinates in wrist,
-  track that SAME candidate and refine only its surface/center coordinates.
-  SAM3 scores ~0.02-0.06 on brand nouns ("alphabet soup", "tomato sauce") — prompt
-  by colour+shape ("the short red-label can") or pick pixels in the agentview hi-res.
-  Pi0's own prompt grounding is ALSO unreliable on brand nouns (s0's first grab took a milk
-  carton instead), so pre-position the eef directly OVER the identified target
-  before pi0_pick. A wrong first grab usually tips/displaces the grabbed object
-  AND the target zone — identification errors are unrecoverable; spend commands
-  on agentview ID, not on recovery.
+  Instead: choose the target from `agentview_high.png`, {{refine}} SAM3 scores ~0.02-0.06 on brand
+  nouns ("alphabet soup", "tomato sauce") — prompt by colour+shape ("the short
+  red-label can") or pick pixels manually in the agentview hi-res. Pi0's own
+  prompt grounding is ALSO unreliable on brand nouns (s0's first grab took a milk
+  carton instead), so pre-position the eef directly OVER the {{grasp_target}} before pi0_pick. A wrong first grab usually
+  tips/displaces the grabbed object AND the target zone — identification errors
+  are unrecoverable; spend commands on agentview ID, not on recovery.
 - **"left"/"right" in libero_10 is EGOCENTRIC (robot frame): +y = robot-LEFT =
   image-RIGHT.** A geometrically-perfect placement of the WRONG target never fires
   the predicate — when a clean placement won't terminate, SUSPECT WRONG-TARGET
@@ -133,9 +148,7 @@ PER-TASK RECIPES THAT WORKED AT SEED 0 (adapt coords to your seed):
        carry path so they NEVER pass over the placed mug (a graze re-tips it). A
        tipped mug is UNRECOVERABLE (no side-grasp primitive; Pi0 won't engage
        side-lying cylinders) — prevention is everything.
-    5. Plates MOVE per seed (y=±0.21 at s0, ±0.30 at s8): re-localize each plate
-       rim with the wrist cam and use the x_range/y_range MIDPOINTS as the true
-       center (the visible-fragment median is edge-biased).
+    5. Plates MOVE per seed (y=±0.21 at s0, ±0.30 at s8): {{plate_center}}
 - stove (t2): turn the knob with `pi0_pick "turn on the stove", lift_thresh:999,
   gripper_closed_thresh:0`; then grasp the pan by its HANDLE, re-segment mid-carry
   to converge on the burner.
@@ -148,9 +161,15 @@ PER-TASK RECIPES THAT WORKED AT SEED 0 (adapt coords to your seed):
 - mug→microwave + close (t9): the only UNSOLVED seed-0 cell — the round mug-in-hand
   walls ~3cm short of the In() threshold (deep narrow cavity). Try every lever
   (`pi0_doubled`, `move_pose`, push) and if it still walls, write an honest
-  `terminated:false` with the max eef-y reached."""
+  `terminated:false` with the max eef-y reached.""",
+        {"refine": refine, "grasp_target": grasp_target, "plate_center": plate_center},
+    )
 
-RUNTIME = """A server process (`env_server.py`) is already running. It has Pi0.5 loaded and a
+
+def runtime(geometry: bool) -> str:
+    """List the perception tools available to the planner."""
+    geometry_tool = " `geometry`," if geometry else ""
+    return f"""A server process (`env_server.py`) is already running. It has Pi0.5 loaded and a
 single-env LIBERO sim. The runner manages the server and exposes structured
 tools. Do not start, stop, restart, or otherwise manage `env_server.py`.
 
@@ -159,14 +178,14 @@ tools. Do not start, stop, restart, or otherwise manage `env_server.py`.
 - Call the real structured tools exposed by the runtime.
 - Use bare tool names in this prompt: `move_to`, `pi0_pick`, `release`,
   `set_gripper`, `rotate_wrist`, `rotate_pitch`, `move_pose`, `pi0_doubled`,
-  `view_env_state`, `view_camera_meta`, `back_project`, `segment`,
+  `view_env_state`, `view_camera_meta`, `back_project`, `segment`,{geometry_tool}
   `read_text_file`, `write_text_file`, `list_dir`, `finish`.
 - Under some runtimes these same tools may appear namespaced; call the actual tool
   name shown in your tool list, preserving the same arguments and semantics.
 
 Each state record exposes `step`, top-level `task_language`,
-`terminated`, `truncated`, coord-free `state`, and recorded artifacts.
-Use the image names supplied by the runtime. Storage paths are internal; do not
+`terminated`, `truncated`, coord-free `state`, an `artifacts`
+list of logical base names, and a `log`. Storage paths are internal; do not
 construct or parse them.
 
 Canonical observation keys include `agentview_policy.png`, `agentview.png`,
@@ -175,16 +194,34 @@ Canonical observation keys include `agentview_policy.png`, `agentview.png`,
 `wrist_high.png`, `wrist_depth.npz`, `wrist_world.npz`,
 `wrist_world_high.npz`, and `wrist_metadata.json`.
 
-Use `view_env_state` to inspect the recorded agentview and wrist images.
-Use `view_camera_meta`, `back_project`, and `segment` to consume metadata and
-world maps without opening artifacts directly. Step `0` is the initial state;
-step `-1` selects the latest state."""
+Use `view_env_state` to retrieve a record. It embeds the policy image and the
+best available agentview and wrist images, preferring the matching `*_high.png`
+artifact. Use `view_camera_meta`, `back_project`, and `segment` to consume
+metadata and world maps without opening artifacts directly. Step `0` is the
+initial state; step `-1` selects the latest state."""
+
 
 GOAL = """YOUR GOAL: produce top-level `terminated == true` in ONE episode. ⛔ NO
 `reset`, NO retry (SINGLE-ATTEMPT MODE — see the override at the very top; it
 supersedes any reset/retry wording in the Rules below)."""
 
-RULES = """Rule 0 — USE IMAGES. After every primitive tool call, inspect the returned state
+
+def rules(geometry: bool) -> str:
+    """Restrict all localization methods to recorded camera evidence."""
+    position_source = (
+        "derive positions from this step's camera images and depth using\n"
+        "   `geometry`, `back_project` or `segment`."
+        if geometry
+        else "you get object positions ONLY by camera images, depth, and\n"
+        "   `back_project` below."
+    )
+    elevation = (
+        "its higher measured world-z."
+        if geometry
+        else "its higher world-z from `back_project`."
+    )
+    return substitute_text(
+        """Rule 0 — USE IMAGES. After every primitive tool call, inspect the returned state
   and embedded images. If you need a state again, call `view_env_state`. Inspect
   `agentview_high.png` (the calibration-frame image used for pixel selection)
   and, when close to a target, `wrist_high.png`. The image is
@@ -228,8 +265,7 @@ Rule 2b — NEVER read the BDDL files / import the benchmark / query env object
    poses. The BDDL is FORBIDDEN: it carries the `:init` ground-truth coordinates
    that perception-isolated mode exists to withhold — reading it (even just for
    the language) breaks the experiment. You already have the task from
-   `task_language`; derive object positions ONLY from camera images and depth
-   through the localization tools below.
+   `task_language`; {{position_source}}
 
 Rule 2c — GROUND THE TARGET BY ITS SPATIAL RELATION, not by its name. When the
    task names a relation ("the bowl ON THE COOKIES BOX", "the mug LEFT OF the
@@ -239,7 +275,7 @@ Rule 2c — GROUND THE TARGET BY ITS SPATIAL RELATION, not by its name. When the
    names, so the name is useless for choosing; the RELATION is what disambiguates:
      • "on the cookies box" ⇒ the bowl that is ELEVATED (sits ~0.03–0.06m above
        the table, on top of the box) — distinguish it from the table-level bowl by
-       its higher world-z from `back_project`.
+       {{elevation}}
      • "left/right/front/back of X" ⇒ compare back-projected world xy to X's xy.
    Pick the target purely from where things ARE. Object NAMES are only needed if a
    primitive asks for one (and in this mode none do — Rule 1).
@@ -280,9 +316,12 @@ Rule 4 — ⛔ SINGLE ATTEMPT, NO RESET (overrides any reset/retry text). This i
    NO teleport primitives (set_object_pose / articulate_to / js_move_to /
    carry_object — deleted/forbidden; a goal past OSC reach is approached
    physically or honestly reported, never warped). NO object world coords are
-   provided — you MUST localize via perception (below)."""
+   provided — you MUST localize via perception (below).""",
+        {"position_source": position_source, "elevation": elevation},
+    )
 
-LEGACY_SAMPLING = """This is the core of perception-isolated mode. To find where an object is:
+
+LOCALIZATION = """This is the core of perception-isolated mode. To find where an object is:
 
 1. Look at `agentview_high.png` (1024x1024 — PREFER THIS; fall back to
   `agentview.png` only if the high-resolution artifact is absent) and find the target
@@ -297,9 +336,90 @@ LEGACY_SAMPLING = """This is the core of perception-isolated mode. To find where
    + extrinsic) is already done for you. Just use the returned `world_xyz`; do
    NOT write back-projection math yourself unless debugging a tool failure. NEVER
    mix hi-res pixels with low-res world maps or vice versa.
-   For `segment`, provide exactly one of `prompt` and `point`."""
 
-GENERIC_SAMPLING = """Use the registered tool schemas when applying examples from guides or memory.
+   The returned value is the object's SURFACE point under that pixel. For a
+   grasp/place target use its x,y; for z use the object's resting height (sample a
+   pixel on the bare table next to it, or use table z ~0.9 kitchen / ~0.42
+   table-top).
+3. Sample a few pixels on the object and median the world xy — robust to a single
+   mis-picked pixel. (Tip: avoid pixels on the object's thin rim/edge or the gap
+   to the table — those index a background/edge depth and give a world point
+   metres away. Pick pixels firmly on the object's top surface.)
+
+ALWAYS apply the manipulation offsets from memory to the PERCEIVED position
+(e.g. BOWL: eef_y = plate_y + 0.045). Verify visually in `agentview_high.png`
+after moving."""
+
+PERCEPTION_ALGORITHM = """This is the default perception algorithm for EVERY cell (from the 80-task
+localization sweep: `agentview_identity_wrist_geometry_except_basket`).
+Agentview chooses WHAT the target is; wrist refines WHERE that already-chosen
+candidate is. Do NOT invert those roles.
+
+CORE RULE:
+  • Non-basket objects/surfaces: agentview hi-res is the semantic AUTHORITY.
+    The wrist is ONLY a geometry/depth refinement camera for the SAME agentview
+    candidate. NEVER let the wrist freely re-identify a non-basket target — in
+    failed probes the wrist locked onto a look-alike hundreds of pixels away
+    while agentview had the right one.
+  • Basket / basket_cavity: wrist MAY also confirm/refine, because a basket is a
+    geometric container and the close view finds the true interior center (not
+    the rim). Basket failures are rim/edge bias, not semantic confusion.
+
+ALGORITHM (run this BEFORE manipulating):
+
+1. From the initial `task_language` + `agentview_high.png` +
+   object_names, infer the task-relevant TARGETS and DESTINATIONS (language only;
+   never BDDL/poses).
+
+2. GLOBAL SEMANTIC PASS (agentview hi-res): in `agentview_high.png` choose each
+   target/destination candidate by RGB, label/shape, and global spatial relation.
+   For duplicates (two bowls/plates/mugs) pick by RELATION (on stove, on cookie
+   box, left/right/front/back), not `_1/_2`. For sauce/can/box groceries use the
+   front/side label + package shape + colour + layout — top-down wrist label
+   reading is NOT trustworthy. Classify destination surfaces (plate vs stove
+   burner vs cabinet/drawer vs basket) semantically in RGB here.
+
+3. COARSE XYZ (agentview): pick 3-8 pixels firmly on the chosen candidate in
+  `agentview_high.png`, call `back_project` on the SAME pixels, take the median.
+   Avoid edges/holes/shadows/table-gaps. This median is the IDENTITY ANCHOR for
+   that entity.
+
+4. WRIST GEOMETRY REFINE (non-basket): `move_to` ~15-20cm above the agentview
+   anchor xy, then refine the SAME candidate's surface/center from the wrist:
+     - accept a wrist xy ONLY if it is within ~3-5cm of the agentview anchor;
+     - if the wrist xy jumps >5cm, REJECT it (it hit a look-alike/background) and
+       keep the agentview xyz, or nudge and re-observe;
+     - the wrist may NOT override the agentview semantic choice — it only sharpens
+       coordinates when geometry is consistent.
+
+5. BASKET SPECIAL CASE: for `basket`/cavity, agentview finds it globally, then the
+   wrist confirms/refines the true INTERIOR center (place objects at the open
+   interior, not the rim/outer wall). Re-localize the cavity if the basket moved.
+
+6. MANDATORY PRE-TASK PERCEPTION PASS — DO NOT START MANIPULATION UNTIL THIS
+   TABLE EXISTS in your reasoning. One row per task-relevant entity (every movable
+   target, every destination/support/fixture, every relation landmark), each with:
+     - name_or_role (e.g. target_1, basket_cavity, plate_surface, stove_region)
+     - agentview_evidence (why this is the right semantic candidate/relation)
+     - agentview_pixels_rc (3-8 hi-res pixels) + agentview_xyz (median back_project)
+     - wrist_refine: accepted | rejected | basket_confirmed (+ wrist_xyz if kept)
+     - final_xyz (what you will plan with)
+     - uncertainty (indistinguishable can, duplicate class, basket rim bias, …)
+   If an entity is too ambiguous to identify, SAY SO before acting — do not let
+   Pi0 or the wrist make a free semantic choice for you.
+
+7. FINAL READY CHECK before the first pick/place: every target+destination has a
+   final_xyz; non-basket wrist refinements are spatially consistent with
+   agentview; basket/cavity points are interior-centered; manipulation offsets are
+   planned from the perceived final_xyz. If this fails, keep perceiving — only
+   then start the manipulation plan. Re-verify with the newest image after every
+   command and update the table if anything moves.
+
+(xyz from agentview and wrist `back_project` are in the SAME world frame,
+directly comparable. Do NOT blindly average them — accept wrist coords only when
+consistent with the agentview anchor, or for basket/cavity geometry.)"""
+
+GENERIC_SAMPLING = """Use the registered tool schemas when applying examples from memory.
 `view_env_state` embeds `agentview_policy.png` (Pi0) followed by the calibrated agentview
 and wrist images, skipping missing images. Pick pixels on `agentview_high.png` or
 `wrist_high.png`, or the same camera's standard PNG if its high-resolution image is absent.
@@ -310,18 +430,23 @@ Read samples_xyz in point order. A null marks invalid or filtered depth. For a r
 box_rc [top,left,bottom,right] in place of points_rc (bottom and right are exclusive).
 A box returns surface_xyz and visible_bounds_xyz when enough samples exist. Optional height_m
 filters world heights in metres. Check visually which object the selected surface belongs to.
-For segment, supply prompt (text), point ([row,col]), or both with the camera and step.
-For a point, give the image_shape of the image you inspected. With both inputs the text mask
-must cover the point. Check the overlay before using the mask's world_xyz."""
+For segment, supply text, a point, or both with the camera and step. For the
+same pixel, include the shape of the image you inspected:
+    segment({"camera":"agentview","step":0,"point":[200,240],"image_shape":[1024,1024]})
+With both inputs the text mask must cover the point. Check the overlay before
+using the mask's world_xyz."""
 
 NAMED_GEOMETRY = """For geometry, give query (appearance and distinguishing relation), camera and step.
 The tool selects its own pixels and checks identity using the available calibrated views of that step.
-Use measurement="surface_point" or "visible_region", or request parts and dimensions of
-the same object together in required_geometry, e.g. ["rim_center","object_height"].
-For fitted quantities use values with fit_accepted=true. Check warnings and views_checked.
-These recorded views replace the manual sampling and wrist-refinement steps for this request.
-Leave unsupported fields unknown. On insufficient_evidence, choose another strategy
-and retry geometry only after a normal task action changes the evidence."""
+Use measurement="surface_point" or "visible_region". Request parts and dimensions
+of the same object together in required_geometry, for example
+    geometry({"query":"blue cup left of the plate","camera":"agentview","step":0,"required_geometry":["rim_center","height"]})
+For a usable surface or region, use its world_xyz. For fitted quantities use only
+values with fit_accepted=true, including individual fields in a partial or warning
+result. Check warnings and views_checked. Record accepted measurements directly in
+the localization table. Sample pixels or refine with the recorded wrist view only
+for quantities that still lack evidence. Leave unsupported fields unknown. On
+insufficient_evidence, retry geometry only after a normal task action changes the evidence."""
 
 SURFACE_SAMPLING = """When sampling pixels manually, each valid point lies on a visible surface.
 For a grasp/place target use its x,y. For z use the object's resting height
@@ -333,20 +458,7 @@ ALWAYS apply the manipulation offsets from memory to the PERCEIVED position
 (e.g. BOWL: eef_y = plate_y + 0.045). Verify visually in `agentview_high.png`
 after moving."""
 
-
-def perception_algorithm(variables: Mapping[str, object]) -> str:
-    """Select the wrist observation used for localization in this run."""
-    if variables.get("generic_tools") and variables.get("geometry"):
-        wrist = (
-            "use the recorded wrist view of the same step when the candidate is visible"
-        )
-        mismatch = (
-            "keep the agentview evidence and mark unresolved quantities as uncertain"
-        )
-    else:
-        wrist = "`move_to` ~15-20cm above the agentview anchor xy and inspect the wrist image"
-        mismatch = "keep the agentview xyz, or nudge and re-observe"
-    return f"""Use agentview to identify the target. A wrist view can refine where
+GEOMETRY_PERCEPTION_ALGORITHM = """Use agentview to identify the target. A wrist view can refine where
 that same candidate is. Do NOT invert those roles.
 
 CORE RULE:
@@ -373,16 +485,18 @@ ALGORITHM (run this BEFORE manipulating):
    reading is NOT trustworthy. Classify destination surfaces (plate vs stove
    burner vs cabinet/drawer vs basket) semantically in RGB here.
 
-3. COARSE XYZ for manual pixel measurements (agentview): pick 3-8 pixels firmly
-   on the chosen candidate, call `back_project` on the SAME pixels, take the median.
+3. Use an accepted `geometry` result for the requested quantity on the identified
+   candidate. For a missing position, pick 3-8 agentview pixels firmly on the
+   candidate, call `back_project` on the SAME pixels and take the median.
    Avoid edges/holes/shadows/table-gaps. This median is the IDENTITY ANCHOR for
    that entity.
 
-4. For manual wrist refinement of a non-basket target, {wrist}.
+4. For manual wrist refinement of a non-basket target, use the recorded wrist
+   view of the same step when the candidate is visible.
    Refine only the SAME candidate's surface/center from the wrist:
      - accept a wrist xy ONLY if it is within ~3-5cm of the agentview anchor;
      - if the wrist xy jumps >5cm, REJECT it (it hit a look-alike/background) and
-       {mismatch};
+       keep the agentview evidence and mark unresolved quantities as uncertain;
      - the wrist may NOT override the agentview semantic choice — it only sharpens
        coordinates when geometry is consistent.
 
@@ -413,6 +527,76 @@ ALGORITHM (run this BEFORE manipulating):
 directly comparable. Do NOT blindly average them — accept wrist coords only when
 consistent with the agentview anchor, or for basket/cavity geometry.)"""
 
+#: The primitives step before the SAM3 aid. The aid itself names the registered
+#: ``segment`` arguments, so it is appended by :func:`workflow_steps`.
+STEP_PRIMITIVES_RULES = """⛔ `reset` is FORBIDDEN here
+(SINGLE-ATTEMPT MODE). FORBIDDEN: `exit`, `set_object_pose`, `articulate_to`,
+`js_move_to`, `carry_object`.
+
+⚠ INFRA NOTE: `pi0_doubled` IS implemented and callable in this runtime —
+verified. It runs the Pi0 VLA on a CONTACT skill (drawer/door open-close, knob
+turn) with success := `terminated` (no lift / no gripper-close
+assumption — unlike `pi0_pick`). If ANY prior note or reference for this cell
+concluded that `pi0_doubled` is "unknown action" / missing / that
+drawer-or-door articulation is an unsolvable "structural dead-end" BECAUSE no
+contact primitive existed — DISREGARD that specific conclusion and actually
+USE `pi0_doubled` for the drawer/door step, alternating with short capped OSC
+pushes/aligns as needed. Re-prove the cell from scratch; do not inherit the
+dead-end verdict.
+
+"""
+
+SEGMENT_AID = """SAM3 localization aid — `segment` (no robot motion): instead of eyeballing
+a pixel, call `segment({"prompt":"the black bowl on the cookies box",
+"camera":"agentview"})`. It runs SAM3 on the current image, back-projects the
+mask via the matching world map, and returns a robust median `world_xyz` plus
+logical `segment_artifact` and `overlay_artifact` names. Inspect the embedded
+overlay image to confirm the right object. Use `camera":"wrist"` (after parking the eef ~15–20 cm over the
+target) for ±1–2 cm refinement, or `"point":[row,col]` for a point prompt.
+Text `prompt` and `point` are mutually exclusive; provide exactly one.
+⚠ PROMPT PHRASING (SAM3 is sensitive): use a plain colour+shape+RELATION phrase,
+NEVER the internal/brand name from `object_names`/BDDL. `"the akita black bowl"`
+scores ~0.03 (SAM3 can't ground "akita") whereas `"the black bowl on the stove"`
+scores ~0.76. Strip proper nouns (akita, glazed_rim_porcelain_…) — say what it
+LOOKS LIKE + where it is. Always inspect the returned overlay image to confirm
+the mask landed on the right object before moving.
+This is a CONVENIENCE alternative to manual back-projection — if it returns
+`{"error":..., "fallback":...}` (server down / low score / no detection), walk
+the prompt (drop the brand word, add the relation) or just pick a pixel in the
+high-resolution image and call `back_project` yourself. It does NOT replace the
+two-camera relation protocol for disambiguating identical objects.
+"""
+
+#: Same aid for the generic tools, whose ``segment`` takes an ``image_shape``
+#: and runs on the artifact with the highest calibrated resolution.
+GENERIC_SEGMENT_AID = """SAM3 localization aid — `segment` (no robot motion): instead of eyeballing
+a pixel, call `segment({"prompt":"the black bowl on the cookies box",
+"camera":"agentview"})`. It runs SAM3 on the current image, back-projects the
+mask via the matching world map, and returns a robust median `world_xyz` plus
+logical `segment_artifact` and `overlay_artifact` names. Inspect the embedded
+overlay image to confirm the right object. To refine a candidate visible in the
+wrist image, set `camera` to `"wrist"`. Use the pixel grid specified in LOCALIZATION.
+⚠ PROMPT PHRASING (SAM3 is sensitive): use a plain colour+shape+RELATION phrase,
+NEVER the internal/brand name from `object_names`/BDDL. `"the akita black bowl"`
+scores ~0.03 (SAM3 can't ground "akita") whereas `"the black bowl on the stove"`
+scores ~0.76. Strip proper nouns (akita, glazed_rim_porcelain_…) — say what it
+LOOKS LIKE + where it is. Always inspect the returned overlay image to confirm
+the mask landed on the right object before moving.
+If segmentation reports an error or finds no usable mask, walk
+the prompt (drop the brand word, add the relation) or just pick a pixel in the
+high-resolution image and call `back_project` yourself. It does NOT replace the
+two-camera relation protocol for disambiguating identical objects.
+"""
+
+EXECUTE_PRIMITIVE = """EXECUTE one primitive at a time by calling its structured tool:
+
+    move_to({"xyz": [x, y, z], "gripper": -1, ...})
+    pi0_pick({"prompt": "...", "max_chunks": 20, ...})
+    release({})
+
+Each primitive tool blocks until the next state record is dumped and returns
+the new state view, log, and embedded images. Inspect `agentview_high.png` and
+`wrist_high.png` as needed, """
 
 WORKFLOW_STEPS = (
     """READ THE GUIDES once each:
@@ -464,55 +648,15 @@ command lists. Re-derive every coordinate from THIS scene.
 """,
     """RUN THE MANDATORY PRE-TASK PERCEPTION PASS (FIRST-STEP ALGORITHM above) —
 localize EVERYTHING first, THEN act. Before any pick/place build the
-localization table using the identity, measurement and ready checks above,
-including confirmation of any basket/cavity destination. This perception pass is
-the first stage of EVERY task, even ones that look simple — a wrong-target first
+localization table: agentview hi-res for semantic identity, `back_project` for
+median xyz, wrist geometry refinement for non-basket rows (only if spatially
+consistent), wrist confirmation for basket/cavity. This perception pass is the
+first stage of EVERY task, even ones that look simple — a wrong-target first
 grab is unrecoverable in single-attempt mode, so the cheap insurance is to
 identify all entities up front. Do the FINAL READY CHECK, then plan.
 """,
-    """EXECUTE one primitive at a time by calling its structured tool:
-
-    move_to({"xyz": [x, y, z], "gripper": -1, ...})
-    pi0_pick({"prompt": "...", "max_chunks": 20, ...})
-    release({})
-
-Each primitive tool blocks until the next state record is dumped and returns
-the new state view, log, and embedded images. Inspect `agentview_high.png` and
-`wrist_high.png` as needed, localize with the available tools, decide, and repeat.
-""",
-    """⛔ `reset` is FORBIDDEN here
-(SINGLE-ATTEMPT MODE). FORBIDDEN: `exit`, `set_object_pose`, `articulate_to`,
-`js_move_to`, `carry_object`.
-
-⚠ INFRA NOTE: `pi0_doubled` IS implemented and callable in this runtime —
-verified. It runs the Pi0 VLA on a CONTACT skill (drawer/door open-close, knob
-turn) with success := `terminated` (no lift / no gripper-close
-assumption — unlike `pi0_pick`). If ANY prior note or reference for this cell
-concluded that `pi0_doubled` is "unknown action" / missing / that
-drawer-or-door articulation is an unsolvable "structural dead-end" BECAUSE no
-contact primitive existed — DISREGARD that specific conclusion and actually
-USE `pi0_doubled` for the drawer/door step, alternating with short capped OSC
-pushes/aligns as needed. Re-prove the cell from scratch; do not inherit the
-dead-end verdict.
-
-SAM3 localization aid — `segment` (no robot motion): instead of eyeballing
-a pixel, call `segment({"prompt":"the black bowl on the cookies box",
-"camera":"agentview"})`. It runs SAM3 on the current image, back-projects the
-mask via the matching world map, and returns a robust median `world_xyz` plus
-logical `segment_artifact` and `overlay_artifact` names. Inspect the embedded
-overlay image to confirm the right object. To refine a candidate visible in the
-wrist image, set `camera` to `"wrist"`. Use the pixel grid specified in LOCALIZATION.
-⚠ PROMPT PHRASING (SAM3 is sensitive): use a plain colour+shape+RELATION phrase,
-NEVER the internal/brand name from `object_names`/BDDL. `"the akita black bowl"`
-scores ~0.03 (SAM3 can't ground "akita") whereas `"the black bowl on the stove"`
-scores ~0.76. Strip proper nouns (akita, glazed_rim_porcelain_…) — say what it
-LOOKS LIKE + where it is. Always inspect the returned overlay image to confirm
-the mask landed on the right object before moving.
-If segmentation reports an error or finds no usable mask, walk
-the prompt (drop the brand word, add the relation) or just pick a pixel in the
-high-resolution image and call `back_project` yourself. It does NOT replace the
-two-camera relation protocol for disambiguating identical objects.
-""",
+    EXECUTE_PRIMITIVE + "call `back_project` for geometry, decide, and repeat.\n",
+    STEP_PRIMITIVES_RULES,
     """RECOVERY (in-place ONLY — no reset): re-localize (objects may have moved),
 re-pre-position + re-pi0_pick on the next prompt-ladder rung; split long
 traversals into <0.30 xy waypoints; for a door/drawer/knob use a SHORT capped
@@ -618,15 +762,50 @@ def allowed_primitives(enable_direct_action: bool = False) -> str:
 
 
 def workflow_steps(
-    steps: tuple[str, ...], enable_direct_action: bool
+    steps: tuple[str, ...],
+    variables: Mapping[str, object],
+    *,
+    primitives: str = STEP_PRIMITIVES,
 ) -> tuple[str, ...]:
-    """Attach the active primitive list to the evaluation step."""
-    return tuple(
-        allowed_primitives(enable_direct_action) + step
-        if step == STEP_PRIMITIVES
-        else step
-        for step in steps
-    )
+    """Use the run's localization method and mode-specific motion tools."""
+    geometry = bool(variables.get("geometry"))
+    enabled = bool(variables.get("enable_direct_action"))
+    instructions = {primitives: allowed_primitives(enabled) + primitives}
+    if primitives == STEP_PRIMITIVES:
+        generic = geometry or variables.get("generic_tools")
+        instructions[primitives] += GENERIC_SEGMENT_AID if generic else SEGMENT_AID
+    if geometry:
+        instructions[STEP_PERCEPTION_PASS] = (
+            "Before any pick or place, complete the localization table and final "
+            "ready check in the FIRST-STEP ALGORITHM. Record the source and step "
+            "of each measurement and confirm any basket placement is inside the cavity."
+        )
+        instructions[STEP_EXECUTE] = (
+            EXECUTE_PRIMITIVE
+            + "update measurements if the scene has changed, then decide.\n"
+        )
+    return tuple(instructions.get(step, step) for step in steps)
+
+
+def sampling_instructions(variables: Mapping[str, object]) -> str:
+    """Describe the generic RGB-D tools registered for this run."""
+    if variables.get("geometry"):
+        return GENERIC_SAMPLING + "\n\n" + NAMED_GEOMETRY
+    return GENERIC_SAMPLING
+
+
+def localization(variables: Mapping[str, object]) -> str:
+    """Return localization instructions that match the registered tool schemas."""
+    if not (variables.get("generic_tools") or variables.get("geometry")):
+        return LOCALIZATION
+    return sampling_instructions(variables) + "\n\n" + SURFACE_SAMPLING
+
+
+def perception_algorithm(variables: Mapping[str, object]) -> str:
+    """Use recorded wrist views for refinement when the geometry tool is enabled."""
+    if variables.get("geometry"):
+        return GEOMETRY_PERCEPTION_ALGORITHM
+    return PERCEPTION_ALGORITHM
 
 
 WAM_ROLE = (
@@ -634,22 +813,29 @@ WAM_ROLE = (
     "Tool names may appear as mcp__rpent__<name> in SDK planners."
 )
 
-WAM_WORKFLOW = (
-    "Inspect view_env_state at step 0. Use wam_act to execute "
-    "bounded action chunks, then inspect the new state and images before "
-    "continuing. Begin with the native full task by omitting prompt. "
-    "Keep that instruction while progress is visible. Use a short, "
-    "grounded subtask only to address an observed failure or lack of "
-    "progress; the prompt applies only to that call. Start with one chunk "
-    "and inspect before continuing (at most four per call). Each chunk "
-    "executes the worker's returned actions; episode-end checks prevent the next chunk. wam_act "
-    "does not stop when a grasp completes. Check subtasks visually; "
-    "success and terminated refer to the full task, while truncated "
-    "means the action budget is exhausted. "
-    "For scripted motion, localize targets "
-    "using the available localization tools; never invent coordinates. Gripper +1 "
-    "closes and -1 opens. Preserve +1 while carrying an object."
-)
+
+def wam_workflow(geometry: bool) -> str:
+    """Describe scripted localization alongside WAM actions."""
+    tools = (
+        "geometry, back_project or segment" if geometry else "back_project or segment"
+    )
+    return (
+        "Inspect view_env_state at step 0. Use wam_act to execute "
+        "bounded action chunks, then inspect the new state and images before "
+        "continuing. Begin with the native full task by omitting prompt. "
+        "Keep that instruction while progress is visible. Use a short, "
+        "grounded subtask only to address an observed failure or lack of "
+        "progress; the prompt applies only to that call. Start with one chunk "
+        "and inspect before continuing (at most four per call). Each chunk "
+        "executes the worker's returned actions; episode-end checks prevent the next chunk. wam_act "
+        "does not stop when a grasp completes. Check subtasks visually; "
+        "success and terminated refer to the full task, while truncated "
+        "means the action budget is exhausted. "
+        "For scripted motion, localize targets "
+        f"using {tools}; never invent coordinates. Gripper +1 "
+        "closes and -1 opens. Preserve +1 while carrying an object."
+    )
+
 
 WAM_OUTCOME = (
     "This is one evaluation episode. Do not reset it. Stop acting "
@@ -659,38 +845,32 @@ WAM_OUTCOME = (
 )
 
 
-def sampling_instructions(variables: Mapping[str, object]) -> str:
-    """Describe only the measurement interfaces registered for this run."""
-    if not variables.get("generic_tools"):
-        return LEGACY_SAMPLING
-    if variables.get("geometry"):
-        return GENERIC_SAMPLING + "\n\n" + NAMED_GEOMETRY
-    return GENERIC_SAMPLING
-
-
 def system_prompt(
     variables: Mapping[str, object] | None = None,
 ) -> PromptNode:
     """Assemble the LIBERO evaluation prompt for the policy and memory profile."""
     variables = variables or {}
+    geometry = bool(variables.get("geometry"))
     if variables.get("policy_kind") == "wam":
-        prompt = {"ROLE": WAM_ROLE, "WORKFLOW": WAM_WORKFLOW, "OUTCOME": WAM_OUTCOME}
-        if variables.get("generic_tools"):
+        prompt = {
+            "ROLE": WAM_ROLE,
+            "WORKFLOW": wam_workflow(geometry),
+            "OUTCOME": WAM_OUTCOME,
+        }
+        if geometry or variables.get("generic_tools"):
             prompt["LOCALIZATION"] = sampling_instructions(variables)
         return prompt
-    enabled = bool(variables.get("enable_direct_action", False))
-    localization = sampling_instructions(variables) + "\n\n" + SURFACE_SAMPLING
     if variables.get("memory_profile", "hf") == "local":
         return {
             "ROLE AND EVALUATION": ROLE_AND_EVALUATION,
             "MEMORY PROFILE — LOCAL SUITE + TASK + GLOBAL": (LOCAL_MEMORY_PROFILE),
-            "PROVEN LEVERS": PROVEN_LEVERS,
-            "RUNTIME": RUNTIME,
+            "PROVEN LEVERS": proven_levers(geometry),
+            "RUNTIME": runtime(geometry),
             "YOUR GOAL": GOAL,
-            "RULES (NON-NEGOTIABLE)": RULES,
-            "LOCALIZATION": localization,
+            "RULES (NON-NEGOTIABLE)": rules(geometry),
+            "LOCALIZATION": localization(variables),
             "FIRST-STEP ALGORITHM": perception_algorithm(variables),
-            "WORKFLOW": Numbered(workflow_steps(LOCAL_WORKFLOW_STEPS, enabled)),
+            "WORKFLOW": Numbered(workflow_steps(LOCAL_WORKFLOW_STEPS, variables)),
             "KEY HYPERPARAMETERS": KEY_HYPERPARAMETERS,
             "OUTPUT DISCIPLINE": OUTPUT_DISCIPLINE,
         }
@@ -698,18 +878,18 @@ def system_prompt(
     return {
         "ROLE AND EVALUATION": ROLE_AND_EVALUATION,
         "PROVEN LEVERS & LESSONS — libero_10_task seed-0 sweep solved 9/10 (READ THIS)": (
-            PROVEN_LEVERS
+            proven_levers(geometry)
         ),
-        "RUNTIME": RUNTIME,
+        "RUNTIME": runtime(geometry),
         "YOUR GOAL": GOAL,
-        "RULES (NON-NEGOTIABLE)": RULES,
+        "RULES (NON-NEGOTIABLE)": rules(geometry),
         "LOCALIZATION — how to get an object's world xyz WITHOUT GT coords": (
-            localization
+            localization(variables)
         ),
         "FIRST-STEP ALGORITHM — agentview = IDENTITY, wrist = GEOMETRY": (
             perception_algorithm(variables)
         ),
-        "WORKFLOW": Numbered(workflow_steps(WORKFLOW_STEPS, enabled)),
+        "WORKFLOW": Numbered(workflow_steps(WORKFLOW_STEPS, variables)),
         "KEY HYPERPARAMETERS": KEY_HYPERPARAMETERS,
         "OUTPUT DISCIPLINE": OUTPUT_DISCIPLINE,
     }

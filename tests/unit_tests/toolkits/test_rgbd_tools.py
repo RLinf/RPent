@@ -110,6 +110,9 @@ def test_text_segmentation_checks_the_positive_point_on_the_native_mask(tmp_path
     text_only = tool.segment(**args, prompt="cup").data
     accepted = tool.segment(**args, prompt="cup", point=[1, 2]).data
     assert accepted["mode"] == "text_with_point_check" and accepted["point"] == [3, 5]
+    assert accepted["segment_artifact"].startswith("segment_")
+    unscaled = tool.segment(camera=frame.camera, prompt="cup", point=[1, 2]).data
+    assert unscaled["status"] == "error" and "image_shape" in unscaled["error"]
     assert accepted["world_xyz"] == text_only["world_xyz"] == [1.0, 1.0, 1.0]
     assert state.load(accepted["mask_artifact"], step=0)[3, 5]
     for prompt, point, reason in (
@@ -198,6 +201,45 @@ def _obs(camera, x=0, frame="table", step=0):
         camera_to_world=cam,
         up_direction=np.array([0.0, 0.0, 1.0]),
     )
+
+
+@pytest.mark.parametrize(
+    "reason",
+    ["another_occluded_colored_instance", "another_occluded_compatible_instance"],
+)
+def test_wrist_lookalike_cannot_resolve_occluded_target(reason):
+    front = _obs("agentview")
+    wrist = _obs("wrist", x=0.4)
+    provider = SimpleNamespace(
+        get_observation=lambda **kwargs: front,
+        additional_observations=lambda primary: [wrist],
+    )
+
+    def measure(*args, observation, evidence, **kwargs):
+        if observation is front:
+            # The leftmost cube projects outside the wrist image.
+            evidence["anchor_xyz"] = front.world_xyz[3, 0]
+            return ToolResult(data={"status": "need_observation", "reason": reason})
+        return ToolResult(
+            data={
+                "status": "usable",
+                "found": True,
+                "world_xyz": wrist.world_xyz[3, 0].tolist(),
+            }
+        )
+
+    result = observe_with_alternatives(
+        provider,
+        measure,
+        "the leftmost red cube",
+        "agentview",
+        0,
+        "surface_point",
+        None,
+        lambda: None,
+    ).data
+    assert result["status"] == "insufficient_evidence"
+    assert result.get("world_xyz") is None
 
 
 @pytest.mark.parametrize("overlap", [True, False])

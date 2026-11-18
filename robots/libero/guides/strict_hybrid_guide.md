@@ -18,7 +18,7 @@ state JSON carried GT object coordinates, is not included here).
 | how you learn the task | env prompt / BDDL | **top-level `task_language` returned by `view_env_state`** (authoritative `:language`, coord-free) — never scrape the BDDL |
 | extra obs artifacts | policy image only | **logical agentview/wrist image, depth, world-map, and metadata keys, including `agentview_high.png` and `wrist_high.png`** |
 | cameras | agentview only | **agentview (fixed, ~1m → ±8–13 cm) + eye-in-hand wrist (moves with gripper, ±1–2 cm when <20 cm to target)** — coarse→fine, see below |
-| how you get an object's xyz | read `state["objects"][name]` | **pick the object pixel, then `back_project({"row":ROW,"col":COL,"step":NN})` (K⁻¹+extrinsic already done); refine with the wrist map up close** |
+| how you get an object's xyz | read `state["objects"][name]` | **select pixels on the object, use `back_project` for the same camera and step, and take the median world xy** |
 | how you confirm the grasp | GT object-lift oracle | **grasp-only, no oracle — you judge the grasp from gripper width + wrist cam (Rule 1 / 1b)** |
 | how you pick which of two identical objects | read their distinct coords | **by SPATIAL RELATION from `task_language` (elevation / left-right), never by `_1`/`_2` name** |
 | cell budget | 600 (short suites) | **1200** — perceptual localization + manipulation is slower |
@@ -36,11 +36,10 @@ These are logical artifact names scoped by step, not paths to construct.
 1. Inspect `agentview_high.png` — agentview RGB **in the calibration frame**
    (vertical-flip of the raw buffer). This is the image you pick pixels in.
   `agentview_policy.png` is the Pi0 frame; **do not pick pixels there**.
-2. Find the target object visually → pixel `(row, col)`.
-3. Read its world xyz directly: `back_project({"row":ROW,"col":COL,"step":NN})`.
-   Sample 3–5 pixels on the object's top surface and median the returned xy
-   (robust to one mis-picked rim/edge pixel). That's the object's surface point
-   in world frame.
+2. Select 3–5 pixels on the object's top surface, away from the rim or gaps.
+3. Use `back_project` for the camera, step and pixel grid you inspected.
+   Take the median of the valid world xy samples to locate the surface.
+   The run's localization prompt gives the call format.
 
 ### Hi-res perception channel (ON BY DEFAULT, 1024×1024)
 
@@ -52,18 +51,14 @@ more pixels, and package text/label art is actually legible (e.g. "Cream
 Cheese" vs "BUTTER" boxes are readable at 1024 and indistinguishable smears
 at 256). If the hi files are absent, everything below works unchanged at 256.
 
-- A hi-res pixel `(row,col)` indexes ONLY the hi-res world map (`back_project`
-  default `resolution:"high"`; float16, same world frame). Never index a 1024
-  pixel into the 256 map or vice versa — pass `resolution:"low"` only for a
-  pixel taken from a 256 image (convert by dividing/multiplying by 4 if needed).
-- The `segment` command automatically uses the hi-res frame when present
-  (its `centroid_pixel`/`box` are then in 1024 coords).
-- Metric accuracy of mask-median localization is the SAME at both resolutions
-  (the residual ~2 cm error is the surface-vs-center offset, not pixel size) —
-  the hi channel is for **identification**, not for replacing the wrist-cam
-  fine-localization protocol.
-- If a high-resolution artifact is absent, everything below works unchanged
-  with `agentview.png` or `wrist.png` and `resolution:"low"`.
+- Keep pixel coordinates in the grid of the calibrated image you inspected.
+  Both resolutions store world coordinates in float16 in the same frame.
+- `segment` uses the highest available calibrated image and world-map pair.
+  Inspect the returned overlay to check the mask on that image.
+- A mask median describes the visible surface. In the measured scenes the
+  offset from the object center was about 2 cm at both resolutions.
+- If the high-resolution pair is absent, select pixels on `agentview.png` or
+  `wrist.png` using its 256×256 grid.
 
 ### Two cameras — agentview = IDENTITY, wrist = GEOMETRY
 
@@ -81,14 +76,15 @@ localization sweep):**
   probes it locked onto a look-alike hundreds of pixels away. **NEVER let the
   wrist freely re-identify a non-basket target.**
 
-Protocol (non-basket objects/surfaces):
+For manual localization of non-basket objects and surfaces, follow the
+wrist-refinement instructions in the current run's perception algorithm.
 1. **Identity (agentview)** — in `agentview_high.png` choose the target by RGB /
    label / shape / global spatial relation; sample 3–8 pixels on it and median
    `back_project` → the **identity anchor** (rough xy ok).
-2. **Approach** — `move_to` ~15–20 cm directly above that anchor xy (toolkit
-   re-renders both cams after every primitive).
+2. **Wrist view** — For the default approach, move ~15–20 cm above the anchor.
+   With `geometry` enabled, use the wrist image already recorded at the same step.
 3. **Geometry refine (wrist)** — pick the SAME candidate's pixel in
-  `wrist_high.png`, `back_project` it with `camera:"wrist"`. **Accept
+   `wrist_high.png` and use `back_project` for that wrist view. **Accept
    this corrected xy ONLY if it is within ~3–5 cm of the agentview anchor**; if
    it jumps >5 cm, REJECT it (it hit a look-alike/background) and keep the
    agentview xyz. The wrist may sharpen coordinates but may NOT override the
@@ -100,14 +96,15 @@ Protocol (non-basket objects/surfaces):
 ### Mandatory pre-task perception pass — localize EVERYTHING, THEN act
 
 Before ANY pick/place, build a localization table in your reasoning — one row
-per task-relevant entity (every movable target, every destination/support/
-fixture, every relation landmark named by `task_language`), each with:
-`name_or_role · agentview_evidence (why this candidate) · agentview_pixels ·
-agentview_xyz (median back_project on hi-res) · wrist_refine
-accepted|rejected|basket_confirmed · final_xyz · uncertainty`. Do the
-**FINAL READY CHECK** (every entity has a final xyz; non-basket wrist
-refinements are spatially consistent with agentview; basket points are
-interior-centred) — only then start manipulating. Rationale: in single-attempt
+per task-relevant entity (every movable target, destination, support, fixture
+and relation landmark named by `task_language`). Record the name or role,
+agentview identity evidence, measurement source and step,
+final coordinates, and uncertainty. For manual localization, include the
+sampled pixels, median xy and wrist-refinement outcome. When `geometry` is
+enabled, an accepted measurement of the requested quantity fills that entry
+directly. Before a coordinate-based action, check that its targets have usable
+coordinates, any wrist refinement agrees with agentview, and basket placement
+uses the open interior. Rationale: in single-attempt
 mode a **wrong-target first grab is unrecoverable** (it tips/displaces both the
 grabbed object and the target zone), so the cheap insurance is to identify all
 entities up front instead of recovering later.
@@ -275,36 +272,26 @@ sim) — do not start/stop it. You call MCP tools; begin by reading step 0 via
 |---|---|
 | `view_env_state` result | `step`, top-level `task_language`, `terminated`, `truncated`, `state.{robot0_eef_pos, robot0_eef_quat, robot0_gripper_qpos, object_names}`, `artifacts`, and nested `log.{command,result,elapsed_s}`. **No object coordinates.** Step `-1` selects latest. |
 | `agentview_policy.png` | RGB in Pi0 frame. *Do not pick pixels here for back-projection.* |
-| `agentview.png` | 256×256 agentview RGB in **calibration frame**. Pick object pixels HERE only with `back_project(..., resolution:"low")`. |
-| `agentview_high.png` | **HI-RES 1024×1024** agentview RGB, calibration frame. **PREFER this for looking / identification**; `back_project` defaults to `resolution:"high"`. |
+| `agentview.png` | 256×256 agentview RGB in the calibration frame. Select pixels on this grid when using the standard image. |
+| `agentview_high.png` | 1024×1024 agentview RGB in the calibration frame. Prefer this image for identification and select pixels on its grid. |
 | `agentview_depth.npz` | Losslessly compressed 256×256 agentview metric depth (m), aligned with `agentview.png`. Consume through `back_project`. |
 | `agentview_world.npz` / `agentview_world_high.npz` | Losslessly compressed, precomputed agentview world xyz per low/high-resolution pixel. Prefer `back_project`; do not open them manually. |
 | `wrist.png` / `wrist_high.png` | **Wrist (eye-in-hand) RGB**, calibration frame. Moves with the gripper. |
 | `wrist_depth.npz` | Losslessly compressed wrist metric depth (m), aligned with `wrist.png`. |
 | `wrist_world.npz` / `wrist_world_high.npz` | Losslessly compressed, precomputed wrist world xyz per low/high-resolution pixel in the SAME world frame as agentview. May be all-table until you move over the target. |
-| `wrist_metadata.json` | Wrist intrinsics + extrinsic **for THAT step only**. Read via `view_camera_meta({"camera":"wrist","step":NN})`. |
-| `agentview_metadata.json` | Agentview intrinsics, cam-to-world extrinsic, depth range, and projection notes. Read via `view_camera_meta({"camera":"agentview","step":NN})`. |
-| `segment_XX.json` | Per-step segment record named by the returned `segment_artifact`; includes mode, camera, source step, score, box, centroid, and `world_xyz`. |
-| `segment_overlay_XX.png` | Per-step overlay named by `overlay_artifact` and embedded by a successful `segment` result for visual confirmation. |
+| `wrist_metadata.json` | Wrist intrinsics and extrinsic for the recorded step. Read with `view_camera_meta` for that wrist view. |
+| `agentview_metadata.json` | Agentview intrinsics, cam-to-world extrinsic, depth range and projection notes. Read with `view_camera_meta` for that agentview step. |
+| `segment_artifact` | Name of the saved segmentation record. Use its camera, score and available world coordinates to interpret the detection. |
+| `overlay_artifact` | Name of the overlay embedded in a successful `segment` result for visual confirmation. |
 
 The command, result, and `elapsed_s` are returned under `log`; there is no
 separate per-step log file to read.
 
 ## Localization with `back_project` (coarse agentview → fine wrist)
 
-You index the precomputed map through `back_project` — no K⁻¹ math. Coarse
-(agentview) then, once the gripper is parked over the target, fine (wrist):
-
-```
-# COARSE: agentview hi-res (default resolution:"high") — choose which object / rough xy
-back_project({"row": ROW, "col": COL, "step": NN})
-
-# FINE: wrist — after move_to ~15-20cm above the target, pick its pixel in
-# wrist_high.png and back_project it (±1-2cm; refines the SAME candidate).
-back_project({"row": ROW, "col": COL, "step": NN, "camera": "wrist"})
-```
-
-(Pass `"resolution":"low"` only when `ROW,COL` came from a 256 image.)
+Identify the object in agentview, select surface pixels and use `back_project`
+for that camera and step. Take the median world xy. If the wrist view shows
+the same candidate, repeat on the wrist image using its own step and pixel grid.
 
 Tips:
 
@@ -365,45 +352,24 @@ move_pose({"xyz": [x, y, z], "target_pitch": 0.0, "target_yaw": 0.0,
            "gripper": 1, "step_clip": 0.02, "pitch_step": 0.08, "yaw_step": 0.08,
            "tol": 0.012, "ori_tol": 0.05, "max_steps": 150})
 
-// SAM3-grounded localization — does NOT move the robot and does NOT
-// replace manual back-projection. Segments the most-recent dumped image for the
-// prompt, back-projects the mask through the matching world map, and writes
-// segment_XX.json {score, box, centroid_pixel, world_xyz (robust MEDIAN over
-// the whole mask), n_pixels} + segment_overlay_XX.png. Read world_xyz
-// directly instead of eyeballing a pixel. camera "wrist" uses the wrist world
-// map for fine refinement (move the eef over the target first). Pass
-// "point":[row,col] for a point prompt instead of text; prompt and point are
-// mutually exclusive. min_score default 0.2.
-// RPent manages the SAM3 service. If one call fails or finds nothing, the result is
-// an {"error":...,"fallback":...} dict — fall back to picking a pixel in
-// agentview_high.png and calling back_project.
-segment({"prompt": "the black bowl on the stove", "camera": "agentview",
-         "point": null, "min_score": 0.2})
-
 // === FORBIDDEN — DELETED FROM THE CODE — DO NOT EMIT ============
 //   set_object_pose, articulate_to, js_move_to, carry_object
 ```
 
 ### How to use `segment` (SAM3) — practical tips
 
-`segment` is the fastest way to localize: one call gives you a `world_xyz`
-that is a robust MEDIAN over the whole object mask (hundreds of pixels), which
-beats eyeballing 3–5 pixels. Workflow:
+`segment` returns a candidate mask. With enough valid depth, its `world_xyz`
+is the coordinate-wise median of the masked world samples.
 
 1. Inspect `agentview_high.png`, decide the target by the task's spatial RELATION.
 2. Call `segment` with a **plain visual phrase + the relation**, then read the
   returned `world_xyz` and embedded overlay image to confirm the mask
    is on the right object before you move.
-3. **Two camera views — YOUR choice via the `"camera"` field** (`segment` works
-   on either; default `"agentview"`):
-   - `"camera":"agentview"` — the fixed ~1 m cam (±8–13 cm). Use it to choose
+3. Choose the camera whose image shows the target.
+   - `agentview` — the fixed ~1 m cam (±8–13 cm). Use it to choose
      WHICH object (global layout / spatial relation) and get a rough xy.
-   - `"camera":"wrist"` — the eye-in-hand cam (±1–2 cm), reads the wrist world
-     map in the SAME world frame. Use it to PRECISELY localize once the gripper
-     is parked over the target. ⚠ It is null / all-table until you `move_to`
-     ~15–20 cm over the target (the wrist only sees the gripper+table before
-     that), so segment agentview first, approach, THEN segment wrist.
-   Typical coarse→fine: agentview select → `move_to` above → wrist refine → grasp.
+   - `wrist` — the eye-in-hand cam (±1–2 cm at close range) shares the
+     agentview world frame. Use it to refine the same target when it is visible.
    You decide when the wrist refinement is worth it (small / closely-spaced /
    identical objects benefit most; a big isolated plate may not need it).
 
@@ -419,20 +385,19 @@ beats eyeballing 3–5 pixels. Workflow:
   overlay and the world-z (an object *on* a fixture has a higher z than a
   table-level twin). The two-camera relation protocol still applies when SAM3
   can't disambiguate from text alone.
-- If `segment` returns `{"error":...}` (low score / service down), walk the
+- If `segment` fails or finds no usable mask, adjust the
   prompt (drop the brand word, simplify, add the relation) or fall back to
   manual pixel → `back_project`.
 
 ## The strict-hybrid recipe (perception variant)
 
-A typical bowl→plate cell looks like:
+A typical bowl→plate cell using manual localization looks like:
 
 1. `view_env_state({"step": 0})`; inspect `task_language`,
    `agentview_high.png`, and call `view_camera_meta` if needed.
 2. Identify the target by the task's spatial RELATION, not its name (Rule 7).
-3. Localize it — pick its pixel in `agentview_high.png`,
-   `back_project({"row":ROW,"col":COL,"step":0})` (coarse). Refine with the
-   wrist cam after pre-positioning (fine).
+3. Pick surface pixels in `agentview_high.png` and take the median world xy
+   from `back_project` for step 0.
 4. **Pre-position** ~15–20 cm above it: `move_to([obj_x, obj_y, carry_z])`,
    gripper open. Re-`back_project` a wrist pixel here and correct the xy before
    grasping.
@@ -534,20 +499,20 @@ When top-level `terminated == true`:
 
 a. The working command recipe (`{output_dir}/{recipe_tag}_recipe.jsonl`) is
   **auto-exported by the runner** from non-error primitive commands in the
-  recorded state trace plus successful `segment_XX.json` artifacts, merged in
+  recorded state trace plus successful public `segment` calls, merged in
   execution order — you do NOT
    hand-write it.
 b. Write a minimal audit JSON with `write_text_file` to
    `{output_dir}/{recipe_tag}.json` with at least: `suite`, `task_id`, `seed`,
-   `regime: "strict_perception"`, `strategy_notes` (mention HOW you localized —
-   which pixel, depth, back-projected world xyz), `pick_result` (the `result`
+   `regime: "strict_perception"`, `strategy_notes` (give the camera, step,
+   localization method and measured coordinates), `pick_result` (the `result`
   from your `pi0_pick`), `final_state` (the latest returned `state` field),
   `terminated: true`.
 c. Call `finish({"status":"success","summary":"…"})`.
 
 If unrecoverable after honest exploration in this one episode, write
 `{output_dir}/{recipe_tag}.json` with `terminated: false` +
-`strategy_notes` describing what you tried, the back-projected xyz you used, and
+`strategy_notes` describing what you tried, the measured coordinates you used, and
 which step failed. Then call `finish` (NO reset, NO second attempt).
 
 > The `regime: "strict_perception"` tag distinguishes these audits from the
@@ -594,10 +559,9 @@ localize → pre-pos → `pi0_pick` → `set_gripper` → move → `release` in 
 commands.
 
 When you write a new audit, browse a sibling cell's `{tag}_recipe.jsonl` as a
-*technique* template — but never paste its xyz; re-derive every position via
-`back_project` from THIS scene's depth.
+*technique* template. Derive every position from the current scene's depth.
 
 Begin with `view_env_state({"step": 0})` and inspect `task_language` and
 `agentview_high.png` (+ metadata via `view_camera_meta`). Read
 `memory/libero/MEMORY.md` and matching task memories, then localize the target
-object via `back_project`, plan, and execute.
+object using the run's localization instructions, plan, and execute.

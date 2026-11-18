@@ -265,11 +265,18 @@ def _add_cli_args(parser: argparse.ArgumentParser, use_dashboard: bool) -> None:
         "If unset, a local env_server is spawned.",
     )
     parser.add_argument(
+        "--rgbd-tools",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help="Replace LIBERO's back_project and segment with the generic RGB-D "
+        "tools. Defaults to disabled.",
+    )
+    parser.add_argument(
         "--geometry",
         action=argparse.BooleanOptionalAction,
         default=False,
-        help="Enable local geometry alongside generic back_project and segment. "
-        "Defaults to disabled.",
+        help="Enable local geometry alongside generic back_project and segment; "
+        "implies --rgbd-tools. Defaults to disabled.",
     )
     parser.add_argument(
         "--molmo-endpoint",
@@ -393,7 +400,9 @@ def _parse_config(args: argparse.Namespace) -> RunConfig:
                 "run exploration first or use --memory-profile hf"
             )
     prompt_vars = {
-        "generic_tools": planner != "flash" or getattr(args, "geometry", False),
+        "generic_tools": bool(
+            getattr(args, "rgbd_tools", False) or getattr(args, "geometry", False)
+        ),
         "geometry": getattr(args, "geometry", False),
         "policy_backend": policy_backend,
         "policy_kind": policy_kind,
@@ -568,8 +577,8 @@ def _connect_molmo_server(
     """Connect to Molmo running in its dependency-isolated environment."""
     if args.molmo_endpoint is None:
         raise ValueError(
-            "--planner flash requires --molmo-endpoint; Molmo uses a "
-            "separate environment because its transformers requirement "
+            "--planner flash or --geometry requires --molmo-endpoint; Molmo "
+            "uses a separate environment because its transformers requirement "
             "conflicts with LIBERO's policy environment"
         )
     return None, make_rpc_client(args.molmo_endpoint)

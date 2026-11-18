@@ -57,6 +57,8 @@ def _definite_twins(data):
             "multiple_matching_colored_boxes",
             "multiple_matching_packages",
             "another_compatible_open_container",
+            "another_occluded_colored_instance",
+            "another_occluded_compatible_instance",
             "another_visually_compatible_instance",
         }
     )

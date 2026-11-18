@@ -35,7 +35,9 @@
 LIBERO
 ~~~~~~
 
-LIBERO 的适配器按相机名（``agentview`` 或 ``wrist``）和步号读取 RGB 图像、世界坐标图和标定数据。其 API 规划器默认提供 ``back_project`` 和基于 SAM3 的 ``segment``。如需启用 ``geometry``，将 ``MOLMO_ENDPOINT`` 设为已启动的本地 Molmo 服务地址，并在 LIBERO 运行命令中加入 ``--geometry --molmo-endpoint "$MOLMO_ENDPOINT"``。
+LIBERO 的适配器按相机名（``agentview`` 或 ``wrist``）和步号读取 RGB 图像、世界坐标图和标定数据。LIBERO 默认仍使用自身的 ``back_project`` 和 ``segment``；加入 ``--rgbd-tools`` 后，无论使用哪种规划器，都会改用通用工具及其参数格式。
+
+``geometry`` 目前是实验功能。启用前，按\ :doc:`../guides/flash`\ 中的说明，用与当前 RPent 相同版本的代码启动 Molmo 服务，将 ``MOLMO_ENDPOINT`` 设为该服务地址，并在 LIBERO 运行命令中加入 ``--geometry --molmo-endpoint "$MOLMO_ENDPOINT"``。``--geometry`` 会同时注册通用工具。它依赖 Molmo 服务的原生选点模式和 ``molmo.verify``，旧版本的 Molmo 服务不提供这两项功能。
 
 例如，规划器可以用一次 ``geometry`` 调用测量同一个杯子的杯口半径和完整高度。
 

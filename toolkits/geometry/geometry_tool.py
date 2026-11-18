@@ -146,6 +146,9 @@ class GeometryTool:
             measurement: Choose surface_point or visible_region. Bounds cover visible samples.
             required_geometry: Optional list of part and whole-object quantities for
                 this target. Each is evaluated separately. Overrides measurement.
+                Use height for the distance between fitted rim and bottom centers.
+                The object_height value (visible vertical extent) is available
+                only in the saved geometry artifact.
         """
         query = query.strip()
         if not query:
