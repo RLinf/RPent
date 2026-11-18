@@ -30,6 +30,8 @@ position tolerance. A zero-step move does not actuate the gripper; use set_gripp
 for in-place opening or closing.
 Do not read simulator internals, object/goal coordinates, native expert policies,
 or evaluation results from files or other channels. No episode resets are exposed.
+If wam_act is available, it executes bounded model chunks for the task instruction.
+Inspect its resulting image; predicted observations are not simulator evidence.
 Stop after the episode ends and call finish. Judge completion from observations;
 do not claim a task succeeded merely because a motion returned successfully."""
 

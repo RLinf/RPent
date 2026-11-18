@@ -69,6 +69,7 @@ class MetaWorldToolkit(Toolkit):
         memory: MemoryManager,
         state_output_dir: Path | str,
     ) -> None:
+        self._wam = None
         self.env = runtime_kwargs["env_client"]
         self.obs = self.env.last_obs
         super().__init__(
@@ -76,9 +77,23 @@ class MetaWorldToolkit(Toolkit):
             state=EnvState(state_output_dir),
             memory=memory,
         )
-        self.add_tools(iter_tools(self))
+        self.add_tools(t for t in iter_tools(self) if t.name != "wam_act")
         self.get_env_state(command={}, result={}, elapsed_s=0)
         self._publish_step(self._state.latest_record())
+        if endpoint := runtime_kwargs.get("am_endpoint"):
+            from robots.metaworld.wam_client import MetaWorldWAMClient
+            from rpent.utils.rpc import make_rpc_client, wait_for_ready
+
+            rpc = make_rpc_client(endpoint, enable_sessions=True)
+            try:
+                wait_for_ready(rpc, timeout_s=30)
+                model = MetaWorldWAMClient(rpc)
+                model.reset()
+            except BaseException:
+                rpc.close()
+                raise
+            self._wam = model
+            self.add_tool(self.wam_act)
 
     @tool(readonly=True)
     def view_env_state(self) -> ToolResult:
@@ -212,6 +227,34 @@ class MetaWorldToolkit(Toolkit):
         observed = self._view()
         observed.data["motion_result"] = result
         return observed
+
+    @tool
+    def wam_act(self, max_chunks: Annotated[int, Field(ge=1, le=20)] = 1) -> ToolResult:
+        """Execute bounded WAM chunks for the task, then inspect the observed result."""
+        if self._wam is None:
+            raise ValueError("wam_act requires --am-endpoint")
+        if not 1 <= max_chunks <= 20:
+            raise ValueError("max_chunks must be in [1, 20]")
+        steps = 0
+        for _ in range(max_chunks):
+            self.raise_if_cancelled()
+            self.obs = self.env.get_obs()
+            if self.obs["terminated"] or self.obs["truncated"]:
+                break
+            prediction = self._wam.predict(self.obs)
+            for action in prediction["actions"]:
+                self._step(action.tolist())
+                steps += 1
+                if self.obs["terminated"] or self.obs["truncated"]:
+                    break
+        return ToolResult(data={"steps": steps})
+
+    def close(self) -> None:
+        """Drain tool calls before releasing this client's borrowed model session."""
+        super().close()
+        if self._wam is not None:
+            self._wam.close()
+            self._wam = None
 
     def solved(self) -> bool:
         """Read the native success accumulator only for run finalization."""

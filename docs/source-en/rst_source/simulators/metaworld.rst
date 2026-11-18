@@ -121,3 +121,26 @@ invariants, invalid/late action rejection, a bounded real tool call, recorded
 finish, video frame counts across reset, and owned-process cleanup.
 It does not call a remote planner or require task success. Maintainers can request
 the same suite with ``/ci-metaworld``.
+
+External Action Model
+---------------------
+
+To use a compatible WAM service, append ``--am-endpoint http://HOST:PORT``
+to the run command above. This adds ``wam_act(max_chunks=1)``; the default
+scripted tools remain available. The endpoint is borrowed, and its per-run
+session is reset on connection and released on toolkit close.
+
+The worker must implement the shared ``wam.*`` RPC contract with
+``METAWORLD_CONTROL`` from ``robots/metaworld/control.py``. Physical inputs
+are top-left RGB under ``images.primary``, world XYZ in metres under
+``state.eef_position``, normalized opening under ``state.gripper_opening``
+(shape ``[1]``), and the task instruction. Outputs are finite ``[N, 4]``
+actions in ``[-1, 1]``: XYZ world deltas scaled by 0.01 m, then gripper
+(+1 close, -1 open), at 80 Hz with fixed wrist orientation.
+
+An incompatible controller, unavailable sensor/state, or invalid chunk fails
+before execution. Cancellation and episode termination stop further actions;
+model-predicted images are not used as observed simulator state.
+No pretrained MetaWorld model or checkpoint launcher is bundled. Existing
+LIBERO/RoboTwin checkpoints cannot be used simply by changing the endpoint.
+See :doc:`../development/add_action_model` for the worker adapter contract.

@@ -202,3 +202,83 @@ def test_reset_preserves_prior_episode_video(output):
     assert previous.read_bytes() == b"prior recording must not be overwritten"
     assert count_video_frames(video_dir / "episode_0001.mp4") == 2
     assert count_video_frames(video_dir / "episode_0002.mp4") == 3
+
+
+def test_external_wam_executes_native_steps_and_releases_session(output):
+    import threading
+
+    from robots.metaworld.control import METAWORLD_CONTROL
+    from rpent.robots.components.am_facade_base import BaseWAMFacade
+    from rpent.utils.rpc.http_rpc import HttpRpcServer
+
+    class Worker(BaseWAMFacade):
+        def __init__(self):
+            self.requests = []
+            self.resets = []
+            super().__init__(
+                {
+                    "backend": "test",
+                    "checkpoint": "deterministic-fixture",
+                    "control": METAWORLD_CONTROL,
+                    "camera_roles": ["primary"],
+                    "state_schema": {"eef_position": 3, "gripper_opening": 1},
+                    "chunk_size": 3,
+                    "uses_sessions": True,
+                },
+                adapter=(lambda request: request, lambda result: result),
+            )
+
+        def predict_native(self, request, *, session_id=None):
+            self.requests.append(request)
+            return {"actions": np.array([[0.0, 0.0, 0.0, -1.0]] * 3)}
+
+        def reset_native(self, *, session_id=None):
+            self.resets.append(session_id)
+
+    worker = Worker()
+    server = HttpRpcServer(("127.0.0.1", 0), worker._dispatch)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        spec = get_robot_spec()
+        args = parse_runtime_args(
+            spec,
+            [
+                "--task",
+                "reach-v3",
+                "--max-episode-steps",
+                "2",
+                "--am-endpoint",
+                f"http://127.0.0.1:{server.server_address[1]}",
+            ],
+        )
+        args.output_dir = output / "wam-chain"
+        args.memory_dir = output / "wam-memory"
+        args.memory_profile = "local"
+        config = spec.parse_config(args)
+        spec.prepare_memory(args, config)
+        with runtime_phase(spec, args, config.output_dir, {"env"}) as runtime:
+            toolkit = get_toolkit(
+                runtime_kwargs=runtime,
+                dashboard_events=NullDashboardEventSink(),
+                config=config,
+            )
+            try:
+                result = toolkit.execute_tool("wam_act", {"max_chunks": 2})
+                assert not result.is_error
+                assert result.data["motion_result"]["steps"] == 2
+                assert result.data["truncated"]
+                assert result.images
+                assert len(worker.requests) == 1
+                require_rgb(worker.requests[0]["images"]["primary"], "primary")
+                assert toolkit.execute_tool(
+                    "finish", {"status": "stuck", "summary": "bounded WAM check"}
+                ).data["_finish"]
+            finally:
+                toolkit.close()
+        assert len(worker.resets) == 2
+        assert count_video_frames(config.output_dir / "videos/episode_0000.mp4") == 3
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)

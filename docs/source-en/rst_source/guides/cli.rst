@@ -27,10 +27,10 @@ These options control the planner, memory, output directory, and Dashboard.
      - Select a discovered robot or simulator.
    * - ``--planner``
      - ``api``
-     - ``api``, ``claude_code``, ``codex``, or ``flash``.
+     - Choose ``api``, ``claude_code``, ``codex``, ``gemini_cli``, or ``flash``. See :doc:`configure_planner`.
    * - ``--model``
      - ``—``
-     - ``api`` requires a provider prefix; SDK planners use their backend defaults.
+     - ``api`` requires a provider prefix; ``claude_code``, ``codex``, and ``gemini_cli`` use their backend defaults unless overridden.
    * - ``--max-turns``
      - ``100``
      - Planner turn limit. For ``api``, counts model requests across the conversation, including retries and follow-ups.
@@ -38,19 +38,19 @@ These options control the planner, memory, output directory, and Dashboard.
      - ``8192``
      - ``api`` only: token limit per model response.
    * - ``--reasoning-effort``
-     - ``api``: ``high``; ``claude_code``/``codex``: ``none``
+     - ``api``: ``high``; ``claude_code``, ``codex``, ``gemini_cli``: ``none``
      - Reasoning effort for ``api``, ``claude_code``, and ``codex``:
        ``none``, ``low``, ``medium``, ``high``, or ``xhigh``. Disabling
        reasoning reduced the average runtime from approximately 13.2 to
        7.9 minutes (about 40%) in our LIBERO Pro Long evaluations.
        Higher effort may improve task success rate. Supported levels
-       ultimately depend on the selected model.
+       ultimately depend on the selected model. ``gemini_cli`` accepts only ``none``.
    * - ``--planner-timeout-s``
      - ``—``
-     - Defaults to ``CODEX_TIMEOUT_S`` (Codex only), then ``CELL_TIMEOUT_S``, then 1200 seconds; terminal interactive API/Claude sessions are exempt.
+     - Defaults to ``CODEX_TIMEOUT_S`` (Codex) or ``GEMINI_CLI_TIMEOUT_S`` (Gemini CLI), then ``CELL_TIMEOUT_S``, then 1200 seconds; terminal interactive API/Claude sessions are exempt.
    * - ``--base-url``
      - ``—``
-     - ``api`` only: override the model endpoint. SDK planners use their own environment variables.
+     - ``api`` only: override the model endpoint. ``claude_code``, ``codex``, and ``gemini_cli`` use their existing backend configuration and reject this flag.
    * - ``--no-images``
      - ``false``
      - ``api`` only: omit images from model requests.
@@ -60,6 +60,9 @@ These options control the planner, memory, output directory, and Dashboard.
    * - ``--output-dir``
      - ``—``
      - Artifact directory; the environment generates the default name.
+   * - ``--record-trajectory``
+     - ``false``
+     - With ``api``, ``claude_code``, or ``codex``, record the task, model requests and responses, and tool calls. In evaluation mode, supported environments also record executed actions and their observations. See :doc:`flywheel` for collection and export.
    * - ``--memory-profile``
      - ``—``
      - Evaluation normally defaults to ``hf``; exploration and WAM evaluation use ``local``.
@@ -99,19 +102,22 @@ LIBERO selects tasks with ``--suite``, ``--task``, ``--seed``, and ``--libero-ty
 ``--env-endpoint``, ``--am-endpoint``, and LIBERO’s ``--sam3-endpoint`` connect to existing environment, action-model (VLA or WAM), and SAM3 services respectively. RPent RPC addresses use ``[protocol://]host:port``, defaulting to ``http``. LingBot uses native WebSocket; see :doc:`../simulators/robotwin`. See :doc:`advanced_deployment` for GPU assignment and remote services.
 
 ``--am-backend`` selects one action model supported by the platform. LIBERO
-defaults to ``pi05`` and RoboTwin to ``lingbot``. VLA and WAM share
+defaults to ``pi05``; RoboTwin supports ``lingbot`` (default), ``fast-wam`` and
+``uniwam``. VLA and WAM share
 ``--am-endpoint`` for existing workers, and ``--am-checkpoint``, ``--am-python``,
 ``--am-root`` and ``--am-cuda-device`` for local deployment. Explicit local
 deployment options are rejected with an endpoint.
 ``--am-checkpoint`` supplies local weights or a service model identity as required
-by the backend. ``--am-python`` selects the provisioned model interpreter;
+by the backend. For UniWAM, it selects the resource root described in
+:doc:`../simulators/robotwin`. ``--am-python`` selects the provisioned model interpreter;
 VLA defaults to the current interpreter. ``--am-root`` selects the working
 directory, defaulting to the RPent checkout; Cosmos Policy requires its source
 directory.
 
-WAM uses the ``local`` memory profile with memory file tools and a
+Cosmos Policy, Cosmos3 and Fast-WAM use the ``local`` memory profile with memory file tools and a
 backend-specific directory; ``--memory-dir`` overrides it. WAM currently rejects
-HF memory, Flash and exploration. See
+HF memory, Flash and exploration for these backends. UniWAM retains RoboTwin
+exploration and memory selection; see :doc:`../simulators/robotwin`. See
 :doc:`../development/add_action_model` for model launch options and supported pairs.
 
 ``--predict-future`` enables future-state/value outputs during local deployment.
@@ -176,8 +182,6 @@ prefix.
      - Compatibility alias (hidden)
    * - ``--am-backend``
      - ``--vla-backend``, ``--wam-backend``
-   * - ``--am-backend pi05``
-     - ``--policy-backend rlinf`` (RoboDojo)
    * - ``--am-endpoint``
      - ``--vla-endpoint``, ``--wam-endpoint``
    * - ``--am-checkpoint``
@@ -216,11 +220,14 @@ Set the credentials and endpoint for your chosen planner in the launch shell.
    * - ``api`` / OpenAI
      - ``OPENAI_API_KEY``
      - ``OPENAI_BASE_URL``
+   * - ``api`` / Google
+     - ``GOOGLE_API_KEY`` (preferred) or ``GEMINI_API_KEY``
+     - ``GEMINI_BASE_URL``
    * - ``codex``
      - ``CODEX_API_KEY``
      - ``CODEX_BASE_URL``
 
-Codex can also reuse existing Codex authentication. See :doc:`configure_planner` for model selection, endpoint precedence, and local server examples. Use ``rpent-check-llm`` for connectivity checks and ``rpent-memory`` for the operations in :doc:`memory`.
+Claude Code and Codex can also reuse existing CLI authentication. Gemini CLI uses its own authentication and endpoint configuration. See :doc:`configure_planner` for model selection, endpoint precedence, and local server examples. Use ``rpent-check-llm`` for connectivity checks and ``rpent-memory`` for the operations in :doc:`memory`.
 
 Each environment reads its own resource variables, including LIBERO’s ``PI05_CHECKPOINT_PATH`` and ``SAM3_CHECKPOINT_PATH``, RoboCasa365’s ``ROBOCASA_ASSETS_PATH``, and RoboTwin’s ``ROBOTWIN_ASSETS_PATH`` and ``LINGBOT_MODEL_PATH``.
 
@@ -240,6 +247,8 @@ The table uses LIBERO as an example. Files depend on the environment, recording,
      - Purpose
    * - ``transcript_*.json``
      - Planner conversation, tool calls, and completion information.
+   * - ``trajectories/<task_id>/``
+     - Task records and attachments saved by ``--record-trajectory``. Exploration records are under each ``sessions/session_*/`` directory. See :doc:`flywheel`.
    * - ``episode.mp4``
      - Episode video.
    * - ``run.log``

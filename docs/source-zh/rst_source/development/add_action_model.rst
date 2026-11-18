@@ -145,12 +145,12 @@ VLA 启动函数也使用 ``AMConfig.spawn_worker()``。平台保留各自的服
 添加 WAM
 --------
 
-Cosmos Policy 和 Cosmos3 支持 LIBERO、LIBERO-Pro；Fast-WAM 支持 LIBERO、LIBERO-Pro 和 RoboTwin。每个模型与平台组合都需要匹配的 checkpoint。
+Cosmos Policy 和 Cosmos3 支持 LIBERO、LIBERO-Pro；Fast-WAM 支持 LIBERO、LIBERO-Pro 和 RoboTwin；UniWAM 支持 RoboTwin。每个模型与平台组合都需要匹配的 checkpoint。
 
 ``cosmos-policy`` 使用 NVIDIA 发布的 ``Cosmos-Policy-LIBERO-Predict2-2B`` 权重和官方 LIBERO 推理接口。``cosmos3`` 通过 RLinf 的 ``Cosmos3SGLangAdapter`` 和 HTTP client，连接独立部署的 SGLang ``/v1/actions/generations`` 服务。图像拼接、请求构造、动作反归一化和旋转转换由 RLinf 负责，其 ``prepare_actions_for_libero`` 还负责适配仿真器的夹爪约定。RPent 复用已有 LIBERO client，只在接口边界映射观测与预测。这两个后端需要不同的 checkpoint。
 
 1. 在 ``rpent/robots/components/`` 下创建模型包。``server.py`` 继承 ``BaseWAMFacade`` 并实现 ``predict_native``，必须提供 ``(encode, decode)`` adapter 函数对。
-2. 使用 ``am_facade_base.py`` 中的 ``WAMAdapterSpec`` 在模型的 ``ADAPTERS`` 中注册支持的平台。模型元数据工厂声明 checkpoint 身份、相机与状态要求、原生控制约定及可执行 chunk 长度。encode 将物理观测转换为模型输入，decode 将预测还原为声明的平台动作格式。
+2. 使用 ``am_facade_base.py`` 中的 ``WAMAdapterSpec`` 在模型的 ``ADAPTERS`` 中注册支持的平台。模型元数据工厂声明 checkpoint 身份、相机与状态要求、原生控制约定及可执行 chunk 长度。需要已执行关节目标历史的模型声明 ``joint_target_history_shape``，并在启动时校验 checkpoint 的历史配置。encode 将物理观测转换为模型输入，decode 将预测还原为声明的平台动作格式。
 3. 观测和控制契约匹配时，复用平台的 ``wam_client.py``。``BaseWAMClient`` 在初始化时调用一次 ``wam.get_model_meta``，将结果保存在 ``model_meta``；平台在执行预测前检查控制兼容性。
 4. 在 ``runtime_config.py`` 中补充部署参数，并在 ``am_runtime.WAM_BACKENDS`` 注册后端；模型专属启动逻辑留在模型包内。在模型包中声明是否使用会话；推理保留会话历史时实现 ``reset_native``。
 5. 在平台运行时与工具执行中接入所选后端。回合边界重置模型历史，结束后关闭客户端。每个 toolkit 都必须持有 ``MemoryManager``。
@@ -161,6 +161,8 @@ Cosmos Policy 和 Cosmos3 支持 LIBERO、LIBERO-Pro；Fast-WAM 支持 LIBERO、
 ~~~~~~~~~~~~~~
 
 RPC 路由为 ``wam.get_model_meta``、``wam.predict`` 和 ``wam.reset``。请求包含 ``images``、``state``、``instruction``、``embodiment`` 和 ``action_space``。模型元数据包含 ``control`` 控制字典、必需相机与状态维度、可执行 ``chunk_size``、后端与 checkpoint 身份及会话设置。预测结果包含 ``actions``，可选返回 ``future_observation``、``value`` 和 ``metadata``。
+
+当模型元数据声明 ``joint_target_history_shape=(max_length, width)`` 时，请求必须包含按时间先后排列、形状为 ``[1..max_length, width]`` 的 ``joint_target_history``，数值须有限。UniWAM 声明 ``(16, 14)``；没有此声明的模型不要求历史。服务端在编码前校验历史，历史长度与动作块长度独立。
 
 ``BaseWAMClient`` 在构造时查询一次模型元数据并保存在 ``model_meta``，后续预测直接使用该快照。可选的 ``prediction_timeout_s`` 提供客户端请求预算，未提供时默认为 300 秒；显式传入的 client 超时优先。Cosmos3 在原生 HTTP 超时上增加 30 秒作为 RPC 开销余量。
 
@@ -175,7 +177,9 @@ RPC 路由为 ``wam.get_model_meta``、``wam.predict`` 和 ``wam.reset``。请�
 
 增加平台时，提供物理观测、原生控制定义、平台 client 及工具和运行时接线。每个模型仍需匹配的 checkpoint 和配对转换；注册本身不能证明权重兼容。RoboTwin 已定义 EEF16 控制方式，但当前 Fast-WAM adapter 使用 qpos14。Cosmos Policy 尚无 RoboTwin adapter。
 
-``future_observation`` 和 ``value`` 为模型预测预留字段，独立的预测与规划 RPC 以及规划器使用预测结果尚未实现。每个 toolkit 必须持有 ``MemoryManager``，并注册记忆文件工具。WAM 默认使用平台记忆根目录下以后端命名的本地子目录，可通过 ``--memory-dir`` 指定目录，语料允许为空。WAM 尚未配置兼容的 HF 经验库，当前评测不支持 HF 记忆、Flash 和探索模式。
+``future_observation`` 和 ``value`` 为模型预测预留字段，独立的预测与规划 RPC 以及规划器使用预测结果尚未实现。每个 toolkit 必须持有 ``MemoryManager``，并注册记忆文件工具。可通过 ``--memory-dir`` 指定记忆目录。
+
+UniWAM 根据机器人最近实际执行的动作记录生成下一段动作。这些记录也包含 ``move_to`` 等工具执行的动作。部署方法见 :doc:`../simulators/robotwin`。
 
 .. _action-model-deployment:
 

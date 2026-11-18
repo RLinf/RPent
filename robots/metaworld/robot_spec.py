@@ -43,6 +43,9 @@ def _add_cli_args(parser: argparse.ArgumentParser, use_dashboard: bool = False) 
     parser.add_argument("--max-episode-steps", type=int, default=500)
     parser.add_argument("--camera", choices=CAMERAS, default="corner2")
     parser.add_argument("--env-endpoint", default=None)
+    parser.add_argument(
+        "--am-endpoint", default=None, help="Compatible external MetaWorld WAM service"
+    )
     parser.add_argument("--sim-python", default=sys.executable)
 
 
@@ -151,7 +154,10 @@ def _init_runtime(args, output_dir, dashboard_events, components=None):
         120,
         post_fn=connect,
     )
-    return list(daemons.values()), {"env_client": client}
+    return list(daemons.values()), {
+        "env_client": client,
+        "am_endpoint": args.am_endpoint,
+    }
 
 
 def _finalize(context) -> Path:
@@ -189,6 +195,13 @@ METAWORLD_DASHBOARD_SPEC: DashboardSpec = {
 }
 
 
+def _resolve_dashboard(args) -> DashboardSpec:
+    spec = dict(METAWORLD_DASHBOARD_SPEC)
+    if args.am_endpoint:
+        spec["primitives"] = (*spec["primitives"], "wam_act")
+    return spec
+
+
 def get_robot_spec() -> RobotSpec:
     """Describe the MetaWorld CLI and environment-only Dashboard runtime."""
     return RobotSpec(
@@ -200,7 +213,7 @@ def get_robot_spec() -> RobotSpec:
         validate_args=_validate,
         prepare_memory=_prepare_memory,
         finalize_run=_finalize,
-        resolve_dashboard=lambda args: METAWORLD_DASHBOARD_SPEC,
+        resolve_dashboard=_resolve_dashboard,
     )
 
 

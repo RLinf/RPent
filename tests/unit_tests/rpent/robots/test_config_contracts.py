@@ -150,13 +150,16 @@ def test_local_vla_gpu_override_reaches_worker(
         assert module._resolve_cuda_devices(args) == ("2", device)
     elif robot_name == "robodojo":
         args.source_root = str(tmp_path)
-        args.am_backend = "xpolicylab"
+        args.am_backend = "vpp2"
         args.task = "put_bottles_into_dustbin"
-    module._spawn_vla_server(args, tmp_path)
+    if robot_name == "robodojo":
+        module._spawn_model_server(args, tmp_path, rpc_options={})
+    else:
+        module._spawn_vla_server(args, tmp_path)
     command = factory.call_args.kwargs["cmd"]
     assert command[0] == str(interpreter)
     assert factory.call_args.kwargs["cwd"] == str(tmp_path)
-    checkpoint_flag = "--ckpt" if robot_name == "robodojo" else "--model-path"
+    checkpoint_flag = "--model-path"
     assert command[command.index(checkpoint_flag) + 1] == str(tmp_path)
     overrides = factory.call_args.kwargs["env_overrides"]
     assert overrides.get("CUDA_VISIBLE_DEVICES") == device
@@ -166,15 +169,7 @@ def test_local_vla_gpu_override_reaches_worker(
         str(args.cuda_device) if args.cuda_device is not None else None
     ) == shared_device
     if robot_name == "robodojo":
-        from rpent.robots.components.xpolicylab_vla_server import add_backend_args
-
-        parser = argparse.ArgumentParser()
-        add_backend_args(parser)
-        child_args, _ = parser.parse_known_args(factory.call_args.kwargs["cmd"])
-        if device is not None:
-            assert child_args.policy_gpu == device
-        else:
-            assert "--policy-gpu" not in factory.call_args.kwargs["cmd"]
+        assert "robots.robodojo.vpp2_server" in command
     if robot_name != "dual_franka":
         args.seed = 0
         if robot_name == "libero":

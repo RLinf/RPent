@@ -70,9 +70,16 @@ def make_primitive(robot, action_size=None):
         }
 
     def call(method, **kwargs):
+        if robot == "robotwin":
+            if method == "env.get_env_meta":
+                return {"seed": 0}
+            if method == "env.reset":
+                return obs, {**info, "instruction": "test task"}
         return specs if method == "env.get_action_spec" else step_result
 
     env._client = SimpleNamespace(call=Mock(side_effect=call))
+    if robot == "robotwin":
+        env = client_cls(env._client, expected_meta={"seed": 0})
     env.last_obs = obs
     env.last_reset_info = {}
     if robot != "robocasa":
@@ -159,7 +166,9 @@ def test_cli_factory_gates_tool_and_preserves_action_records(
         args.append("--enable-direct-action")
     config = spec._parse_config(parser.parse_args(args))
     toolkit = spec.get_toolkit(
-        runtime_kwargs={}, dashboard_events=NullDashboardEventSink(), config=config
+        runtime_kwargs={"env": primitive.env} if robot == "robotwin" else {},
+        dashboard_events=NullDashboardEventSink(),
+        config=config,
     )
     names = {definition.name for definition in toolkit.list_tools()}
     assert ("execute_action" in names) == enabled

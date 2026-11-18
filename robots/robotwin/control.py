@@ -16,6 +16,9 @@
 
 from rpent.robots.components.am_contracts import AMControlSpec
 
+# Maximum number of executed controller targets retained by the environment client.
+QPOS_HISTORY_CAPACITY = 16
+
 # Native joint_action.vector order: left six joint targets and gripper,
 # then right six joint targets and gripper. Preserve native gripper values.
 ROBOTWIN_QPOS = AMControlSpec(

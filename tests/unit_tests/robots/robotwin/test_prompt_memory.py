@@ -16,6 +16,8 @@
 
 from __future__ import annotations
 
+import pytest
+
 from robots.robotwin.prompt_bundle import system_prompt, user_prompt
 from rpent.prompt.utils import format_prompt
 
@@ -46,3 +48,33 @@ def test_prompts_render_with_memory_relative_paths():
     assert "seed: 100000" in user
     assert "task_config: demo_randomized" in user
     assert "{{" not in system + user
+
+
+@pytest.mark.parametrize("mode", ["eval", "explore"])
+def test_uniwam_prompt_selects_wam_tool_and_memory_for_mode(mode):
+    variables = {
+        "policy_backend": "uniwam",
+        "policy_kind": "wam",
+        "mode": mode,
+        "memory_dir": "shared-memory",
+        "task_name": "beat_block_hammer",
+        "task_config": "demo_randomized",
+        "seed": 7,
+        "reference_tag": "beat_block_hammer_s0",
+        "recipe_tag": "test",
+        "session_number": 1,
+        "session_max": 3,
+        "memory_inbox": "shared-memory/inbox",
+        "explore_attempts_per_session": 5,
+        "output_dir": "output",
+    }
+    system = format_prompt(system_prompt(variables), variables=variables)
+    user = format_prompt(user_prompt(variables), variables=variables)
+    assert "GUIDE_RPENT.md" in system
+    assert "{{" not in system + user
+    assert "wam_act" in system + user
+    assert "lingbot_act" not in system + user
+    if mode == "eval":
+        assert "shared-memory/MEMORY.md" in system
+    else:
+        assert "shared-memory/inbox/wip/" in system

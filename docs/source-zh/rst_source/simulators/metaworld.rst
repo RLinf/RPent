@@ -111,3 +111,24 @@ RLinf 现有包装器管理训练所需的向量化 worker，没有提供此处�
 真实且有步数上限的工具调用、finish 记录、重置前后的视频帧数和自有进程清理。
 该测试不调用远程 planner，也不要求任务成功。
 维护者可以通过 ``/ci-metaworld`` 请求同一套检查。
+
+外部动作模型
+------------
+
+在前面的运行命令中追加 ``--am-endpoint http://HOST:PORT``，即可连接兼容的
+WAM 服务并启用 ``wam_act(max_chunks=1)``。默认脚本工具仍可使用。
+服务由外部管理；工具包连接时重置本次运行的模型会话，关闭时释放会话。
+
+服务须实现共享的 ``wam.*`` RPC 协议，并匹配
+``robots/metaworld/control.py`` 中的 ``METAWORLD_CONTROL``。
+输入包括左上原点 RGB（``images.primary``）、以米为单位的世界坐标
+``state.eef_position``、形状为 ``[1]`` 的归一化夹爪开度
+``state.gripper_opening`` 以及任务指令。
+输出为有限值 ``[N, 4]`` 动作，范围 ``[-1, 1]``：前三维是缩放系数为
+0.01 米的世界坐标 XYZ 增量，第四维为夹爪命令（+1 闭合，-1 张开）；
+控制频率为 80 Hz，手腕方向固定。
+
+控制协议不匹配、所需观测不可用或动作片段无效时，会在执行前报错。
+取消操作和 episode 结束都会停止后续动作；模型预测图像不会替代真实仿真观测。
+此接入不附带 MetaWorld 预训练模型或权重启动器，不能仅更换 endpoint 就使用
+LIBERO/RoboTwin 权重。模型适配方法见 :doc:`../development/add_action_model`。
