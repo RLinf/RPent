@@ -148,7 +148,7 @@ def _build_argparser() -> argparse.ArgumentParser:
         help="Model id. For the 'api' planner, prefix the provider "
         "(e.g. anthropic:claude-opus-4-8, google:Argon, "
         "openai:gpt-5.5, openai-chat:glm-5.2). For external harnesses this "
-        "overrides their default model; OpenCode uses provider/model IDs.",
+        "overrides their default model.",
     )
     ap.add_argument(
         "--base-url",
@@ -192,7 +192,7 @@ def _build_argparser() -> argparse.ArgumentParser:
         "--claude-code-max-budget-usd",
         type=float,
         default=None,
-        help="Budget passed to claude -p --max-budget-usd. "
+        help="Spending limit in USD for the claude_code planner. "
         "Defaults to MAX_BUDGET_USD env or 10.",
     )
 

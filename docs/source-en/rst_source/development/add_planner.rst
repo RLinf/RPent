@@ -9,14 +9,14 @@ ACP Harnesses
 ACP is a shared driver, not a selectable planner. For an ACP harness, subclass
 ``AcpPlanner`` from ``rpent/planner/utils/acp.py`` and set its ``backend`` and
 display ``label``. Implement ``_create_session`` to prepare the command,
-environment, and tool policy and return an ``AcpSession``; see ``opencode.py``
-for standard HTTP MCP setup or ``gemini_cli.py`` for workspace settings.
+environment, and tool policy and return an ``AcpSession``. See ``gemini_cli.py``
+and ``opencode.py``: both use ACP for sessions and HTTP MCP for RPent tools.
 Register the adapter under the harness's name using the steps below.
 
 The base shares session handling, event recording, probes, and
 ``utils/agent_session.py`` interaction, HTTP MCP, artifacts, and cleanup.
-Pass the MCP URL to ``AcpSession`` for agents advertising HTTP MCP support;
-Gemini supplies it through workspace settings. Pass a model ID only when using
+MCP endpoint configuration depends on the harness: OpenCode receives the URL
+through ``AcpSession``; Gemini CLI uses workspace settings. Pass a model ID only when using
 the agent's ACP model selector. Authentication and native turn limits belong
 to the harness adapter; ACP has no standard model-turn budget.
 Verify text and image tool results, actual ``finish`` calls, queued follow-ups,
