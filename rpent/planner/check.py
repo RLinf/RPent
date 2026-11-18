@@ -955,7 +955,7 @@ def _check_acp(request: LlmCheckRequest) -> LlmCheckResult:
         )
         return _result(
             status,
-            detail=planner_class._redact(_describe(exc)),
+            detail=planner_class._load_secret_redactor()(_describe(exc)),
             latency_s=round(time.monotonic() - started, 3),
         )
 

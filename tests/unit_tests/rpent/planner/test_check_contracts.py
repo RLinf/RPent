@@ -461,7 +461,7 @@ def test_google_key_value_is_redacted(monkeypatch: pytest.MonkeyPatch, key_env) 
     assert result.status == STATUS_AUTH_FAILED
     assert SENTINEL_KEY not in str(result.as_dict())
     assert check_mod.redact_secrets(SENTINEL_KEY) == f"<{key_env}>"
-    assert GeminiCliPlanner._redact(SENTINEL_KEY) == f"<{key_env}>"
+    assert GeminiCliPlanner._load_secret_redactor()(SENTINEL_KEY) == f"<{key_env}>"
 
 
 # ---------------------------------------------------------------------------

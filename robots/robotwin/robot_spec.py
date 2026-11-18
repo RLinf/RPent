@@ -131,6 +131,7 @@ def env_runtime_contract(
             "chunk_step": True,
             "action_layouts": ["qpos14", MODEL_SPEC.action_layout],
             "chunk_step_all_frames": True,
+            "chunk_step_frame_format": "robotwin.observation",
             "step_limit": int(max_episode_steps),
         },
         "extensions": {
@@ -160,6 +161,57 @@ def vla_runtime_contract() -> dict[str, object]:
         "action_layout": MODEL_SPEC.action_layout,
         "use_length": MODEL_SPEC.use_length,
     }
+
+
+FLYWHEEL_CONFIG = {
+    "observation_format": "robotwin.observation",
+    "layouts": {
+        "robotwin.action.ee": {
+            "state": {
+                "dataset_key": "observation.state",
+                "fields": (
+                    {"path": ("robot_state", "left_eef_pose"), "shape": (7,)},
+                    {
+                        "path": ("robot_state", "left_gripper"),
+                        "shape": (),
+                        "dtype_from": 0,
+                    },
+                    {"path": ("robot_state", "right_eef_pose"), "shape": (7,)},
+                    {
+                        "path": ("robot_state", "right_gripper"),
+                        "shape": (),
+                        "dtype_from": 2,
+                    },
+                ),
+            },
+            "action": {
+                "dataset_key": "action",
+                "fields": ({"path": (), "shape": (16,)},),
+            },
+        },
+        "robotwin.action.qpos": {
+            "state": {
+                "dataset_key": "observation.state",
+                "fields": ({"path": ("robot_state", "qpos_target14"), "shape": (14,)},),
+            },
+            "action": {
+                "dataset_key": "action",
+                "fields": ({"path": (), "shape": (14,)},),
+            },
+        },
+    },
+    "images": {
+        f"observation.images.{name}": {"path": ("observation", camera, "rgb")}
+        for name, camera in (
+            ("cam_high", "head_camera"),
+            ("cam_left_wrist", "left_camera"),
+            ("cam_right_wrist", "right_camera"),
+        )
+    },
+    "result_format": "robotwin.step_result",
+    "success": {"field": "terminated", "truncated": "truncated"},
+    "fps": 20,
+}
 
 
 def _resolve_dashboard(args: argparse.Namespace) -> DashboardSpec:
@@ -202,6 +254,7 @@ def get_robot_spec() -> RobotSpec:
         parse_config=_parse_config,
         init_runtime=_init_runtime,
         resolve_dashboard=_resolve_dashboard,
+        flywheel=FLYWHEEL_CONFIG,
         supports_exploration=True,
         validate_args=validate_options,
         prepare_memory=prepare_memory,
@@ -314,7 +367,7 @@ def _parse_config(args: argparse.Namespace) -> RunConfig:
         raise ValueError("--task-name is required")
     am = select_am(args, "robotwin")
     wam = am if am.is_wam else None
-    if wam is not None:
+    if wam is not None and am.backend != "uniwam":
         if getattr(args, "explore", False) or getattr(args, "planner", None) == "flash":
             raise ValueError("WAM supports evaluation without Flash Mode only")
         if getattr(args, "memory_profile", None) == "hf":
@@ -332,7 +385,7 @@ def _parse_config(args: argparse.Namespace) -> RunConfig:
     output_dir = Path(output_dir)
     initial_seed = int(args.seed)
     default_memory_dir = get_memory_dir("robotwin")
-    if wam is not None:
+    if wam is not None and am.backend != "uniwam":
         default_memory_dir /= wam.backend
     memory_dir = (
         Path(args.memory_dir).expanduser().resolve()
@@ -596,7 +649,7 @@ def _init_runtime(
             except Exception:
                 rpc.close()
                 raise
-            return {"model": client, "policy_kind": "wam"}
+            return {"model": client, "policy_kind": "wam", "policy_backend": am.backend}
 
         runtime_kwargs.update(
             try_wait_server(

@@ -16,14 +16,16 @@
 
 from __future__ import annotations
 
+from contextlib import nullcontext
 from typing import Annotated, Any, Literal
 
 import numpy as np
 from pydantic import Field
 from pydantic.json_schema import SkipJsonSchema
 
-from robots.robodojo.access import public_episode_budget
+from robots.robodojo.access import CAMERAS, public_episode_budget
 from rpent.session import EnvState
+from rpent.session.env_capture import CapturingEnvClient
 from rpent.tools import ToolResult, tool
 from rpent.tools.world_coordinates import artifact_name, load_world_xyz
 from rpent.tools.world_coordinates import query_world_map as query_world_map
@@ -31,16 +33,14 @@ from rpent.tools.world_coordinates import sample_world_xyz as sample_world_xyz
 
 # (camera key in the obs dict, artifact base name). Mirrors the ``frame_channels``
 # declared in ``robot_spec.ROBODOJO_DASHBOARD_SPEC``.
-CAMERA_ARTIFACTS: tuple[tuple[str, str], ...] = (
-    ("cam_head", "cam_head.png"),
-    ("cam_left_wrist", "cam_left_wrist.png"),
-    ("cam_right_wrist", "cam_right_wrist.png"),
+CAMERA_ARTIFACTS: tuple[tuple[str, str], ...] = tuple(
+    (camera, f"{camera}.png") for camera in CAMERAS
 )
 
 
 @tool(readonly=True, exclude=("state",))
 def view_env_state(step: int = -1, *, state: Any) -> ToolResult:
-    """Read one recorded RoboDojo state: robot joint/ee state, camera shapes and calibration, the task instruction, action budget and the three camera RGB images (cam_head, cam_left_wrist, cam_right_wrist). Step -1 selects the latest record. episode_status contains native step, step_limit and remaining_steps at capture time; the top-level step is the observation index.
+    """Read one recorded RoboDojo state: robot joint/ee state, camera shapes and available calibration, the task instruction, action budget and available camera RGB images (cam_head, cam_left_wrist, cam_right_wrist). Step -1 selects the latest record. episode_status contains native step, step_limit and remaining_steps at capture time; the top-level step is the observation index.
 
     Args:
         step: Recorded step to read (-1 = latest)"""
@@ -82,7 +82,9 @@ def _summarize_obs(obs: dict) -> dict:
         "instruction": obs.get("instruction"),
         "cameras": {
             name: {
-                "shape": cam.get("shape"),
+                "shape": list(np.asarray(cam["color"]).shape)
+                if cam.get("color") is not None
+                else None,
                 "has_depth": cam.get("distance_to_image_plane") is not None
                 or cam.get("depth") is not None,
                 "intrinsic_matrix": _jsonable(cam.get("intrinsic_matrix")),
@@ -365,36 +367,42 @@ def pi0_pick(
                     np.asarray(obs["state"][f"{a}_ee_joint_state"]).reshape(-1)[0]
                 )
                 t["last_grip"] = t["start_grip"]
-        actions = vla.predict(obs)
-        chunks_used = c + 1
-        for action in actions:
-            obs_step, _reward, _done, info = primitives.env.step(action)
-            st = obs_step["state"]
-            for a in arms:
-                t = track[a]
-                z = float(np.asarray(st[f"{a}_ee_pose"], dtype=np.float64)[2])
-                grip = float(np.asarray(st[f"{a}_ee_joint_state"]).reshape(-1)[0])
-                t["last_grip"] = grip
-                if z < t["min_z"]:
-                    t["min_z"] = z
-                    t["peak"] = z
-                else:
-                    t["peak"] = max(t["peak"], z)
-                descended = (t["start_z"] - t["min_z"]) >= 0.06
-                if descended:
-                    ascended = (t["peak"] - t["min_z"]) >= lift_thresh
-                    closed = grip < gripper_closed_thresh
-                    if ascended and closed:
-                        success = True
-                        break
-            if success:
-                # Stop the chunk at once: the remaining actions were predicted
-                # for an ungrasped state and would reopen the gripper, dropping
-                # the object while ``success`` stays true.
-                break
-            if info["status"]["step"] >= info["status"]["step_limit"]:
-                terminated = True
-                break
+        prediction = (
+            primitives.env.prediction(prompt)
+            if isinstance(primitives.env, CapturingEnvClient)
+            else nullcontext()
+        )
+        with prediction:
+            actions = vla.predict(obs)
+            chunks_used = c + 1
+            for action in actions:
+                obs_step, _reward, _done, info = primitives.env.step(action)
+                st = obs_step["state"]
+                for a in arms:
+                    t = track[a]
+                    z = float(np.asarray(st[f"{a}_ee_pose"], dtype=np.float64)[2])
+                    grip = float(np.asarray(st[f"{a}_ee_joint_state"]).reshape(-1)[0])
+                    t["last_grip"] = grip
+                    if z < t["min_z"]:
+                        t["min_z"] = z
+                        t["peak"] = z
+                    else:
+                        t["peak"] = max(t["peak"], z)
+                    descended = (t["start_z"] - t["min_z"]) >= 0.06
+                    if descended:
+                        ascended = (t["peak"] - t["min_z"]) >= lift_thresh
+                        closed = grip < gripper_closed_thresh
+                        if ascended and closed:
+                            success = True
+                            break
+                if success:
+                    # Stop the chunk at once: the remaining actions were predicted
+                    # for an ungrasped state and would reopen the gripper, dropping
+                    # the object while ``success`` stays true.
+                    break
+                if info["status"]["step"] >= info["status"]["step_limit"]:
+                    terminated = True
+                    break
         if success or terminated:
             break
     per_arm = {}
@@ -454,8 +462,10 @@ def dump_state(primitives, state, *, log: dict | None = None, perception=None):
     :meth:`EnvState.record_step`, writes the three camera RGB PNGs for that
     step, and returns the record.
     """
+    before = primitives.env.get_status()
     obs = _refresh_obs(primitives)
     status = primitives.env.get_status()
+    primitives.env.accept_observation_step(before["step"], status["step"])
     log = log or {}
     summary = _summarize_obs(obs)
     step_idx = 0 if state.latest_step is None else state.latest_step + 1
@@ -479,11 +489,17 @@ def dump_state(primitives, state, *, log: dict | None = None, perception=None):
         if depth is None:
             depth = cam.get("depth")
         if depth is not None:
-            if np.asarray(depth).shape != shape:
-                raise ValueError("RGB and depth must have the same image dimensions")
-            world = _world_from_depth(
-                depth, cam.get("intrinsic_matrix"), cam.get("extrinsic_matrix")
-            )
+            try:
+                if np.asarray(depth).shape != shape:
+                    raise ValueError(
+                        "RGB and depth must have the same image dimensions"
+                    )
+                world = _world_from_depth(
+                    depth, cam.get("intrinsic_matrix"), cam.get("extrinsic_matrix")
+                )
+            except (ValueError, TypeError) as exc:
+                summary["cameras"][camera]["geometry_error"] = str(exc)
+                continue
             views[view] = {
                 "depth": np.asarray(depth),
                 "world_xyz": world,
@@ -497,9 +513,11 @@ def dump_state(primitives, state, *, log: dict | None = None, perception=None):
             )
     with state.record_step(
         state=summary,
-        # Official success is read by the runner after planner execution,
-        # not written into planner-readable state artifacts.
-        terminated=False,
+        # Exploration records termination for successful-attempt recipe export.
+        # Evaluation reads the verdict through the runner.
+        terminated=bool(
+            getattr(primitives, "exploration", False) and status.get("success") is True
+        ),
         truncated=int(status.get("step", 0)) >= int(status.get("step_limit", 0) or 0),
         command=log.get("command"),
         result=log.get("result"),
@@ -515,8 +533,11 @@ def dump_state(primitives, state, *, log: dict | None = None, perception=None):
         for camera, artifact in CAMERA_ARTIFACTS:
             color = (vision.get(camera) or {}).get("color")
             if color is not None:
-                state.save(artifact, color, step=step_idx)
+                if state.save(artifact, color, step=step_idx) is None:
+                    raise OSError(f"could not save observation artifact: {artifact}")
         for view, fields in views.items():
             for field, value in fields.items():
-                state.save(artifact_name(view, field), value, step=step_idx)
+                artifact = artifact_name(view, field)
+                if state.save(artifact, value, step=step_idx) is None:
+                    raise OSError(f"could not save observation artifact: {artifact}")
     return state.get(step_idx)

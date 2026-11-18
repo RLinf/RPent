@@ -142,7 +142,16 @@ def test_harness_reuses_acp_tools_probe_and_cleanup(tmp_path, monkeypatch, mode,
         label = "Local harness"
 
         def _create_session(
-            self, root, control, emit, stderr_path, *, mcp_url, max_turns, tool_names
+            self,
+            root,
+            control,
+            emit,
+            stderr_path,
+            *,
+            mcp_url,
+            max_turns,
+            tool_names,
+            redact,
         ):
             return AcpSession(
                 command=[
@@ -158,6 +167,7 @@ def test_harness_reuses_acp_tools_probe_and_cleanup(tmp_path, monkeypatch, mode,
                 control=control,
                 emit_event=emit,
                 stderr_path=stderr_path,
+                redact=redact,
             )
 
     toolkit = Mock()

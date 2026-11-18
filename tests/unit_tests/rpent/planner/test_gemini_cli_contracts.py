@@ -162,20 +162,41 @@ def test_recorder_uses_actual_finish_and_accumulates_usage(tool_error):
     assert any(isinstance(event, UsageEvent) for event in events)
 
 
-def test_stderr_redacts_key_loaded_from_gemini_dotenv(
+def test_secret_redactor_snapshots_configuration_once_per_session(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     secret = "dotenv-secret-value"
     gemini_dir = tmp_path / ".gemini"
     gemini_dir.mkdir()
-    (gemini_dir / ".env").write_text(f"GEMINI_API_KEY={secret}\n")
+    dotenv = gemini_dir / ".env"
+    dotenv.write_text(
+        f"export GEMINI_API_KEY='{secret}'\nGOOGLE_API_KEY=dotenv-google-secret\n"
+    )
     monkeypatch.setattr(Path, "home", lambda: tmp_path)
     monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    monkeypatch.setenv("GOOGLE_API_KEY", "environment-google-secret")
+    read_text = Path.read_text
+    reads = []
 
-    assert GeminiCliPlanner._redact(f"request failed for {secret}") == (
-        "request failed for <GEMINI_API_KEY>"
+    def read(path):
+        reads.append(path)
+        return read_text(path)
+
+    monkeypatch.setattr(Path, "read_text", read)
+    redact = GeminiCliPlanner._load_secret_redactor()
+    dotenv.write_text("GEMINI_API_KEY=replacement-secret\n")
+    for _ in range(3):
+        assert redact(f"request failed for {secret}") == (
+            "request failed for <GEMINI_API_KEY>"
+        )
+        assert redact("environment-google-secret") == "<GOOGLE_API_KEY>"
+        assert redact("dotenv-google-secret") == "dotenv-google-secret"
+    assert reads == [dotenv]
+    assert GeminiCliPlanner._load_secret_redactor()("replacement-secret") == (
+        "<GEMINI_API_KEY>"
     )
+    assert reads == [dotenv, dotenv]
 
 
 @pytest.fixture
@@ -209,6 +230,10 @@ def acp_backend(monkeypatch):
                 pytest.fail("RPent must not change CLI authentication")
 
             async def new_session(self, **kwargs):
+                session_cwd = Path(kwargs["cwd"])
+                assert session_cwd.is_absolute()
+                assert session_cwd == cwd
+                assert (session_cwd / ".gemini" / "settings.json").is_file()
                 seen["events"].append("new_session")
                 return SimpleNamespace(session_id="same-session")
 
@@ -233,6 +258,8 @@ def acp_backend(monkeypatch):
                             }
                         ),
                     )
+                    if seen.get("block_after_finish"):
+                        await stopped.wait()
                 await client.session_update(
                     session_id,
                     SimpleNamespace(
@@ -264,8 +291,31 @@ def acp_backend(monkeypatch):
     return seen
 
 
+def test_relative_output_directory_uses_absolute_session_workspace(
+    tmp_path, monkeypatch, acp_backend
+):
+    monkeypatch.chdir(tmp_path)
+    toolkit = Mock()
+    toolkit.list_tools.return_value = (SimpleNamespace(name="finish"),)
+    result = make_planner(Path("logs/run")).solve(
+        system_prompt="", user_message="task", toolkit=toolkit, max_turns=1
+    )
+    assert result.error is None
+    assert result.finish_result["_finish"] is True
+    assert Path(result.stats["output_path"]).is_file()
+    assert not acp_backend["cwd"].exists()
+
+
 @pytest.mark.parametrize(
-    "outcome", ["finish", "no_finish", "startup_error", "prompt_error", "timeout"]
+    "outcome",
+    [
+        "finish",
+        "finish_then_block",
+        "no_finish",
+        "startup_error",
+        "prompt_error",
+        "timeout",
+    ],
 )
 def test_session_result_artifacts_and_cleanup(
     tmp_path, monkeypatch, acp_backend, outcome
@@ -274,7 +324,8 @@ def test_session_result_artifacts_and_cleanup(
     monkeypatch.setenv("GEMINI_API_KEY", secret)
     acp_backend["reply"] = f"request failed for {secret}"
     acp_backend["stderr"] = f"provider rejected {secret}\n"
-    acp_backend["finish"] = outcome == "finish"
+    acp_backend["finish"] = outcome in {"finish", "finish_then_block"}
+    acp_backend["block_after_finish"] = outcome == "finish_then_block"
     acp_backend["block"] = outcome == "timeout"
     if outcome in {"startup_error", "prompt_error"}:
         acp_backend[outcome] = RuntimeError(f"gemini unavailable: {secret}")
@@ -301,7 +352,7 @@ def test_session_result_artifacts_and_cleanup(
     assert not acp_backend["cwd"].exists()
     assert result.finish_result == (
         {"_finish": True, "status": "success", "summary": "done"}
-        if outcome == "finish"
+        if acp_backend["finish"]
         else None
     )
     assert result.stats["backend"] == "gemini_cli"
@@ -325,6 +376,47 @@ def test_session_result_artifacts_and_cleanup(
         assert result.error is None
         assert result.stats["total_input_tokens"] == 8
         assert acp_backend["prompt"] == "system rules\n\nuser task"
+        if outcome == "finish_then_block":
+            assert acp_backend["events"][-4:] == [
+                "cancel_tools",
+                "cancel",
+                "prompt_completed",
+                "close",
+            ]
+
+
+@pytest.mark.parametrize("entrypoint", ["probe", "check"])
+def test_prompt_auth_required_preserves_type_and_redacts_key(
+    monkeypatch, acp_backend, entrypoint
+):
+    from rpent.planner.check import (
+        STATUS_MISSING_API_KEY,
+        LlmCheckRequest,
+        check_llm,
+    )
+
+    secret = "gemini-probe-secret"
+    monkeypatch.setenv("GEMINI_API_KEY", secret)
+    error = acp.RequestError.auth_required()
+    error.args = (f"Authentication required: {secret}",)
+    acp_backend["prompt_error"] = error
+
+    if entrypoint == "probe":
+        with pytest.raises(acp.RequestError) as caught:
+            GeminiCliPlanner(
+                output_dir=".",
+                dashboard_events=NullDashboardEventSink(),
+                timeout_s=1,
+            ).probe("ping")
+        assert caught.value.code == error.code
+        detail = str(caught.value)
+    else:
+        result = check_llm(LlmCheckRequest(planner="gemini_cli", timeout_s=1))
+        assert result.status == STATUS_MISSING_API_KEY
+        detail = result.detail
+    assert "<GEMINI_API_KEY>" in detail
+    assert secret not in detail
+    assert acp_backend["events"][-1] == "close"
 
 
 @pytest.mark.parametrize("outcome", ["success", "timeout", "auth_error"])

@@ -31,7 +31,16 @@ class OpenCodePlanner(AcpPlanner):
     label = "OpenCode"
 
     def _create_session(
-        self, root, control, emit, stderr_path, *, mcp_url, max_turns, tool_names
+        self,
+        root,
+        control,
+        emit,
+        stderr_path,
+        *,
+        mcp_url,
+        max_turns,
+        tool_names,
+        redact,
     ) -> AcpSession:
         binary = os.environ.get("OPENCODE_BIN") or shutil.which("opencode")
         if not binary:
@@ -65,5 +74,5 @@ class OpenCodePlanner(AcpPlanner):
             control=control,
             emit_event=emit,
             stderr_path=stderr_path,
-            redact=self._redact,
+            redact=redact,
         )

@@ -19,7 +19,7 @@ from __future__ import annotations
 import json
 import os
 import shutil
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from pathlib import Path
 from typing import Any
 
@@ -44,7 +44,16 @@ class GeminiCliPlanner(AcpPlanner):
     label = "Gemini CLI"
 
     def _create_session(
-        self, root, control, emit, stderr_path, *, mcp_url, max_turns, tool_names
+        self,
+        root,
+        control,
+        emit,
+        stderr_path,
+        *,
+        mcp_url,
+        max_turns,
+        tool_names,
+        redact,
     ) -> AcpSession:
         _write_settings(
             root, mcp_url=mcp_url, max_turns=max_turns, tool_names=tool_names
@@ -78,16 +87,38 @@ class GeminiCliPlanner(AcpPlanner):
             control=control,
             emit_event=emit,
             stderr_path=stderr_path,
-            redact=self._redact,
+            redact=redact,
         )
 
     @staticmethod
-    def _redact(text: str) -> str:
-        for name in _SECRET_ENV_NAMES:
-            secret = os.environ.get(name) or _dotenv_value(name)
-            if secret and len(secret) >= 8:
-                text = text.replace(secret, f"<{name}>")
-        return text
+    def _load_secret_redactor() -> Callable[[str], str]:
+        """Snapshot configured keys once for a session's event and stderr redaction."""
+        secrets = {name: os.environ.get(name) for name in _SECRET_ENV_NAMES}
+        path = Path.home() / ".gemini" / ".env"
+        try:
+            lines = path.read_text().splitlines()
+        except OSError:
+            lines = []
+        for line in lines:
+            stripped = line.strip()
+            if not stripped or stripped.startswith("#") or "=" not in stripped:
+                continue
+            key, value = stripped.split("=", 1)
+            name = key.strip().removeprefix("export ").strip()
+            if name not in secrets or secrets[name]:
+                continue
+            value = value.strip()
+            if len(value) >= 2 and value[0] == value[-1] and value[0] in "\"'":
+                value = value[1:-1]
+            secrets[name] = value
+
+        def redact(text: str) -> str:
+            for name, secret in secrets.items():
+                if secret and len(secret) >= 8:
+                    text = text.replace(secret, f"<{name}>")
+            return text
+
+        return redact
 
 
 # ---------------------------------------------------------------------------
@@ -128,24 +159,3 @@ def _write_settings(
     path = settings_dir / "settings.json"
     path.write_text(json.dumps(settings, indent=2) + "\n")
     return path
-
-
-def _dotenv_value(name: str) -> str | None:
-    """Read one Gemini CLI dotenv setting without logging neighboring secrets."""
-    path = Path.home() / ".gemini" / ".env"
-    try:
-        lines = path.read_text().splitlines()
-    except OSError:
-        return None
-    for line in lines:
-        stripped = line.strip()
-        if not stripped or stripped.startswith("#") or "=" not in stripped:
-            continue
-        key, value = stripped.split("=", 1)
-        if key.strip().removeprefix("export ").strip() != name:
-            continue
-        value = value.strip()
-        if len(value) >= 2 and value[0] == value[-1] and value[0] in "\"'":
-            value = value[1:-1]
-        return value or None
-    return None

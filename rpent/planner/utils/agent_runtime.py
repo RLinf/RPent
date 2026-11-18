@@ -81,7 +81,6 @@ class AgentArtifacts:
     def result(
         self,
         *,
-        text: str,
         finish_result: dict[str, Any] | None,
         final_response: str | None,
         stats: dict[str, Any],
@@ -91,7 +90,6 @@ class AgentArtifacts:
         """Build a result with backend statistics and companion artifact paths.
 
         Args:
-            text: Rendered transcript; falls back to the file when empty.
             finish_result: Successful finish tool result, when present.
             final_response: Last assistant response used for size reporting.
             stats: Backend-specific usage and turn counters.
@@ -101,8 +99,7 @@ class AgentArtifacts:
         Returns:
             The common planner result without changing backend event semantics.
         """
-        if not text and self.output_path.exists():
-            text = self.output_path.read_text(errors="replace")
+        text = self.output_path.read_text(errors="replace")
         logger.info("%s output: %s", self.backend, self.output_path)
         logger.info("%s raw stream: %s", self.backend, self.raw_stream_path)
         return PlannerResult(

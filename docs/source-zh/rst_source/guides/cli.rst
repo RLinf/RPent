@@ -27,10 +27,10 @@
      - 选择已发现的机器人或仿真环境。
    * - ``--planner``
      - ``api``
-     - 在线规划器：``api``、``claude_code``、``codex``、``gemini_cli``、``opencode``；``flash`` 用于执行已有计划。
+     - 可选 ``api``、``claude_code``、``codex``、``gemini_cli``、``opencode`` 或 ``flash``。见 :doc:`configure_planner`。
    * - ``--model``
      - ``—``
-     - ``api`` 要求服务提供方前缀；CLI/SDK 规划器未显式指定时使用各自默认值。
+     - ``api`` 要求服务提供方前缀；``claude_code``、``codex``、``gemini_cli`` 和 ``opencode`` 未显式指定时使用各自默认值。
    * - ``--max-turns``
      - ``100``
      - 规划器轮数上限；``api`` 按整段对话的模型请求次数计算，包括重试和后续输入。
@@ -38,14 +38,14 @@
      - ``8192``
      - 仅 ``api``：每次模型回复的 Token 上限。
    * - ``--reasoning-effort``
-     - ``api``：``high``；CLI/SDK 规划器：``none``
+     - ``api``：``high``；``claude_code``、``codex``、``gemini_cli``、``opencode``：``none``
      - ``api``、``claude_code`` 与 ``codex`` 的推理强度：``none``、``low``、``medium``、``high`` 或 ``xhigh``。在我们的 LIBERO Pro Long 评测中，关闭 reasoning 将平均运行时间从约 13.2 分钟缩短至 7.9 分钟（约 40%）。较高强度可能提升任务成功率；实际支持的档位取决于所选模型。``gemini_cli`` 和 ``opencode`` 仅接受 ``none``。
    * - ``--planner-timeout-s``
      - ``—``
      - 优先使用 ``CODEX_TIMEOUT_S`` （Codex）或 ``GEMINI_CLI_TIMEOUT_S`` （Gemini CLI），再依次使用 ``CELL_TIMEOUT_S`` 或 1200 秒；终端交互式 API/Claude 会话不受此限。
    * - ``--base-url``
      - ``—``
-     - 仅 ``api``：覆盖模型服务地址。CLI/SDK 规划器使用各自已有的后端配置，并拒绝此参数。
+     - 仅 ``api``：覆盖模型服务地址。``claude_code``、``codex``、``gemini_cli`` 和 ``opencode`` 使用各自已有的后端配置，并拒绝此参数。
    * - ``--no-images``
      - ``false``
      - 仅 ``api``：不向模型发送图像。
@@ -55,6 +55,9 @@
    * - ``--output-dir``
      - ``—``
      - 保存本次运行文件的目录；默认目录名由环境生成。
+   * - ``--record-trajectory``
+     - ``false``
+     - 使用 ``api``、``claude_code`` 或 ``codex`` 时，记录任务、模型请求与回复，以及工具调用。评测模式下，支持动作采集的环境还会记录实际执行的动作及其观测。采集和导出方法见 :doc:`flywheel`。
    * - ``--memory-profile``
      - ``—``
      - 通常评测默认为 ``hf``；探索和 WAM 评测使用 ``local``。
@@ -93,11 +96,11 @@ LIBERO 使用 ``--suite``、``--task``、``--seed`` 和 ``--libero-type`` 选择
 
 ``--env-endpoint``、``--am-endpoint`` 和 LIBERO 的 ``--sam3-endpoint`` 分别连接已有的环境、动作模型（VLA 或 WAM）和 SAM3 服务。RPent RPC 地址格式为 ``[protocol://]host:port``，默认协议为 ``http``；LingBot 使用原生 WebSocket，见 :doc:`../simulators/robotwin`。GPU 分配和远程服务见 :doc:`advanced_deployment`。
 
-``--am-backend`` 选择当前平台支持的一个动作模型；LIBERO 和 RoboTwin 默认分别为 ``pi05`` 和 ``lingbot``。VLA 和 WAM 共用 ``--am-endpoint`` 连接已有服务，共用 ``--am-checkpoint``、``--am-python``、``--am-root`` 和 ``--am-cuda-device`` 配置本地部署。使用 endpoint 时，显式传入本地部署参数会报错。
+``--am-backend`` 选择当前平台支持的一个动作模型；LIBERO 默认使用 ``pi05``，RoboTwin 支持 ``lingbot``（默认）、``fast-wam`` 和 ``uniwam``。VLA 和 WAM 共用 ``--am-endpoint`` 连接已有服务，共用 ``--am-checkpoint``、``--am-python``、``--am-root`` 和 ``--am-cuda-device`` 配置本地部署。使用 endpoint 时，显式传入本地部署参数会报错。
 
-WAM 采用 ``local`` 记忆模式并注册记忆文件工具，默认目录按后端区分，可通过 ``--memory-dir`` 指定目录；目前不支持 HF 记忆、Flash 和探索模式。模型启动参数及支持的组合见 :doc:`../development/add_action_model`。
+``--am-checkpoint`` 按后端要求提供本地权重或服务模型标识；UniWAM 使用 :doc:`../simulators/robotwin` 中说明的资源根目录。``--am-python`` 指定已准备好的模型解释器，VLA 默认使用当前解释器；``--am-root`` 指定工作目录，默认使用 RPent 仓库目录，Cosmos Policy 则要求其源码目录。Franka 和 YAM 仅提供外部服务连接。
 
-``--am-checkpoint`` 按后端要求提供本地权重或服务模型标识。``--am-python`` 指定已准备好的模型解释器，VLA 默认使用当前解释器；``--am-root`` 指定工作目录，默认使用 RPent 仓库目录，Cosmos Policy 则要求其源码目录。Franka 和 YAM 仅提供外部服务连接。
+Cosmos Policy、Cosmos3 和 Fast-WAM 采用 ``local`` 记忆模式并注册记忆文件工具，默认目录按后端区分，可通过 ``--memory-dir`` 指定目录；目前不支持 HF 记忆、Flash 和探索模式。UniWAM 保留 RoboTwin 的探索和 memory 选择，见 :doc:`../simulators/robotwin`。模型启动参数及支持的组合见 :doc:`../development/add_action_model`。
 
 ``--predict-future`` 在本地部署时开启未来状态和价值输出，目前仅 Cosmos Policy 支持，其他后端会拒绝此参数。使用 ``--am-endpoint`` 连接已有服务时，应在启动 worker 时配置。RPent 尚不利用这些输出进行规划。
 
@@ -141,8 +144,6 @@ RPent CLI 保留原有 ``--cuda-device`` 作为本地服务的共享默认值；
      - 兼容旧参数（隐藏别名）
    * - ``--am-backend``
      - ``--vla-backend``、``--wam-backend``
-   * - ``--am-backend pi05``
-     - RoboDojo 的 ``--policy-backend rlinf``
    * - ``--am-endpoint``
      - ``--vla-endpoint``、``--wam-endpoint``
    * - ``--am-checkpoint``
@@ -208,6 +209,8 @@ Claude Code 和 Codex 也可复用已有的 CLI 认证。Gemini CLI 使用自身
      - 用途
    * - ``transcript_*.json``
      - 规划器对话、工具调用及结束信息。
+   * - ``trajectories/<task_id>/``
+     - ``--record-trajectory`` 保存的任务记录及附件。探索模式的记录位于各 ``sessions/session_*/`` 目录下。详见 :doc:`flywheel`。
    * - ``episode.mp4``
      - 本次任务的录像。
    * - ``run.log``

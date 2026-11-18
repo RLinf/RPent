@@ -161,7 +161,6 @@ class TerminalInteraction:
 async def run_agent(
     *,
     prompt: str,
-    initial_user_text: str,
     toolkit: Toolkit,
     artifacts: AgentArtifacts,
     recorder: Any,
@@ -187,20 +186,23 @@ async def run_agent(
     error: str | None = None
     session = None
     reader = None
+    session_task = None
+    finish_waiter = None
+    finished = asyncio.Event()
     loop = asyncio.get_running_loop()
     with (
         artifacts.output_path.open("w") as output,
         artifacts.raw_stream_path.open("w") as raw,
     ):
 
-        def emit_user(text: str, *, initial: bool = False) -> None:
-            display = "[initial task instructions submitted]" if initial else text
+        def emit_user(text: str | None = None) -> None:
+            display = "[initial task instructions submitted]" if text is None else text
             output.write(f"\n[user] {display}\n")
             output.flush()
             events.emit(
                 TranscriptEvent(
                     {"type": "initial_prompt"}
-                    if initial
+                    if text is None
                     else {"type": "user", "text": text}
                 )
             )
@@ -211,7 +213,7 @@ async def run_agent(
                 cancel_active_and_wait=toolkit.cancel_active_and_wait,
                 resume_calls=toolkit.resume_calls,
                 emit_user=emit_user,
-                emit_initial_user=lambda: emit_user(initial_user_text, initial=True),
+                emit_initial_user=emit_user,
                 queue_until_complete=True,
             )
             if port is not None
@@ -219,16 +221,19 @@ async def run_agent(
         )
 
         def emit_event(event: dict[str, Any]) -> None:
-            safe = json.loads(
-                redact(json.dumps(event, ensure_ascii=False, default=str))
-            )
-            write_jsonl(raw, safe)
+            serialized = json.dumps(event, ensure_ascii=False, default=str)
+            sanitized = redact(serialized)
+            safe = json.loads(sanitized) if sanitized != serialized else event
+            raw.write(sanitized + "\n")
+            raw.flush()
             if rendered := recorder.observe(safe):
                 output.write(rendered)
                 output.flush()
                 logger.info(rendered.rstrip())
-            if control is not None and recorder.finish_result is not None:
-                control.end()
+            if recorder.finish_result is not None:
+                finished.set()
+                if control is not None:
+                    control.end()
 
         def observe_tool(name, args, result):
             loop.call_soon_threadsafe(emit_event, tool_event(name, args, result))
@@ -243,7 +248,17 @@ async def run_agent(
             session = create_session(url, control, emit_event)
             if terminal is not None:
                 reader = asyncio.create_task(terminal.read_input())
-            await asyncio.wait_for(session.run(prompt), timeout=timeout_s)
+            session_task = asyncio.create_task(session.run(prompt))
+            finish_waiter = asyncio.create_task(finished.wait())
+            done, _ = await asyncio.wait(
+                (session_task, finish_waiter),
+                timeout=timeout_s,
+                return_when=asyncio.FIRST_COMPLETED,
+            )
+            if not done:
+                raise asyncio.TimeoutError
+            if session_task in done:
+                await session_task
             error = session.error
         except asyncio.TimeoutError:
             error = f"{label} timed out after {timeout_s}s"
@@ -263,6 +278,12 @@ async def run_agent(
             except Exception as exc:
                 error = error or redact(f"Session cleanup failed: {exc}")
             finally:
+                tasks = [
+                    task for task in (session_task, finish_waiter) if task is not None
+                ]
+                for task in tasks:
+                    task.cancel()
+                await asyncio.gather(*tasks, return_exceptions=True)
                 await asyncio.to_thread(server.stop)
                 if reader is not None:
                     with contextlib.suppress(asyncio.CancelledError):

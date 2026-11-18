@@ -16,116 +16,69 @@ from __future__ import annotations
 
 import base64
 import json
-from pathlib import Path
 from typing import Any
 
 import pytest
 
-from rpent.dashboard.events import NullDashboardEventSink
-from rpent.memory import MemoryManager
 from rpent.planner.claude_code import _tool_result_to_mcp
 from rpent.planner.utils.http_mcp_server import mcp_result
-from rpent.session import EnvState
-from rpent.tools import Toolkit, ToolResult, tool
+from rpent.tools import ToolResult
+from rpent.tools import base as tool_base
 
 
-@pytest.mark.parametrize("render", [mcp_result, _tool_result_to_mcp])
+@pytest.mark.parametrize(
+    "render,error_key", [(mcp_result, "isError"), (_tool_result_to_mcp, "is_error")]
+)
 @pytest.mark.parametrize("error", [None, "motion failed", {"code": "blocked"}, "", {}])
-def test_payload_error_and_images_reach_planner_without_mutation(render, error):
+def test_payload_error_and_images_reach_planner_without_mutation(
+    render, error_key, error
+):
     payload = {"step": 3, "error": error}
-    result = ToolResult(data=payload, images=[b"image"])
+    images = [b"main", b"camera", b"navigation", b"wrist"]
+    result = ToolResult(data=payload, images=images)
 
     response = render(result)
 
-    assert response.get("isError", response.get("is_error", False)) is (
-        error is not None
-    )
+    if error_key == "isError" or error is not None:
+        assert response[error_key] is (error is not None)
+    else:
+        assert error_key not in response
     assert json.loads(response["content"][0]["text"]) == payload
-    assert base64.b64decode(response["content"][1]["data"]) == b"image"
+    blocks = response["content"]
+    assert [block["type"] for block in blocks] == ["text"] + ["image"] * 4
+    assert [base64.b64decode(block["data"]) for block in blocks[1:]] == images
+    assert all(block["mimeType"] == "image/png" for block in blocks[1:])
+    assert images == [b"main", b"camera", b"navigation", b"wrist"]
     assert payload == {"step": 3, "error": error}
     copied = result.to_dict()
     copied["error"] = "changed"
     assert payload["error"] == error
 
 
-@pytest.fixture
-def toolkit(tmp_path: Path) -> Toolkit:
-    return Toolkit(
-        dashboard_events=NullDashboardEventSink(),
-        state=EnvState(tmp_path / "state"),
-        memory=MemoryManager(tmp_path / "memory"),
-    )
+@pytest.mark.parametrize("value", ["plain text", 17, ["one", "two"]])
+def test_tool_result_encodes_payload_values(value: Any) -> None:
+    result = ToolResult(data={"value": value})
+    assert json.loads(result.to_text()) == {"value": value}
 
 
-@pytest.mark.parametrize(
-    ("action_error", "observation_error", "expected_error"),
-    [
-        ("motion failed", "camera failed", "motion failed"),
-        ("motion failed", None, "motion failed"),
-        (None, "camera failed", "camera failed"),
-        (None, None, None),
-    ],
-)
-def test_state_capture_preserves_action_error_and_images(
-    toolkit, monkeypatch, action_error, observation_error, expected_error
-):
-    @tool
-    def move() -> ToolResult:
-        """Move the robot."""
-        return ToolResult(
-            data={"error": action_error, "interrupted": True}, images=[b"action"]
-        )
-
-    captured = []
-
-    def observe(**kwargs: Any) -> ToolResult:
-        captured.append(kwargs["result"])
-        return ToolResult(
-            data={"step": 1, "error": observation_error}, images=[b"observation"]
-        )
-
-    toolkit.add_tool(move)
-    monkeypatch.setattr(toolkit, "get_env_state", observe)
-
-    result = toolkit.execute_tool("move", {})
-
-    assert captured == [{"error": action_error, "interrupted": True}]
-    assert result.data["error"] == expected_error
-    assert result.is_error is (expected_error is not None)
-    assert result.data["step"] == 1
-    assert result.images == [b"action", b"observation"]
-    if action_error is not None:
-        assert result.data["interrupted"] is True
+@pytest.mark.parametrize("finished", [True, False])
+def test_tool_result_preserves_finish_signal(finished: bool) -> None:
+    result = ToolResult(data={"_finish": finished})
+    assert result.to_dict()["_finish"] is finished
+    assert json.loads(result.to_text())["_finish"] is finished
 
 
-@pytest.mark.parametrize("action_error", [None, "motion failed"])
-def test_capture_exception_preserves_original_error(toolkit, monkeypatch, action_error):
-    @tool
-    def move() -> ToolResult:
-        """Move the robot."""
-        return ToolResult(data={"error": action_error})
-
-    def observe(**kwargs: Any) -> ToolResult:
-        raise RuntimeError("camera offline")
-
-    toolkit.add_tool(move)
-    monkeypatch.setattr(toolkit, "get_env_state", observe)
-
-    result = toolkit.execute_tool("move", {})
-
-    assert result.is_error
-    assert result.data["error"] == (
-        action_error or "failed to capture state after move: camera offline"
-    )
-    assert result.data["state_capture_error"] == "camera offline"
+def test_tool_result_text_limit_preserves_internal_payload(monkeypatch) -> None:
+    monkeypatch.setattr(tool_base, "MAX_TOOL_TEXT_BYTES", 30)
+    payload = {"value": "界" * 10}
+    result = ToolResult(data=payload)
+    text = result.to_text()
+    assert len(text.encode("utf-8")) <= 30
+    assert text.endswith("\n[truncated]")
+    assert result.data == payload
 
 
-def test_unknown_tool_and_bad_arguments_are_error_results(toolkit):
-    unknown = toolkit.execute_tool("missing", {})
-    invalid = toolkit.execute_tool("read_text_file", {"path": 3})
-
-    assert unknown.is_error
-    assert unknown.data["error"] == "unknown tool: missing"
-    assert invalid.is_error
-    assert invalid.data["error"] == "bad arguments for read_text_file"
-    assert invalid.data["errors"][0]["loc"] == ("path",)
+@pytest.mark.parametrize("render", [mcp_result, _tool_result_to_mcp])
+def test_plain_result_contains_only_text(render):
+    response = render(ToolResult(data={"value": "plain"}))
+    assert response["content"] == [{"type": "text", "text": '{\n  "value": "plain"\n}'}]

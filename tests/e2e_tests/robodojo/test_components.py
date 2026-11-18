@@ -1,5 +1,5 @@
 # Copyright 2026 The RPent Authors.
-"""Opt-in real SAM3 segmentation and back-projection."""
+"""Opt-in SAM3 and native VLA components; SAM3 needs no VLA weights."""
 
 import os
 from pathlib import Path
@@ -74,3 +74,77 @@ def test_sam3_component(monkeypatch):
             )
         finally:
             toolkit.close()
+
+
+@pytest.mark.timeout(2400)
+def test_vpp2_component(vla_backend):
+    if vla_backend != "vpp2":
+        pytest.skip("VPP2 is not the selected backend")
+    output = Path(os.environ["RPENT_E2E_OUTPUT_DIR"]) / "vpp2-component"
+    spec = get_robot_spec()
+    endpoint = os.environ.get("RPENT_ROBODOJO_VLA_ENDPOINT")
+    args = parse_runtime_args(
+        spec,
+        [
+            "--task",
+            "put_bottles_into_dustbin",
+            *(["--vla-endpoint", endpoint] if endpoint else []),
+        ],
+    )
+    with runtime_phase(spec, args, output / "runtime", {"env", "vla"}) as runtime:
+        env = runtime["env"]
+        env.step_joint_update("left", gripper=0.5)
+        context = env.policy_observation()
+        actions = runtime["vla_client"].infer(
+            context, "Pick up the pink bottle on the table"
+        )
+        assert len(actions) == 24
+        assert all(
+            np.isfinite(value).all() for action in actions for value in action.values()
+        )
+        obs, _, _, info = env.step(actions[0])
+        assert info["executed_actions"] == 1
+        after = env.policy_observation()
+        assert after["inference_index"] == 1
+        np.testing.assert_array_equal(
+            after["history"][-1][0], obs["vision"]["cam_head"]["color"]
+        )
+
+
+@pytest.mark.timeout(2400)
+def test_awomo05_component(vla_backend):
+    if vla_backend != "awomo05":
+        pytest.skip("Awomo05 is not the selected backend")
+    output = Path(os.environ["RPENT_E2E_OUTPUT_DIR"]) / "awomo05-component"
+    endpoint = os.environ.get("RPENT_ROBODOJO_VLA_ENDPOINT")
+    spec = get_robot_spec()
+    args = parse_runtime_args(
+        spec,
+        [
+            "--task",
+            "put_bottles_into_dustbin",
+            "--vla-backend",
+            "awomo05",
+            *(["--vla-endpoint", endpoint] if endpoint else []),
+        ],
+    )
+    with runtime_phase(spec, args, output / "runtime", {"env", "vla"}) as runtime:
+        env, policy = runtime["env"], runtime["vla_client"]
+        try:
+            policy.reset_session()
+            policy.update_obs(env.last_obs, 0)
+            env.step_joint_update("left", gripper=0.5)
+            policy.update_obs(env.last_obs, 1)
+            actions = policy.get_action()
+            assert len(actions) == 8
+            assert all(
+                np.isfinite(value).all()
+                for action in actions
+                for value in action.values()
+            )
+            obs, _, _, info = env.step(actions[0])
+            assert info["executed_actions"] == 1
+            policy.update_obs(obs, 2)
+            assert info["step_after"] == 2
+        finally:
+            policy.close()

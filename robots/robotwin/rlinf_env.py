@@ -16,6 +16,7 @@
 
 from __future__ import annotations
 
+from copy import deepcopy
 from typing import Any, Literal
 
 import numpy as np
@@ -144,6 +145,16 @@ class RoboTwinAgentEnv(RoboTwinEnv):
             "actual_seed": int(actual_seed),
         }
 
+    def _snapshot_observation(self, sub_env: Any, native: dict) -> dict[str, Any]:
+        """Snapshot native cameras and robot state while holding ``sub_env.lock``."""
+        return deepcopy(
+            {
+                "observation": native["observation"],
+                "robot_state": self._robot_state(sub_env),
+                "task_language": str(sub_env.task.get_instruction()),
+            }
+        )
+
     def chunk_step(
         self,
         actions: Any,
@@ -159,9 +170,13 @@ class RoboTwinAgentEnv(RoboTwinEnv):
         terminations: list[bool] = []
         truncations: list[bool] = []
         per_step: list[dict[str, Any]] = []
-        frames: list[np.ndarray] = []
+        frames: list[dict[str, Any]] = []
         executed = 0
         with sub_env.lock:
+            if return_all_frames:
+                before_observation = self._snapshot_observation(
+                    sub_env, sub_env.task.get_obs()
+                )
             for action in array:
                 status = self._episode_status(sub_env)
                 if _execution_should_stop(status):
@@ -180,15 +195,15 @@ class RoboTwinAgentEnv(RoboTwinEnv):
                 rewards.append(float(step_status["eval_success"]))
                 terminations.append(bool(step_status["eval_success"]))
                 truncations.append(bool(budget))
-                per_step.append({"episode_status": step_status})
+                per_step.append(
+                    {
+                        "episode_status": step_status,
+                        "qpos_target14": self._qpos_target14(sub_env),
+                    }
+                )
                 if return_all_frames:
-                    head_rgb = sub_env.task.get_obs()["observation"]["head_camera"][
-                        "rgb"
-                    ]
                     frames.append(
-                        np.asarray(
-                            self.center_and_crop(head_rgb, center_crop=self.center_crop)
-                        )
+                        self._snapshot_observation(sub_env, sub_env.task.get_obs())
                     )
             episode_status = self._episode_status(sub_env)
             robot_state = self._robot_state(sub_env)
@@ -206,6 +221,8 @@ class RoboTwinAgentEnv(RoboTwinEnv):
             "episode_status": episode_status,
             "per_step": per_step,
         }
+        if return_all_frames:
+            info["before_observation"] = before_observation
         return (
             [observation],
             np.asarray(rewards, dtype=np.float32).reshape(1, -1),
@@ -344,11 +361,18 @@ class RoboTwinAgentEnv(RoboTwinEnv):
             ),
         }
 
+    @staticmethod
+    def _qpos_target14(sub_env: Any) -> np.ndarray:
+        """Read the native joint_action.vector layout while holding the env lock."""
+        robot = sub_env.task.robot
+        return np.asarray(
+            robot.get_left_arm_jointState() + robot.get_right_arm_jointState(),
+            dtype=np.float64,
+        )
+
     def _robot_state(self, sub_env: Any) -> dict[str, Any]:
         """Read the native robot state; the caller must hold ``sub_env.lock``."""
         robot = sub_env.task.robot
-        left_target = robot.get_left_arm_jointState()
-        right_target = robot.get_right_arm_jointState()
         left_real = robot.get_left_arm_real_jointState()
         right_real = robot.get_right_arm_real_jointState()
         return {
@@ -358,7 +382,7 @@ class RoboTwinAgentEnv(RoboTwinEnv):
             "right_tcp_pose": np.asarray(robot.get_right_tcp_pose(), dtype=np.float64),
             "left_gripper": float(robot.get_left_gripper_val()),
             "right_gripper": float(robot.get_right_gripper_val()),
-            "qpos_target14": np.asarray(left_target + right_target, dtype=np.float64),
+            "qpos_target14": self._qpos_target14(sub_env),
             "arm_qpos_real12": np.asarray(
                 left_real[:-1] + right_real[:-1], dtype=np.float64
             ),

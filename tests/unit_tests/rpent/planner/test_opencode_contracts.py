@@ -44,6 +44,7 @@ def test_opencode_preserves_provider_and_scopes_tools(tmp_path, monkeypatch, pro
         mcp_url=None if probe else "http://127.0.0.1:1234/mcp/",
         max_turns=3,
         tool_names=() if probe else ("observe", "finish"),
+        redact=planner._load_secret_redactor(),
     )
     config = json.loads(session._env["OPENCODE_CONFIG_CONTENT"])
     assert config["provider"] == json.loads(original)["provider"]

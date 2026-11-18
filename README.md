@@ -47,6 +47,7 @@ RPent is built for four kinds of users:
 
 ## What's NEW!
 
+- [2026/11] 🔥 Added the data flywheel. Supervised fine-tuning of the VLA on successful trajectories collected with the flywheel raised RPent's task success rate on RoboTwin from 48% to 72%, a gain of **24 percentage points**. See the [user guide](https://rpent.readthedocs.io/en/latest/rst_source/guides/flywheel.html).
 - [2026/10] 🔥 Added an optional APXInf VLA endpoint. See the [deployment guide](https://rpent.readthedocs.io/en/latest/rst_source/guides/advanced_deployment.html#apxinf-vla-service-optional).
 - [2026/09] 🔥 Added the interactive RPent Leaderboard for LIBERO, LIBERO-PRO, RoboCasa365, and RoboTwin, with model comparisons and suite-level results. Explore the [Leaderboard](https://rpent.readthedocs.io/en/latest/rst_source/leaderboard/index.html).
 - [2026/09] 🔥 RPent supports Franka single-arm and dual-arm real-robot extensions. Doc: [Franka](https://rpent.readthedocs.io/en/latest/rst_source/real_world_robots/franka.html) · [Dual Franka](https://rpent.readthedocs.io/en/latest/rst_source/real_world_robots/dual_franka.html).
@@ -89,6 +90,7 @@ RPent is built for four kinds of users:
             <li>DreamZero</li>
             <li><a href="docs/source-en/rst_source/development/add_action_model.rst">Cosmos Policy</a> (LIBERO / LIBERO-Pro)</li>
             <li><a href="docs/source-en/rst_source/development/add_action_model.rst">Fast-WAM</a> (LIBERO / LIBERO-Pro / RoboTwin)</li>
+            <li><a href="docs/source-en/rst_source/development/add_action_model.rst">UniWAM</a> (RoboTwin)</li>
           </ul>
         </ul>
       </td>
@@ -205,6 +207,16 @@ rpent --robot libero --dashboard --dashboard-language zh-cn \
 For a complete list of CLI options, see the [Command-Line Reference](https://rpent.readthedocs.io/en/latest/rst_source/guides/cli.html). RoboCasa and RoboTwin provide their own task parameters — see the [RoboCasa](https://rpent.readthedocs.io/en/latest/rst_source/simulators/robocasa.html) and [RoboTwin](https://rpent.readthedocs.io/en/latest/rst_source/simulators/robotwin.html) docs.
 
 For more detailed documentation, see the [RPent documentation](https://rpent.readthedocs.io/en/latest/).
+
+## Adoption
+
+We are happy to see RPent has been adopted by leading companies and research institutions, with users and collaborators including NVIDIA, Huawei, Tencent, ROBAM, Z-Trans AI (Zetta project), Tsinghua University, Peking University, and the National University of Singapore.
+
+✨ If you find RPent useful for embodied AI research or robotics applications, feel free to reach out or submit a PR to have your organization listed here.
+
+<div align="center">
+  <img src="https://cdn.jsdelivr.net/gh/RLinf/misc@beb75d9289a0dee012004c26436f8fb1c688f310/rpent/adoption/adoption.png" alt="RPent community: 10 companies, including Z-Trans AI (Zetta project) and ROBAM, followed by 22 universities and 8 research institutions"/>
+</div>
 
 ## Contributing
 

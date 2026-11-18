@@ -68,7 +68,10 @@ class AcpPlanner(Planner):
 
     backend: str
     label: str
-    _redact = staticmethod(redact_agent_secrets)
+
+    @staticmethod
+    def _load_secret_redactor() -> Callable[[str], str]:
+        return redact_agent_secrets
 
     def __init__(
         self,
@@ -120,7 +123,6 @@ class AcpPlanner(Planner):
                 prompt=f"{system_prompt}\n\n{user_message}"
                 if system_prompt
                 else user_message,
-                initial_user_text=user_message,
                 toolkit=toolkit,
                 max_turns=max_turns,
                 input_queue=input_queue,
@@ -132,7 +134,6 @@ class AcpPlanner(Planner):
         self,
         *,
         prompt: str,
-        initial_user_text: str,
         toolkit: Toolkit,
         max_turns: int,
         input_queue: queue.Queue[str | None] | None,
@@ -142,12 +143,13 @@ class AcpPlanner(Planner):
             self.backend, self._output_path, directory=self._output_dir
         )
         recorder = AcpRecorder(self._dashboard_events, label=self.backend)
+        redact = self._load_secret_redactor()
         stderr_path = artifacts.sidecar(".stderr.log")
         self._output_dir.mkdir(parents=True, exist_ok=True)
         with tempfile.TemporaryDirectory(
             prefix=f"{self.backend}_", dir=self._output_dir
         ) as cwd:
-            root = Path(cwd)
+            root = Path(cwd).resolve()
 
             def create_session(url, control, emit):
                 return self._create_session(
@@ -158,11 +160,11 @@ class AcpPlanner(Planner):
                     mcp_url=url,
                     max_turns=max_turns,
                     tool_names=(tool.name for tool in toolkit.list_tools()),
+                    redact=redact,
                 )
 
             error = await run_agent(
                 prompt=prompt,
-                initial_user_text=initial_user_text,
                 toolkit=toolkit,
                 artifacts=artifacts,
                 recorder=recorder,
@@ -172,7 +174,7 @@ class AcpPlanner(Planner):
                 label=self.label,
                 input_queue=input_queue,
                 interaction=interaction,
-                redact=self._redact,
+                redact=redact,
                 tool_event=lambda name, args, result: {
                     "type": "rpent_tool",
                     "name": name,
@@ -182,7 +184,6 @@ class AcpPlanner(Planner):
                 },
             )
         return artifacts.result(
-            text="",
             finish_result=recorder.finish_result,
             final_response=recorder.final_response,
             stats=recorder.stats(),
@@ -201,6 +202,7 @@ class AcpPlanner(Planner):
         mcp_url: str | None,
         max_turns: int,
         tool_names: Iterable[str],
+        redact: Callable[[str], str],
     ) -> AcpSession:
         """Prepare a harness session; mcp_url is None during a connection probe."""
         ...
@@ -208,10 +210,11 @@ class AcpPlanner(Planner):
     def probe(self, prompt: str) -> str:
         """Request a minimal reply without mounting RPent tools."""
         recorder = AcpRecorder(NullDashboardEventSink(), label=self.backend)
+        redact = self._load_secret_redactor()
         with tempfile.TemporaryDirectory(
             prefix=f"rpent_{self.backend}_probe_"
         ) as directory:
-            root = Path(directory)
+            root = Path(directory).resolve()
 
             async def run():
                 session = self._create_session(
@@ -222,6 +225,7 @@ class AcpPlanner(Planner):
                     mcp_url=None,
                     max_turns=1,
                     tool_names=(),
+                    redact=redact,
                 )
                 try:
                     await asyncio.wait_for(session.run(prompt), timeout=self._timeout_s)
@@ -231,7 +235,7 @@ class AcpPlanner(Planner):
                     raise RuntimeError(session.error)
 
             asyncio.run(run())
-        return self._redact(recorder.final_response)
+        return redact(recorder.final_response)
 
 
 # ---------------------------------------------------------------------------
@@ -340,7 +344,7 @@ class AcpSession:
         return 1
 
     async def _consume_prompt(self, text: str, done: asyncio.Event) -> None:
-        from acp import text_block
+        from acp import RequestError, text_block
 
         try:
             response = await self._connection.prompt(
@@ -363,6 +367,8 @@ class AcpSession:
         except Exception as exc:
             done.set()
             self.error = self._redact(f"{type(exc).__name__}: {exc}")
+            if self._control is None and isinstance(exc, RequestError):
+                raise RequestError(exc.code, self._redact(str(exc))) from None
             if self._control is not None:
                 self._control.end()
 

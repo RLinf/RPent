@@ -107,7 +107,6 @@ def test_explicit_paths_do_not_read_workspace_or_mutate_parent(monkeypatch, tmp_
     env = robot_spec._runtime_overrides(args)
     assert str(tmp_path / "source") in env["PYTHONPATH"].split(os.pathsep)
     assert str(tmp_path / "policy") in env["PYTHONPATH"].split(os.pathsep)
-    assert env["ROBODOJO_PI05_POLICY_ROOT"] == str(tmp_path / "policy/policy/Pi_05")
     assert dict(os.environ) == before
     assert (
         args.sim_python
@@ -130,15 +129,12 @@ def test_local_spawn_uses_packaged_source_root(monkeypatch, tmp_path):
     assert overrides["ROBODOJO_SOURCE_ROOT"] == str(tmp_path / "packaged")
     assert overrides["ROBODOJO_ROOT"] == str(tmp_path / "packaged")
     assert overrides["ROBODOJO_ASSETS_ROOT"] == str(tmp_path / "data")
-    assert overrides["ROBODOJO_PI05_POLICY_ROOT"] == str(
-        tmp_path / "packaged/XPolicyLab/policy/Pi_05"
-    )
 
 
 @pytest.mark.parametrize("inherited", [None, "", "2", "2,3", "GPU-example"])
 @pytest.mark.parametrize("explicit", [None, 0, 3])
 @pytest.mark.parametrize("component", ["env", "sam3", "vla"])
-@pytest.mark.parametrize("backend", ["rlinf", "xpolicylab"])
+@pytest.mark.parametrize("backend", ["vpp2", "awomo05"])
 def test_cuda_selection_is_only_overridden_explicitly(
     monkeypatch, tmp_path, inherited, explicit, component, backend
 ):
@@ -157,11 +153,13 @@ def test_cuda_selection_is_only_overridden_explicitly(
 
     monkeypatch.setattr(robot_spec, "ProcessDaemon", Daemon)
     monkeypatch.setattr(am_runtime, "ProcessDaemon", Daemon)
-    flags = [] if explicit is None else [f"--{component}-cuda-device", str(explicit)]
-    args = _args("--source-root", str(tmp_path), "--policy-backend", backend, *flags)
-    selected = getattr(args, f"{'am' if component == 'vla' else component}_cuda_device")
-    assert selected is None if explicit is None else str(selected) == str(explicit)
-    getattr(robot_spec, f"_spawn_{component}_server")(args, tmp_path)
+    flags = [] if explicit is None else ["--cuda-device", str(explicit)]
+    args = _args("--source-root", str(tmp_path), "--vla-backend", backend, *flags)
+    assert args.cuda_device == explicit
+    if component == "vla":
+        robot_spec._spawn_model_server(args, tmp_path, rpc_options={})
+    else:
+        getattr(robot_spec, f"_spawn_{component}_server")(args, tmp_path)
     overrides = recorded.get("env_overrides", {})
     if component != "sam3":
         assert ("CUDA_VISIBLE_DEVICES" in overrides) == (explicit is not None)
@@ -169,9 +167,9 @@ def test_cuda_selection_is_only_overridden_explicitly(
         assert child_env.get("CUDA_VISIBLE_DEVICES") == (
             inherited if explicit is None else str(explicit)
         )
-    flag = "--policy-gpu" if component == "vla" else "--cuda-device"
+    flag = "--cuda-device"
     cmd = recorded["cmd"]
-    if component != "vla" or backend == "xpolicylab":
+    if component != "vla":
         assert (flag in cmd) == (explicit is not None)
         if explicit is not None:
             assert cmd[cmd.index(flag) + 1] == str(explicit)
@@ -203,19 +201,15 @@ def test_borrowed_endpoint_needs_no_local_paths(monkeypatch, tmp_path, component
         lambda endpoint, **kwargs: client,
     )
     args = _args(f"--{component}-endpoint", "http://example:1234")
-    assert getattr(robot_spec, f"_spawn_{component}_server")(args, tmp_path) == (
-        None,
-        client,
+    result = (
+        robot_spec._spawn_model_server(args, tmp_path, rpc_options={})
+        if component == "vla"
+        else robot_spec._spawn_env_server(args, tmp_path)
     )
+    assert result == (None, client)
 
 
-@pytest.mark.parametrize(
-    "component,flag", [("env", "--sim-python"), ("vla", "--pi05-python")]
-)
-@pytest.mark.parametrize("backend", ["rlinf", "xpolicylab"])
-def test_spawn_uses_explicit_interpreter_and_child_paths(
-    monkeypatch, tmp_path, component, flag, backend
-):
+def test_env_spawn_uses_explicit_interpreter_and_child_paths(monkeypatch, tmp_path):
     recorded = {}
 
     class Daemon:
@@ -227,33 +221,96 @@ def test_spawn_uses_explicit_interpreter_and_child_paths(
 
     monkeypatch.setattr(robot_spec, "ProcessDaemon", Daemon)
     monkeypatch.setattr(am_runtime, "ProcessDaemon", Daemon)
-    flags = [] if backend == "rlinf" else ["--policy-backend", backend]
-    args = _args("--source-root", str(tmp_path), flag, sys.executable, *flags)
-    assert args.am_backend == ("pi05" if backend == "rlinf" else backend)
-    getattr(robot_spec, f"_spawn_{component}_server")(args, tmp_path)
+    args = _args("--source-root", str(tmp_path), "--sim-python", sys.executable)
+    robot_spec._spawn_env_server(args, tmp_path)
     assert recorded["cmd"][0] == sys.executable
     assert recorded["started"]
     assert "--parent-watch" in recorded["cmd"]
-    if component == "env" or backend == "xpolicylab":
-        directory_flag = "--output-dir" if component == "vla" else "--save-dir"
-        assert recorded["cmd"][recorded["cmd"].index(directory_flag) + 1] == str(
-            tmp_path
-        )
-    if component == "vla" and backend == "rlinf":
-        cmd = recorded["cmd"]
-        assert cmd[2:4] == ["-m", "rpent.robots.components.pi05_vla_server"]
-        assert cmd[cmd.index("--embodiment") + 1] == "robodojo"
-        assert "--model-path" not in cmd  # Server resolves PI05_CHECKPOINT_PATH.
-        assert "--policy-root" not in cmd
-    elif component == "vla":
-        cmd = recorded["cmd"]
-        assert cmd[2:4] == ["-m", "rpent.robots.components.xpolicylab_vla_server"]
-        assert cmd[cmd.index("--policy-root") + 1] == str(
-            tmp_path / "XPolicyLab/policy/Pi_05"
-        )
-    assert recorded["env_overrides"]["ROBODOJO_PI05_POLICY_ROOT"] == str(
-        tmp_path / "XPolicyLab/policy/Pi_05"
+    assert recorded["cmd"][recorded["cmd"].index("--save-dir") + 1] == str(tmp_path)
+    assert recorded["env_overrides"]["ROBODOJO_SOURCE_ROOT"] == str(tmp_path)
+
+
+@pytest.mark.parametrize("version", [None, 1, 2])
+def test_env_connection_checks_action_protocol_before_reset(
+    monkeypatch, tmp_path, agent_module, fake_env, version
+):
+    from robots.robodojo import env_server
+    from rpent.dashboard.events import NullDashboardEventSink
+    from rpent.robots import runtime
+
+    meta = {}
+
+    def create_env(cfg, **kwargs):
+        meta.update(kwargs["meta"])
+        return SimpleNamespace(close=lambda: None)
+
+    monkeypatch.setattr(agent_module, "RoboDojoAgentEnv", create_env)
+    monkeypatch.setattr(
+        env_server,
+        "RoboDojoEnvFacade",
+        lambda env: SimpleNamespace(serve=lambda **kwargs: None),
     )
+    monkeypatch.setattr(sys, "argv", ["env_server"])
+    env_server.main()
+    assert meta["action_protocol_version"] == 1
+    if version is None:
+        meta.pop("action_protocol_version")
+    else:
+        meta["action_protocol_version"] = version
+
+    env, calls = fake_env(), []
+
+    def call(method, **kwargs):
+        calls.append(method)
+        if method == "env.get_env_meta":
+            return meta
+        if method == "env.reset":
+            return env.reset()
+        assert method == "env.get_status"
+        return env.get_status()
+
+    rpc = SimpleNamespace(call=call, close=lambda: calls.append("close"))
+    monkeypatch.setattr(robot_spec, "_spawn_env_server", lambda *args: (None, rpc))
+    monkeypatch.setattr(runtime, "wait_for_ready", lambda *args, **kwargs: None)
+    config = _args("--env-endpoint", "socket://localhost:1234")
+    if version == 1:
+        _, connected = robot_spec._init_runtime(
+            config, tmp_path, NullDashboardEventSink(), {"env"}
+        )
+        assert connected["env"].policy_observation()["inference_index"] == 0
+        assert calls == ["env.get_env_meta", "env.reset", "env.get_status"]
+    else:
+        with pytest.raises(
+            RuntimeError, match="env_meta mismatch.*action_protocol_version"
+        ):
+            robot_spec._init_runtime(
+                config, tmp_path, NullDashboardEventSink(), {"env"}
+            )
+        assert calls == ["env.get_env_meta", "close"]
+
+
+@pytest.mark.parametrize("backend", ["vpp2", "awomo05"])
+@pytest.mark.parametrize("backend_flag", ["--am-backend", "--vla-backend"])
+def test_runtime_connects_selected_backend(
+    monkeypatch, tmp_path, backend, backend_flag
+):
+    from robots.robodojo.awomo05_client import Awomo05Client
+    from robots.robodojo.vpp2_client import VPP2Client
+    from rpent.dashboard.events import NullDashboardEventSink
+
+    rpc = object()
+    monkeypatch.setattr(robot_spec, "_spawn_model_server", lambda *a, **kw: (None, rpc))
+    monkeypatch.setattr(robot_spec, "try_wait_server", lambda *a, post_fn: post_fn())
+    daemons, kwargs = robot_spec._init_runtime(
+        _args(backend_flag, backend, "--am-endpoint", "socket://localhost:1234"),
+        tmp_path,
+        NullDashboardEventSink(),
+        {"vla"},
+    )
+    assert daemons == []
+    client = kwargs["vla_client"]
+    assert isinstance(client, VPP2Client if backend == "vpp2" else Awomo05Client)
+    assert client._client is rpc
 
 
 @pytest.mark.parametrize("lifting_arm", ["left", "right"])
@@ -343,16 +400,14 @@ def test_removed_motion_tools_have_no_implementation(name):
 
 
 @pytest.fixture
-def saved_camera(tmp_path):
+def saved_camera(tmp_path, fake_env):
     from rpent.session import EnvState
 
     def save(camera):
         depth = camera.get("depth", camera.get("distance_to_image_plane"))
         camera = {"color": np.zeros((*depth.shape, 3), dtype=np.uint8), **camera}
-        env = SimpleNamespace(
-            get_obs=lambda: {"vision": {"cam_head": camera}, "instruction": "Pick."},
-            get_status=lambda: {"step": 0, "step_limit": 10},
-        )
+        env = fake_env(limit=10)
+        env.get_obs = lambda: {"vision": {"cam_head": camera}, "instruction": "Pick."}
         state = EnvState(tmp_path)
         tools.dump_state(SimpleNamespace(env=env), state)
         return state
@@ -442,7 +497,7 @@ def test_back_project_rejects_invalid_depth(depth, saved_camera):
 
 @pytest.mark.parametrize("task", ["put_bottles_into_dustbin", "stack_bowls_random"])
 def test_toolkit_exposes_new_primitives_without_legacy_actions(
-    monkeypatch, tmp_path, task
+    monkeypatch, tmp_path, task, fake_env
 ):
     from robots.robodojo import toolkit as module
     from rpent.dashboard.events import NullDashboardEventSink
@@ -453,12 +508,10 @@ def test_toolkit_exposes_new_primitives_without_legacy_actions(
 
     monkeypatch.setattr(logging, "_output_dir", tmp_path / "output")
     monkeypatch.setattr(module, "get_output_dir", lambda: tmp_path / "output")
-    env = SimpleNamespace(
-        get_obs=lambda: {"vision": {}, "state": {}},
-        get_status=lambda: {"step": 0, "step_limit": 10},
-        get_task_language=lambda: "instruction",
-        get_reward_details=lambda: {"score": 100},
-    )
+    env = fake_env(limit=10)
+    env.get_obs = lambda: {"vision": {}, "state": {}}
+    env.get_task_language = lambda: "instruction"
+    env.get_reward_details = lambda: {"score": 100}
     toolkit = get_toolkit(
         "robodojo",
         runtime_kwargs={"env": env, "task": task},
@@ -476,7 +529,7 @@ def test_toolkit_exposes_new_primitives_without_legacy_actions(
     names = {spec.name for spec in toolkit.list_tools()}
     robot_names = {spec.name for spec in iter_tools(tools)}
     assert names & robot_names == set(module.OBSERVATION_TOOLS)
-    assert module.MOTION_TOOLS | {"render"} <= names
+    assert (module.MOTION_TOOLS - {"vpp2_act"}) | {"render"} <= names
     assert "vpp2_act" not in names  # This component-only toolkit has no model.
     assert "reset" not in names
     assert "finish" in names
@@ -508,6 +561,8 @@ def test_toolkit_exposes_new_primitives_without_legacy_actions(
         "rotate_wrist",
         "set_gripper",
         "release",
+        "vpp2_act",
+        "awomo05_act",
     }
 
 
@@ -542,11 +597,13 @@ def test_task_guidance_is_scoped_and_tools_are_injected():
         variables = {
             "task": task,
             "output_dir": "/output",
+            "memory_dir": "/memory",
             "layout": 0,
             "env_cfg_type": "arx_x5",
             "action_type": "joint",
             "task_summary": "scene",
             "recipe_tag": task,
+            "reference_tag": f"{task}_s0_l0",
             "seed": 0,
         }
         system = bundle.render("system", variables=variables)
@@ -560,28 +617,39 @@ def test_task_guidance_is_scoped_and_tools_are_injected():
         assert "MCP URL" not in system + user
 
 
-def test_default_runtime_starts_env_and_sam3_without_a_policy(monkeypatch, tmp_path):
+@pytest.mark.parametrize("backend", ["vpp2", "awomo05"])
+def test_default_runtime_starts_env_sam3_and_model(monkeypatch, tmp_path, backend):
     from rpent.dashboard.events import NullDashboardEventSink
 
     started = []
-    for name in ("env", "sam3"):
+    waited = []
+    for name in ("env", "sam3", "vla"):
 
-        def spawn(*args, component=name):
+        def spawn(*args, component=name, **kwargs):
             started.append(component)
             return None, object()
 
-        monkeypatch.setattr(robot_spec, f"_spawn_{name}_server", spawn)
-    monkeypatch.setattr(robot_spec, "try_wait_server", lambda *a, **kw: {})
+        monkeypatch.setattr(
+            robot_spec, f"_spawn_{'model' if name == 'vla' else name}_server", spawn
+        )
+
+    def wait(daemons, events, component, *args, **kwargs):
+        assert started == ["env", "vla", "sam3"]
+        waited.append(component)
+        return {}
+
+    monkeypatch.setattr(robot_spec, "try_wait_server", wait)
     daemons, kwargs = robot_spec._init_runtime(
-        _args(),
+        _args("--am-backend", backend, "--am-endpoint", "socket://localhost:1234"),
         tmp_path,
         NullDashboardEventSink(),
         None,
     )
-    assert started == ["env", "sam3"]
+    assert started == ["env", "vla", "sam3"]
+    assert waited == ["env", "sam3", "vla"]
     assert daemons == []
     assert "vla_client" not in kwargs
-    assert "vla" not in {
+    assert "vla" in {
         item["name"]
         for item in robot_spec.ROBODOJO_DASHBOARD_SPEC["runtime_components"]
     }
@@ -600,3 +668,405 @@ def test_flash_rejected_before_services_start(monkeypatch, tmp_path):
         robot_spec.get_robot_spec().validate_args(args)
     with pytest.raises(ValueError, match="Flash replay is unavailable"):
         robot_spec._init_runtime(args, tmp_path, NullDashboardEventSink(), None)
+
+
+@pytest.fixture
+def runtime_services(monkeypatch):
+    from robots.robodojo import env_client, vpp2_server
+
+    events = []
+    failure = {}
+
+    def fail(phase):
+        if failure.get("phase") == phase:
+            raise failure["error"]
+
+    def spawn(name, config):
+        events.append(("spawn", name))
+        if name == "vla":
+            fail("spawn")
+
+        def call(method, **kwargs):
+            events.append((method, name))
+            assert method == "healthz"
+            return {"status": "ok"}
+
+        rpc = SimpleNamespace(call=call, close=lambda: events.append(("close", name)))
+        # The environment is owned, while the model service is borrowed.
+        daemon = (
+            SimpleNamespace(
+                name=name, poll=lambda: None, stop=lambda: events.append(("stop", name))
+            )
+            if name == "env"
+            else None
+        )
+        return daemon, rpc
+
+    for component, suffix in (
+        ("env", "env"),
+        ("sam3", "sam3"),
+        ("vla", "model"),
+    ):
+        monkeypatch.setattr(
+            robot_spec,
+            f"_spawn_{suffix}_server",
+            lambda config, output, name=component, **kwargs: spawn(name, config),
+        )
+
+    def environment(rpc, **kwargs):
+        events.append(("connect", "env"))
+        events.append(("vpp2_history", kwargs["record_vpp2_history"]))
+        return rpc
+
+    monkeypatch.setattr(env_client, "RoboDojoEnvClient", environment)
+    from robots.robodojo import awomo05_client
+
+    original = awomo05_client.Awomo05Client
+
+    def connect(rpc):
+        fail("connect")
+        return original(rpc)
+
+    monkeypatch.setattr(awomo05_client, "Awomo05Client", connect)
+    from robots.robodojo import vpp2_client
+
+    original_vpp2 = vpp2_client.VPP2Client
+
+    def connect_vpp2(rpc):
+        fail("connect")
+        return original_vpp2(rpc)
+
+    monkeypatch.setattr(vpp2_client, "VPP2Client", connect_vpp2)
+    monkeypatch.setattr(
+        vpp2_server,
+        "model_paths",
+        lambda *args: pytest.fail("unexpected VPP2 weight lookup"),
+    )
+    return events, failure
+
+
+@pytest.mark.parametrize("backend", ["vpp2", "awomo05"])
+@pytest.mark.parametrize("phase", ["spawn", "connect"])
+@pytest.mark.parametrize("error_type", [ValueError, KeyboardInterrupt, SystemExit])
+def test_runtime_failure_cleans_owned_processes_and_pending_connections(
+    runtime_services, tmp_path, backend, phase, error_type
+):
+    from rpent.dashboard.events import NullDashboardEventSink
+
+    events, failure = runtime_services
+    error = error_type("interrupted startup")
+    failure.update(phase=phase, error=error)
+    config = _args("--vla-backend", backend, "--vla-endpoint", "http://model")
+    with pytest.raises(
+        RuntimeError if error_type is ValueError else error_type
+    ) as caught:
+        robot_spec._init_runtime(
+            config, tmp_path, NullDashboardEventSink(), {"env", "vla"}
+        )
+    if error_type is not ValueError:
+        assert caught.value is error
+    assert [(op, name) for op, name in events if op == "stop"] == [("stop", "env")]
+    assert {name for op, name in events if op == "close"} == (
+        {"env"} if phase == "spawn" else {"env", "vla"}
+    )
+    assert (("connect", "env") in events) == (phase == "connect")
+
+
+@pytest.mark.parametrize("backend", ["vpp2", "awomo05"])
+def test_borrowed_model_rpc_uses_backend_session_options(
+    monkeypatch, tmp_path, backend
+):
+    from rpent.dashboard.events import NullDashboardEventSink
+
+    called = []
+    monkeypatch.setattr(
+        robot_spec,
+        "make_rpc_client",
+        lambda endpoint, **kw: called.append((endpoint, kw)),
+    )
+    monkeypatch.setattr(robot_spec, "try_wait_server", lambda *a, **kw: {})
+    config = _args("--vla-backend", backend, "--vla-endpoint", "socket://model:1234")
+    daemons, _ = robot_spec._init_runtime(
+        config, tmp_path, NullDashboardEventSink(), {"vla"}
+    )
+    assert daemons == []
+    assert called == [
+        (
+            "socket://model:1234",
+            {"enable_sessions": True} if backend == "awomo05" else {},
+        )
+    ]
+
+
+@pytest.mark.parametrize("backend", ["vpp2", "awomo05"])
+def test_backends_accept_shared_sam3_endpoint(runtime_services, tmp_path, backend):
+    from rpent.dashboard.events import NullDashboardEventSink
+
+    events, _ = runtime_services
+    config = _args("--vla-backend", backend, "--sam3-endpoint", "http://sam3")
+    robot_spec._validate_args(config)
+    _, runtime = robot_spec._init_runtime(
+        config, tmp_path, NullDashboardEventSink(), {"sam3"}
+    )
+    assert "sam3_client" in runtime
+    assert ("spawn", "sam3") in events
+    assert not any(name == "vla" for _, name in events)
+
+
+@pytest.mark.parametrize(
+    "backend,variable", [("vpp2", "VPP2_MODEL_PATH"), ("awomo05", "AWOMO05_MODEL_PATH")]
+)
+def test_resource_root_uses_selected_backend_environment(
+    monkeypatch, backend, variable
+):
+
+    monkeypatch.setenv("VPP2_MODEL_PATH", "/models/vpp2")
+    monkeypatch.setenv("AWOMO05_MODEL_PATH", "/models/awomo")
+    config = _args("--vla-backend", backend)
+    assert (
+        am_runtime.select_am(config, "robodojo").checkpoint
+        == {"VPP2_MODEL_PATH": "/models/vpp2", "AWOMO05_MODEL_PATH": "/models/awomo"}[
+            variable
+        ]
+    )
+    config.am_checkpoint = "/explicit"
+    assert am_runtime.select_am(config, "robodojo").checkpoint == "/explicit"
+
+
+@pytest.mark.parametrize("backend", ["vpp2", "awomo05"])
+def test_missing_model_resources_fail_before_any_service_starts(
+    monkeypatch, tmp_path, backend
+):
+    from robots.robodojo import robot_spec
+    from rpent.dashboard.events import NullDashboardEventSink
+
+    def unexpected_start(*args, **kwargs):
+        pytest.fail("service started before resource validation")
+
+    for name in ("env", "sam3", "model"):
+        monkeypatch.setattr(robot_spec, f"_spawn_{name}_server", unexpected_start)
+    config = _args(
+        "--vla-backend", backend, "--vla-model-path", str(tmp_path / "missing")
+    )
+    with pytest.raises(FileNotFoundError, match="resource missing"):
+        robot_spec._init_runtime(config, tmp_path, NullDashboardEventSink(), None)
+
+
+@pytest.mark.parametrize("backend", ["vpp2", "awomo05"])
+@pytest.mark.parametrize("phase", ["start", "connect"])
+def test_model_startup_failure_stops_owned_process(
+    tmp_path, monkeypatch, backend, phase
+):
+    from robots.robodojo import robot_spec
+
+    events = []
+
+    class Daemon:
+        def __init__(self, **kwargs):
+            pass
+
+        def start(self):
+            events.append("start")
+            if phase == "start":
+                raise RuntimeError("model startup failed")
+
+        def stop(self):
+            events.append("stop")
+
+    def fail(*args, **kwargs):
+        raise RuntimeError("model startup failed")
+
+    monkeypatch.setattr(robot_spec, "ProcessDaemon", Daemon)
+    monkeypatch.setattr(am_runtime, "ProcessDaemon", Daemon)
+    monkeypatch.setattr(robot_spec, "pick_free_port", lambda: 9205)
+    monkeypatch.setattr(robot_spec, "make_rpc_client", fail)
+    config = _args(
+        "--vla-backend",
+        backend,
+        "--vla-model-path",
+        str(tmp_path),
+    )
+    with pytest.raises(RuntimeError, match="model startup failed"):
+        robot_spec._spawn_model_server(
+            config,
+            tmp_path,
+            rpc_options={"enable_sessions": True} if backend == "awomo05" else {},
+        )
+    assert events == ["start", "stop"]
+
+
+@pytest.mark.parametrize("backend,action_type", [("vpp2", "ee"), ("awomo05", "joint")])
+@pytest.mark.parametrize("explicit", [False, True])
+def test_policy_accepts_native_action_type(backend, action_type, explicit):
+    flags = ["--action-type", action_type] if explicit else []
+    robot_spec._validate_args(_args("--am-backend", backend, *flags))
+
+
+@pytest.mark.parametrize(
+    "backend,flag,value",
+    [
+        ("vpp2", "--action-type", "joint"),
+        ("awomo05", "--action-type", "ee"),
+        ("vpp2", "--env-cfg-type", "other"),
+        ("awomo05", "--env-cfg-type", "other"),
+    ],
+)
+def test_policy_rejects_incompatible_robot_or_action_type(
+    monkeypatch, tmp_path, backend, flag, value
+):
+    from rpent.dashboard.events import NullDashboardEventSink
+
+    def unexpected_start(*args, **kwargs):
+        pytest.fail("service started before policy configuration validation")
+
+    for name in ("env", "sam3", "model"):
+        monkeypatch.setattr(robot_spec, f"_spawn_{name}_server", unexpected_start)
+    with pytest.raises(ValueError, match=f"{backend} requires arx_x5"):
+        robot_spec._init_runtime(
+            _args("--am-backend", backend, flag, value),
+            tmp_path,
+            NullDashboardEventSink(),
+            None,
+        )
+
+
+@pytest.mark.parametrize("backend", ["vpp2", "awomo05"])
+def test_model_spawn_owns_process_and_borrows_endpoint(monkeypatch, tmp_path, backend):
+    recorded = {}
+
+    class Daemon:
+        def __init__(self, **kwargs):
+            recorded.update(kwargs)
+
+        def start(self):
+            recorded["started"] = True
+
+    monkeypatch.setattr(robot_spec, "ProcessDaemon", Daemon)
+    monkeypatch.setattr(am_runtime, "ProcessDaemon", Daemon)
+    monkeypatch.setattr(robot_spec, "pick_free_port", lambda: 9205)
+    monkeypatch.setattr(
+        robot_spec, "make_rpc_client", lambda endpoint, **kw: (endpoint, kw)
+    )
+    config = _args(
+        "--am-backend",
+        backend,
+        "--am-checkpoint",
+        str(tmp_path),
+        "--am-python",
+        sys.executable,
+        "--am-root",
+        str(tmp_path),
+        "--am-cuda-device",
+        "3",
+    )
+    options = {"enable_sessions": True} if backend == "awomo05" else {}
+    daemon, rpc = robot_spec._spawn_model_server(config, tmp_path, rpc_options=options)
+    assert daemon and recorded["started"]
+    assert recorded["cmd"][:4] == [
+        sys.executable,
+        "-u",
+        "-m",
+        f"robots.robodojo.{backend}_server",
+    ]
+    assert "--parent-watch" in recorded["cmd"]
+    assert rpc == ("socket://127.0.0.1:9205", options)
+    assert recorded["cwd"] == str(tmp_path)
+    assert recorded["env_overrides"]["CUDA_VISIBLE_DEVICES"] == "3"
+    assert recorded["cmd"][recorded["cmd"].index("--model-path") + 1] == str(tmp_path)
+    recorded.clear()
+    config.am_checkpoint = config.am_python = config.am_root = config.am_cuda_device = (
+        None
+    )
+    config.am_endpoint = "socket://borrowed:9205"
+    assert robot_spec._spawn_model_server(config, tmp_path, rpc_options=options) == (
+        None,
+        (config.am_endpoint, options),
+    )
+    assert not recorded
+
+
+@pytest.mark.parametrize(
+    "backend_args,backend",
+    [
+        ([], "vpp2"),
+        (["--vla-backend", "vpp2"], "vpp2"),
+        (["--vla-backend", "awomo05"], "awomo05"),
+        (["--am-backend", "vpp2"], "vpp2"),
+        (["--am-backend", "awomo05"], "awomo05"),
+    ],
+)
+def test_missing_model_path_fails_before_services_start(
+    monkeypatch, tmp_path, backend_args, backend
+):
+    from rpent.dashboard.events import NullDashboardEventSink
+
+    monkeypatch.delenv("VPP2_MODEL_PATH", raising=False)
+    monkeypatch.delenv("AWOMO05_MODEL_PATH", raising=False)
+    config = _args(*backend_args)
+    assert config.am_backend == backend
+    with pytest.raises(SystemExit):
+        _args("--vla-backend", "unknown")
+    robot_spec._validate_args(config)
+    for name in ("env", "sam3", "model"):
+        monkeypatch.setattr(
+            robot_spec,
+            f"_spawn_{name}_server",
+            lambda *a, **kw: pytest.fail("service started"),
+        )
+    with pytest.raises(ValueError, match="MODEL_PATH"):
+        robot_spec._init_runtime(config, tmp_path, NullDashboardEventSink(), None)
+
+
+@pytest.mark.parametrize(
+    "backend",
+    ["vpp2", "awomo05"],
+)
+def test_robodojo_backends_start_the_same_shared_services(
+    monkeypatch, tmp_path, backend
+):
+    from dataclasses import replace
+
+    from robots.robodojo import robot_spec
+    from rpent.cli import dashboard
+    from rpent.cli.main import _build_argparser
+    from rpent.dashboard.server import DashboardServer
+
+    parser = _build_argparser()
+    robot_spec._add_cli_args(parser, True)
+    args = parser.parse_args(
+        [
+            "--robot",
+            "robodojo",
+            "--dashboard",
+            "--planner",
+            "api",
+            "--model",
+            "test",
+            "--vla-backend",
+            backend,
+            "--vla-endpoint",
+            "http://policy",
+            "--memory-profile",
+            "local",
+            "--output-dir",
+            str(tmp_path),
+        ]
+    )
+    started = []
+
+    def init_runtime(args, output_dir, state, components):
+        started.append(components)
+        return [], {}
+
+    def start(server):
+        assert {
+            component["name"]
+            for component in server._state.dashboard_spec["runtime_components"]
+        } == {"env", "vla", "sam3"}
+        server._state.request_shutdown()
+        return "http://127.0.0.1:12345"
+
+    monkeypatch.setattr(DashboardServer, "start", start)
+    spec = replace(robot_spec.get_robot_spec(), init_runtime=init_runtime)
+    assert dashboard.run_dashboard_session(args, spec, parser=parser) == 0
+    assert started == [{"vla", "sam3"}]

@@ -47,6 +47,7 @@ RPent 面向以下四类用户：
 
 ## 最新动态
 
+- [2026/11] 🔥 新增数据飞轮。支持轨迹采集和数据清洗功能，用采集的成功轨迹对 VLA 进行监督微调后，RPent 在 RoboTwin 评测中的任务成功率从 48% 升至 72%，提高 **24 个百分点**。详见 [使用指南](https://rpent.readthedocs.io/zh-cn/latest/rst_source/guides/flywheel.html)。
 - [2026/10] 🔥 新增可选的 APXInf VLA endpoint 接入，参见 [部署指南](https://rpent.readthedocs.io/zh-cn/latest/rst_source/guides/advanced_deployment.html#apxinf-vla-service-optional)。
 - [2026/09] 🔥 新增交互式 RPent 排行榜，覆盖 LIBERO、LIBERO-PRO、RoboCasa365 与 RoboTwin，提供模型对比及套件汇总。查看 [排行榜](https://rpent.readthedocs.io/zh-cn/latest/rst_source/leaderboard/index.html)。
 - [2026/09] 🔥 RPent 支持 Franka 单臂与双臂真机扩展。文档：[Franka](https://rpent.readthedocs.io/zh-cn/latest/rst_source/real_world_robots/franka.html) · [Dual Franka](https://rpent.readthedocs.io/zh-cn/latest/rst_source/real_world_robots/dual_franka.html)。
@@ -89,6 +90,7 @@ RPent 面向以下四类用户：
             <li>DreamZero</li>
             <li><a href="docs/source-zh/rst_source/development/add_action_model.rst">Cosmos Policy</a>（LIBERO / LIBERO-Pro）</li>
             <li><a href="docs/source-zh/rst_source/development/add_action_model.rst">Fast-WAM</a>（LIBERO / LIBERO-Pro / RoboTwin）</li>
+            <li><a href="docs/source-zh/rst_source/development/add_action_model.rst">UniWAM</a>（RoboTwin）</li>
           </ul>
         </ul>
       </td>
@@ -206,6 +208,16 @@ rpent --robot libero --dashboard --dashboard-language zh-cn \
 完整的命令行参数列表见 [命令行参考](https://rpent.readthedocs.io/zh-cn/latest/rst_source/guides/cli.html)。RoboCasa 与 RoboTwin 提供各自的任务参数，参见 [RoboCasa](https://rpent.readthedocs.io/zh-cn/latest/rst_source/simulators/robocasa.html) 与 [RoboTwin](https://rpent.readthedocs.io/zh-cn/latest/rst_source/simulators/robotwin.html) 文档。
 
 更详细的文档请参见 [RPent 中文文档](https://rpent.readthedocs.io/zh-cn/latest/)。
+
+## Adoption
+
+我们很高兴看到 RPent 已被领先企业和科研机构采用，其用户与合作伙伴包括 NVIDIA、华为、腾讯、老板电器、Z-Trans AI（Zetta 项目）、清华大学、北京大学和新加坡国立大学等。
+
+✨ 如果您觉得 RPent 对具身智能研究或机器人应用开发有所帮助，欢迎联系我们或提交 PR，将您的组织加入该列表。
+
+<div align="center">
+  <img src="https://cdn.jsdelivr.net/gh/RLinf/misc@beb75d9289a0dee012004c26436f8fb1c688f310/rpent/adoption/adoption.png" alt="RPent 社区：上方为含 Z-Trans AI（Zetta 项目） 和老板电器在内的 10 家企业，下方为 22 所高校和 8 家科研机构"/>
+</div>
 
 ## 参与贡献
 
