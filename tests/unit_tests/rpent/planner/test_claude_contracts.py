@@ -899,6 +899,76 @@ def test_finish_uses_actual_tool_verdict(tmp_path, monkeypatch, verdict):
     assert toolkit.cancel_calls == 1
 
 
+@pytest.mark.parametrize(
+    "verdict",
+    [
+        {"_finish": True, "status": "success", "summary": "done"},
+        {"error": "rejected", "_finish": True},
+        {"finished": False},
+    ],
+)
+def test_python_uses_actual_tool_verdict(tmp_path, monkeypatch, verdict):
+    class PythonToolkit(FakeToolkit):
+        def __init__(self):
+            super().__init__(verdict)
+            self._tools = (self.python,)
+
+        @tool
+        def python(self, code: str) -> ToolResult:
+            """Execute a PyRUA code cell."""
+            return ToolResult(data=dict(verdict))
+
+    fake_sdk = FakeSdkTools()
+    patch_sdk_surface(monkeypatch, fake_sdk)
+    toolkit = PythonToolkit()
+    continued = []
+    code = "robo.finish(status='success', summary='done')"
+
+    async def stream(*, prompt, options):
+        yield {
+            "type": "AssistantMessage",
+            "content": [
+                {
+                    "type": "ToolUseBlock",
+                    "id": "python-1",
+                    "name": "mcp__rpent__python",
+                    "input": {"code": code},
+                }
+            ],
+        }
+        handler = next(
+            tool
+            for tool in options["mcp_servers"]["rpent"]["tools"]
+            if tool.sdk_name == "python"
+        )
+        response = await handler({"code": code})
+        yield {
+            "type": "UserMessage",
+            "content": [
+                {
+                    "type": "ToolResultBlock",
+                    "tool_use_id": "python-1",
+                    **response,
+                }
+            ],
+        }
+        continued.append(True)
+        yield {"type": "ResultMessage", "subtype": "success"}
+
+    patch_client_stream(monkeypatch, stream)
+    result = make_planner(tmp_path, RecordingSink()).solve(
+        system_prompt="",
+        user_message="task",
+        toolkit=toolkit,
+        max_turns=3,
+    )
+    accepted = verdict.get("_finish") is True and "error" not in verdict
+    assert toolkit.calls == [("python", {"code": code})]
+    assert result.finish_result == (verdict if accepted else None)
+    assert continued == ([] if accepted else [True])
+    assert result.error is None
+
+
 def test_noninteractive_client_stops_at_first_result(tmp_path, monkeypatch):
     fake_sdk = FakeSdkTools()
     patch_sdk_surface(monkeypatch, fake_sdk)
