@@ -33,14 +33,14 @@ the latest record. When selecting a pixel on a preview, use the preview's
      - Planner input
      - What the result means
    * - ``back_project``
-     - A ``selection`` with ``image_shape`` and either ``points_rc`` or a half-open ``box_rc`` (top, left, bottom, right). The optional ``height_m`` interval filters along world up.
-     - Point requests return measured surface coordinates in input order, with ``null`` for invalid or filtered pixels. A box returns a sampled surface point and visible bounds. The caller checks object identity.
+     - In ``selection``, provide ``image_shape`` and either a list of points (``points_rc``) or a rectangular box (``box_rc``). To keep only points within a given height range, set ``height_m``. Heights are measured in metres in the world frame.
+     - For selected points, the tool returns 3D coordinates in input order, with ``null`` for points with invalid depth or points excluded by the filter. For a box, it returns the coordinates of one measured surface point and the 3D bounds of the visible surfaces inside the box.
    * - ``segment``
-     - A text ``prompt``, one positive ``point``, or both. When given both, the text mask must contain the point.
-     - The result links to the candidate mask and overlay. With enough valid depth, ``world_xyz`` is the coordinate-wise median of the masked samples. Inspect the overlay to confirm the object.
+     - Use ``prompt`` to describe the target or ``point`` to specify a pixel on it. If you provide both, the tool generates a candidate mask from the description and returns it only after confirming that it contains the selected point.
+     - The result includes the paths to the saved candidate mask and overlay image. If enough points inside the mask have valid depth, the three components of ``world_xyz`` are the medians of their X, Y and Z coordinates, respectively.
    * - ``geometry``
-     - A target description in ``query``. Request a surface point, a visible region or a set of fitted quantities in ``required_geometry``.
-     - The tool selects pixels, verifies the target and checks other available views from the same step when needed. Only accepted fits include a value.
+     - Describe the target in ``query``. You can request the 3D coordinates of a point on its visible surface or the bounds of its visible region. To measure the position or size of a specific part, list the measurements in ``required_geometry``.
+     - The tool selects image points internally and checks whether they lie on the target object. If needed, it also examines images recorded by other cameras at the same step. It returns a numerical value for a fitted quantity only if the fit passes its quality checks.
 
 Use the tools in a simulator
 ----------------------------
@@ -98,16 +98,19 @@ aligned optical-axis depth map in metres together with the camera intrinsics
 and the camera-to-world transform.
 
 To filter ``back_project`` samples by height, supply the world up direction
-(``up_direction``). To measure a named target with ``geometry``, supply both
-``up_direction`` and the camera pose (``camera_to_world``).
+(``up_direction``). When ``geometry`` measures the object described in ``query``,
+the observation adapter must supply both ``up_direction`` and the camera pose
+(``camera_to_world``).
 For platforms with multiple calibrated cameras, the adapter can implement
 ``additional_observations(primary)`` to return other views from the same step
 in the same world frame.
 
-Given the adapter (``observations``), the session's ``EnvState`` (``state``)
-and an initialized ``segmenter``, register the tools on the platform's ``toolkit``.
-Supply a ``grounder`` that selects and verifies image targets to enable named
-geometry. Otherwise set it to ``None``.
+Before registering tools with the platform's ``toolkit``, prepare the observation
+adapter ``observations``, the current session's state object ``state`` (an
+``EnvState`` instance), and an initialized segmentation client ``segmenter``.
+
+If you are registering only ``back_project`` and ``segment``, set ``grounder``
+to ``None``. To enable ``geometry``, also provide a ``grounder``.
 
 .. code-block:: python
 
