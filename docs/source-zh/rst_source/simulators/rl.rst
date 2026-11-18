@@ -317,6 +317,8 @@ Episode-image、ZAP 和远程 toolkit 启动前拒绝此选项。
 
 ``general`` 的抓取 TCP 是两指指垫几何中心的实测中点。控制器根据姿态和夹爪开度补偿它相对 ``grip_site`` 的偏移。姿态仍用固定轴 XYZ 的 roll、pitch、yaw，单位为弧度。初始观察会给出桌面相对基座的实际高度；每次 reset 后固定本 episode 的坐标变换，缺少标定信息就报错。
 
+LIBERO 的地面任务使用编译后的实际地面碰撞几何。这类任务没有桌面，元数据明确返回 ``support_surface="floor"`` 和 ``floor_height_above_base_m``，``table_height_above_base_m`` 为 null。桌面和地面的高度均来自实测碰撞几何，不依赖任务偏移常数。
+
 机器人位姿、``world_xyz``、``top_z_m``、``size_xyz_m``、``axis_yaw`` 和 ``z_range_m`` 都遵循所选坐标系，覆盖 segment、back_project、批量 observe 和 ZAP 自动感知。几何统计量由转换后的点云重新计算，尺寸表示沿所选坐标轴的范围。保存的 ``*_world.npz`` 仍是仿真世界坐标，``coordinates.json`` 记录变换和 TCP 定义。图片朝向、像素、mask 与观察步数的绑定不变。
 
 纯图像控制

@@ -1,4 +1,4 @@
-Robot: one Franka arm with a parallel-jaw gripper. The world frame is fixed at the mechanical arm's mounting base, not the simulator origin. +x is forward, +y is the robot's left and +z is up. The initial coordinates metadata gives the actual table height above the base in metres.
+Robot: one Franka arm with a parallel-jaw gripper. The world frame is fixed at the mechanical arm's mounting base, not the simulator origin. +x is forward, +y is the robot's left and +z is up. The initial coordinates metadata gives the actual table height above the base in metres. Ground tasks instead report support_surface="floor" and floor_height_above_base_m; table_height_above_base_m is null.
 
 All reported robot poses, world_xyz, top_z_m, size_xyz_m and axis_yaw use this frame. z_range_m filters height in this same frame. The TCP is the measured midpoint of the two finger-pad centres; the backend compensates its offset from the native grip_site. Do not add a wrist or fingertip offset yourself.
 

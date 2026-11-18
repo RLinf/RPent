@@ -18,21 +18,26 @@ class Coordinates:
     origin: np.ndarray
     rotation: np.ndarray
     table_height_m: float | None = None
+    floor_height_m: float | None = None
 
     @classmethod
     def from_control(cls, mode: str, control: dict[str, Any]) -> Coordinates:
         """Validate native calibration once, before any general-frame action."""
         if mode == "base":
             calibration = control.get("coordinate_calibration")
-            height = (
-                None
+            heights = (
+                {}
                 if calibration is None
-                else float(
-                    np.asarray(calibration["table_top_xyz"])[2]
-                    - np.asarray(calibration["base_xyz"])[2]
-                )
+                else {
+                    f"{kind}_height_m": float(
+                        np.asarray(calibration[f"{kind}_top_xyz"])[2]
+                        - np.asarray(calibration["base_xyz"])[2]
+                    )
+                    for kind in ("table", "floor")
+                    if f"{kind}_top_xyz" in calibration
+                }
             )
-            return cls(mode, np.zeros(3), np.eye(3), height)
+            return cls(mode, np.zeros(3), np.eye(3), **heights)
         if mode != "general":
             raise ValueError("world_cord must be base or general")
         if not isinstance(control, dict):
@@ -41,14 +46,15 @@ class Coordinates:
             calibration = control["coordinate_calibration"]
             origin = np.asarray(calibration["base_xyz"], dtype=np.float64)
             base_rotation = np.asarray(calibration["base_rotation"], dtype=np.float64)
-            table = np.asarray(calibration["table_top_xyz"], dtype=np.float64)
+            kind = "floor" if "floor_top_xyz" in calibration else "table"
+            surface = np.asarray(calibration[f"{kind}_top_xyz"], dtype=np.float64)
             tcp = np.asarray(control["pad_tcp_xyz"], dtype=np.float64)
         except KeyError as exc:
             raise ValueError(
-                "general requires native base, table and finger-pad calibration"
+                "general requires native base, support surface and finger-pad calibration"
             ) from exc
         if any(
-            v.shape != (3,) or not np.isfinite(v).all() for v in (origin, table, tcp)
+            v.shape != (3,) or not np.isfinite(v).all() for v in (origin, surface, tcp)
         ):
             raise ValueError("general calibration positions must be finite xyz vectors")
         if (
@@ -67,7 +73,12 @@ class Coordinates:
         forward /= np.linalg.norm(forward)
         up = np.array([0.0, 0.0, 1.0])
         rotation = np.column_stack((forward, np.cross(up, forward), up))
-        return cls(mode, origin.copy(), rotation, float(table[2] - origin[2]))
+        return cls(
+            mode,
+            origin.copy(),
+            rotation,
+            **{f"{kind}_height_m": float(surface[2] - origin[2])},
+        )
 
     def points(self, world: np.ndarray) -> np.ndarray:
         """Convert already-valid native points; filter invalid depth before calling."""
@@ -98,6 +109,14 @@ class Coordinates:
             "rotation_to_sim_world": self.rotation.tolist(),
             "raw_point_map_frame": "sim_world",
             "table_height_above_base_m": self.table_height_m,
+            **(
+                {
+                    "support_surface": "floor",
+                    "floor_height_above_base_m": self.floor_height_m,
+                }
+                if self.floor_height_m is not None
+                else {}
+            ),
         }
 
     def description(self) -> dict[str, Any]:
@@ -111,4 +130,12 @@ class Coordinates:
             "table_height_above_base_m": None
             if self.table_height_m is None
             else round(self.table_height_m, 6),
+            **(
+                {
+                    "support_surface": "floor",
+                    "floor_height_above_base_m": round(self.floor_height_m, 6),
+                }
+                if self.floor_height_m is not None
+                else {}
+            ),
         }

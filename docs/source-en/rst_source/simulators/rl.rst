@@ -366,6 +366,8 @@ For any LIBERO RL workflow, use ``--world-cord general`` to express absolute pos
 
 In ``general``, the TCP is the measured midpoint of the two finger pads. The controller compensates its offset from ``grip_site``, including changes in orientation and finger opening. Orientations remain fixed-axis XYZ roll, pitch and yaw in radians. The initial observation gives the actual table height above the base. Each reset establishes a fixed frame for that episode; missing native calibration is an error.
 
+LIBERO ground tasks use their compiled collision floor, rather than a table. Their metadata reports ``support_surface="floor"`` and ``floor_height_above_base_m``; ``table_height_above_base_m`` is null. Both table and floor heights come from measured collision geometry, without task offsets.
+
 The selected frame applies to robot poses, ``world_xyz``, ``top_z_m``, ``size_xyz_m``, ``axis_yaw`` and ``z_range_m`` across segment, back-project, batched observation and ZAP perception. Geometry is recomputed from transformed points; a size is an extent along the selected axes. Saved ``*_world.npz`` maps stay in simulator world; ``coordinates.json`` records the transform and TCP. Images, pixels and masks retain their usual camera orientation and observation-step association.
 
 RGB-Only Control

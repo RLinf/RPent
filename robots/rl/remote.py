@@ -374,13 +374,18 @@ class RemoteToolkit(Toolkit):
                 raise ValueError("remote toolkit task or budget mismatch")
             if self.world_cord == "general":
                 coordinates = metadata.get("coordinates") or {}
+                height = (
+                    "floor_height_above_base_m"
+                    if coordinates.get("support_surface") == "floor"
+                    else "table_height_above_base_m"
+                )
                 if (
                     coordinates.get("world_cord") != "general"
                     or coordinates.get("tcp") != "finger_pad_midpoint"
-                    or coordinates.get("table_height_above_base_m") is None
+                    or coordinates.get(height) is None
                 ):
                     raise ValueError(
-                        "remote general toolkit lacks matching base, table and TCP calibration"
+                        "remote general toolkit lacks matching base, support surface and TCP calibration"
                     )
             from robots.rl.backends import RoboCasaPrimitives, RoboTwinPrimitives
             from robots.rl.tools import LiberoRLPrimitives

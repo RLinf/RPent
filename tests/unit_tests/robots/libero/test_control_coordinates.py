@@ -128,6 +128,23 @@ def test_missing_table_geometry_is_an_error_not_a_height_guess():
         ControlObservation(scene, world_cord="general").rpent_control_state
 
 
+def test_floor_calibration_uses_plane_position_without_inventing_a_table():
+    scene = native_scene()
+    scene.model.mujoco_arena = SimpleNamespace(
+        floor_body=ET.Element("body", name="table")
+    )
+    scene.sim.model.geom_type[2] = 0
+    scene.sim.data.geom_xmat[2] = np.eye(3).flatten()
+    scene.sim.model.geom_size[2] = [3, 3, 0.125]
+    state = ControlObservation(scene, world_cord="general").rpent_control_state
+    calibration = state["coordinate_calibration"]
+    np.testing.assert_allclose(calibration["floor_top_xyz"], [4, -3, 0.88])
+    assert "table_top_xyz" not in calibration
+    scene.sim.data.geom_xmat[2] = Rotation.from_euler("x", np.pi).as_matrix().flatten()
+    with pytest.raises(ValueError, match="upward floor plane"):
+        ControlObservation(scene, world_cord="general").rpent_control_state
+
+
 def test_rgb_only_environment_disables_automatic_depth_observables():
     from robots.libero.env_server import build_env_cfg
 

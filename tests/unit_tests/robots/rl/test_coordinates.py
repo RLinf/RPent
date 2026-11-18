@@ -84,6 +84,22 @@ def make(tmp_path, *, env=None, workflow="episode", world_cord="general", **opti
     return toolkit, env
 
 
+@pytest.mark.parametrize("mode", ["base", "general"])
+def test_floor_height_is_explicit_and_not_reported_as_a_table(mode):
+    from robots.rl.coordinates import Coordinates
+
+    env = CalibratedEnv([4, -3, 2])
+    control = env.last_obs["control_state"]
+    calibration = control["coordinate_calibration"]
+    del calibration["table_top_xyz"]
+    calibration["floor_top_xyz"] = [4, -3, 1.95]
+    frame = Coordinates.from_control(mode, control)
+    for metadata in (frame.metadata(), frame.description()):
+        assert metadata["support_surface"] == "floor"
+        assert metadata["floor_height_above_base_m"] == pytest.approx(-0.05)
+        assert metadata["table_height_above_base_m"] is None
+
+
 @pytest.mark.parametrize(
     "workflow", ["episode", "episode_image", "zap_episode", "zap_turn", "zap_subtask"]
 )

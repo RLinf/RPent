@@ -896,3 +896,19 @@ def test_remote_general_converts_once_and_carries_native_completion(connected):
     if client.workflow == "pear":
         assert client.completion_result()["success"] is True
     client.close()
+
+
+@pytest.mark.parametrize("connected", [{"world_cord": "general"}], indirect=True)
+def test_remote_general_accepts_measured_floor_calibration(connected):
+    from dataclasses import replace
+
+    primitive = connected.toolkit._primitives
+    primitive.coordinates = replace(
+        primitive.coordinates, table_height_m=None, floor_height_m=-0.025
+    )
+    client = connected.connect()
+    coordinates = connected.worker.describe()["coordinates"]
+    assert coordinates["support_surface"] == "floor"
+    assert coordinates["table_height_above_base_m"] is None
+    assert coordinates["floor_height_above_base_m"] == pytest.approx(-0.025)
+    client.close()

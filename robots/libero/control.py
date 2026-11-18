@@ -25,8 +25,8 @@ class ControlObservation:
         return self.env.reset(*args, **kwargs)
 
     @staticmethod
-    def _table_top(native) -> np.ndarray:
-        """Measure the arena's support surface from compiled collision boxes."""
+    def _support_surface(native) -> tuple[str, np.ndarray]:
+        """Measure the arena's table or floor from compiled collision geometry."""
         model, data = native.sim.model, native.sim.data
         try:
             arena = native.model.mujoco_arena
@@ -34,55 +34,61 @@ class ControlObservation:
             raise ValueError(
                 "general requires the compiled LIBERO arena model"
             ) from exc
-        table = next(
+        support = next(
             (
-                body
+                (field, body)
                 for field in (
                     "table_body",
                     "living_room_table_body",
                     "coffee_table_body",
+                    "floor_body",
                 )
                 if (body := getattr(arena, field, None)) is not None
             ),
             None,
         )
-        if table is None:
-            raise ValueError("general requires a supported LIBERO support-table body")
-        root = model.body_name2id(table.get("name"))
+        if support is None:
+            raise ValueError("general requires a supported LIBERO support body")
+        field, body = support
+        kind = "floor" if field == "floor_body" else "table"
+        root = model.body_name2id(body.get("name"))
         descendants = {root}
         for body in range(root + 1, model.nbody):
             if int(model.body_parentid[body]) in descendants:
                 descendants.add(body)
         surfaces = []
         for geom in range(model.ngeom):
-            # MuJoCo mjGEOM_BOX=6; LIBERO's support collision surfaces are boxes.
-            if (
-                int(model.geom_bodyid[geom]) not in descendants
-                or int(model.geom_type[geom]) != 6
-            ):
+            if int(model.geom_bodyid[geom]) not in descendants:
                 continue
             if not (model.geom_contype[geom] or model.geom_conaffinity[geom]):
                 continue
             rotation = data.geom_xmat[geom].reshape(3, 3)
-            if np.max(np.abs(rotation[2])) < 1 - 1e-6:
-                continue
             point = data.geom_xpos[geom].copy()
-            point[2] += np.abs(rotation[2]) @ model.geom_size[geom]
+            # MuJoCo box=6 and plane=0. A plane's size is not its thickness.
+            geom_type = int(model.geom_type[geom])
+            if geom_type == 6:
+                if np.max(np.abs(rotation[2])) < 1 - 1e-6:
+                    continue
+                point[2] += np.abs(rotation[2]) @ model.geom_size[geom]
+            elif kind != "floor" or geom_type != 0 or rotation[2, 2] < 1 - 1e-6:
+                continue
             surfaces.append(point)
         if not surfaces:
-            raise ValueError("general requires measured LIBERO table collision boxes")
-        return max(surfaces, key=lambda point: point[2])
+            raise ValueError(
+                "general requires measured LIBERO support collision boxes or an upward floor plane"
+            )
+        return kind, max(surfaces, key=lambda point: point[2])
 
     def _general_state(self, native, robot, arm) -> dict:
-        """Read the mounted base, tabletop and actual pad midpoint from MuJoCo."""
+        """Read the mounted base, support surface and pad midpoint from MuJoCo."""
         sim = native.sim
         if self._coordinate_calibration is None:
             base = sim.model.body_name2id(robot.robot_model.root_body)
-            table = self._table_top(native)
+            kind, surface = self._support_surface(native)
             self._coordinate_calibration = {
                 "base_xyz": sim.data.body_xpos[base].copy(),
                 "base_rotation": sim.data.body_xmat[base].reshape(3, 3).copy(),
-                "table_top_xyz": np.asarray(table, dtype=float).copy(),
+                f"{kind}_top_xyz": np.asarray(surface, dtype=float).copy(),
             }
         gripper = robot.gripper[arm]
         pads = []
