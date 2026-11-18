@@ -44,7 +44,10 @@ actions. State history includes analytic-tool actions
 and is maintained automatically. Choose the cadence from current progress;
 LingBot recipe chunk counts are not UniWAM timing.
 
-Shorten to one chunk near contact, instability, or completion. Preserve useful continuous VLA
+Use one chunk near contact, instability, or completion, two for stable progress,
+and three only for a recipe-supported phase already progressing correctly.
+Re-observe after an unproductive chunk before changing cadence or staging.
+Preserve useful continuous VLA
 behavior for bimanual, articulated, hanging, insertion, and tool phases.
 
 Use `move_to` for verified free-space transport, staging, retreat, or one small

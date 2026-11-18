@@ -56,7 +56,7 @@ For a new robot named ``myrobot``, use the following directory layout:
        __init__.py            # package entry point; re-exports the factories
        robot_spec.py          # RobotSpec, factories, Dashboard spec, runtime hooks
        env_client.py          # MyEnvClient — agent-side RPC stub (§1)
-       prompt_bundle.py       # system()/user() prompt factories         (§2)
+       prompts/               # robot.md, user.md, policies/, physical.md (§2)
        toolkit.py             # MyRobotToolkit + primitives + tool definitions (§3)
        env_server.py          # server-side facade + RPC server (§1)
        vla_server.py          # (optional) VLA model server
@@ -77,14 +77,13 @@ these two functions:
    from rpent.robots.robot_spec import RobotSpec, RunConfig
    from rpent.robots.prompt_bundle import PromptBundle
    from rpent.utils.config import get_memory_dir
-   from robots.myrobot.prompt_bundle import system_prompt, user_prompt
 
    MYROBOT_DASHBOARD_SPEC = {...}
 
    def get_robot_spec() -> RobotSpec:
        return RobotSpec(
            name="myrobot",
-           prompts=PromptBundle(system=system_prompt, user=user_prompt),
+           prompts=PromptBundle.for_robot("myrobot"),
            add_cli_args=_add_cli_args,
            parse_config=_parse_config,
            init_runtime=_init_runtime,
@@ -238,51 +237,32 @@ teardown.
 
 .. _add-robot-prompts:
 
-2. ``prompt_bundle.py``
------------------------
+2. Prompt files
+---------------
 
-Define ``system_prompt(variables)`` and ``user_prompt(variables)`` returning final
-strings, and register them with ``PromptBundle`` in ``robot_spec.py``. Call
-``spec.prompts.system(prompt_vars)`` and ``spec.prompts.user(prompt_vars)`` directly.
-Use the same prompts for all planners and refer to tools by their bare names.
+Register the robot by name in ``robot_spec.py``. Its prompt files live under
+``robots/<name>/prompts/``.
+Describe the robot, observations, budget and success signal in ``robot.md``.
+Use ``user.md`` for the current task and run context. Both accept
+``{{name}}`` variables from the run configuration.
 
-.. code-block:: python
+Pass a Markdown path directly, for example ``policy="policies/lingbot.md"``,
+relative to the robot’s prompt directory. To select another policy at runtime,
+set ``prompt_vars["policy"]`` in ``parse_config``. Set ``prompt_vars["standalone_policy"] = True``
+when the file supplies the complete system protocol.
 
-   # robots/myrobot/prompt_bundle.py
-   from collections.abc import Mapping
-   from pathlib import Path
+With ``physical="physical.md"``, every selected policy includes the shared hardware rules
+and your required ``physical.md``. Describe operator readiness, scene restoration,
+recoverable faults, stops and the source of the task verdict there.
 
-   from rpent.prompt.compose import COMMON, MODES, compose
-
-   PROMPTS = Path(__file__).with_name("prompts")
-
-   def system_prompt(variables: Mapping[str, object] | None = None) -> str:
-       values = dict(variables or {})
-       mode = "explore" if values.get("mode") == "explore" else "evaluate"
-       return compose(
-           [COMMON / "base.md", MODES / f"{mode}.md", PROMPTS / "robot.md"],
-           values,
-       )
-
-   def user_prompt(variables: Mapping[str, object] | None = None) -> str:
-       return compose([PROMPTS / "user.md"], variables)
-
-Keep robot context in ``robot.md``, tool usage in ``tools.md`` and the current
-task in ``user.md``. Local ``evaluation.md`` and ``exploration.md`` contain only
-startup, reset, success and output differences; optional ``policies/<backend>.md``
-files define backend protocols. Select applicable fragments in reading order.
-
-Reuse ``common/memory.md`` with ``memory_sources`` listing authorized paths.
-Memory-writing rules belong to ``modes/explore.md``; ``memory_kinds`` lists
-allowed global lesson kinds. The bundle selects the mode file and supplies its
-variables. Keep robot-specific publication rules and metadata in
-``exploration.md``. YAM retains its own operator-supervised memory protocol.
-
-Templates use ``{{name}}`` placeholders, such as ``{{instruction}}`` in
-``user.md``. ``compose`` binds them once and reports missing variables or files;
-inserted values are not expanded again. Supply every variable required by the
-selected files, including session fields and ``explore_attempts_per_session``
-when using the shared exploration template.
+Enable ``memory=True`` for the standard TaskRun memory layout. Evaluation reads
+references under ``memory_dir`` for the current ``reference_tag``. For a narrower
+toolkit allowlist, supply the matching ordered list as ``memory_sources``.
+Exploration uses the shared attempt, audit and proposal instructions. Supply
+``suite``, ``task_id``, ``regime``, ``seed``, ``recipe_tag``, ``memory_inbox``,
+``session_number``, ``session_max`` and ``explore_attempts_per_session``;
+the runner adds ``output_dir``. See RoboTwin's registration for a working example.
+Integrations with custom protocols can still register system and user factories.
 
 Include the Markdown files in ``pyproject.toml`` under
 ``[tool.setuptools.package-data]`` so installed packages can read them:

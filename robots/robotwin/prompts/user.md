@@ -6,4 +6,3 @@
 
 - seed: {{seed}}
 - task_config: {{task_config}}
-{{policy_context}}

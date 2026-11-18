@@ -38,7 +38,7 @@ RPent 的整体进程划分、服务职责和通信方式见 :doc:`系统说明 
        __init__.py            # 包入口，仅重导出两个工厂
        robot_spec.py          # RobotSpec、工厂、Dashboard 描述和 runtime 钩子
        env_client.py          # MyEnvClient —— agent 侧 RPC client (§1)
-       prompt_bundle.py       # system()/user() prompt 工厂              (§2)
+       prompts/               # robot.md, user.md, policies/, physical.md (§2)
        toolkit.py             # MyRobotToolkit + primitives + 工具定义     (§3)
        env_server.py          # 环境侧 facade + RPC 服务                 (§1)
        vla_server.py          # （可选）VLA 模型服务
@@ -56,14 +56,13 @@ RPent 的整体进程划分、服务职责和通信方式见 :doc:`系统说明 
    from rpent.robots.robot_spec import RobotSpec, RunConfig
    from rpent.robots.prompt_bundle import PromptBundle
    from rpent.utils.config import get_memory_dir
-   from robots.myrobot.prompt_bundle import system_prompt, user_prompt
 
    MYROBOT_DASHBOARD_SPEC = {...}
 
    def get_robot_spec() -> RobotSpec:
        return RobotSpec(
            name="myrobot",
-           prompts=PromptBundle(system=system_prompt, user=user_prompt),
+           prompts=PromptBundle.for_robot("myrobot"),
            add_cli_args=_add_cli_args,
            parse_config=_parse_config,
            init_runtime=_init_runtime,
@@ -184,37 +183,19 @@ RPent 的整体进程划分、服务职责和通信方式见 :doc:`系统说明 
 
 .. _add-robot-prompts:
 
-2. ``prompt_bundle.py``
------------------------
+2. 提示词文件
+-------------
 
-定义返回最终字符串的 ``system_prompt(variables)`` 和 ``user_prompt(variables)``，在 ``robot_spec.py`` 中用 ``PromptBundle`` 注册。调用方直接使用 ``spec.prompts.system(prompt_vars)`` 和 ``spec.prompts.user(prompt_vars)``。所有 planner 共用提示词，正文使用工具的裸名。
+在 ``robot_spec.py`` 中按机器人名称注册，提示词目录约定为 ``robots/<name>/prompts/``。在 ``robot.md`` 描述本体、观测、预算和成功信号，在 ``user.md`` 填写当前任务和运行上下文。两者均可通过 ``{{name}}`` 引用运行配置中的变量。
 
-.. code-block:: python
+通过 ``policy="policies/lingbot.md"`` 直接指定策略文件，
+相对路径从该机器人的提示词目录解析。如果运行时选择了其他策略，在
+``parse_config`` 中将对应路径写入 ``prompt_vars["policy"]``。策略文件
+提供完整系统协议时，设置 ``prompt_vars["standalone_policy"] = True``。
 
-   # robots/myrobot/prompt_bundle.py
-   from collections.abc import Mapping
-   from pathlib import Path
+显式启用 ``physical="physical.md"`` 后，每个策略都会加载公共真机规则和接入方提供的 ``physical.md``。在该文件中描述操作员就绪条件、场景恢复、可恢复故障、停机条件及任务结果的判定依据。
 
-   from rpent.prompt.compose import COMMON, MODES, compose
-
-   PROMPTS = Path(__file__).with_name("prompts")
-
-   def system_prompt(variables: Mapping[str, object] | None = None) -> str:
-       values = dict(variables or {})
-       mode = "explore" if values.get("mode") == "explore" else "evaluate"
-       return compose(
-           [COMMON / "base.md", MODES / f"{mode}.md", PROMPTS / "robot.md"],
-           values,
-       )
-
-   def user_prompt(variables: Mapping[str, object] | None = None) -> str:
-       return compose([PROMPTS / "user.md"], variables)
-
-``robot.md`` 保存机器人背景，``tools.md`` 保存工具用法，``user.md`` 保存当前任务。本地 ``evaluation.md``、``exploration.md`` 只保留启动、重置、成功判据和产物差异；按需用 ``policies/<backend>.md`` 定义后端协议。bundle 按阅读顺序选择适用片段。
-
-复用 ``common/memory.md``，通过 ``memory_sources`` 提供允许读取的路径列表。记忆写作规则放在 ``modes/explore.md`` 中，用 ``memory_kinds`` 指定允许的全局经验类别。bundle 选择模式文件并提供所需变量，机器人特有的发布规则和元数据留在 ``exploration.md``。YAM 保留自己的人工监督记忆协议。
-
-模板使用 ``{{name}}`` 占位符，例如 ``user.md`` 中的 ``{{instruction}}``。``compose`` 只替换一次，缺变量或文件时报告错误，插入的值不会再次展开。配置需提供所选文件的全部变量；使用公共探索模板时，还需提供会话字段和 ``explore_attempts_per_session``。
+使用标准 TaskRun 记忆布局时启用 ``memory=True``。评测按 ``reference_tag`` 读取 ``memory_dir`` 下的参考文件。如果 toolkit 的读取范围更窄，通过 ``memory_sources`` 传入相符的有序列表。探索复用公共尝试流程、审计和提案规则。配置需提供 ``suite``、``task_id``、``regime``、``seed``、``recipe_tag``、``memory_inbox``、``session_number``、``session_max`` 和 ``explore_attempts_per_session``，运行时补入 ``output_dir``。完整示例见 RoboTwin 的注册代码。需要自定义协议的接入方仍可注册自己的 system 和 user 工厂。
 
 在 ``pyproject.toml`` 的 ``[tool.setuptools.package-data]`` 中包含 Markdown 文件，确保安装后的包可以读取：
 
