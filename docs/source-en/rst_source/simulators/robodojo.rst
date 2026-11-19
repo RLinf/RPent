@@ -458,8 +458,9 @@ Common Options
 --------------
 
 RPent starts the simulator, SAM3 and selected VLA model services in the current
-Python environment by default. Specify ``--sim-python`` when the simulator uses
-a separate environment.
+Python environment by default. For a simulator or action model installed in a
+separate environment, use ``--sim-python`` or ``--am-python``, respectively, to
+specify that environment's Python executable.
 
 Use ``--task`` to select a task. For a fixed scene, ``--seed`` selects an
 official layout group and ``--layout`` selects a layout within that group;

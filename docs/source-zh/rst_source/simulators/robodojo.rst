@@ -367,7 +367,7 @@ SAM3 用于物体分割。先在 `facebook/sam3 模型页面 <https://huggingfac
 常用参数
 --------
 
-默认由 RPent 在当前 Python 环境中启动仿真、SAM3 和所选 VLA 模型服务。仿真器安装在独立环境时，指定 ``--sim-python``。
+默认由 RPent 在当前 Python 环境中启动仿真、SAM3 和所选 VLA 模型服务。仿真器或动作模型安装在独立环境时，分别使用 ``--sim-python`` 或 ``--am-python`` 指定对应的 Python 解释器。
 
 使用 ``--task`` 选择任务。固定场景通过 ``--seed`` 选择官方布局组，通过 ``--layout`` 选择组内布局，两者默认均为 ``0``。例如，``--task stack_blocks --seed 0 --layout 2`` 使用第 0 组的第 2 个布局。需要随机生成场景时，添加 ``--random``，此时 ``--layout`` 不生效。
 
