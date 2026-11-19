@@ -13,6 +13,7 @@ on:
           - libero-pro
           - robocasa
           - robotwin
+          - metaworld
 
 permissions:
   contents: read
@@ -33,7 +34,7 @@ jobs:
       github.event_name == 'issue_comment' &&
       github.event.issue.pull_request &&
       contains(fromJSON('["OWNER", "MEMBER", "COLLABORATOR"]'), github.event.comment.author_association) &&
-      contains(fromJSON('["/ci-libero-pro", "/ci-robocasa", "/ci-robotwin"]'), github.event.comment.body)
+      contains(fromJSON('["/ci-libero-pro", "/ci-robocasa", "/ci-robotwin", "/ci-metaworld"]'), github.event.comment.body)
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
