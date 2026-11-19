@@ -276,8 +276,15 @@ def main() -> None:
     parser.add_argument("--port", type=int, default=0)
     parser.add_argument("--parent-watch", action="store_true")
     parser.add_argument("--video-dir", type=Path, default=None)
+    from rpent.utils.config import add_cuda_device_arg
+
+    add_cuda_device_arg(parser)
     args = parser.parse_args()
     os.environ.setdefault("MUJOCO_GL", "egl")
+    if args.cuda_device is not None and os.environ["MUJOCO_GL"] == "egl":
+        from rpent.utils.egl import configure_egl_device
+
+        configure_egl_device(args.cuda_device)
     env = MetaWorldEnvFacade(
         args.task, args.seed, args.max_episode_steps, args.camera, args.video_dir
     )

@@ -31,11 +31,12 @@ Configure a planner as described in :doc:`../guides/configure_planner`, then run
 
    rpent --robot metaworld --task reach-v3 --seed 0 \
      --planner api --model "$PLANNER_MODEL" \
-     --memory-profile local --memory-dir ./memory/metaworld \
+     --memory-dir ./memory/metaworld \
      --output-dir ./runs/metaworld-reach
 
 Set ``PLANNER_MODEL`` to the provider-qualified model you configured.
-Only local memory is currently supported; an empty directory is sufficient.
+Local memory is the default; an empty directory is sufficient. Explicit
+``--memory-profile hf`` is rejected during argument validation.
 The CLI starts and cleans up its own environment service. ``--sim-python``
 selects a separate simulator interpreter. ``--env-endpoint`` borrows an
 existing service whose task, seed, camera and step limit must match.
@@ -144,3 +145,13 @@ model-predicted images are not used as observed simulator state.
 No pretrained MetaWorld model or checkpoint launcher is bundled. Existing
 LIBERO/RoboTwin checkpoints cannot be used simply by changing the endpoint.
 See :doc:`../development/add_action_model` for the worker adapter contract.
+
+Renderer selection
+------------------
+
+Use ``--cuda-device N`` to select the physical CUDA device for the owned
+environment's EGL renderer. The shared mapper resolves CUDA ordinals to EGL
+device indices and respects an existing ``MUJOCO_EGL_DEVICE_ID``.
+``MUJOCO_GL`` defaults to ``egl``; an explicit backend such as ``osmesa`` is
+preserved and does not trigger EGL device probing. Borrowed environment
+services must be configured by their owner.

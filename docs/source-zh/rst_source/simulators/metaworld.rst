@@ -30,11 +30,12 @@ MetaWorld 接入通过 RGB-D 观测和有步数上限的笛卡尔控制操作 Sa
 
    rpent --robot metaworld --task reach-v3 --seed 0 \
      --planner api --model "$PLANNER_MODEL" \
-     --memory-profile local --memory-dir ./memory/metaworld \
+     --memory-dir ./memory/metaworld \
      --output-dir ./runs/metaworld-reach
 
 将 ``PLANNER_MODEL`` 设为已配置的、带 provider 前缀的模型名称。
-目前只支持本地 memory，可以使用空目录。
+默认使用本地 memory，可以使用空目录；显式指定 ``--memory-profile hf``
+会在参数校验阶段报错。
 CLI 自动启动和清理自有环境服务。``--sim-python`` 可指定独立仿真解释器；
 ``--env-endpoint`` 可连接已有服务，但任务、seed、相机和步数限制必须匹配。
 连接会重置固定 episode，因此应独占该服务。
@@ -132,3 +133,12 @@ WAM 服务并启用 ``wam_act(max_chunks=1)``。默认脚本工具仍可使用�
 取消操作和 episode 结束都会停止后续动作；模型预测图像不会替代真实仿真观测。
 此接入不附带 MetaWorld 预训练模型或权重启动器，不能仅更换 endpoint 就使用
 LIBERO/RoboTwin 权重。模型适配方法见 :doc:`../development/add_action_model`。
+
+渲染设备选择
+------------
+
+使用 ``--cuda-device N`` 为自动启动的环境选择物理 CUDA 设备。
+共享映射函数会将 CUDA 序号转换为 EGL 设备索引，并保留已有的
+``MUJOCO_EGL_DEVICE_ID`` 设置。``MUJOCO_GL`` 默认为 ``egl``；
+显式设置的 ``osmesa`` 等后端会被保留，且不会触发 EGL 设备探测。
+借用的外部环境服务须由其启动者配置渲染设备。

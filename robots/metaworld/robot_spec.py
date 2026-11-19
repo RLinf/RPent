@@ -17,6 +17,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -32,7 +33,7 @@ from rpent.robots.prompt_bundle import PromptBundle
 from rpent.robots.robot_spec import RobotSpec, RunConfig
 from rpent.robots.runtime import try_spawn_server, try_wait_server
 from rpent.tools.toolkit import Toolkit
-from rpent.utils.config import get_memory_dir, get_repo_root
+from rpent.utils.config import add_cuda_device_arg, get_memory_dir, get_repo_root
 from rpent.utils.daemon import ProcessDaemon, pick_free_port
 from rpent.utils.rpc import make_rpc_client
 
@@ -47,10 +48,14 @@ def _add_cli_args(parser: argparse.ArgumentParser, use_dashboard: bool = False) 
         "--am-endpoint", default=None, help="Compatible external MetaWorld WAM service"
     )
     parser.add_argument("--sim-python", default=sys.executable)
+    add_cuda_device_arg(parser)
+    parser.set_defaults(memory_profile="local")
 
 
 def _validate(args) -> None:
     validate(args.task, args.seed, args.max_episode_steps, args.camera)
+    if args.memory_profile != "local":
+        raise ValueError("MetaWorld supports only --memory-profile local")
 
 
 def _parse_config(args) -> RunConfig:
@@ -113,8 +118,13 @@ def _spawn(args, output_dir):
             "--parent-watch",
             "--video-dir",
             str(output_dir / "videos"),
+            *(
+                ["--cuda-device", str(args.cuda_device)]
+                if args.cuda_device is not None
+                else []
+            ),
         ],
-        env_overrides={"MUJOCO_GL": "egl"},
+        env_overrides={"MUJOCO_GL": os.environ.get("MUJOCO_GL", "egl")},
         cwd=str(get_repo_root()),
         log_path=str(output_dir / "env_server.log"),
     )

@@ -35,7 +35,16 @@ from tests.e2e_tests.common import (
     require_depth,
     require_rgb,
     runtime_phase,
+    selected_cuda_ordinal,
 )
+
+
+@pytest.fixture(scope="module", autouse=True)
+def configure_render_device():
+    if os.environ.get("MUJOCO_GL", "egl") == "egl":
+        from rpent.utils.egl import configure_egl_device
+
+        configure_egl_device(selected_cuda_ordinal())
 
 
 @pytest.fixture(scope="module")
@@ -67,6 +76,7 @@ def test_task_catalog_matches_installed_mt10():
 def test_real_rgbd_and_episode_boundary(output, task):
     spec = get_robot_spec()
     args = parse_runtime_args(spec, ["--task", task, "--max-episode-steps", "2"])
+    args.cuda_device = selected_cuda_ordinal()
     with runtime_phase(spec, args, output / task, {"env"}) as runtime:
         client = runtime["env_client"]
         obs = client.get_obs()
@@ -112,6 +122,7 @@ def test_tool_dispatch_records_motion_and_finish(output):
     args.memory_profile = "local"
     config = spec.parse_config(args)
     spec.prepare_memory(args, config)
+    args.cuda_device = selected_cuda_ordinal()
     with runtime_phase(spec, args, config.output_dir, {"env"}) as runtime:
         toolkit = get_toolkit(
             runtime_kwargs=runtime,
@@ -190,6 +201,7 @@ def test_reset_preserves_prior_episode_video(output):
     video_dir.mkdir(parents=True)
     previous = video_dir / "episode_0000.mp4"
     previous.write_bytes(b"prior recording must not be overwritten")
+    args.cuda_device = selected_cuda_ordinal()
     with runtime_phase(spec, args, output / "reset-videos", {"env"}) as runtime:
         client = runtime["env_client"]
         initial = client.get_obs()["eef_position"]
@@ -257,6 +269,7 @@ def test_external_wam_executes_native_steps_and_releases_session(output):
         args.memory_profile = "local"
         config = spec.parse_config(args)
         spec.prepare_memory(args, config)
+        args.cuda_device = selected_cuda_ordinal()
         with runtime_phase(spec, args, config.output_dir, {"env"}) as runtime:
             toolkit = get_toolkit(
                 runtime_kwargs=runtime,

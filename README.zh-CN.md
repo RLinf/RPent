@@ -90,6 +90,8 @@ RPent 面向以下四类用户：
           <li><b>WAM</b></li>
           <ul>
             <li>DreamZero</li>
+            <li><a href="https://rpent.readthedocs.io/zh-cn/latest/rst_source/simulators/robodojo.html#vpp2">VPP2</a>（RoboDojo）✅</li>
+            <li><a href="https://rpent.readthedocs.io/zh-cn/latest/rst_source/simulators/robodojo.html#awomo05">Awomo05</a>（RoboDojo）✅</li>
             <li><a href="docs/source-zh/rst_source/development/add_action_model.rst">Cosmos Policy</a>（LIBERO / LIBERO-Pro）</li>
             <li><a href="docs/source-zh/rst_source/development/add_action_model.rst">Fast-WAM</a>（LIBERO / LIBERO-Pro / RoboTwin）</li>
             <li><a href="docs/source-zh/rst_source/development/add_action_model.rst">UniWAM</a>（RoboTwin）</li>
