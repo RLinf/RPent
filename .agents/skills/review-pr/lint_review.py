@@ -15,7 +15,9 @@
 """Lint and post an RPent PR review written as a GitHub review payload.
 
 The payload is the JSON body of GitHub's create-review API
-(``POST /repos/{owner}/{repo}/pulls/{number}/reviews``)::
+(``POST /repos/{owner}/{repo}/pulls/{number}/reviews``).
+
+.. code-block:: json
 
     {
         "commit_id": "<PR head SHA>",
@@ -23,8 +25,9 @@ The payload is the JSON body of GitHub's create-review API
         "body": "<the main comment>",
         "comments": [
             {"path": "rpent/x.py", "line": 42, "side": "RIGHT", "body": "..."},
-            {"path": "robots/libero/y.py", "start_line": 10, "line": 12, "body": "..."},
-        ],
+            {"path": "robots/libero/y.py", "start_line": 10, "start_side": "RIGHT",
+             "line": 12, "side": "RIGHT", "body": "..."}
+        ]
     }
 
 Subcommands::
@@ -368,11 +371,14 @@ class ReviewLinter:
         if not isinstance(path, str) or not isinstance(line, int):
             self.error(where, "needs a string path and an integer line")
             return
-        if side not in ("RIGHT", "LEFT") or c.get("start_side", side) != side:
-            self.error(
-                where, f"side and start_side must both be RIGHT or LEFT, found {side!r}"
-            )
         start = c.get("start_line")
+        if start is not None and (missing := {"side", "start_side"} - c.keys()):
+            self.error(
+                where, f"multi-line comment missing {', '.join(sorted(missing))}"
+            )
+            return
+        if side not in ("RIGHT", "LEFT") or c.get("start_side", side) != side:
+            self.error(where, "side and start_side must match and be RIGHT or LEFT")
         if start is not None and (not isinstance(start, int) or start >= line):
             self.error(
                 where,

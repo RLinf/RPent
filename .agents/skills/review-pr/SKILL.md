@@ -172,7 +172,7 @@ python3 .agents/skills/review-pr/lint_review.py post --pr "$N" review.json
   "body": "<the main comment>",
   "comments": [
     {"path": "rpent/x.py", "line": 42, "body": "<inline comment>"},
-    {"path": "robots/libero/y.py", "start_line": 10, "line": 12, "body": "<inline comment>"}
+    {"path": "robots/libero/y.py", "start_line": 10, "start_side": "RIGHT", "line": 12, "side": "RIGHT", "body": "<inline comment>"}
   ]
 }
 ```
@@ -181,7 +181,7 @@ python3 .agents/skills/review-pr/lint_review.py post --pr "$N" review.json
 
 ### Where a finding goes
 
-A finding goes inline when a line of the diff carries it: the line with the bug, the line where a special case enters shared code, or, for a block, `start_line` to `line` (`side: "LEFT"` only for a deleted line that should stay). A `docs-style` finding goes on the line it rewrites; when one rule fails on many lines of a page, comment on the first and list the others under question 8. A finding with no such line goes in the main comment under its question: a missing doc page, a missing test, PR metadata. Reply in an existing thread instead of opening a new one on the same line: `gh api "repos/RLinf/RPent/pulls/$N/comments/<id>/replies" -f body=...`.
+A finding goes inline on the line with the bug or where a special case enters shared code. For a deleted line that should stay, use `side: "LEFT"`. For a range from `start_line` to `line`, set both `start_side` and `side` to `RIGHT` for the new code or `LEFT` for the old code. A `docs-style` finding goes on the line it rewrites; when one rule fails on many lines of a page, comment on the first and list the others under question 8. A finding with no such line goes in the main comment under its question: a missing doc page, a missing test, PR metadata. Reply in an existing thread instead of opening a new one on the same line: `gh api "repos/RLinf/RPent/pulls/$N/comments/<id>/replies" -f body=...`.
 
 ### Inline comments
 
