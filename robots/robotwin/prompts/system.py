@@ -69,7 +69,3 @@ to expected phase count. After two ineffective repetitions of an unchanged
 analytic target, re-observe and change it; this threshold does not cap model calls."""
 SUCCESS = """Only a fresh TASK_ENV.eval_success=true confirms success. Stop actions
 on native success or step exhaustion; check status and call finish exactly once."""
-
-WAM_START = "Inspect view_env_state(step=0) for the native task and current scene."
-WAM_CONTROL = """Use wam_act for one chunk and inspect the new state and images.
-Omit prompt for the native task or supply a grounded subtask when needed."""

@@ -124,6 +124,7 @@ def test_configured_prompt_uses_common_workflow(backend, exploring, tmp_path):
     system = spec.prompts.render("system", variables=variables)
     user = spec.prompts.render("user", variables=variables)
     assert "{{" not in system + user
+    assert "checkpoint" not in user
     assert ("GUIDE_RPENT.md" in system) == (backend != "fast-wam")
     assert ("attempt_<N>_failed.json" in system) == exploring
     action = sections["ACTION AND VERIFICATION"]

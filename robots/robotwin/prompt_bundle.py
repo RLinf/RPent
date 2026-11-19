@@ -16,9 +16,8 @@
 
 from collections.abc import Mapping
 
+from robots.robotwin.prompts import action_models, system, user
 from robots.robotwin.prompts import explore as exploration
-from robots.robotwin.prompts import system
-from robots.robotwin.prompts.action_models import GUIDANCE
 from rpent.prompt import evaluate, explore
 from rpent.prompt.workflow import user_prompt as build_user_prompt
 
@@ -31,15 +30,14 @@ def _backend(variables: Mapping[str, object]) -> str:
 def system_prompt(variables: Mapping[str, object] | None = None) -> dict[str, str]:
     variables = variables or {}
     backend = _backend(variables)
+    guidance = action_models.GUIDANCE.get(backend, "")
     if backend not in {"lingbot", "uniwam"}:
         # Other WAM adapters use local memory and the compact evaluation protocol.
         return evaluate.system_prompt(
             role=system.ROLE,
             runtime=system.EVAL_ACCESS,
-            initialization=system.WAM_START,
-            action=system.WAM_CONTROL,
             success=system.SUCCESS,
-            action_model_guidance=GUIDANCE.get(backend, ""),
+            action_model_guidance=guidance,
         )
 
     exploring = variables.get("mode") == "explore"
@@ -54,24 +52,12 @@ def system_prompt(variables: Mapping[str, object] | None = None) -> dict[str, st
         action=system.CONTROL,
         recovery=exploration.RECOVERY if exploring else system.BUDGET,
         success=exploration.SUCCESS if exploring else system.SUCCESS,
-        action_model_guidance=GUIDANCE.get(backend, ""),
+        action_model_guidance=guidance,
     )
 
 
 def user_prompt(variables: Mapping[str, object] | None = None) -> dict[str, str]:
     backend = _backend(variables or {})
     if backend not in {"lingbot", "uniwam"}:
-        return build_user_prompt(
-            "Follow the native task_language. Local memory directory: {{memory_dir}}.",
-            system.WAM_START,
-        )
-    checkpoint = (
-        "UniWAM RoboTwin history-flow"
-        if backend == "uniwam"
-        else "RLinf/LingBot-VLA-RoboTwin-EEF-ckpt1500"
-    )
-    task = "- task: {{task_name}}\n- seed: {{seed}}\n- task_config: {{task_config}}"
-    return build_user_prompt(
-        task + f"\n- checkpoint: {checkpoint}",
-        "Follow the RoboTwin startup and memory read order.",
-    )
+        return build_user_prompt(user.WAM_TASK, user.WAM_BEGIN)
+    return build_user_prompt(user.TASK, user.BEGIN)
