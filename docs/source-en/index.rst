@@ -108,6 +108,7 @@ Choose an environment: :doc:`LIBERO <rst_source/simulators/libero>`, :doc:`RoboC
    RoboTwin <rst_source/simulators/robotwin>
    RoboDojo <rst_source/simulators/robodojo>
    RoboLab <rst_source/simulators/robolab>
+   Embodied First Exam <rst_source/simulators/efe>
 
 .. toctree::
    :maxdepth: 2
@@ -131,6 +132,7 @@ Choose an environment: :doc:`LIBERO <rst_source/simulators/libero>`, :doc:`RoboC
    Architecture and Execution <rst_source/development/architecture>
    Core Interfaces <rst_source/development/interfaces>
    Memory Design <rst_source/development/memory>
+   Generic RGB-D Toolkit <rst_source/development/generic_toolkit>
    Add a Robot or Simulator <rst_source/development/add_robot>
    Add an Action Primitive <rst_source/development/add_primitive>
    Add an Action Model <rst_source/development/add_action_model>

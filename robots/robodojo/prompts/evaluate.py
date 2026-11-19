@@ -221,6 +221,11 @@ as evidence of actual calls, SAM3 descriptions and {{policy_name}} chunk choices
 successful episode can include failed approaches and corrective detours:
 identify which actions made progress rather than replaying every call.
 
+Treat the controller roles as default preferences, and adapt them using
+successful task-specific evidence. Usually prefer {{policy_name}} for grasping;
+when task-specific memory demonstrates a suitable Primitive method, use it
+with freshly measured geometry and verification of the grasp.
+
 Transfer strategies and checks, not scene geometry. Re-identify objects and
 destinations, measure poses, heights, clearances and held-object offsets from
 current images and depth, and choose arms for current reach unless the native
