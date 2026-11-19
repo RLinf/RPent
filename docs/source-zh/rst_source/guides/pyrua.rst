@@ -39,13 +39,13 @@ PyRUA 模式支持 ``api``、``claude_code`` 和 ``codex`` 规划器，可通过
 查看运行记录
 ------------
 
-运行记录保存在任务输出目录下的 ``code_policy/``；可通过 ``--output-dir`` 指定输出目录。``cell_*.py`` 是代码片段，``cell_*.json`` 是执行结果，``calls.jsonl`` 记录机器人工具调用。任务成功与否以运行目录中 ``transcript_*.json`` 的 ``environment_success`` 为准。
+运行记录保存在任务输出目录下的 ``code_policy/``；可通过 ``--output-dir`` 指定输出目录。``cell_*.py`` 是代码片段，``cell_*.json`` 是执行结果，``calls.jsonl`` 记录机器人工具调用。
 
 
 LIBERO-PRO 评测结果
 -------------------
 
-本评测采用 Codex 规划器和 GPT-6 Astra 模型，推理强度设为 high，覆盖 LIBERO-PRO 的 Spatial、Object、Goal 和 Long 四个任务套件。每个任务套件包含 task 和 swap 两个套件，各套件均使用 seed 1，运行任务 0–9，共评测 80 个回合，总体成功率为 80.00%（64/80）。下表展示各 suite 的评测结果；Token 用量、耗时和 Planner 轮数均在具有 transcript 记录的回合上取平均，包含成功与失败回合。
+本评测采用 Codex 规划器和 GPT-6 Astra 模型，推理强度设为 high，覆盖 LIBERO-PRO 的 Spatial、Object、Goal 和 Long 四类任务。每类任务包含 task 和 swap 两个套件，各套件均使用 seed 1，运行任务 0–9，共评测 80 个回合，总体成功率为 80.00%（64/80）。下表展示各 suite 的评测结果；Token 用量、耗时和 Planner 轮数均在具有 transcript 记录的回合上取平均，包含成功与失败回合。
 
 .. list-table:: PyRUA 在 LIBERO-PRO 上的单 Seed 评测
    :header-rows: 1
@@ -96,4 +96,4 @@ LIBERO-PRO 评测结果
      - 300.7
      - 16.6
 
-成功率按成功回合数占全部 80 个计划回合的比例计算。耗时取运行记录中的 ``elapsed_s``，从环境运行时准备完成后开始统计；规划轮数取 ``stats.turns_used``。
+耗时取运行记录中的 ``elapsed_s``，从环境运行时准备完成后开始统计；规划轮数取 ``stats.turns_used``。

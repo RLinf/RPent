@@ -6,7 +6,7 @@ PyRUA Mode
 
 **PyRUA Mode** allows the planner to execute Python code cells that call
 RPent's registered robot tools. A cell can use tool results for conditional
-execution and loops. Variables, functions, and imports remain available
+execution and bounded loops. Variables, functions, and imports remain available
 across cells within the same session. Enable PyRUA mode with
 ``--policy-mode code``.
 
@@ -67,8 +67,7 @@ Execution logs are saved in the ``code_policy/`` directory under the
 task's output directory. Use ``--output-dir`` to specify the output
 directory. The ``cell_*.py`` files contain code cells, ``cell_*.json``
 files contain execution results, and ``calls.jsonl`` records robot
-tool calls. Task success is determined by ``environment_success``
-in the run's ``transcript_*.json`` file.
+tool calls.
 
 
 LIBERO-PRO Evaluation
@@ -133,9 +132,6 @@ both successful and unsuccessful episodes.
      - 300.7
      - 16.6
 
-Success rates are calculated as the number of successful episodes divided
-by the number of planned episodes for each suite. The overall success
-rate is calculated across all 80 planned episodes.
 
 Elapsed time uses ``elapsed_s`` from the run record, measured after the
 environment runtime is ready. Planner turns use ``stats.turns_used``.
