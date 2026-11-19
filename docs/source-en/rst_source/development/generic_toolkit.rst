@@ -109,8 +109,10 @@ Before registering tools with the platform's ``toolkit``, prepare the observatio
 adapter ``observations``, the current session's state object ``state`` (an
 ``EnvState`` instance), and an initialized segmentation client ``segmenter``.
 
-If you are registering only ``back_project`` and ``segment``, set ``grounder``
-to ``None``. To enable ``geometry``, also provide a ``grounder``.
+The example below registers ``back_project`` and ``segment`` when the platform
+initializes its ``toolkit``, so the planner can call them during a task. To use
+only these two tools, set ``grounder`` to ``None``. If you provide a ``grounder``,
+the example also registers ``geometry``.
 
 .. code-block:: python
 

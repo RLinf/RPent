@@ -66,7 +66,7 @@ LIBERO 的适配器按相机名（``agentview`` 或 ``wrist``）和步号读取 
 
 在平台的 ``toolkit`` 中注册工具前，先准备观测适配器 ``observations``、当前会话的状态对象 ``state``\ （``EnvState`` 实例）和已初始化的分割客户端 ``segmenter``。
 
-只注册 ``back_project`` 和 ``segment`` 时，将 ``grounder`` 设为 ``None``。如需启用 ``geometry``，还要提供 ``grounder``。
+下面的示例在平台初始化 ``toolkit`` 时注册 ``back_project`` 和 ``segment``，供规划器在任务中调用。只使用这两个工具时，将 ``grounder`` 设为 ``None``。提供 ``grounder`` 时，还会注册 ``geometry``。
 
 .. code-block:: python
 
