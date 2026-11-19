@@ -33,7 +33,7 @@ the latest record. When selecting a pixel on a preview, use the preview's
      - Planner input
      - What the result means
    * - ``back_project``
-     - In ``selection``, provide ``image_shape`` and either a list of points (``points_rc``) or a rectangular box (``box_rc``). To keep only points within a given height range, set ``height_m``. Heights are measured in metres in the world frame.
+     - In ``selection``, provide ``image_shape`` and either a list of points (``points_rc``) or a rectangular box (``box_rc``). Set ``height_m`` to keep only points within a given height range in the world frame.
      - For selected points, the tool returns 3D coordinates in input order, with ``null`` for points with invalid depth or points excluded by the filter. For a box, it returns the coordinates of one measured surface point and the 3D bounds of the visible surfaces inside the box.
    * - ``segment``
      - Use ``prompt`` to describe the target or ``point`` to specify a pixel on it. If you provide both, the tool generates a candidate mask from the description and returns it only after confirming that it contains the selected point.
