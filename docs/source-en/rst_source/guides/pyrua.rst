@@ -1,81 +1,74 @@
+
 .. _pyrua-mode:
 
 PyRUA Mode
-==============
+==========
 
-**PyRUA Mode** lets a planner run Python cells that call RPent's registered robot
-tools. A cell can use tool results in conditions and bounded loops; variables,
-functions, and imports remain available to later cells in the same session.
-Enable it with ``--policy-mode code``.
+**PyRUA Mode** allows the planner to execute Python code cells that call
+RPent's registered robot tools. A cell can use tool results for conditional
+execution and loops. Variables, functions, and imports remain available
+across cells within the same session. Enable PyRUA mode with
+``--policy-mode code``.
 
-The process can be summarized as follows:
+The workflow consists of three steps:
 
-1. The planner decides **what to do** and submits a Python cell.
-2. The Python runtime executes the cell, and the robot toolkit handles each ``robo.<tool_name>(...)`` call.
-3. RPent returns the execution output and latest tool result to the planner, which then decides the next step.
+1. The planner decides **what to do** and submits a Python code cell.
+2. The Python runtime executes the cell, while the robot toolkit handles
+   each ``robo.<tool_name>(...)`` call.
+3. RPent returns the execution output and latest tool result to the
+   planner, which then determines the next step.
 
-First complete the LIBERO-PRO installation and model setup in
-:doc:`../get_started/quickstart`. The example below uses the same environment
-and model services as an ordinary LIBERO-PRO run.
+First complete the LIBERO-PRO installation and model setup described in
+:doc:`../get_started/quickstart`. The example below uses the same
+environment and model services as a standard LIBERO-PRO run.
 
 
 Run a Task
 ----------
 
-Add ``--policy-mode code`` to a working task command. The following example
-runs task 2 in the LIBERO-PRO Object Swap suite with seed 0:
+Add ``--policy-mode code`` to a standard LIBERO-PRO task command to
+enable PyRUA mode. The following example runs task 2 in the LIBERO-PRO
+Object Swap suite with seed 0, using the Codex planner and GPT-6.1 Sol
+at low reasoning effort:
 
 .. code-block:: bash
 
    rpent --robot libero --libero-type pro \
      --suite libero_object_swap --task 2 --seed 0 \
-     --planner claude_code --model claude-opus-4-8 \
-     --policy-mode code
+     --planner codex --model gpt-6.1-sol \
+     --policy-mode code --reasoning-effort low
 
-The ``api``, ``claude_code``, and ``codex`` planners support this mode.
-``--planner flash`` and ``--explore`` cannot be combined with it. Code mode
-does not load task memory or generate a recipe. Omit ``--policy-mode code``
-to use the default direct tool-calling mode.
-
-Both CLI and Dashboard task runs support code mode. A dedicated code-mode
-prompt is loaded for the selected robot. The first user message sent to the
-planner is JSON serialized directly from the run configuration's ``task_desc``;
-it is not augmented with ``prompt_vars``, and the tools-mode user prompt is not
-rendered. For example, the initial message for the LIBERO-PRO task above
-contains only suite, task, and seed.
+PyRUA mode supports the ``api``, ``claude_code``, and ``codex`` planners
+via either the CLI or the Dashboard. It cannot be combined with
+``--planner flash`` or ``--explore``. PyRUA mode does not load task
+memory or generate an action recipe.
 
 
 How Code Execution Works
 ------------------------
 
-The planner submits a cell through the ``python(code)`` tool. Within that
-cell, it calls registered robot tools with keyword arguments, for example
-``robo.<tool_name>(argument=value)``. The available methods depend on the
-selected robot. ``print(...)`` makes values visible in the returned output;
-bare expressions do not. After inspecting the result, the planner may submit
-another cell and reuse earlier variables.
+In PyRUA mode, RPent loads robot-specific prompts that guide the planner
+in calling robot tools through Python. The planner submits code through
+``python(code)`` and invokes robot tools using
+``robo.<tool_name>(argument=value)``. Use ``print(...)`` to display
+values; variables remain available in subsequent cells.
 
-Each cell has a default wall-clock limit of 120 seconds, including robot tool
-calls, and a budget of 100 robot tool calls. Set ``--code-timeout-s`` and
-``--code-max-calls`` to change these limits. A Python exception preserves the
-session variables. On timeout or cancellation, in-flight robot tool calls
-drain before the Python namespace is reset. Robot actions already executed
-are not rolled back, so inspect the scene before continuing.
-
-A successful ``robo.finish(...)`` ends both the cell and the task; the
-``api``, ``claude_code``, and ``codex`` planners all receive the completion
-result. 
+Each cell has a default timeout of 120 seconds, including tool calls,
+and allows up to 100 robot tool calls. These limits can be adjusted
+using ``--code-timeout-s`` and ``--code-max-calls``, respectively.
+When ``robo.finish(...)`` successfully returns a completion marker,
+RPent terminates the current code cell and ends the planning session.
 
 
 Inspect a Run
 -------------
 
-Run records are saved under ``code_policy/`` in the task's output directory;
-use ``--output-dir`` to specify that directory. ``cell_*.py`` files contain
-code cells, ``cell_*.json`` files contain execution results, and
-``calls.jsonl`` records robot tool calls. For LIBERO-PRO, use
-``environment_success`` in the run's ``transcript_*.json`` to determine
-whether the task succeeded.
+Execution logs are saved in the ``code_policy/`` directory under the
+task's output directory. Use ``--output-dir`` to specify the output
+directory. The ``cell_*.py`` files contain code cells, ``cell_*.json``
+files contain execution results, and ``calls.jsonl`` records robot
+tool calls. Task success is determined by ``environment_success``
+in the run's ``transcript_*.json`` file.
 
 
 LIBERO-PRO Evaluation
@@ -83,19 +76,22 @@ LIBERO-PRO Evaluation
 
 This evaluation used the Codex planner with GPT-6 Astra at high reasoning
 effort. It covered the Spatial, Object, Goal, and Long LIBERO-PRO task
-families, each with task and swap suites. Tasks 0–9 were run at seed 0 in
-each suite, for 80 episodes in total. The table summarizes results by suite
-and reports overall performance; tokens, time, and turns are averages over
-episodes with transcripts.
+families, each with task and swap suites. Tasks 0–9 were evaluated with
+seed 1 in each suite, for a total of 80 planned episodes and an overall
+success rate of 80.00% (64/80).
+
+The table summarizes results by suite. Token usage, elapsed time, and
+planner turns are averaged over episodes with transcripts, including
+both successful and unsuccessful episodes.
 
 .. list-table:: PyRUA single-seed evaluation on LIBERO-PRO
    :header-rows: 1
 
    * - Suite
-     - Success (of total)
+     - Success Rate (%)
      - Tokens (input/output)
-     - Time (seconds)
-     - Planner turns
+     - Time (s)
+     - Planner Turns
    * - Object Task
      - 100.00% (10/10)
      - 409,966 / 1,057
@@ -137,6 +133,9 @@ episodes with transcripts.
      - 300.7
      - 16.6
 
-Success rates divide successful episodes by all 80 planned episodes. Time
-uses ``elapsed_s`` from the run record, measured after the environment runtime
-is ready; planner turns use ``stats.turns_used``.
+Success rates are calculated as the number of successful episodes divided
+by the number of planned episodes for each suite. The overall success
+rate is calculated across all 80 planned episodes.
+
+Elapsed time uses ``elapsed_s`` from the run record, measured after the
+environment runtime is ready. Planner turns use ``stats.turns_used``.
