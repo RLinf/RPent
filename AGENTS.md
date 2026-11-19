@@ -10,6 +10,8 @@ with documentation instead of assuming either is correct.
 - `rpent/planner/`, `rpent/session/`, and `rpent/prompt/`: planner adapters,
   execution sessions, and shared prompt construction.
 - `rpent/tools/` and `rpent/memory/`: tool execution, observations, and memory.
+- `toolkits/`: opt-in RGB-D tools (`back_project`, `segment`, experimental
+  `geometry`) over observations that each robot adapts.
 - `rpent/robots/`: robot discovery, descriptors, shared runtime, and Env/VLA
   components. `robots/<robot>/` owns each concrete integration.
 - `rpent/cli/`, `rpent/dashboard/`, and `rpent/evaluation/`: entry points,
