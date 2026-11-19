@@ -410,7 +410,8 @@ For a published Hugging Face corpus, use ``--memory-profile hf`` and
 ``--memory-repo RLinf/RPent-memory@COMMIT_SHA`` instead of the local memory
 arguments. RPent loads memory from the ``robodojo/`` directory at the specified
 dataset revision. Replace ``COMMIT_SHA`` with the dataset commit SHA to use. See
-:doc:`../guides/memory` for source selection and publication.
+:doc:`../guides/memory` for source selection and
+:doc:`../development/memory` for publication.
 
 Exploration retries the same task, seed group and layout, with up to three
 planner sessions and five attempts per session by default. Working notes and
@@ -438,15 +439,20 @@ After exploration, inspect these local artifacts:
 
 - ``task-specific/``: the successful attempt's JSON task record and matching
   JSONL action sequence, including SAM3 calls that returned a mask without an error.
+  Check the overlay to confirm the intended object; a returned mask alone does
+  not establish that the correct object was selected.
 - ``task-family/``, ``global/`` and ``MEMORY.md``: validated and merged task
   lessons, general lessons and their index.
 - Failed-attempt records in the run output and working notes under
-  ``_internal/inbox/<cell>/wip/``.
+  ``_internal/inbox/<cell>/wip/``. When a draft is merged, the notes move to
+  ``_internal/merged/<cell>/wip/``.
 
-Memory is merged automatically after a normal run with no agent execution error.
-Use ``--no-auto-merge-memory`` to retain drafts for manual review. Then point the
-evaluation command above at the same memory directory. See :doc:`../guides/memory`
-for publishing to Hugging Face and :doc:`../development/memory` for the full file layout.
+Memory is merged automatically after exploration ends normally with no agent
+execution error. Use ``--no-auto-merge-memory`` to keep drafts and working notes
+in the inbox for manual review. Merging updates local files; it does not upload
+them to Hugging Face. Then point the evaluation command above at the same memory
+directory. See :doc:`../guides/memory` for using memory and
+:doc:`../development/memory` for publication and the full file layout.
 
 Common Options
 --------------

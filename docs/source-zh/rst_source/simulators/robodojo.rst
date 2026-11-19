@@ -340,7 +340,7 @@ SAM3 用于物体分割。先在 `facebook/sam3 模型页面 <https://huggingfac
      --max-turns 10000 --max-episode-steps 10000 --planner-timeout-s 4800 \
      --output-dir /path/to/eval-output
 
-使用已发布的 Hugging Face 记忆时，将本地记忆参数替换为 ``--memory-profile hf`` 和 ``--memory-repo RLinf/RPent-memory@COMMIT_SHA``。RPent 从指定数据集版本的 ``robodojo/`` 目录读取记忆；将 ``COMMIT_SHA`` 替换为要使用的数据集提交 SHA。来源选择和发布流程见 :doc:`../guides/memory`。
+使用已发布的 Hugging Face 记忆时，将本地记忆参数替换为 ``--memory-profile hf`` 和 ``--memory-repo RLinf/RPent-memory@COMMIT_SHA``。RPent 从指定数据集版本的 ``robodojo/`` 目录读取记忆；将 ``COMMIT_SHA`` 替换为要使用的数据集提交 SHA。来源选择见 :doc:`../guides/memory`，发布流程见 :doc:`../development/memory`。
 
 探索模式在同一任务、seed 组和 layout 上反复尝试，默认最多运行 3 个规划会话，每个会话最多尝试 5 次。工作笔记和待整理的经验保存在本地。环境判定任务成功后，不再启动后续会话。按前文配置服务后，执行：
 
@@ -358,11 +358,11 @@ SAM3 用于物体分割。先在 `facebook/sam3 模型页面 <https://huggingfac
 
 探索结束后，检查以下本地产物：
 
-- ``task-specific/``：成功尝试的 JSON 任务记录和配套 JSONL 动作序列，包含返回掩码且未报错的 SAM3 调用。
+- ``task-specific/``：成功尝试的 JSON 任务记录和配套 JSONL 动作序列，包含返回掩码且未报错的 SAM3 调用。仍需检查覆盖图，确认选中的是目标物体；返回掩码本身不代表选对了对象。
 - ``task-family/``、``global/`` 和 ``MEMORY.md``：通过校验并合并的任务经验、通用经验及索引。
-- 运行输出中的失败记录，以及 ``_internal/inbox/<cell>/wip/`` 中的工作笔记。
+- 运行输出中的失败记录，以及 ``_internal/inbox/<cell>/wip/`` 中的工作笔记。草稿合并后，工作笔记移至 ``_internal/merged/<cell>/wip/``。
 
-正常结束且无智能体执行错误时，默认自动合并本地经验；使用 ``--no-auto-merge-memory`` 可保留草稿供手动审核。随后用上面的评测命令指向同一个记忆目录即可。发布到 Hugging Face 的流程见 :doc:`../guides/memory`，完整目录结构见 :doc:`../development/memory`。
+探索正常结束且无智能体执行错误时，默认自动合并本地经验；使用 ``--no-auto-merge-memory`` 可将草稿和工作笔记保留在 inbox 中供手动审核。合并只更新本地文件，不会上传到 Hugging Face。随后用上面的评测命令指向同一个记忆目录即可。记忆使用方式见 :doc:`../guides/memory`，发布流程及完整目录结构见 :doc:`../development/memory`。
 
 常用参数
 --------
