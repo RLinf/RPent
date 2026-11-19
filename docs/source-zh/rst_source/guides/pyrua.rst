@@ -17,42 +17,37 @@
 运行一个任务
 ------------
 
-在已能正常运行的任务命令中加入 ``--policy-mode code``。下面的示例使用种子 0 运行 LIBERO-PRO Object Swap 套件中的任务 2。
+在普通 LIBERO-PRO 任务命令中加入 ``--policy-mode code``，即可启用 PyRUA 模式。下面的示例使用 Codex 规划器和 GPT-6.1 Sol 模型，推理强度设为 low，在 LIBERO-PRO Object Swap 套件中运行任务 2，seed 0。
 
 .. code-block:: bash
 
    rpent --robot libero --libero-type pro \
      --suite libero_object_swap --task 2 --seed 0 \
-     --planner claude_code --model claude-opus-4-8 \
-     --policy-mode code
+     --planner codex --model gpt-6.1-sol \
+     --policy-mode code --reasoning-effort low
 
-此模式支持 ``api``、``claude_code`` 和 ``codex`` 规划器，不能与 ``--planner flash`` 或 ``--explore`` 一起使用。代码模式不加载任务记忆，也不生成动作序列（recipe）。省略 ``--policy-mode code`` 即可使用默认的直接工具调用模式。
-
-CLI 和 Dashboard 的任务运行都支持代码模式。运行时会为所选机器人加载专用的代码模式提示词；首次发送给规划器的用户消息是运行配置中的 ``task_desc`` 直接序列化得到的 JSON，不会用 ``prompt_vars`` 补充内容，也不会渲染普通工具调用模式的用户提示词。例如，上述 LIBERO-PRO 任务的初始消息只包含 suite、task 和 seed。
-
+PyRUA 模式支持 ``api``、``claude_code`` 和 ``codex`` 规划器，可通过 CLI 和 Dashboard 启动，不能与 ``--planner flash`` 或 ``--explore`` 一起使用。PyRUA 模式不加载任务记忆，也不生成动作序列（recipe）。
 
 执行原理
 ------------
 
-规划器通过 ``python(code)`` 工具提交代码片段。代码使用关键字参数调用已注册的机器人工具，例如 ``robo.<tool_name>(argument=value)``；可用方法取决于所选机器人。使用 ``print(...)`` 将变量值写入返回输出，单独写表达式不会显示结果。规划器查看返回结果后，可以继续提交代码片段并复用先前的变量。
+启用 PyRUA 模式后，RPent 根据所选机器人加载专用提示词，引导规划器通过 Python 代码调用机器人工具。规划器通过 ``python(code)`` 提交代码，用 ``robo.<tool_name>(argument=value)`` 调用机器人工具。用 ``print(...)`` 显示结果；变量可在后续代码片段中复用。
 
-每个代码片段默认最多运行 120 秒（包括机器人工具调用），最多调用 100 次机器人工具。可分别使用 ``--code-timeout-s`` 和 ``--code-max-calls`` 调整限制。Python 异常会保留会话变量；超时或取消会先等待正在进行的机器人工具调用结束，再清空 Python 命名空间。已执行的机器人动作不会回滚，继续运行前应先检查当前场景。
-
-``robo.finish(...)`` 调用成功后，当前代码片段和任务都会结束；``api``、``claude_code`` 和 ``codex`` 规划器均会收到该完成结果。
+每段代码默认限时 120 秒（含工具调用），最多调用 100 次机器人工具，可分别用 ``--code-timeout-s`` 和 ``--code-max-calls`` 调整。调用 ``robo.finish(...)`` 并成功返回结束标记后，RPent 停止当前代码片段并结束本次规划。
 
 
 查看运行记录
 ------------
 
-运行记录保存在任务输出目录下的 ``code_policy/``；可通过 ``--output-dir`` 指定输出目录。``cell_*.py`` 是代码片段，``cell_*.json`` 是执行结果，``calls.jsonl`` 记录机器人工具调用。LIBERO-PRO 的任务成功与否以运行目录中 ``transcript_*.json`` 的 ``environment_success`` 为准。
+运行记录保存在任务输出目录下的 ``code_policy/``；可通过 ``--output-dir`` 指定输出目录。``cell_*.py`` 是代码片段，``cell_*.json`` 是执行结果，``calls.jsonl`` 记录机器人工具调用。任务成功与否以运行目录中 ``transcript_*.json`` 的 ``environment_success`` 为准。
 
 
 LIBERO-PRO 评测结果
 -------------------
 
-本评测采用 Codex 规划器和 GPT-6 Astra 模型，推理强度设为 high，覆盖 LIBERO-PRO 的 Spatial、Object、Goal 和 Long 四个任务套件。每个任务套件包含 task 和 swap 两个套件，各套件均使用 seed 0，运行任务 0–9，共评测 80 个回合。下表按任务套件汇总结果，并报告总体表现；token 用量、耗时和轮数均在具有 transcript 记录的回合上取平均值。
+本评测采用 Codex 规划器和 GPT-6 Astra 模型，推理强度设为 high，覆盖 LIBERO-PRO 的 Spatial、Object、Goal 和 Long 四个任务套件。每个任务套件包含 task 和 swap 两个套件，各套件均使用 seed 1，运行任务 0–9，共评测 80 个回合，总体成功率为 80.00%（64/80）。下表展示各 suite 的评测结果；Token 用量、耗时和 Planner 轮数均在具有 transcript 记录的回合上取平均，包含成功与失败回合。
 
-.. list-table:: PyRUA 在 LIBERO-PRO 上的单种子评测
+.. list-table:: PyRUA 在 LIBERO-PRO 上的单 Seed 评测
    :header-rows: 1
 
    * - 任务套件
