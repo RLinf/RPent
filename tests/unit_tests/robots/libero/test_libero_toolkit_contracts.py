@@ -17,6 +17,8 @@
 from __future__ import annotations
 
 import argparse
+import json
+import re
 import threading
 from concurrent.futures import ThreadPoolExecutor
 from functools import partial
@@ -28,8 +30,11 @@ import numpy as np
 import pytest
 
 from robots.libero import robot_spec, toolkit
+from robots.libero.observations import LiberoGeometryObservations
+from robots.libero.prompts import evaluate
 from rpent.dashboard.events import NullDashboardEventSink
 from rpent.memory import MemoryManager
+from rpent.prompt.utils import Numbered
 from rpent.robots import RunConfig
 from rpent.robots.components.sam3_client import Sam3Result
 from rpent.session import EnvState
@@ -169,6 +174,252 @@ def test_toolkit_factory_configures_memory_access_by_mode(
     assert captured[0]["mode"] == "evaluation"
     assert captured[1]["mode"] == "exploration"
     assert captured[1]["attempts_per_session"] == 2
+
+
+@pytest.mark.parametrize("enabled", [False, True])
+def test_generic_localization_is_registered_with_libero_observations(
+    tmp_path, monkeypatch, fake_single_arm_primitives, enabled
+):
+    fake = fake_single_arm_primitives.for_robot(toolkit.libero_tools.LiberoPrimitives)
+    monkeypatch.setattr(toolkit.libero_tools, "LiberoPrimitives", fake)
+    monkeypatch.setattr(toolkit.libero_tools, "dump_state", lambda *a, **kw: _record())
+    monkeypatch.setattr(
+        templates, "default_variables", lambda: {"output_dir": str(tmp_path)}
+    )
+    mask = np.ones((4, 4), dtype=bool)
+    sam = SimpleNamespace(
+        segment=lambda *a, **kw: Sam3Result(found=True, mask=mask, score=0.9)
+    )
+    tk = toolkit.LiberoToolkit(
+        runtime_kwargs={"env": object(), "sam3_client": sam},
+        generic_tools=True,
+        geometry_grounder=object() if enabled else None,
+        dashboard_events=NullDashboardEventSink(),
+        memory=MemoryManager(tmp_path / "memory"),
+        state_output_dir=tmp_path / "state",
+    )
+    assert _tool_names(tk) == EVALUATION_TOOLS | ({"geometry"} if enabled else set())
+    assert {"back_project", "segment"} <= _readonly_names(tk)
+    if enabled:
+        assert "geometry" in _readonly_names(tk)
+        schema = tk._tools["geometry"].input_schema["properties"]
+        assert set(schema) == {
+            "query",
+            "camera",
+            "step",
+            "measurement",
+            "required_geometry",
+        }
+
+    with tk.state.record_step(state={}) as step:
+        tk.state.save("agentview_policy.png", np.ones((4, 4, 3), np.uint8), step=step)
+        tk.state.save("agentview_high.png", np.zeros((4, 4, 3), np.uint8), step=step)
+        tk.state.save("wrist_high.png", np.zeros((600, 800, 3), np.uint8), step=step)
+        points = np.ones((4, 4, 3))
+        points[3, 1] = [0.25, 0.5, 0.75]
+        tk.state.save("agentview_world_high.npz", points, step=step)
+        tk.state.save(
+            "agentview_metadata.json",
+            {
+                "height": 4,
+                "width": 4,
+                "intrinsic_K": np.eye(3).tolist(),
+                "extrinsic_cam2world": np.eye(4).tolist(),
+            },
+            step=step,
+        )
+    expected_view = toolkit.libero_tools.view_env_state(step, state=tk.state)
+    assert tk.execute_tool("view_env_state", {"step": step}) == expected_view
+    after_action = tk.get_env_state(
+        command={"action": "release"}, result={}, elapsed_s=0.5
+    )
+    assert after_action == ToolResult(
+        data={**expected_view.data, "agent_elapsed_s": 0.5}, images=expected_view.images
+    )
+
+    selected = tk.execute_tool(
+        "back_project",
+        {
+            "camera": "agentview",
+            "step": step,
+            "selection": {"image_shape": [2, 2], "points_rc": [[1, 0]]},
+        },
+    )
+    assert selected.data["samples_xyz"] == [[0.25, 0.5, 0.75]]
+    segmented = tk.execute_tool(
+        "segment", {"camera": "agentview", "step": step, "prompt": "cup"}
+    )
+    assert (
+        segmented.data["found"]
+        and segmented.data["evidence_status"] == "identity_unchecked"
+    )
+    assert tk.state.latest_step == step
+
+
+def test_pinned_wrist_sample_uses_its_own_calibration(tmp_path):
+    state = EnvState(tmp_path)
+    for x in (0.0, 0.1):
+        pose = np.eye(4)
+        pose[0, 3] = x
+        with state.record_step(state={}) as step:
+            state.save("wrist_high.png", np.zeros((8, 8, 3), dtype=np.uint8), step=step)
+            xyz = np.ones((8, 8, 3))
+            state.save("wrist_world_high.npz", xyz, step=step)
+            state.save(
+                "wrist_metadata.json",
+                {
+                    "width": 4,
+                    "height": 4,
+                    "intrinsic_K": [[4, 0, 2], [0, 4, 2], [0, 0, 1]],
+                    "extrinsic_cam2world": pose.tolist(),
+                },
+                step=step,
+            )
+    obs = LiberoGeometryObservations(state)
+    historical = obs.get_observation(camera="wrist", step=0)
+    latest = obs.get_observation(camera="wrist", step=-1)
+    assert historical.camera_to_world[0, 3] == 0.0
+    assert latest.camera_to_world[0, 3] == 0.1
+    assert historical.world_frame_id == latest.world_frame_id
+    np.testing.assert_array_equal(latest.intrinsics, [[8, 0, 4], [0, 8, 4], [0, 0, 1]])
+    with pytest.raises(ValueError, match="calibrated RGB-D pair"):
+        obs.get_observation(camera="agentview", step=0)
+
+
+def test_generic_tools_and_geometry_are_opt_in(
+    tmp_path, monkeypatch, fake_single_arm_primitives
+):
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--planner", default="api")
+    parser.add_argument("--memory-profile")
+    parser.add_argument("--memory-dir")
+    parser.add_argument("--output-dir")
+    spec = robot_spec.get_robot_spec()
+    spec.add_cli_args(parser, False)
+    primitives = fake_single_arm_primitives.for_robot(
+        toolkit.libero_tools.LiberoPrimitives
+    )
+    monkeypatch.setattr(toolkit.libero_tools, "LiberoPrimitives", primitives)
+    monkeypatch.setattr(toolkit.libero_tools, "dump_state", lambda *a, **kw: _record())
+    monkeypatch.setattr(robot_spec, "get_memory_dir", lambda _: tmp_path / "memory")
+    monkeypatch.setattr(templates, "get_output_dir", lambda: tmp_path)
+    arguments = [
+        "--suite",
+        "libero_spatial_task",
+        "--task",
+        "0",
+        "--output-dir",
+        str(tmp_path / "run"),
+    ]
+    for flags, generic, geometry in [
+        ([], False, False),
+        (["--no-rgbd-tools", "--no-geometry"], False, False),
+        (["--rgbd-tools"], True, False),
+        (["--geometry", "--molmo-endpoint", "http://localhost:8118"], True, True),
+    ]:
+        args = parser.parse_args(arguments + flags)
+        config = spec.parse_config(args)
+        assert config.prompt_vars["generic_tools"] is generic
+        assert config.prompt_vars["geometry"] is geometry
+        prompt = spec.prompts.render(
+            "system", variables={**config.prompt_vars, "output_dir": str(tmp_path)}
+        )
+        assert ("points_rc" in prompt and "box_rc" in prompt) is generic
+        assert ('back_project({"row":' in prompt) is not generic
+        assert ("mutually exclusive" in prompt) is not generic
+        assert ("For geometry, give query" in prompt) is geometry
+        assert ("insufficient_evidence" in prompt) is geometry
+        assert ("nudge and re-observe" in prompt) is not geometry
+
+        tk = robot_spec.get_toolkit(
+            config=config,
+            runtime_kwargs={
+                "env": object(),
+                "sam3_client": object(),
+                "geometry_grounder": object() if geometry else None,
+            },
+            dashboard_events=NullDashboardEventSink(),
+            state_output_dir=tmp_path / "state",
+        )
+        schemas = {tool.name: tool.args_schema for tool in tk.list_tools()}
+        examples = re.findall(
+            r"\b(back_project|segment|geometry)\((\{.*?\})\)", prompt, re.S
+        )
+        expected = {"back_project", "segment"} | ({"geometry"} if geometry else set())
+        assert {name for name, _ in examples} == expected
+        for name, example in examples:
+            # The default prompt uses ROW, COL and NN for the selected pixel and step.
+            payload = json.loads(re.sub(r"\b(?:ROW|COL|NN)\b", "0", example))
+            schemas[name].model_validate(payload, strict=True)
+            if generic and name == "segment" and "point" in payload:
+                assert "image_shape" in payload
+
+
+@pytest.mark.parametrize("guide", ["strict_hybrid_guide.md", "pro_hybrid_guide.md"])
+def test_shared_guides_leave_localization_call_formats_to_the_prompt(guide):
+    text = (Path(robot_spec.__file__).with_name("guides") / guide).read_text()
+    assert not re.search(
+        r'\b(?:back_project|segment|geometry)\(|"row"\s*:|resolution["`]?[=:]|\brow_range\b',
+        text,
+    )
+
+
+@pytest.mark.parametrize(
+    "settings",
+    [
+        {"mode": "eval", "memory_profile": "hf"},
+        {"mode": "eval", "memory_profile": "local"},
+        {"mode": "explore"},
+        {"policy_kind": "wam"},
+    ],
+)
+def test_rgbd_menu_preserves_the_planners_task_and_memory_instructions(settings):
+    prompts = robot_spec.get_robot_spec().prompts
+    baseline = prompts.system(settings)
+    original_user = prompts.user(settings)
+
+    def task_sections(prompt):
+        # Only localization and the workflow's segment aid name tool arguments.
+        return {
+            key: (
+                tuple(
+                    item.replace(evaluate.GENERIC_SEGMENT_AID, evaluate.SEGMENT_AID)
+                    for item in value.items
+                )
+                if isinstance(value, Numbered)
+                else value
+            )
+            for key, value in prompt.items()
+            if not key.startswith(("LOCALIZATION", "FIRST-STEP ALGORITHM"))
+        }
+
+    rgbd = {**settings, "generic_tools": True}
+    assert task_sections(prompts.system(rgbd)) == task_sections(baseline)
+    assert prompts.user(rgbd) == original_user
+
+    variables = {**rgbd, "geometry": True}
+    actual = prompts.system(variables)
+    user = prompts.user(variables)
+    for key in original_user.keys() - {"MODE"}:
+        assert user[key] == original_user[key]
+    if settings.get("policy_kind") == "wam":
+        assert "geometry" in actual["WORKFLOW"]
+        assert actual["OUTCOME"] == baseline["OUTCOME"]
+        return
+
+    assert "`geometry`" in user["MODE"]
+    rules = actual["RULES (NON-NEGOTIABLE)"]
+    assert "`geometry`, `back_project` or `segment`" in rules
+    assert "you get object positions ONLY by camera images, depth, and" not in rules
+    workflow = " ".join(" ".join(actual["WORKFLOW"].items).split())
+    assert "`back_project` for median xyz" not in workflow
+    assert "localization table" in workflow
+    assert "wrist-refined target before pi0_pick" not in next(
+        value for key, value in actual.items() if key.startswith("PROVEN LEVERS")
+    )
+    for key in baseline:
+        if key.startswith(("ROLE", "MEMORY", "YOUR GOAL", "OUTPUT DISCIPLINE")):
+            assert actual[key] == baseline[key]
 
 
 def test_toolkit_modes_construct_with_fake_primitives(
