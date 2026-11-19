@@ -38,7 +38,7 @@ RPent 的整体进程划分、服务职责和通信方式见 :doc:`系统说明 
        __init__.py            # 包入口，仅重导出两个工厂
        robot_spec.py          # RobotSpec、工厂、Dashboard 描述和 runtime 钩子
        env_client.py          # MyEnvClient —— agent 侧 RPC client (§1)
-       prompts/               # robot.md, user.md, policies/, physical.md (§2)
+       prompt_bundle.py       # system()/user() prompt 工厂              (§2)
        toolkit.py             # MyRobotToolkit + primitives + 工具定义     (§3)
        env_server.py          # 环境侧 facade + RPC 服务                 (§1)
        vla_server.py          # （可选）VLA 模型服务
@@ -56,13 +56,14 @@ RPent 的整体进程划分、服务职责和通信方式见 :doc:`系统说明 
    from rpent.robots.robot_spec import RobotSpec, RunConfig
    from rpent.robots.prompt_bundle import PromptBundle
    from rpent.utils.config import get_memory_dir
+   from robots.myrobot.prompt_bundle import system_prompt, user_prompt
 
    MYROBOT_DASHBOARD_SPEC = {...}
 
    def get_robot_spec() -> RobotSpec:
        return RobotSpec(
            name="myrobot",
-           prompts=PromptBundle.for_robot("myrobot"),
+           prompts=PromptBundle(system=system_prompt, user=user_prompt),
            add_cli_args=_add_cli_args,
            parse_config=_parse_config,
            init_runtime=_init_runtime,
@@ -183,25 +184,35 @@ RPent 的整体进程划分、服务职责和通信方式见 :doc:`系统说明 
 
 .. _add-robot-prompts:
 
-2. 提示词文件
--------------
+2. ``prompt_bundle.py``
+-----------------------
 
-在 ``robot_spec.py`` 中按机器人名称注册，提示词目录约定为 ``robots/<name>/prompts/``。在 ``robot.md`` 描述本体、观测、预算和成功信号，在 ``user.md`` 填写当前任务和运行上下文。两者均可通过 ``{{name}}`` 引用运行配置中的变量。
+定义 ``system_prompt()`` 和 ``user_prompt()`` 两个 prompt 工厂，并在机器人的 ``robot_spec.py`` 中构造 ``PromptBundle(system=system_prompt, user=user_prompt)`` （见上面的“入口”）。每个工厂返回一个有序的 ``dict[str, PromptNode]``，其中包含带标题的分节； ``PromptBundle.render`` 负责组装和填充。一套 prompt 供 API loop、Claude Code 和 Codex 等 planner 共用。正文使用工具的裸名（如 ``move_to``），并说明 Claude Code 和 Codex SDK 会将其显示为 ``mcp__rpent__<name>``；无需分别维护 CLI 与 API 版本。
 
-通过 ``policy="policies/lingbot.md"`` 直接指定策略文件，
-相对路径从该机器人的提示词目录解析。如果运行时选择了其他策略，在
-``parse_config`` 中将对应路径写入 ``prompt_vars["policy"]``。策略文件
-提供完整系统协议时，设置 ``prompt_vars["standalone_policy"] = True``。
+.. code-block:: python
 
-显式启用 ``physical="physical.md"`` 后，每个策略都会加载公共真机规则和接入方提供的 ``physical.md``。在该文件中描述操作员就绪条件、场景恢复、可恢复故障、停机条件及任务结果的判定依据。
+   # robots/myrobot/prompt_bundle.py
+   from robots.myrobot.prompts import system as system_parts
+   from robots.myrobot.prompts import user as user_parts
+   from rpent.prompt.utils import PromptNode
 
-使用标准 TaskRun 记忆布局时启用 ``memory=True``。评测按 ``reference_tag`` 读取 ``memory_dir`` 下的参考文件。如果 toolkit 的读取范围更窄，通过 ``memory_sources`` 传入相符的有序列表。探索复用公共尝试流程、审计和提案规则。配置需提供 ``suite``、``task_id``、``regime``、``seed``、``recipe_tag``、``memory_inbox``、``session_number``、``session_max`` 和 ``explore_attempts_per_session``，运行时补入 ``output_dir``。完整示例见 RoboTwin 的注册代码。需要自定义协议的接入方仍可注册自己的 system 和 user 工厂。
+   def system_prompt() -> PromptNode:
+       return {
+           "INTRO": system_parts.PREAMBLE,
+           "GOAL": system_parts.GOAL,
+           "RULES": system_parts.RULES,
+           "WORKFLOW": system_parts.WORKFLOW,
+           "ENVIRONMENT": system_parts.ENVIRONMENT,
+           "OUTPUT": system_parts.OUTPUT,
+       }
 
-在 ``pyproject.toml`` 的 ``[tool.setuptools.package-data]`` 中包含 Markdown 文件，确保安装后的包可以读取：
+   def user_prompt() -> PromptNode:
+       return {
+           "TASK": user_parts.TASK,
+           "BEGIN": user_parts.BEGIN,
+       }
 
-.. code-block:: toml
-
-   "robots.myrobot" = ["prompts/*.md", "prompts/*/*.md"]
+将 prompt 内容保存在机器人包内，例如 ``robots/myrobot/prompts/system.py`` 和 ``user.py``。分节内容可以是普通字符串，也可以使用 ``BulletList`` 或 ``Numbered``。占位符 ``{{suite}}`` / ``{{task}}`` / ``{{seed}}`` / ``{{output_dir}}`` / ``{{recipe_tag}}`` 在渲染时填充。
 
 .. _add-robot-toolkit:
 
@@ -252,7 +263,7 @@ toolkit 模块通常包含四部分：
 
 - ``recipe_tag`` —— 单次运行的机器人标签，用于 transcript 文件名和 recipe 路径（LIBERO 使用 ``f"{suite.replace('libero_', '')}_t{task}_s{seed}"``）。
 - ``output_dir`` —— 单次运行的临时目录路径。main.py 随后调用 ``init_output_dir`` 创建目录并配置日志。
-- ``prompt_vars`` —— 传给 system 和 user prompt 工厂的字典，通常包含运行标识和 prompt 引用的其他变量。
+- ``prompt_vars`` —— 传给 ``PromptBundle.render`` 的字典，通常包含运行标识和 prompt 引用的其他变量。
 - ``task_desc`` —— 机器人特定的任务标识字典，会原样写入 transcript JSON 记录（LIBERO 使用 ``{"suite": ..., "task": ..., "seed": ...}``）。
 
 .. code-block:: python

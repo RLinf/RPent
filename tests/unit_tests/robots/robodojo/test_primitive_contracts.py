@@ -630,10 +630,10 @@ def test_explore_defaults_and_scene_identity_in_config(tmp_path):
     assert args.explore_attempts_per_session == 5 and args.explore_sessions == 3
     assert config.task_desc["seed"] == 2 and config.task_desc["layout"] == 3
     assert config.recipe_tag.endswith("s2_l3")
-    prompt = robot_spec.get_robot_spec().prompts.system(
-        {**config.prompt_vars, "output_dir": str(tmp_path)}
+    prompt = robot_spec.get_robot_spec().prompts.render(
+        "system", variables={**config.prompt_vars, "output_dir": str(tmp_path)}
     )
-    assert "Attempt limit for this session: 5." in prompt
+    assert "5 attempts" in " ".join(prompt.split())
     args.random = True
     with pytest.raises(ValueError, match="fixed seed/layout"):
         robot_spec._validate_args(args)
@@ -656,7 +656,7 @@ def test_policy_prompts_match_configured_backend(tmp_path, mode, backend, backen
     config = robot_spec._parse_config(args)
     variables = {**config.prompt_vars, "output_dir": str(tmp_path)}
     prompts = robot_spec.get_robot_spec().prompts
-    prompt = " ".join(prompts.system(variables).split())
+    prompt = " ".join(prompts.render("system", variables=variables).split())
     assert f"{backend}_act(" in prompt
     other = "vpp2" if backend == "awomo05" else "awomo05"
     assert f"{other}_act(" not in prompt
@@ -672,7 +672,7 @@ def test_policy_prompts_match_configured_backend(tmp_path, mode, backend, backen
         assert "vpp2_act(instruction, chunks=1)" in prompt
         assert "24, 48 and 72 actions" in prompt
 
-    task = prompts.user(variables)
+    task = prompts.render("user", variables=variables)
     expected = (
         "Awomo05 native joint targets"
         if backend == "awomo05"
@@ -682,7 +682,7 @@ def test_policy_prompts_match_configured_backend(tmp_path, mode, backend, backen
         assert f"{args.task} / layout {args.layout}" in task
         assert "native" not in task
     else:
-        assert expected in prompt
+        assert expected in task
     assert "{{" not in task
 
 
@@ -699,8 +699,8 @@ def test_evaluation_references_seed_zero_without_changing_output_identity(
     config = robot_spec._parse_config(args)
     assert config.recipe_tag == f"{task}_s1_l3"
     assert config.prompt_vars["reference_tag"] == f"{task}_s0_l0"
-    prompt = robot_spec.get_robot_spec().prompts.system(
-        {**config.prompt_vars, "output_dir": str(tmp_path)}
+    prompt = robot_spec.get_robot_spec().prompts.render(
+        "system", variables={**config.prompt_vars, "output_dir": str(tmp_path)}
     )
     memory = config.prompt_vars["memory_dir"]
     assert f"{memory}/task-specific/{task}_s0_l0.json" in prompt
@@ -968,22 +968,6 @@ def test_unset_policy_backend_uses_same_default_in_all_prompts(mode):
     from robots.robodojo.prompt_bundle import system_prompt, user_prompt
 
     for builder in (system_prompt, user_prompt):
-        variables = {
-            "mode": mode,
-            "task": "stack_blocks",
-            "layout": 0,
-            "seed": 0,
-            "env_cfg_type": "arx_x5",
-            "task_summary": "stack blocks",
-            "output_dir": "/tmp/output",
-            "memory_dir": "/tmp/memory",
-            "reference_tag": "stack_blocks_s0_l0",
-            "recipe_tag": "stack_blocks_s0_l0",
-            "memory_inbox": "/tmp/inbox",
-            "session_number": 1,
-            "session_max": 3,
-            "explore_attempts_per_session": 3,
-        }
-        default = builder(variables)
-        assert builder({**variables, "policy_backend": None}) == default
-        assert builder({**variables, "policy_backend": "vpp2"}) == default
+        default = builder({"mode": mode})
+        assert builder({"mode": mode, "vla_backend": None}) == default
+        assert builder({"mode": mode, "vla_backend": "vpp2"}) == default

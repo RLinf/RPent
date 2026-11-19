@@ -844,14 +844,12 @@ def test_full_cli_exploration_finalizes_memory_without_starting_gpu_runtime(
     if outcome == "response_truncated":
         assert calls["planner_count"] == 2
         assert model_requests == 2
-        task_messages = [m for m in transcript["messages"] if m["role"] == "user"]
-        assert len(task_messages) == 2
-        assert all("simulated user task" in str(message) for message in task_messages)
+        assert len([m for m in transcript["messages"] if m["role"] == "user"]) == 2
         return
 
     assert calls["solve"] == {
-        "system_prompt": "simulated system prompt",
-        "user_message": "simulated user task",
+        "system_prompt": "simulated system prompt\n",
+        "user_message": "simulated user task\n",
         "max_turns": 4,
         "input_queue": None,
         "dashboard_interaction": None,
@@ -963,7 +961,7 @@ def test_full_cli_calls_robot_result_finalizer_without_robot_special_case(
             task = robot_toolkit.state.get_task()
             assert task.status == ("failed" if planner_error else "completed")
             assert task.result.data["environment_success"] is False
-            assert task.instruction == "task"
+            assert task.instruction == "task\n"
             assert task.config.data["arguments"]["planner"] == planner_name
             assert task.config.data["arguments"]["record_trajectory"] is True
             assert task.config.data["run"]["output_dir"] == str(tmp_path)

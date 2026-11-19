@@ -12,60 +12,45 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Final Markdown prompts for the dual_franka environment."""
+"""Prompt bundle assembly for the dual-Franka environment."""
 
 from __future__ import annotations
 
 from collections.abc import Mapping
-from pathlib import Path
 
-from rpent.prompt.compose import COMMON, MODES, compose
+from robots.dual_franka.prompts import explore as explore_parts
+from robots.dual_franka.prompts import system as system_parts
+from robots.dual_franka.prompts import user as user_parts
+from rpent.prompt.utils import Numbered, PromptNode
 
-PROMPTS = Path(__file__).parent / "prompts"
+
+def system_prompt(variables: Mapping[str, object] | None = None) -> PromptNode:
+    """Assemble the dual-Franka system prompt."""
+    if (variables or {}).get("mode") == "explore":
+        return explore_parts.system_prompt()
+    node: dict[str, object] = {
+        "ROLE": system_parts.ROLE,
+        "RUNTIME": system_parts.RUNTIME,
+        "SAFETY RULES": Numbered(system_parts.RULES),
+        "CAMERA AND PROJECTION RULES": Numbered(system_parts.CAMERA_AND_PROJECTION),
+        "VLA SEGMENT GATES": Numbered(system_parts.VLA_GATES),
+        "WORKFLOW": Numbered(system_parts.WORKFLOW),
+    }
+    return node
 
 
-def system_prompt(variables: Mapping[str, object] | None = None) -> str:
-    """Compose physical control rules and the current execution mode."""
-    values = dict(variables or {})
-    explore = values.get("mode") == "explore"
-    paths = [
-        COMMON / "base.md",
-        COMMON / "physical.md",
-        MODES / ("explore.md" if explore else "evaluate.md"),
-        PROMPTS / "robot.md",
-        PROMPTS / "tools.md",
-    ]
-    if explore:
-        values["memory_sources"] = "\n".join(
-            f"- {path}"
-            for path in (
-                f"{values['memory_dir']}/task-specific/",
-                f"{values['memory_dir']}/task-family/",
-                f"{values['memory_dir']}/MEMORY.md",
-                f"{values['memory_dir']}/global/",
-                f"{values['memory_inbox']}/wip/",
-                f"{values['output_dir']}/attempts/",
-            )
+def user_prompt(variables: Mapping[str, object] | None = None) -> PromptNode:
+    """Assemble the task-specific initial user prompt."""
+    node: dict[str, object] = {
+        "TASK": user_parts.TASK,
+        "TASK CONSTRAINTS": user_parts.CONSTRAINTS,
+        "BEGIN": explore_parts.BEGIN
+        if (variables or {}).get("mode") == "explore"
+        else user_parts.BEGIN,
+    }
+    if (variables or {}).get("mode") == "explore":
+        node["EXPLORATION OUTPUT"] = (
+            "Use {{memory_inbox}} for reviewable exploration notes and "
+            "{{output_dir}}/attempts/ for failed-attempt archives."
         )
-        values["memory_kinds"] = "primitive|perception|strategy|failure|infra"
-        paths.extend(
-            [
-                COMMON / "memory.md",
-                PROMPTS / "exploration.md",
-            ]
-        )
-    else:
-        paths.append(PROMPTS / "evaluation.md")
-    return compose(paths, values)
-
-
-def user_prompt(variables: Mapping[str, object] | None = None) -> str:
-    """Bind the current task once using the robot's Markdown template."""
-    values = dict(variables or {})
-    values["exploration_context"] = ""
-    if values.get("mode") == "explore":
-        values["exploration_context"] = (
-            f"- exploration notes: {values['memory_inbox']}\n"
-            f"- failed-attempt archives: {values['output_dir']}/attempts/"
-        )
-    return compose([PROMPTS / "user.md"], values)
+    return node

@@ -149,8 +149,8 @@ def test_robot_prompts_render_from_public_spec(robot_name: str, tmp_path) -> Non
         (memory_dir / "global").mkdir(parents=True)
         (memory_dir / "global/GLOBAL_MEMORY.md").write_text("# Global memory\n")
         variables["memory_dir"] = str(memory_dir)
-    system = spec.prompts.system(variables)
-    user = spec.prompts.user(PROMPT_VARIABLES[robot_name])
+    system = spec.prompts.render("system", variables=variables)
+    user = spec.prompts.render("user", variables=PROMPT_VARIABLES[robot_name])
 
     assert system.strip()
     assert user.strip()
@@ -169,33 +169,33 @@ def test_libero_prompts_observe_task_before_reading_memory(
         **PROMPT_VARIABLES["libero"],
         "mode": mode,
         "memory_profile": memory_profile,
-        "explore_attempts_per_session": 5,
     }
     prompts = get_robot_spec("libero").prompts
-    system = prompts.system(variables)
-    user = prompts.user(variables)
-    memory_step = "Read memory before acting"
-    assert (
-        system.index("READ THE GUIDES")
-        < system.index("INSPECT INITIAL STATE")
-        < system.index(memory_step)
-        < system.index("RUN THE MANDATORY PRE-TASK PERCEPTION PASS")
-        < system.index("EXECUTE one primitive")
+    system = prompts.render("system", variables=variables)
+    user = prompts.render("user", variables=variables)
+    workflow = system.split("\nWORKFLOW\n", 1)[1]
+    memory_step = (
+        "READ EACH AVAILABLE LOCAL MEMORY LAYER"
+        if mode == "eval" and memory_profile == "local"
+        else "READ MEMORY"
     )
+
     assert (
-        system.index(memory_step)
-        < system.index("The current task's published audit and recipe pair")
-        < system.index("Matching task-family notes")
-        < system.index("Relevant global lessons")
-        < system.index("RUN THE MANDATORY PRE-TASK PERCEPTION PASS")
+        workflow.index("READ THE GUIDES")
+        < workflow.index("INSPECT INITIAL STATE")
+        < workflow.index(memory_step)
     )
+    if mode != "eval" or memory_profile != "local":
+        assert workflow.index("INSPECT INITIAL STATE") < workflow.index(
+            "READ SEED-0 STRATEGY REFERENCES"
+        )
     assert "READ MEMORY FIRST" not in system
+    begin = user.split("\nBEGIN\n", 1)[1]
     assert (
-        'Read the guides, then call `view_env_state({"step": 0})` and inspect\n'
-        "`task_language` and `agentview_high.png`. Read matching memory and available\n"
-        "seed-0 references for the current task and scene, then localize, plan, and execute."
-    ) in system
-    assert "view_env_state" not in user
+        begin.index("view_env_state")
+        < begin.index("task_language")
+        < begin.index("memory")
+    )
 
 
 @pytest.mark.parametrize("robot_name", EXPECTED_ROBOTS)

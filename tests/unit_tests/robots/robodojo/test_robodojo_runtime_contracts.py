@@ -606,8 +606,8 @@ def test_task_guidance_is_scoped_and_tools_are_injected():
             "reference_tag": f"{task}_s0_l0",
             "seed": 0,
         }
-        system = bundle.system(variables)
-        user = bundle.user(variables)
+        system = bundle.render("system", variables=variables)
+        user = bundle.render("user", variables=variables)
         assert "move_to" in system and "set_gripper" in system
         for name in ("pi0_pick", "stabilize", "place_in_bin"):
             assert name not in system + user

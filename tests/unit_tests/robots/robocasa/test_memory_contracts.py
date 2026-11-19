@@ -28,6 +28,7 @@ import pytest
 from robots.robocasa.prompt_bundle import system_prompt
 from robots.robocasa.robot_spec import _parse_config
 from rpent.memory import MemoryManager
+from rpent.prompt.utils import format_prompt
 from rpent.tools import ToolResult
 from rpent.tools.common import CommonTools
 
@@ -115,21 +116,21 @@ def test_parse_config_resolves_local_memory_dir(tmp_path):
     assert config.prompt_vars["memory_dir"] == str(memory_dir.resolve())
 
 
-def test_prompt_names_only_current_task_memory(tmp_path, make_corpus):
-    memory_dir = make_corpus(tmp_path / "memory")
-    rendered = system_prompt(
-        {
+def test_prompt_names_only_current_task_memory(tmp_path):
+    memory_dir = tmp_path / "memory"
+    rendered = format_prompt(
+        system_prompt(),
+        variables={
             "task_name": "OpenDrawer",
             "memory_dir": str(memory_dir),
-        }
+        },
     )
 
     assert str(memory_dir / "task-specific" / "OpenDrawer_s0.json") in rendered
     assert str(memory_dir / "task-specific" / "OpenDrawer_s0_recipe.jsonl") in rendered
     assert str(memory_dir / "task-specific" / "OpenDrawer.md") in rendered
-    assert "before the first robot action" in rendered
-    assert "max_chars=100000" in rendered
-    assert "do not require reading every file" not in rendered
+    assert "as needed for the live task" in rendered
+    assert "do not require reading every file" in rendered
     assert "ArrangeTea_s0" not in rendered
     assert str(memory_dir / "global" / "GLOBAL_MEMORY.md") in rendered
     assert "{{" not in rendered
@@ -151,8 +152,9 @@ def test_all_50_tasks_share_prompt_and_tool_selection(tmp_path, make_corpus):
     )
     for task in tasks:
         selection = TaskMemory.load(root, task)
-        prompt = get_robot_spec().prompts.system(
-            {
+        prompt = get_robot_spec().prompts.render(
+            "system",
+            variables={
                 "task_name": task,
                 "memory_dir": str(root),
             },
@@ -536,8 +538,9 @@ def test_native_merge_output_shares_prompt_tool_and_audit_selection(
     assert set(selection.selected) == expected
     assert selection.missing == ("task-specific/OpenDrawer.md",)
     assert selection_errors(selection.metadata(), "OpenDrawer", "target") == []
-    prompt = get_robot_spec().prompts.system(
-        {
+    prompt = get_robot_spec().prompts.render(
+        "system",
+        variables={
             "task_name": "OpenDrawer",
             "split": "target",
             "memory_dir": str(root),
@@ -668,8 +671,8 @@ def test_exploration_can_start_empty_and_keeps_inbox_access(
     assert instance.state_output_dir == tmp_path / "attempt"
     file_tools = CommonTools(memory=instance.memory)
     inbox_file = root / "_internal/inbox/OpenDrawer_target_s1/wip/notes.md"
-    prompt = robot_spec.get_robot_spec().prompts.system(
-        {**config.prompt_vars, "output_dir": str(config.output_dir)}
+    prompt = robot_spec.get_robot_spec().prompts.render(
+        "system", variables={**config.prompt_vars, "output_dir": str(config.output_dir)}
     )
     for directory in (
         root / "task-specific",

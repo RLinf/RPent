@@ -28,6 +28,7 @@ from typing import TYPE_CHECKING, Any, Literal
 
 from robots.robotwin.memory import prepare_memory, validate_options
 from robots.robotwin.observation import ROBOTWIN_CAMERAS
+from robots.robotwin.prompt_bundle import system_prompt, user_prompt
 from rpent.dashboard.events import DashboardEventSink, RuntimeStatusEvent
 from rpent.dashboard.spec import DashboardSpec
 from rpent.memory import MemoryManager
@@ -248,7 +249,7 @@ def _resolve_dashboard(args: argparse.Namespace) -> DashboardSpec:
 def get_robot_spec() -> RobotSpec:
     return RobotSpec(
         name="robotwin",
-        prompts=PromptBundle.for_robot("robotwin", memory=True),
+        prompts=PromptBundle(system=system_prompt, user=user_prompt),
         add_cli_args=_add_cli_args,
         parse_config=_parse_config,
         init_runtime=_init_runtime,
@@ -366,8 +367,7 @@ def _parse_config(args: argparse.Namespace) -> RunConfig:
         raise ValueError("--task-name is required")
     am = select_am(args, "robotwin")
     wam = am if am.is_wam else None
-    short_wam = wam is not None and am.backend != "uniwam"
-    if short_wam:
+    if wam is not None and am.backend != "uniwam":
         if getattr(args, "explore", False) or getattr(args, "planner", None) == "flash":
             raise ValueError("WAM supports evaluation without Flash Mode only")
         if getattr(args, "memory_profile", None) == "hf":
@@ -385,7 +385,7 @@ def _parse_config(args: argparse.Namespace) -> RunConfig:
     output_dir = Path(output_dir)
     initial_seed = int(args.seed)
     default_memory_dir = get_memory_dir("robotwin")
-    if short_wam:
+    if wam is not None and am.backend != "uniwam":
         default_memory_dir /= wam.backend
     memory_dir = (
         Path(args.memory_dir).expanduser().resolve()
@@ -404,8 +404,6 @@ def _parse_config(args: argparse.Namespace) -> RunConfig:
     prompt_vars = {
         "policy_kind": "wam" if wam else "vla",
         "policy_backend": am.backend,
-        "policy": "policies/wam.md" if short_wam else f"policies/{am.backend}.md",
-        "standalone_policy": short_wam,
         "task_name": args.task_name,
         "seed": args.seed,
         "task_config": task_config,
@@ -419,9 +417,6 @@ def _parse_config(args: argparse.Namespace) -> RunConfig:
     if explore:
         prompt_vars.update(
             {
-                "suite": "robotwin",
-                "task_id": args.task_name,
-                "regime": task_config,
                 "memory_inbox": str(memory_dir / "_internal" / "inbox" / recipe_tag),
                 "session_number": 1,
                 "session_max": max(1, int(getattr(args, "explore_sessions", 3))),

@@ -12,34 +12,31 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Final Markdown prompts for the franka environment."""
+"""Prompt bundle assembly for the single-Franka environment."""
 
 from __future__ import annotations
 
 from collections.abc import Mapping
-from pathlib import Path
 
-from rpent.prompt.compose import COMMON, MODES, compose
-
-PROMPTS = Path(__file__).parent / "prompts"
-
-
-def system_prompt(variables: Mapping[str, object] | None = None) -> str:
-    """Compose and bind the current robot execution instructions once."""
-    values = dict(variables or {})
-
-    return compose(
-        [
-            COMMON / "base.md",
-            COMMON / "physical.md",
-            MODES / "evaluate.md",
-            PROMPTS / "robot.md",
-            PROMPTS / "tools.md",
-        ],
-        values,
-    )
+from robots.franka.prompts import system as system_parts
+from robots.franka.prompts import user as user_parts
+from rpent.prompt.utils import Numbered, PromptNode
 
 
-def user_prompt(variables: Mapping[str, object] | None = None) -> str:
-    """Bind the current task once using the robot's Markdown template."""
-    return compose([PROMPTS / "user.md"], variables)
+def system_prompt(variables: Mapping[str, object] | None = None) -> PromptNode:
+    """Assemble the Franka system prompt."""
+    return {
+        "ROLE": system_parts.ROLE,
+        "RUNTIME": system_parts.RUNTIME,
+        "SAFETY RULES": Numbered(system_parts.RULES),
+        "WORKFLOW": Numbered(system_parts.WORKFLOW),
+    }
+
+
+def user_prompt(variables: Mapping[str, object] | None = None) -> PromptNode:
+    """Assemble the task-specific initial user prompt."""
+    return {
+        "TASK": user_parts.TASK,
+        "TASK CONSTRAINTS": user_parts.CONSTRAINTS,
+        "BEGIN": user_parts.BEGIN,
+    }

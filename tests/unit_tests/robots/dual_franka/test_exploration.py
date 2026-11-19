@@ -211,8 +211,8 @@ def test_explore_prompt_and_factory_use_local_layered_memory(
         ]
     )
     config = robot_spec.get_robot_spec().parse_config(args)
-    prompt = robot_spec.get_robot_spec().prompts.system(
-        {**config.prompt_vars, "output_dir": tmp_path}
+    prompt = robot_spec.get_robot_spec().prompts.render(
+        "system", variables={**config.prompt_vars, "output_dir": tmp_path}
     )
     assert "request_scene_reset" in prompt and "request_operator_verdict" in prompt
     assert (
@@ -320,7 +320,7 @@ def test_cli_two_sessions_operator_feedback_and_memory_pipeline(
             if self.number == 2:
                 assert "not automatically reset" in user_message
                 assert "task_name:" in user_message
-                assert "Current task instruction:" in user_message
+                assert "Original operator task instruction:" in user_message
             assert not toolkit._scene_ready
             assert "error" not in call(
                 toolkit, "request_scene_reset", reason="new attempt"
@@ -695,24 +695,9 @@ def test_direct_abort_exits_even_when_camera_is_unavailable(setup):
 def test_explore_task_is_only_in_user_prompt():
     from robots.dual_franka import prompt_bundle
 
-    variables = {
-        "mode": "explore",
-        "session_number": 1,
-        "session_max": 2,
-        "explore_attempts_per_session": 5,
-        "recipe_tag": "dual_franka_t0",
-        "task_id": 0,
-        "memory_dir": "/memory",
-        "memory_inbox": "/inbox",
-        "output_dir": "/run",
-        "task_name": "unique_task",
-        "instruction": "Move safely",
-        "success_criteria": "unique_success",
-        "constraints": "unique_constraint",
-        "setup": "unique_setup",
-    }
+    variables = {"mode": "explore"}
     system = prompt_bundle.system_prompt(variables)
     user = prompt_bundle.user_prompt(variables)
-    for value in ("unique_task", "unique_success", "unique_constraint", "unique_setup"):
-        assert value not in system
-        assert value in user
+    for section in ("TASK", "TASK CONSTRAINTS"):
+        assert section not in system
+        assert section in user

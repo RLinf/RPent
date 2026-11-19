@@ -253,9 +253,6 @@ def _parse_config(args: argparse.Namespace) -> RunConfig:
             "memory_inbox": str(memory_dir / "_internal" / "inbox" / recipe_tag),
             "session_number": 1,
             "session_max": max(1, args.explore_sessions) if explore else 1,
-            "explore_attempts_per_session": (
-                args.explore_attempts_per_session if explore else None
-            ),
         },
         task_desc={"task_id": args.task_id, "task_name": task.name},
     )

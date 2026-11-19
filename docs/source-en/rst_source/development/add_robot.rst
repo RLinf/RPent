@@ -56,7 +56,7 @@ For a new robot named ``myrobot``, use the following directory layout:
        __init__.py            # package entry point; re-exports the factories
        robot_spec.py          # RobotSpec, factories, Dashboard spec, runtime hooks
        env_client.py          # MyEnvClient — agent-side RPC stub (§1)
-       prompts/               # robot.md, user.md, policies/, physical.md (§2)
+       prompt_bundle.py       # system()/user() prompt factories         (§2)
        toolkit.py             # MyRobotToolkit + primitives + tool definitions (§3)
        env_server.py          # server-side facade + RPC server (§1)
        vla_server.py          # (optional) VLA model server
@@ -77,13 +77,14 @@ these two functions:
    from rpent.robots.robot_spec import RobotSpec, RunConfig
    from rpent.robots.prompt_bundle import PromptBundle
    from rpent.utils.config import get_memory_dir
+   from robots.myrobot.prompt_bundle import system_prompt, user_prompt
 
    MYROBOT_DASHBOARD_SPEC = {...}
 
    def get_robot_spec() -> RobotSpec:
        return RobotSpec(
            name="myrobot",
-           prompts=PromptBundle.for_robot("myrobot"),
+           prompts=PromptBundle(system=system_prompt, user=user_prompt),
            add_cli_args=_add_cli_args,
            parse_config=_parse_config,
            init_runtime=_init_runtime,
@@ -237,39 +238,46 @@ teardown.
 
 .. _add-robot-prompts:
 
-2. Prompt files
----------------
+2. ``prompt_bundle.py``
+-----------------------
 
-Register the robot by name in ``robot_spec.py``. Its prompt files live under
-``robots/<name>/prompts/``.
-Describe the robot, observations, budget and success signal in ``robot.md``.
-Use ``user.md`` for the current task and run context. Both accept
-``{{name}}`` variables from the run configuration.
+Define two prompt factories, ``system_prompt()`` and ``user_prompt()``, and
+build a ``PromptBundle(system=system_prompt, user=user_prompt)`` in the
+robot's ``robot_spec.py`` (see the entry point above). Each factory returns an ordered
+``dict[str, PromptNode]`` of titled sections; ``PromptBundle.render`` assembles
+and fills them. One prompt serves every planner (API loop, Claude Code, Codex):
+refer to tools by their bare names (``move_to``, ...) and note once that the
+Claude Code and Codex SDKs show them as ``mcp__rpent__<name>``. Do not
+maintain separate prompt copies for CLI and API planners.
 
-Pass a Markdown path directly, for example ``policy="policies/lingbot.md"``,
-relative to the robot’s prompt directory. To select another policy at runtime,
-set ``prompt_vars["policy"]`` in ``parse_config``. Set ``prompt_vars["standalone_policy"] = True``
-when the file supplies the complete system protocol.
+.. code-block:: python
 
-With ``physical="physical.md"``, every selected policy includes the shared hardware rules
-and your required ``physical.md``. Describe operator readiness, scene restoration,
-recoverable faults, stops and the source of the task verdict there.
+   # robots/myrobot/prompt_bundle.py
+   from robots.myrobot.prompts import system as system_parts
+   from robots.myrobot.prompts import user as user_parts
+   from rpent.prompt.utils import PromptNode
 
-Enable ``memory=True`` for the standard TaskRun memory layout. Evaluation reads
-references under ``memory_dir`` for the current ``reference_tag``. For a narrower
-toolkit allowlist, supply the matching ordered list as ``memory_sources``.
-Exploration uses the shared attempt, audit and proposal instructions. Supply
-``suite``, ``task_id``, ``regime``, ``seed``, ``recipe_tag``, ``memory_inbox``,
-``session_number``, ``session_max`` and ``explore_attempts_per_session``;
-the runner adds ``output_dir``. See RoboTwin's registration for a working example.
-Integrations with custom protocols can still register system and user factories.
+   def system_prompt() -> PromptNode:
+       return {
+           "INTRO": system_parts.PREAMBLE,
+           "GOAL": system_parts.GOAL,
+           "RULES": system_parts.RULES,
+           "WORKFLOW": system_parts.WORKFLOW,
+           "ENVIRONMENT": system_parts.ENVIRONMENT,
+           "OUTPUT": system_parts.OUTPUT,
+       }
 
-Include the Markdown files in ``pyproject.toml`` under
-``[tool.setuptools.package-data]`` so installed packages can read them:
+   def user_prompt() -> PromptNode:
+       return {
+           "TASK": user_parts.TASK,
+           "BEGIN": user_parts.BEGIN,
+       }
 
-.. code-block:: toml
-
-   "robots.myrobot" = ["prompts/*.md", "prompts/*/*.md"]
+Keep the prompt content under the robot package, for example in
+``robots/myrobot/prompts/system.py`` and ``user.py``. Section bodies are plain
+strings (or ``BulletList`` / ``Numbered``) with ``{{suite}}`` / ``{{task}}`` /
+``{{seed}}`` / ``{{output_dir}}`` / ``{{recipe_tag}}`` placeholders filled at
+render time.
 
 .. _add-robot-toolkit:
 
@@ -363,7 +371,7 @@ validates those fields and returns a
   path (LIBERO: ``f"{suite.replace('libero_', '')}_t{task}_s{seed}"``).
 - ``output_dir`` — path to the working directory for this run (main.py then
   calls ``init_output_dir`` to create it and configure logging).
-- ``prompt_vars`` — dict passed to the system and user prompt factories (typically the run
+- ``prompt_vars`` — dict passed to ``PromptBundle.render`` (typically the run
   identifiers plus anything else the prompts reference).
 - ``task_desc`` — robot-specific dict of task-identifying fields, written into
   the transcript JSON record verbatim (LIBERO:

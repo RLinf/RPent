@@ -208,10 +208,8 @@ def _parse_config(args: argparse.Namespace) -> RunConfig:
             "seed": args.seed,
             "instruction": instruction,
             "mode": "explore" if explore else "eval",
-            "policy_backend": (
-                "pi05"
-                if args.task_id != 0 and args.am_endpoint and not args.without_vla
-                else "primitives-only"
+            "vla_enabled": bool(
+                args.task_id != 0 and args.am_endpoint and not args.without_vla
             ),
             "memory_profile": memory_profile,
             "memory_dir": str(memory_dir),

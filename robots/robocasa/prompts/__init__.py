@@ -13,3 +13,5 @@
 # limitations under the License.
 
 """RoboCasa prompt sections."""
+
+from robots.robocasa.prompts.evaluate import *  # noqa: F403

@@ -12,55 +12,42 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""robocasa file-backed prompt composition."""
+"""RoboCasa prompt bundle assembly."""
 
 from __future__ import annotations
 
 from collections.abc import Mapping
-from pathlib import Path
 
-from robots.robocasa.memory import memory_from_variables
-from rpent.prompt.compose import COMMON, MODES, compose
-
-PROMPTS = Path(__file__).with_name("prompts")
+from robots.robocasa.prompts import evaluate as evaluate_parts
+from robots.robocasa.prompts import explore as explore_parts
+from rpent.prompt.utils import PromptNode
 
 
-def system_prompt(variables: Mapping[str, object] | None = None) -> str:
-    """Compose the robot, authorized memory and current mode."""
-    values = dict(variables or {})
-    explore = values.get("mode") == "explore"
-    values["memory_sources"] = _memory_sources(values)
-    values["memory_kinds"] = "primitive|perception|strategy|failure|infra"
+def system_prompt(
+    variables: Mapping[str, object] | None = None,
+) -> dict[str, PromptNode]:
+    """Return the RoboCasa system prompt tree."""
+    if (variables or {}).get("mode", "eval") == "explore":
+        return explore_parts.system_prompt()
+    return evaluate_parts.system_prompt(variables)
 
-    return compose(
-        [
-            COMMON / "base.md",
-            MODES / ("explore.md" if explore else "evaluate.md"),
-            PROMPTS / "robot.md",
-            PROMPTS / "tools.md",
-            COMMON / "memory.md",
-            PROMPTS / ("exploration.md" if explore else "evaluation.md"),
-        ],
-        values,
+
+def user_prompt(
+    variables: Mapping[str, object] | None = None,
+) -> dict[str, PromptNode]:
+    """Return the first user message tree."""
+    mode = (
+        explore_parts.USER_MODE
+        if (variables or {}).get("mode", "eval") == "explore"
+        else evaluate_parts.USER_MODE
     )
-
-
-def user_prompt(variables: Mapping[str, object] | None = None) -> str:
-    """Return the concrete task and output locations."""
-    return compose([PROMPTS / "user.md"], variables)
-
-
-def _memory_sources(values: Mapping[str, object]) -> str:
-    """Use the same evaluation allowlist as the toolkit."""
-    explore = values.get("mode") == "explore"
-    if explore:
-        return (
-            "\n".join(
-                f"- `{values['memory_dir']}/{name}/`"
-                for name in ("task-specific", "task-family", "global")
-            )
-            + f"\n- `{values['memory_inbox']}/wip/`"
-        )
-    else:
-        selection = memory_from_variables(values)
-        return "\n".join(f"- {selection.root / name}" for name in selection.selected)
+    return {
+        "Task": """
+        - task:    {{task_name}} / {{split}}
+        - seed:    {{seed}}
+        - output_dir: {{output_dir}}
+        - output:  {{output_dir}}/
+          - audit filename:  {{recipe_tag}}.json
+        """,
+        "Mode": mode,
+    }

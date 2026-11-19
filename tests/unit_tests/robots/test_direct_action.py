@@ -369,9 +369,10 @@ def test_libero_prompt_matches_direct_action_enablement(
     args.explore = explore
     config = robot_spec._parse_config(args)
     from robots.libero.prompt_bundle import system_prompt
+    from rpent.prompt.utils import format_prompt
 
     variables = {**config.prompt_vars, "output_dir": tmp_path}
-    prompt = system_prompt(variables)
+    prompt = format_prompt(system_prompt(variables), variables=variables)
     allowed = prompt.split("ALLOWED PRIMITIVES", 1)[1].split(".", 1)[0]
     assert ("`execute_action`" in allowed) is enabled
     assert ("`execute_action`" in prompt) is enabled

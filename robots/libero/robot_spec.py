@@ -389,9 +389,6 @@ def _parse_config(args: argparse.Namespace) -> RunConfig:
         "reference_tag": f"{args.suite.replace('libero_', '')}_t{args.task}_s0",
         "session_number": 1,
         "session_max": max(1, args.explore_sessions) if explore else 1,
-        "explore_attempts_per_session": (
-            args.explore_attempts_per_session if explore else None
-        ),
     }
     prompt_vars["memory_dir"] = str(memory_dir)
     # Per-cell inbox: parallel explore runs must not append to a shared file.

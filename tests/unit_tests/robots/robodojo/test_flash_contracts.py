@@ -475,7 +475,9 @@ def test_mode_tools_state_and_prompt_gate(monkeypatch, tmp_path, eval_fair, fake
         "reference_tag": "put_bottles_into_dustbin_s0_l0",
         "seed": 0,
     }
-    prompt = bundle.system(variables) + bundle.user(variables)
+    prompt = bundle.render("system", variables=variables) + bundle.render(
+        "user", variables=variables
+    )
     for name in ("get_reward_details", "get_safety_status", "privileged"):
         assert name not in prompt
     assert ("read_text_file" in names) is not eval_fair
@@ -487,7 +489,9 @@ def test_mode_tools_state_and_prompt_gate(monkeypatch, tmp_path, eval_fair, fake
         )
         bundle = robot_spec.get_robot_spec().prompts
         variables = {"mode": "eval-fair", "task": "pick", "layout": 0}
-        prompt = bundle.system(variables) + bundle.user(variables)
+        prompt = bundle.render("system", variables=variables) + bundle.render(
+            "user", variables=variables
+        )
         for word in ("get_reward_details", "get_safety_status", "predicate"):
             assert word not in prompt
         assert not toolkit.solved()

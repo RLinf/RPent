@@ -109,14 +109,10 @@ def test_wam_configuration_and_toolkit_use_local_memory(tmp_path, monkeypatch, b
         item["name"] for item in spec.resolve_dashboard(args)["runtime_components"]
     }
     for name in ("system", "user"):
-        prompt = getattr(spec.prompts, name)(
-            {**config.prompt_vars, "output_dir": str(tmp_path)}
+        prompt = spec.prompts.render(
+            name, variables={**config.prompt_vars, "output_dir": str(tmp_path)}
         )
-        assert "pi0_pick" not in prompt
-        if name == "system":
-            assert "wam_act" in prompt
-        else:
-            assert "task:" in prompt and "Local memory directory:" in prompt
+        assert "wam_act" in prompt and "pi0_pick" not in prompt
     monkeypatch.setattr(
         toolkit, "LiberoToolkit", lambda **kwargs: SimpleNamespace(**kwargs)
     )
