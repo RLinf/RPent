@@ -142,6 +142,14 @@ based on options such as ``--am-backend``. For a fixed layout, return the static
 spec as in the example above. Physical environment checks and Dashboard startup
 both call ``resolve_dashboard(args)``.
 
+``prepare_prompt_vars`` is an optional hook that refines prompt variables after
+``init_runtime`` has connected to the task, for example to list the tools the
+connected service actually registers. The returned mapping is merged over
+``RunConfig.prompt_vars`` for both the user- and system-prompt renders; the
+interactive CLI keeps its earlier user render as the editable default of the
+first prompt. If ``get_toolkit`` reads one of these values, derive it from the
+same runtime source so the prompt and the toolkit describe one tool set.
+
 That's the entire registration step — ``_resolve_robot(name)`` does an
 ``importlib.import_module(f"robots.{name}")``, so dropping the package under
 ``robots/`` on disk is enough. No central list to update.

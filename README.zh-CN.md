@@ -48,6 +48,7 @@ RPent 面向以下四类用户：
 ## 最新动态
 
 - [2026/11] 🔥 修复 API 规划器性能较差的问题。搭配 DeepSeek V4.1 Flash，API 规划器在 RoboTwin C2R 上的成功率达到 **65.6%（164/250）**。详见 [排行榜](https://rpent.readthedocs.io/zh-cn/latest/rst_source/leaderboard/index.html)。
+- [2026/11] 🔥 RPent 支持通过 Harbor 运行 Embodied First Exam（EFE）任务，可使用 Skills 或任务原生动作。详见 [EFE 使用指南](https://rpent.readthedocs.io/zh-cn/latest/rst_source/simulators/efe.html)。
 - [2026/11] 🔥 新增[通用 RGB-D 工具包](https://rpent.readthedocs.io/zh-cn/latest/rst_source/development/generic_toolkit.html)，可从已记录的相机观测中读取三维坐标、分割物体并测量指定部位的尺寸。
 - [2026/11] 🔥 新增数据飞轮。支持轨迹采集和数据清洗功能，用采集的成功轨迹对 VLA 进行监督微调后，RPent 在 RoboTwin 评测中的任务成功率从 48% 升至 72%，提高 **24 个百分点**。详见 [使用指南](https://rpent.readthedocs.io/zh-cn/latest/rst_source/guides/flywheel.html)。
 - [2026/10] 🔥 新增可选的 APXInf VLA endpoint 接入，参见 [部署指南](https://rpent.readthedocs.io/zh-cn/latest/rst_source/guides/advanced_deployment.html#apxinf-vla-service-optional)。
@@ -104,6 +105,7 @@ RPent 面向以下四类用户：
           <li><a href="https://rpent.readthedocs.io/zh-cn/latest/rst_source/simulators/robocasa.html">RoboCasa</a> ✅</li>
           <li><a href="https://rpent.readthedocs.io/zh-cn/latest/rst_source/simulators/robotwin.html">RoboTwin</a> ✅</li>
           <li><a href="https://rpent.readthedocs.io/zh-cn/latest/rst_source/simulators/robodojo.html">RoboDojo</a> ✅</li>
+          <li><a href="https://rpent.readthedocs.io/zh-cn/latest/rst_source/simulators/efe.html">EFE</a> ✅</li>
         </ul>
       </td>
       <td>
