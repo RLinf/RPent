@@ -58,6 +58,8 @@ def test_opencode_preserves_provider_and_scopes_tools(tmp_path, monkeypatch, pro
     )
     assert session._command == ["/configured/opencode", "acp", "--pure"]
     assert session._model == "local/exact-model"
+    assert session._env["OPENCODE_DISABLE_PROJECT_CONFIG"] == "1"
+    assert session._env["OPENCODE_DISABLE_CLAUDE_CODE"] == "1"
     assert "127.0.0.1" in session._env["NO_PROXY"]
     assert not list(tmp_path.iterdir())
 
