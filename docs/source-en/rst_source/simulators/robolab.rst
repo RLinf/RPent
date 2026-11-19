@@ -64,19 +64,12 @@ Observation and Action
 Installation and Resources
 --------------------------
 
-Use Linux with a compatible NVIDIA driver, Python 3.11, ``uv``, Git, Git LFS,
-and ``ffmpeg``. Isaac Sim also requires EGL, GLU, OpenGL, and Vulkan runtime
-libraries. On Ubuntu 22.04, install the system packages if they are missing:
+Use two Python 3.11 environments on Linux. RPent and Pi0.5 run in the policy environment. Isaac Sim 5.0 and Isaac Lab 2.2.0 run in the simulator environment because they require a different PyTorch version.
 
-.. code-block:: bash
+Install RPent and the policy
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-   sudo apt-get update
-   sudo apt-get install git-lfs ffmpeg libegl1 libglu1-mesa libopengl0 libvulkan1
-
-Use the system package manager for other distributions. If you cannot install
-system packages, ask the machine administrator to provide these libraries.
-From the RPent root, create the policy environment and install the optional
-extra, following the :doc:`../get_started/quickstart` workflow:
+From the RPent repository root, run:
 
 .. code-block:: bash
 
@@ -84,52 +77,35 @@ extra, following the :doc:`../get_started/quickstart` workflow:
    source .venv-robolab-policy/bin/activate
    uv pip install -e ".[robolab]"
 
-Create the simulator environment with the installer from RLinf ``main``,
-following the `RLinf RoboLab guide <https://rlinf.readthedocs.io/en/latest/rst_source/evaluations/guides/robolab.html>`_.
-Run the following from the RPent root. Keep the RLinf checkout available:
-``--install-rlinf`` installs it into the simulator environment so that RPent
-can import ``RoboLabEnv`` from outside the RLinf repository.
+Reuse an existing simulator
+~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+If you already run RoboLab tasks in an RLinf simulator environment, set the path below to its Python interpreter. The run command uses it via ``--sim-python``. Continue with the checkpoint section.
 
 .. code-block:: bash
 
-   export RPENT_ROOT="$PWD"
-   export RLINF_SOURCE="$HOME/.cache/rpent/RLinf"
+   export SIM_PYTHON=/path/to/robolab-env/bin/python
+
+Install a new simulator
+~~~~~~~~~~~~~~~~~~~~~~~
+
+For a fresh installation, prepare a compatible NVIDIA driver, Git LFS, ffmpeg, and the EGL, GLU, OpenGL and Vulkan runtime libraries. Follow the `RLinf RoboLab guide <https://rlinf.readthedocs.io/en/latest/rst_source/evaluations/guides/robolab.html>`_ for system prerequisites. From the RPent root, run:
+
+.. code-block:: bash
+
    git lfs install
-   mkdir -p "$(dirname "$RLINF_SOURCE")"
-   git clone --branch main https://github.com/RLinf/RLinf.git "$RLINF_SOURCE"
-   (
-     cd "$RLINF_SOURCE"
-     bash requirements/install.sh embodied --model openpi --env robolab \
-       --venv "$RPENT_ROOT/.venv-robolab-sim" --install-rlinf
-   )
-   git -C "$RPENT_ROOT/.venv-robolab-sim/robolab" lfs pull
+   git clone https://github.com/RLinf/RLinf.git "$HOME/RLinf"
+   cd "$HOME/RLinf"
+   bash requirements/install.sh embodied --env robolab --install-rlinf
+   git -C .venv/robolab lfs pull
+   export SIM_PYTHON="$PWD/.venv/bin/python"
+   cd -
 
-The installer selects the RoboLab revision and installs Isaac Sim 5.0,
-Isaac Lab 2.2.0, and OpenPI, including Isaac/Kit package file setup.
-RoboLab and its USD assets live under ``.venv-robolab-sim/robolab`` by default.
-If system dependencies are already installed, add ``--no-root`` to skip
-system package installation. See the RLinf guide for system prerequisites.
-
-To reuse an existing RLinf installation, ensure its checkout is up to date
-with ``main`` and its simulator environment has RLinf installed, then set
-``--sim-python`` to that environment's ``bin/python`` in all run commands.
-If ``ROBOLAB_PATH`` is set, the installer uses that source checkout; run
-``git -C "$ROBOLAB_PATH" lfs pull`` there instead.
-
-Install the full RPent package only in the policy environment. The simulator
-loads the environment server and shared RPC modules from this checkout using
-the launcher's ``PYTHONPATH``. Installing planner dependencies in the simulator
-environment conflicts with Isaac Sim's pinned versions. Installing RLinf only
-in the policy environment is insufficient: the simulator interpreter also
-runs RLinf's RoboLab adapter and its Isaac child process.
-Check both environments and the adapter import after installation:
+This example places RLinf in your home directory. The installer creates ``.venv`` inside that checkout. Keep the checkout available. If you set ``ROBOLAB_PATH``, pull the LFS assets in that directory. If the system dependencies are already installed, you can add ``--no-root`` to the installer command. Check that the simulator can import the adapter:
 
 .. code-block:: bash
 
-   uv pip check --python .venv-robolab-policy/bin/python
-   uv pip check --python .venv-robolab-sim/bin/python
-   .venv-robolab-sim/bin/python -c \
-     "from rlinf.envs.sim.robolab.robolab_env import RoboLabEnv; print(RoboLabEnv.__module__)"
+   "$SIM_PYTHON" -c 'from rlinf.envs.sim.robolab.robolab_env import RoboLabEnv'
 
 Checkpoint
 ~~~~~~~~~~
@@ -157,16 +133,15 @@ Run a Task
 
 Configure a planner using :doc:`../guides/configure_planner`. The example
 uses Codex with the current user's login and configured model; this login
-method does not require an API key. Run from the RPent root with the checkpoint
-path configured above. Choose a physical GPU with enough free memory using
-``--cuda-device``; the example uses GPU 0.
+method does not require an API key. From the RPent root, run the following in the shell where you set
+``SIM_PYTHON`` and ``PI05_CHECKPOINT_PATH``.
 
 .. code-block:: bash
 
    source .venv-robolab-policy/bin/activate
    rpent-check-llm --planner codex
    rpent --robot robolab --task BananaInBowlTask --seed 0 \
-     --sim-python "$PWD/.venv-robolab-sim/bin/python" \
+     --sim-python "$SIM_PYTHON" \
      --cuda-device 0 --planner codex \
      --output-dir ./logs/first-robolab
 
@@ -174,16 +149,7 @@ Action-model deployment uses the shared ``--am-checkpoint``, ``--am-python``,
 ``--am-root``, and ``--am-cuda-device`` options. To reuse a running model
 worker, pass ``--am-endpoint`` instead of local deployment options.
 
-Use ``--env-cuda-device`` to override ``--cuda-device`` for the simulator
-independently of the action model. Explicit service selection uses ``cuda:0``
-inside that service's CUDA mask. Otherwise, ``--device`` selects an Isaac device
-in the inherited CUDA namespace (default ``cuda:0``). In a scheduler or container,
-omit the service GPU options to retain its assigned mask, including GPU UUIDs.
-RLinf maps numeric CUDA masks to the selected GPU index for Isaac and Kit,
-and preserves nonnumeric masks. Verify the rendered device in the Isaac log
-when using container or UUID-based GPU assignments.
-Use ``--env-endpoint`` to attach to an existing task/seed server; its GPU need
-not match the local device settings.
+The example shares GPU 0 between the simulator and the model. To run the model on GPU 0 and the simulator on GPU 1, use ``--cuda-device 0 --env-cuda-device 1``. To connect to a running simulator, use ``--env-endpoint`` with its task and seed.
 
 For an environment-only run without a checkpoint, add
 ``--policy-backend none``. It exposes ``execute_action`` and
@@ -222,49 +188,6 @@ subtree of an explicit Hugging Face dataset into RPent's memory cache. Do not
 combine it with ``--memory-profile local`` or ``--memory-dir``.
 RoboLab does not support RPent exploration mode.
 
-Evaluate a Task Subset
-------------------------
-
-After configuring the checkpoint and planner, run the following commands from
-the RPent root to evaluate six tasks serially with environment seeds 0, 1,
-and 2. Select the available GPU before starting. Each invocation creates a
-fresh output directory and each episode starts with empty local memory:
-
-.. code-block:: bash
-
-   (
-     set -e
-     mkdir -p ./logs
-     eval_root="$(mktemp -d "$PWD/logs/robolab-subset-XXXXXX")"
-     for task in BananaInBowlTask BowlStackingLeftOnRightTask \
-       BowlStackingRightOnLeftTask BananaThenRubiksCubeTask \
-       ReorientRedMugTask StackYellowOnRedTask; do
-       for seed in 0 1 2; do
-         episode_dir="$eval_root/${task}_s${seed}"
-         rpent --robot robolab --task "$task" --seed "$seed" \
-           --sim-python "$PWD/.venv-robolab-sim/bin/python" \
-           --cuda-device 0 --planner codex --reasoning-effort low \
-           --max-turns 400 --planner-timeout-s 3600 \
-           --memory-profile local --memory-dir "$episode_dir/memory" \
-           --output-dir "$episode_dir"
-       done
-     done
-   )
-
-Each episode has 400 planner turns and a 3600-second planner budget; simulator
-startup is outside this budget. Environment seeds do not fix policy sampling
-randomness or planner decisions. The planner may shorten action chunks or
-issue direct actions. This is a subset evaluation, not a full benchmark.
-
-Inspect each episode's ``result.json`` and logs. Count native success only
-when ``success`` is ``true``; report ``false`` and ``null`` separately. Use
-all 18 planned episodes as the denominator and list missing results, runtime
-errors, and interruptions explicitly. The loop stops on a nonzero process
-exit and does not retry or generate an aggregate report. To retry an episode,
-run its task and seed with fresh output and memory directories, retaining the
-failed attempt. Record the code and resource revisions, package versions,
-planner model, and retry policy alongside results for comparisons.
-
 Diagnostics
 -----------
 
@@ -274,11 +197,7 @@ an importable ``rlinf.envs.sim.robolab.robolab_env``, an editable RoboLab
 installation, and a populated ``assets/`` directory. If the policy does not
 start, inspect ``vla_server.log`` and the checkpoint path.
 
-For Vulkan initialization errors or missing ``libGLU.so.1``, check the NVIDIA
-driver and system graphics libraries listed above, then inspect the Isaac log.
-Rendering and physics use the selected physical GPU with multi-GPU rendering
-disabled; Isaac may still create small CUDA contexts on other GPUs. Check
-actual memory use with ``nvidia-smi`` on shared machines.
+For Vulkan initialization errors or a missing ``libGLU.so.1``, check the NVIDIA driver and graphics libraries. Under a scheduler or in a container, omit the example's ``--cuda-device 0`` to inherit the assigned GPUs. If the device ordinal is invalid or rendering uses another GPU, compare the device in the Isaac log with those visible inside the container.
 
 If a wheel download times out, rerun the RLinf installer with the same
 ``--venv`` path and cache. For dependency conflicts, inspect ``uv pip check`` in
