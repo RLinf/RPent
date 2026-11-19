@@ -89,4 +89,4 @@ LIBERO 的适配器按相机名（``agentview`` 或 ``wrist``）和步号读取 
        )
        toolkit.add_tool(geometry.geometry)
 
-如果新 episode 会从相同的步号重新计数，请保留几何工具实例，并在开始新 episode 时调用 ``geometry.reset_cache()``。
+``geometry`` 会缓存当前观测步的测量结果。如果新 episode 会从相同的步号重新计数，且沿用同一个几何工具实例，请在新 episode 开始时调用 ``geometry.reset_cache()`` 清除旧缓存。

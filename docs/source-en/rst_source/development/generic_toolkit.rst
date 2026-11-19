@@ -135,5 +135,7 @@ the example also registers ``geometry``.
        )
        toolkit.add_tool(geometry.geometry)
 
-If episode resets reuse step numbers, retain the geometry instance and call
-``geometry.reset_cache()`` when a new episode starts.
+``geometry`` caches measurement results for the current observation step. If
+you reuse the same geometry tool instance across episodes and step numbers
+restart, call ``geometry.reset_cache()`` at the start of each new episode to
+clear the cache.
