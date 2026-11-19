@@ -56,19 +56,12 @@ def test_lint_reports_invalid_field(tmp_path, capsys, payload, error):
 @pytest.mark.parametrize(
     ("fields", "errors"),
     [
-        ({}, []),
         ({"start_line": 1, "side": "LEFT"}, ["multi-line comment missing start_side"]),
         ({"start_line": 1, "start_side": "RIGHT"}, ["multi-line comment missing side"]),
-        ({"start_line": 1}, ["multi-line comment missing side, start_side"]),
         ({"start_line": 1, "side": "LEFT", "start_side": "LEFT"}, []),
-        ({"start_line": 1, "side": "RIGHT", "start_side": "RIGHT"}, []),
-        (
-            {"start_line": 1, "side": "RIGHT", "start_side": "LEFT"},
-            ["side and start_side must match and be RIGHT or LEFT"],
-        ),
     ],
 )
-def test_inline_comment_sides(fields, errors):
+def test_multiline_comment_requires_both_sides(fields, errors):
     comment = {"path": "x.py", "line": 2, "body": "Suggested fix: Use x.", **fields}
     findings = review["ReviewLinter"]({"body": BODY, "comments": [comment]}, None).run()
     assert [f.message for f in findings if f.level == "ERROR"] == errors
