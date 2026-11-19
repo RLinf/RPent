@@ -181,7 +181,7 @@ RLDX-1 需要微调权重和基础模型的支持文件，两项都要下载。�
          --planner claude_code \
          --model claude-opus-4-8
 
-也可使用 ``--planner api``、``--planner codex`` 或 ``--planner gemini_cli``，配置方式见上述规划器指南。
+也可使用 ``--planner api``、``--planner codex``、``--planner gemini_cli`` 或 ``--planner opencode``，配置方式见上述规划器指南。
 
 查看结果
 ------------

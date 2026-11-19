@@ -196,9 +196,8 @@ Separate Codex Configuration and Login
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 Use a separate directory to keep RPent's Codex configuration, credentials, and
-session history apart from your development setup. Install the
-`Codex CLI <https://developers.openai.com/codex/cli/>`_ first, then run in the
-terminal used for RPent:
+session history apart from your development setup. Use the Codex executable
+bundled with RPent's SDK dependency in the terminal used for RPent:
 
 .. code-block:: bash
 
@@ -206,7 +205,7 @@ terminal used for RPent:
    source .venv/bin/activate
    export CODEX_HOME="$PWD/.codex-rpent-live"
    export CODEX_SQLITE_HOME="$CODEX_HOME"
-   export CODEX_BIN="$(command -v codex)"
+   export CODEX_BIN="$(python -c 'from codex_cli_bin import bundled_codex_path; print(bundled_codex_path())')"
    mkdir -p "$CODEX_HOME"
    unset CODEX_API_KEY CODEX_BASE_URL OPENAI_API_KEY OPENAI_BASE_URL CODEX_ACCESS_TOKEN
 
@@ -331,9 +330,12 @@ robot actions:
    * - Claude Code
      - Request tools, execute them, and return their results. A final answer
        without tools does not consume the budget. Each follow-up gets a new budget.
-   * - Codex / Gemini CLI / OpenCode
+   * - Codex / Gemini CLI
      - One model request or response; multiple tools in one response do not
        count separately.
+   * - OpenCode
+     - One model step; multiple tools in one step do not count separately.
+       Each follow-up gets a new budget.
 
 Reaching a limit does not mean the task succeeded. OpenCode produces a final
 response without further tool calls when its turn budget is reached.
@@ -342,7 +344,8 @@ response without further tool calls when its turn budget is reached.
 Claude Code, Codex, Gemini CLI, and OpenCode support terminal ``--tui`` and
 ``--dashboard`` modes. Follow-ups queue by default; see :doc:`dashboard` for
 manual interruption. Planner tasks do not automatically load Claude/Codex/Gemini
-project development instructions or skills.
+project development instructions or skills. OpenCode disables project and
+Claude configuration while retaining its own global configuration.
 
 .. _planner-direct-actions:
 

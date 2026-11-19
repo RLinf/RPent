@@ -25,6 +25,8 @@ from typing import Any
 
 import pytest
 
+from rpent.planner.check import EXTERNALLY_CONFIGURED_PLANNERS
+
 REPO_ROOT = Path(__file__).resolve().parents[4]
 ROBOT_HELP_CASES = [
     ("libero", ("--suite", "--task", "--libero-type")),
@@ -306,17 +308,20 @@ def test_robot_and_env_aliases_are_mutually_exclusive(
             ["--robot", "libero", "--explore", "--explore-sessions", "0"],
             "greater than 0",
         ),
-        (
-            [
-                "--robot",
-                "libero",
-                "--planner",
-                "gemini_cli",
-                "--reasoning-effort",
-                "high",
-            ],
-            "--reasoning-effort is not supported by the gemini_cli planner",
-        ),
+        *[
+            (
+                [
+                    "--robot",
+                    "libero",
+                    "--planner",
+                    planner,
+                    "--reasoning-effort",
+                    "high",
+                ],
+                f"--reasoning-effort is not supported by the {planner} planner",
+            )
+            for planner in ("gemini_cli", "opencode")
+        ],
         (
             [
                 "--robot",
@@ -376,7 +381,7 @@ def test_shared_cli_validation_stops_before_robot_runtime(
 
 @pytest.mark.parametrize(
     "planner",
-    ["claude_code", "codex", "gemini_cli"],
+    EXTERNALLY_CONFIGURED_PLANNERS,
 )
 def test_run_cli_rejects_base_url_for_the_backends_that_ignore_it(
     monkeypatch: pytest.MonkeyPatch,

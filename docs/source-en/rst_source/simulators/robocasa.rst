@@ -198,7 +198,7 @@ Configure your model service with :doc:`../guides/configure_planner` and check i
          --planner claude_code \
          --model claude-opus-4-8
 
-You can also use ``--planner api``, ``--planner codex``, or ``--planner gemini_cli``; see the planner guide above.
+You can also use ``--planner api``, ``--planner codex``, ``--planner gemini_cli``, or ``--planner opencode``; see the planner guide above.
 
 .. _inspect-the-result:
 

@@ -162,7 +162,7 @@ Gemini CLI 和 OpenCode 会话只开放 RPent 工具，关闭扩展或外部插�
 Codex 独立配置与登录
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-若需要将 RPent 与日常 Codex 的配置、登录和会话记录分开，可使用独立目录。先安装 `Codex CLI <https://developers.openai.com/codex/cli/>`_，在运行 RPent 的终端中执行：
+若需要将 RPent 与日常 Codex 的配置、登录和会话记录分开，可使用独立目录。在运行 RPent 的终端中使用 SDK 依赖自带的 Codex 程序：
 
 .. code-block:: bash
 
@@ -170,7 +170,7 @@ Codex 独立配置与登录
    source .venv/bin/activate
    export CODEX_HOME="$PWD/.codex-rpent-live"
    export CODEX_SQLITE_HOME="$CODEX_HOME"
-   export CODEX_BIN="$(command -v codex)"
+   export CODEX_BIN="$(python -c 'from codex_cli_bin import bundled_codex_path; print(bundled_codex_path())')"
    mkdir -p "$CODEX_HOME"
    unset CODEX_API_KEY CODEX_BASE_URL OPENAI_API_KEY OPENAI_BASE_URL CODEX_ACCESS_TOKEN
 
@@ -267,12 +267,14 @@ Codex 独立配置与登录
      - 一次模型请求，包含重试和追加消息；预算覆盖整段对话。
    * - Claude Code
      - 模型请求工具、执行工具并返回结果；无工具的最终答复不占预算。每次追加输入获得新的预算。
-   * - Codex / Gemini CLI / OpenCode
+   * - Codex / Gemini CLI
      - 一次模型请求或回复；同一回复中的多个工具不分别计数。
+   * - OpenCode
+     - 一次模型执行步骤；同一步骤中的多个工具不分别计数。每次追加输入获得新的预算。
 
 达到上限不代表任务成功。OpenCode 达到轮数限制后会生成不再调用工具的最终回复；``flash`` 不运行模型循环，不使用该预算。
 
-Claude Code、Codex、Gemini CLI、OpenCode 支持终端 ``--tui`` 和 ``--dashboard``，追加消息默认排队，手动中断方法见 :doc:`dashboard`。规划任务不会自动加载 Claude/Codex/Gemini 的项目开发指令和 skills。
+Claude Code、Codex、Gemini CLI、OpenCode 支持终端 ``--tui`` 和 ``--dashboard``，追加消息默认排队，手动中断方法见 :doc:`dashboard`。规划任务不会自动加载 Claude/Codex/Gemini 的项目开发指令和 skills；OpenCode 禁用项目配置与 Claude 配置，保留自身全局配置。
 
 .. _planner-direct-actions:
 
