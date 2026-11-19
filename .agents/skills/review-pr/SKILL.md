@@ -1,13 +1,13 @@
 ---
 name: review-pr
-description: Reviews an RPent pull request, re-reviews its revisions, or reviews an explicitly selected local diff for correctness, design, code reuse, tests, and docs against RPent's conventions and docs/STYLE_GUIDE.md, reports the findings in a fixed format, and, when asked, posts them as one GitHub review with a main comment that answers the review questions and inline comments with suggested fixes. Use only when the user asks to review, re-review, check before merge, or post review comments; do not use when asked only to explain or summarize a PR, draft a PR description, or open or merge a PR.
+description: Reviews an RPent pull request, re-reviews its revisions, or reviews an explicitly selected local diff for correctness, design, code reuse, tests, and docs against RPent's conventions and docs/STYLE_GUIDE.md, previews a publishable review, and, when asked, posts that body and its inline suggestions to GitHub. Use only when the user asks to review, re-review, check before merge, or post review comments; do not use when asked only to explain or summarize a PR, draft a PR description, or open or merge a PR.
 ---
 
 # Review a PR
 
-A review produces two things: a report in the terminal for the user, in the fixed format of step 6, and, only when the user asks or says yes, a GitHub review on the PR made of one main comment that answers the nine review questions and one inline comment per finding on a diff line, each with a suggested fix.
+Write one review body with a recommendation, reproduction results, and findings. Preview it with the proposed inline comments in step 6. When the user approves publication in step 7, post that same text.
 
-Most of the review is about correctness, clean design, reuse of what RPent and RLinf already have, and changes that deviate from the existing codebase without need. Area checks follow RPent's existing skills: robot and runtime wiring in [add-robot](../add-robot/SKILL.md), tests and validation in [verify-change](../verify-change/SKILL.md), docs accuracy and parity in [docs-check](../docs-check/SKILL.md), and docs structure and style against [docs/STYLE_GUIDE.md](../../../docs/STYLE_GUIDE.md) and [write-doc](../write-doc/SKILL.md) (question 8). PR formatting and commit conventions are checked but should not dominate. Read [AGENTS.md](../../../AGENTS.md), [CONTRIBUTING.md](../../../CONTRIBUTING.md), and [tests/README.md](../../../tests/README.md) before step 4.
+Most of the review is about correctness, clean design, reuse of what RPent and RLinf already have, and changes that deviate from the existing codebase without need. Area checks follow RPent's existing skills: robot and runtime wiring in [add-robot](../add-robot/SKILL.md), tests and validation in [verify-change](../verify-change/SKILL.md), docs accuracy and parity in [docs-check](../docs-check/SKILL.md), and docs structure and style against [docs/STYLE_GUIDE.md](../../../docs/STYLE_GUIDE.md) and [write-doc](../write-doc/SKILL.md). PR formatting and commit conventions are checked but should not dominate. Read [AGENTS.md](../../../AGENTS.md), [CONTRIBUTING.md](../../../CONTRIBUTING.md), and [tests/README.md](../../../tests/README.md) before step 4.
 
 ## 1. Set up
 
@@ -33,7 +33,7 @@ git grep "<pattern>" "$REMOTE/main"                      # search upstream main
 
 Check out `$PR_HEAD` in a separate git worktree (with an isolated `uv` `.venv` when installing dependencies) whenever running code or tests. Never edit the PR branch or push to it. Without `gh`, read the PR page, `<PR URL>.diff` (or `<PR URL>.patch`), and files on `https://github.com/RLinf/RPent/blob/main/<path>`; the review can still run, though posting needs `gh`.
 
-Read earlier feedback from all three places. On a re-review, check each request against the current code and link unresolved findings to the original discussion.
+Read earlier feedback from all three places. On a re-review, check each request against the current code and link unresolved findings to the original discussion. Use the original finding IDs when reporting which issues are fixed and which remain open. Number new findings after the highest ID used in earlier rounds. Refer to earlier feedback without an ID by its original discussion link.
 
 ```bash
 gh api "repos/RLinf/RPent/pulls/$N/reviews" --paginate    # review summaries
@@ -51,26 +51,26 @@ Read the description, the linked issue, the commits, and the whole diff. Then wr
 
 ## 3. Run the reproduction
 
-A PR that adds or changes a user-facing workflow (a new robot, action model, planner, tool, or feature with docs) or that claims metrics needs a reproduction, reported in questions 1 to 3:
+A PR that adds or changes a user-facing workflow (a new robot, action model, planner, tool, or feature with docs) or that claims metrics needs a reproduction. Report the run in the review body's `Reproduction` section.
 
 1. Check what the workflow needs in the PR's docs (GPU or hardware, install extra, checkpoints, simulator assets) against the host (`nvidia-smi` first; never stop another user's job).
-2. When the host has what it needs, run the documented workflow in the PR worktree following only the user docs without fixing undocumented gaps. Otherwise, questions 1 and 2 state what is missing and what a run would need—or report the user's own run record if they provide one.
+2. When the host has what the workflow needs, start a fresh agent that does not inherit the review conversation. Give it only the PR worktree path, the user docs to follow, the hardware it may use, and any local installation rules. Have it follow the documented steps and report its commands, results, and the first step it could not complete. It should not consult source code or tests to fill gaps in the docs. If a fresh agent is unavailable, report any commands you ran and state that the docs were not independently reproduced. If the host lacks prerequisites, state in `Reproduction` what is missing and what a run would need, or report the user's own run record if they provide one.
 
-Record the first failure and every intervention, and keep bounded functional completion (`finish` and cleanup) separate from native environment or benchmark task success; a run that needed undocumented changes does not show that the workflow is reproducible. The unit tests and checks run in step 5 belong in question 7, not here.
+Record the first failure and every intervention, and keep bounded functional completion (`finish` and cleanup) separate from native environment or benchmark task success; a run that needed undocumented changes does not show that the workflow is reproducible. Record the checks from step 5 in the review notes and cite any that provide evidence for a finding.
 
 ## 4. Review
 
-Judge each change by category and map every finding to its main-comment question:
+Review each change against the relevant categories.
 
-| Category | Covers | Question |
-| --- | --- | --- |
-| `correctness` | bugs, edge cases, concurrency, cancellation, daemon/RPC lifecycle, refactor regressions | 4 |
-| `design` | extension points, module boundaries, lazy imports, packaging, prompt/tool contracts, dead code | 5 |
-| `reuse` | duplicated logic and the existing RPent or RLinf helper to reuse | 6 |
-| `tests` | unit and e2e coverage, mocks, install extras, CI checks | 7 |
-| `docs` | docs against code, code against untouched docs, EN/ZH parity, README updates, asset links, usability | 7 (3 for usability) |
-| `docs-style` | changed pages and README text against `docs/STYLE_GUIDE.md` | 8 |
-| `style` | Ruff lint/format, docstrings, type hints, logging, license headers, commits, PR metadata | 9 |
+| Category | Covers |
+| --- | --- |
+| `correctness` | bugs, edge cases, concurrency, cancellation, daemon/RPC lifecycle, refactor regressions |
+| `design` | extension points, module boundaries, lazy imports, packaging, prompt/tool contracts, dead code |
+| `reuse` | duplicated logic and the existing RPent or RLinf helper to reuse |
+| `tests` | unit and e2e coverage, mocks, install extras, CI checks |
+| `docs` | docs against code, code against untouched docs, EN/ZH parity, README updates, asset links, usability |
+| `docs-style` | changed pages and README text against `docs/STYLE_GUIDE.md` |
+| `style` | Ruff lint/format, docstrings, type hints, logging, license headers, commits, PR metadata |
 
 For each changed function, compare the full versions at the merge base and the PR head. Label a finding that relies on a separate comparison with upstream `main` as a `main-branch cross-check`. Check that robot-specific policy stays in `robots/<robot>/` while shared code uses RPent's extension points (`RobotSpec`, `Toolkit`, `Planner`, RPC facades) rather than robot- or planner-name branches, keeps optional imports lazy, preserves owned-daemon vs. borrowed-endpoint cleanup, and keeps rendered prompts and tool schemas accurate and concise.
 
@@ -96,92 +96,35 @@ Report only problems. When correctness, design, and reuse yield nothing, say so 
 
 ## 6. Report
 
-Print the review in the user's language (keeping step 8 comments in English unless asked otherwise) in exactly this shape. List findings by severity, and within one severity keep step 4's category order so tests, docs, docs-style, and style findings sit together after the code findings. Quote the code itself under `Code walkthrough:` so a reader never has to chase bare line numbers, and list every added or changed doc page under `## Docs style` so passing pages are visible too:
+Preview the exact GitHub review body, followed by the proposed inline comments with their locations. Use English for the publishable text unless the user requests another language. For a local diff review, use the user's language.
 
-````markdown
-# Review of #<N>: <PR title>
+### Review body
 
-<PR URL> · head `<sha7>` · base `<base branch>@<base sha7>` · <YYYY-MM-DD>
+Run `python3 .agents/skills/review-pr/lint_review.py template` for the body skeleton. Start with one recommendation on its own line. Use **Ready for senior review** when there are no open critical or major findings and reproduction passed or was unnecessary, **Changes requested** when the author can fix an open critical or major finding, or **Blocked** when progress needs a maintainer decision, missing resources, or resolution of a failure outside the author's control. Briefly explain the change and the reason for the verdict. Include limitations that affect the decision. On a re-review, identify earlier findings the revision fixed.
 
-## What the PR does
+```markdown
+**Changes requested**
 
-- Goal: <the problem it solves>
-- Idea: <the core idea in one or two sentences>
-- Changes: <areas touched, with file counts>
-- Risk: <robots, planners, paths, or services that could regress>
-- Compared with: <the closest sibling on main>
+<One or two sentences explaining the verdict.>
 
-## Findings
+### Reproduction
 
-| ID | Severity | Category | Location | Summary | Status | Posted in |
-|---|---|---|---|---|---|---|
-| F1 | critical | correctness | `rpent/x.py:42` | <one line> | confirmed | inline |
-| F2 | major | docs | `docs/source-zh/...` | <one line> | confirmed | question 7 |
-| F3 | minor | docs-style | `docs/source-en/...:3` | <one line> | confirmed | inline |
+<Who ran the workflow, the revision and settings, the commands, and the observed result. If it was not run, explain why and what remains unverified.>
 
-### F1 · critical · correctness: <plain title>
+### Findings
 
-`rpent/x.py:42`, compared with `main:rpent/x.py:40` (main-branch cross-check)
+#### F2 · major · correctness · <Title>
 
-<The comment text from step 8, exactly as it will be posted.>
-
-Code walkthrough:
-
-<The key snippets from the PR diff and any comparison with upstream main, each under a `path:line` header, then the steps that lead from the input to the bug.>
-
-Evidence: <the command and its result, or the trace; for an unresolved finding, what would settle it>
-
-## Docs style
-
-Checked against `docs/STYLE_GUIDE.md` · build: <the EN and ZH sphinx-build results, or why it did not run>
-
-| Page | Type | Result |
-|---|---|---|
-| `docs/source-en/rst_source/<path>.rst` | simulator guide | F3 |
-| `docs/source-zh/rst_source/<path>.rst` | simulator guide | pass |
-
-<Or, when the PR changes no docs: "The PR changes no docs.">
-
-## Dismissed
-
-- <candidate>: <why it does not apply>
-
-## Main comment
-
-<The nine sections from step 8, exactly as they will be posted.>
-````
-
-## 7. Ask before posting
-
-Skip this step for local diff reviews. Otherwise, posting speaks for the user, so ask first: `"Post this review to PR #N?"` with **Post as a comment** *(recommended)*, **Post as request changes**, and **Don't post**. If the user answers with edits, apply them, show the changed text, and ask again. Approve only when the user explicitly asks for it.
-
-## 8. Post
-
-Return to the root of the RPent checkout where you loaded this skill. From there, use `json.dump` to write the payload for GitHub's create-review API to `review.json` and run the commands below.
-
-```bash
-python3 .agents/skills/review-pr/lint_review.py template
-python3 .agents/skills/review-pr/lint_review.py lint --pr "$N" review.json
-python3 .agents/skills/review-pr/lint_review.py post --pr "$N" review.json
+<Location, trigger, impact, and evidence.>
 ```
 
-```json
-{
-  "commit_id": "<PR head SHA>",
-  "event": "COMMENT",
-  "body": "<the main comment>",
-  "comments": [
-    {"path": "rpent/x.py", "line": 42, "body": "<inline comment>"},
-    {"path": "robots/libero/y.py", "start_line": 10, "start_side": "RIGHT", "line": 12, "side": "RIGHT", "body": "<inline comment>"}
-  ]
-}
-```
+For a reproduction, include the relevant hardware, software, robot, model, dataset, and configuration. Compare claimed and observed results. For metrics, include the workload, seeds, and baseline. Follow step 3 when reporting failures, interventions, and task success.
 
-`event` is `COMMENT` or `REQUEST_CHANGES`, as the user chose. `lint` checks the nine headings, the recommendation, the `Suggested fix:` paragraph of every inline comment, hard-wrapped lines, and—with `--pr`—that every comment sits on a diff line and not on a line that already has a thread. GitHub rejects the whole review when one comment is outside the diff. `post` runs the same lint, posts everything as one review, and prints its URL. Report that URL and the number of inline comments to the user.
+Give each confirmed or unresolved finding one heading as shown above, in severity order and then step 4's category order. Start at F1 on the first review and follow step 1's numbering on re-review. Cite the relevant `path:line` and the check result or reasoning that supports the finding. For code findings, quote the lines needed to follow the behavior. For an unresolved issue, explain what would settle it. If there are no findings, write `No findings.` in this section.
 
 ### Where a finding goes
 
-A finding goes inline on the line with the bug or where a special case enters shared code. For a deleted line that should stay, use `side: "LEFT"`. For a range from `start_line` to `line`, set both `start_side` and `side` to `RIGHT` for the new code or `LEFT` for the old code. A `docs-style` finding goes on the line it rewrites; when one rule fails on many lines of a page, comment on the first and list the others under question 8. A finding with no such line goes in the main comment under its question: a missing doc page, a missing test, PR metadata. Reply in an existing thread instead of opening a new one on the same line: `gh api "repos/RLinf/RPent/pulls/$N/comments/<id>/replies" -f body=...`.
+When a finding belongs on a diff line, put the suggested fix in an inline comment on that line. Keep the evidence in the body and identify the inline location there. For a deleted line that should stay, use `side: "LEFT"`. For a range from `start_line` to `line`, set both `start_side` and `side` to `RIGHT` for the new code or `LEFT` for the old code. For a repeated `docs-style` issue on one page, comment on the first affected line and list the other locations under the same finding. For a finding without a suitable diff line, such as a missing page or test, put its suggested fix in the body under its finding ID. Reply in an existing thread instead of opening a new one on the same line: `gh api "repos/RLinf/RPent/pulls/$N/comments/<id>/replies" -f body=...`.
 
 ### Inline comments
 
@@ -191,7 +134,7 @@ Write for a reader with little background in the module: the PR author knows the
 2. When the cause or pattern to follow lives elsewhere, point to `main:<path>:<line>` or quote the line.
 3. End with `Suggested fix:` stating what to change in one sentence, followed by a `suggestion` block (when replacing the commented lines) or a fenced code block with a language tag.
 
-Keep the language plain: short sentences, active voice, no hedging, no filler, no praise, and no severity labels except `Minor:` at the start of a minor finding. Keep each paragraph on one line, because GitHub turns every newline into a line break. Write in English unless the user asks otherwise.
+Keep the language plain: short sentences, active voice, no hedging, no filler, no praise, and no severity labels except `Minor:` at the start of a minor finding. Keep each paragraph on one line, because GitHub turns every newline into a line break.
 
 A correctness finding:
 
@@ -230,16 +173,35 @@ Each run records step images, tool calls, and the final environment status under
 ```
 ````
 
-### Main comment
+### Terminal review notes
 
-The main comment holds only the nine sections, each under its question as a `###` heading, word for word (`lint_review.py template` prints them). Answer in short bullets, keep each one to one line, point to inline comments by `path:line`, and put long logs in a `<details>` block.
+After the publishable text, add brief notes in the user's language. Include the PR URL and revisions (or the local diff baseline), the goal, approach, risks, and the closest implementation compared on `main`. For each affected area from step 2, give the file count, checks and results, and reasons for skipped checks. Refer to a finding by ID when it already gives the evidence.
 
-1. **What settings did you use to reproduce this PR?** The PR revision (head SHA), hardware and GPU, software environment, robot, model and dataset, config, and commands. Link a saved summary rather than listing everything. Without a run, say so and what a run needs.
-2. **What were the reproduction results?** Claimed vs. observed behavior or metrics with links to logs and results; state bounded functional completion (`finish`, state artifacts, and cleanup) and native task success separately, plus the first failure, any interventions, and what was not reproduced.
-3. **Is the documentation clear and usable?** Whether every step from setup to expected output could be followed; unclear lines, missing prerequisites, failed commands, and workarounds. Without a run, say that the docs were read rather than executed.
-4. **Are there bugs or unresolved concerns?** Confirmed issues and unresolved concerns with triggers, evidence, and inline pointers, then dismissed findings with one line each on why. `"No issue found"` states what was checked.
-5. **Does the integration follow RPent's design?** Closest sibling compared against; whether `RobotSpec`, `Toolkit`, `Planner`, RPC, lazy imports, containment, and prompt/tool contracts match it; mismatches; and points needing a maintainer's judgment.
-6. **Does it reuse existing modules/functions properly?** Avoidable duplication and the `main:<path>:<line>` helper (or RLinf component) to reuse, or else the implementation compared against.
-7. **Are tests and documentation adequate?** Whether offline CPU tests cover the changed behavior; docs, EN/ZH updates, README highlights where warranted, and `pyproject.toml` extras/CI coverage; tests and checks run (command, hardware/scope, result) and skipped checks with reasons.
-8. **Does the documentation follow the docs style guide?** Every page the PR adds or changes, in both languages, with its type and whether it follows `docs/STYLE_GUIDE.md` (first-time reader clarity, lead and flow, voice, page anatomy, and natural phrasing in each language), failing rules with inline pointers, and both EN and ZH build results. When the PR changes no docs, say so; a missing page belongs in question 7.
-9. **What is your recommendation?** Start a line with exactly one of `Ready for senior review` (no open critical or major finding, and reproduction passed or was not needed), `Changes requested` (open critical or major findings the author can fix), or `Blocked` (needs a maintainer decision, unavailable hardware/assets, or an unresolved failure outside the author's fix). Give remaining actions and needed expert review in a following bullet or after a period, colon, or dash.
+For each changed documentation page, record its type and style result, including pages that passed, and the EN/ZH build results or why the builds were skipped. Note any dismissed candidate and the reason for dismissing it.
+
+## 7. Ask before posting
+
+Skip this step for local diff reviews. Otherwise, posting speaks for the user, so ask first: `"Post this review to PR #N?"` with **Post as a comment** *(recommended)*, **Post as request changes**, and **Don't post**. If the user answers with edits, apply them, show the changed text, and ask again. Approve only when the user explicitly asks for it.
+
+## 8. Post
+
+Return to the root of the RPent checkout where you loaded this skill. Use `json.dump` to write the approved review body to `body` and the approved inline comments to `comments` in `review.json`. Keep the terminal review notes out of the payload. Run the following commands after preparing the file.
+
+```bash
+python3 .agents/skills/review-pr/lint_review.py lint --pr "$N" review.json
+python3 .agents/skills/review-pr/lint_review.py post --pr "$N" review.json
+```
+
+```json
+{
+  "commit_id": "<PR head SHA>",
+  "event": "COMMENT",
+  "body": "<the approved review body>",
+  "comments": [
+    {"path": "rpent/x.py", "line": 42, "body": "<inline comment>"},
+    {"path": "robots/libero/y.py", "start_line": 10, "start_side": "RIGHT", "line": 12, "side": "RIGHT", "body": "<inline comment>"}
+  ]
+}
+```
+
+`event` is `COMMENT` or `REQUEST_CHANGES`, as the user chose. `lint` checks the recommendation and body sections, the `Suggested fix:` paragraph of every inline comment, hard-wrapped lines, and—with `--pr`—that every comment sits on a diff line. It warns about existing threads. GitHub rejects the whole review when one comment is outside the diff. `post` runs the same lint, posts everything as one review, and prints its URL. Report that URL and the number of inline comments to the user.

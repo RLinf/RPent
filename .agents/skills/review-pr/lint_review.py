@@ -32,7 +32,7 @@ The payload is the JSON body of GitHub's create-review API
 
 Subcommands::
 
-    template                         print the main-comment skeleton
+    template                         print the review body template
     lint [--pr N] review.json        check the payload (and its lines, with --pr)
     post --pr N review.json          lint, then post it as one review
 
@@ -49,38 +49,24 @@ import sys
 from dataclasses import dataclass
 from functools import cached_property
 
-QUESTIONS = (
-    "What settings did you use to reproduce this PR?",
-    "What were the reproduction results?",
-    "Is the documentation clear and usable?",
-    "Are there bugs or unresolved concerns?",
-    "Does the integration follow RPent's design?",
-    "Does it reuse existing modules/functions properly?",
-    "Are tests and documentation adequate?",
-    "Does the documentation follow the docs style guide?",
-    "What is your recommendation?",
-)
-HINTS = (
-    "PR revision, hardware/GPU, software environment, robot/model/dataset, "
-    "config, and commands. Or: not reproduced, and what a run needs.",
-    "Claimed vs. observed, functional and metric results separately. Workload, "
-    "sample size/seeds, baseline. First failure and interventions. What was not "
-    "reproduced.",
-    "Unclear lines, missing prerequisites, failed commands, workarounds needed.",
-    "Confirmed issues and unresolved concerns with trigger and evidence. "
-    "Dismissed findings and why. If none, what was checked.",
-    "Sibling compared against. RobotSpec, Toolkit, Planner, RPC, lazy imports, "
-    "containment. Points needing maintainer judgment.",
-    "Duplication or a helper to reuse. Otherwise the implementation compared.",
-    "Whether tests cover the changed behavior. Docs, EN/ZH, README updates, "
-    "packaging/CI. Tests run and skipped, with hardware.",
-    "Each changed page and its type, against docs/STYLE_GUIDE.md. Failing rules "
-    "with inline pointers. Build result in EN and ZH. Or: the PR changes no docs.",
-    "Start a line with Ready for senior review, Changes requested, or Blocked. "
-    "Give remaining actions and needed expert review in a following bullet or after "
-    "a period, colon, or dash.",
-)
 RECOMMENDATIONS = ("Ready for senior review", "Changes requested", "Blocked")
+TEMPLATE = f"""\
+<!-- On the first line write one recommendation in bold: {", ".join(RECOMMENDATIONS)}. -->
+
+<!-- Summarize the change and explain the recommendation. -->
+
+### Reproduction
+
+<!-- Identify the runner, revision, settings, commands, and results, or explain why the workflow was not run. -->
+
+### Findings
+
+<!-- Write "No findings." or give each issue a heading such as "#### F1 · major · correctness · Title" followed by its location, trigger, impact, and evidence. -->
+"""
+FINDING_HEADING = re.compile(
+    r"#### (F[1-9][0-9]*) · (?:critical|major|minor) · "
+    r"(?:correctness|design|reuse|tests|docs|docs-style|style) · \S.*"
+)
 EVENTS = ("COMMENT", "REQUEST_CHANGES", "APPROVE")
 FIX_LEAD = "Suggested fix:"
 PAYLOAD_KEYS = {"commit_id", "event", "body", "comments"}
@@ -302,56 +288,70 @@ class ReviewLinter:
             self.error("body", "must be a string")
             return
         self.check_prose("body", body)
-        sections: list[tuple[int, str, list[str]]] = []
-        preamble = [n for n, line in Markdown.unfenced(body) if line.strip()][:1]
+        body = body.strip()
+        first_line = body.partition("\n")[0].rstrip()
+        if not any(first_line in (label, f"**{label}**") for label in RECOMMENDATIONS):
+            self.error(
+                "body",
+                f"start with one recommendation on its own line: {RECOMMENDATIONS}",
+            )
+
+        lines = body.splitlines()
+        sections = []
         for n, line in Markdown.unfenced(body):
-            m = Markdown.HEADING.match(line)
-            if m and len(m[1]) <= 3:
-                sections.append((n, line.strip(), []))
-            elif sections:
-                sections[-1][2].append(line)
-        if preamble and (not sections or preamble[0] < sections[0][0]):
+            heading = Markdown.HEADING.match(line)
+            if heading and len(heading[1]) <= 3:
+                sections.append((n, line.rstrip()))
+        if [title for _, title in sections] != ["### Reproduction", "### Findings"]:
+            self.error("body", "expected ### Reproduction followed by ### Findings")
+            return
+
+        reproduction, findings = (n for n, _ in sections)
+        if not any(line.strip() for line in lines[1 : reproduction - 1]):
+            self.error("body", "explain the recommendation before ### Reproduction")
+        if not any(line.strip() for line in lines[reproduction : findings - 1]):
+            self.error(
+                "body", "describe the reproduction or explain why it was not run"
+            )
+        self.check_findings("\n".join(lines[findings:]).strip())
+
+    def check_findings(self, text: str) -> None:
+        if text == "No findings.":
+            if self.payload.get("comments"):
+                self.error(
+                    "body", 'a review with inline comments cannot say "No findings."'
+                )
+            return
+
+        headings = [
+            (n - 1, line.rstrip())
+            for n, line in Markdown.unfenced(text)
+            if line.startswith("#### ")
+        ]
+        if not headings or headings[0][0] != 0:
             self.error(
                 "body",
-                f"line {preamble[0]} comes before the first question; the body holds only the {len(QUESTIONS)} question sections",
+                "start each finding with a numbered heading or write No findings.",
             )
-        expected = [f"### {i}. {q}" for i, q in enumerate(QUESTIONS, 1)]
-        found = [heading for _, heading, _ in sections]
-        if found != expected:
-            missing = [h for h in expected if h not in found]
-            unexpected = [h for h in found if h not in expected]
-            detail = []
-            if missing:
-                detail.append(f"missing {missing}")
-            if unexpected:
-                detail.append(f"unexpected {unexpected} (use #### inside a section)")
-            if not missing and not unexpected:
-                detail.append("sections are out of order")
-            self.error(
-                "body",
-                f"headings must be the {len(QUESTIONS)} questions in order: "
-                + "; ".join(detail),
-            )
-        for n, heading, lines in sections:
-            if not "\n".join(lines).strip():
-                self.error("body", f"section at line {n} ({heading}) is empty")
-        last = sections[-1][2] if sections and sections[-1][1] == expected[-1] else []
-        labels = set()
-        for line in last:
-            text = re.sub(r"^(?:[-*+]|\d+[.)])\s+", "", line.strip())
-            label = re.split(r"[.:][`*_]*(?:\s|$)|[–—]|\s-\s", text, maxsplit=1)[0]
-            labels.add(label.strip().strip("`*_").casefold())
-        picked = [r for r in RECOMMENDATIONS if r.casefold() in labels]
-        if not picked:
-            self.error(
-                "body",
-                f"question {len(QUESTIONS)} must start a line with one recommendation: {RECOMMENDATIONS}",
-            )
-        elif len(picked) > 1:
-            self.warn(
-                "body",
-                f"question {len(QUESTIONS)} names several recommendations {picked}; state one",
-            )
+            return
+
+        lines = text.splitlines()
+        seen = set()
+        for i, (start, title) in enumerate(headings):
+            match = FINDING_HEADING.fullmatch(title)
+            if not match:
+                self.error(
+                    "body",
+                    f"expected #### F<n> · severity · category · title, found {title!r}",
+                )
+                continue
+            finding_id = match[1]
+            if finding_id in seen:
+                self.error("body", f"duplicate finding ID {finding_id}")
+            seen.add(finding_id)
+            end = headings[i + 1][0] if i + 1 < len(headings) else len(lines)
+            if not any(line.strip() for line in lines[start + 1 : end]):
+                self.error("body", f"{finding_id} needs a description")
 
     def check_comment(self, i: int, c: object, seen: set) -> None:
         if not isinstance(c, dict):
@@ -394,7 +394,7 @@ class ReviewLinter:
         if Markdown.prose_length(body) > MAX_COMMENT_PROSE:
             self.warn(
                 where,
-                f"prose is over {MAX_COMMENT_PROSE} characters; keep the walkthrough in the terminal report",
+                f"prose is over {MAX_COMMENT_PROSE} characters; put the walkthrough in the review body",
             )
         key = (path, side, line)
         if key in seen:
@@ -451,7 +451,7 @@ def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     p.add_argument("--repo", default="RLinf/RPent", help="owner/name of the PR's repo")
     sub = p.add_subparsers(dest="cmd", required=True)
-    sub.add_parser("template", help="print the main-comment skeleton")
+    sub.add_parser("template", help="print the review body template")
     for name, help_text in (
         ("lint", "check a review payload"),
         ("post", "lint, then post"),
@@ -462,8 +462,7 @@ def main(argv: list[str] | None = None) -> int:
     args = p.parse_args(argv)
 
     if args.cmd == "template":
-        for i, (q, hint) in enumerate(zip(QUESTIONS, HINTS), 1):
-            print(f"### {i}. {q}\n\n<!-- {hint} -->\n")
+        print(TEMPLATE, end="")
         return 0
 
     with open(args.payload, encoding="utf-8") as fh:
