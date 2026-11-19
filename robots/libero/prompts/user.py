@@ -27,6 +27,10 @@ CELL = """- suite:      {{suite}}
 MODE = """Inspect `agentview_high.png` returned by `view_env_state`, then use
 `back_project` or `segment` to localize objects before motion."""
 
+GEOMETRY_MODE = """Identify the target in the recorded agentview image. Use accepted
+`geometry` measurements for motion and localize missing quantities with
+`back_project` or `segment`."""
+
 
 BEGIN = """Read the guides, then call `view_env_state({"step": 0})` and inspect
 `task_language` and `agentview_high.png`. Read matching memory and available
