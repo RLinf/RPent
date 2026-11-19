@@ -39,6 +39,7 @@ from pydantic_ai.models.function import DeltaThinkingPart, DeltaToolCall, Functi
 from pydantic_ai.models.test import TestModel
 from pydantic_core import to_jsonable_python
 
+from rpent.code_policy.toolkit import CodePolicyTools
 from rpent.dashboard.events import RunStartedEvent, TranscriptEvent, UsageEvent
 from rpent.dashboard.state import DashboardState
 from rpent.planner.api_loop import ApiAgentLoop
@@ -231,6 +232,50 @@ def test_persistent_finish_refusal_stops_at_request_budget(tmp_path):
     assert result.error is None
     assert result.stats["turns_used"] == 3
     assert len(toolkit.calls) == 3
+
+
+@pytest.mark.parametrize(
+    ("first_code", "expected_requests"),
+    [
+        ("robo.finish(status='success', summary='done')", 1),
+        ("raise RuntimeError('retry')", 2),
+    ],
+)
+def test_code_policy_finish_ends_api_conversation(
+    tmp_path, first_code, expected_requests
+):
+    events = Events()
+    robot = RobotToolkit(events, state=EnvState(tmp_path / "state"))
+    toolkit = CodePolicyTools(robot, output_dir=tmp_path)
+    requests = 0
+
+    async def stream(messages, info):
+        nonlocal requests
+        requests += 1
+        assert requests <= expected_requests
+        code = (
+            first_code
+            if requests == 1
+            else "robo.finish(status='success', summary='done')"
+        )
+        yield tool("python", {"code": code})
+
+    try:
+        result, _, _ = solve(
+            tmp_path,
+            FunctionModel(stream_function=stream),
+            toolkit,
+            events,
+            max_turns=3,
+        )
+    finally:
+        toolkit.close()
+
+    assert result.error is None
+    assert result.finish_result == {"_finish": True, **FINISH_ARGS}
+    assert requests == expected_requests
+    assert result.stats["tool_calls"] == expected_requests
+    assert robot.calls == [("finish", FINISH_ARGS)]
 
 
 def test_anthropic_request_retains_all_prompt_cache_controls(tmp_path, monkeypatch):
@@ -1072,6 +1117,27 @@ def test_factory_passes_interactive_mode(tmp_path, monkeypatch):
     assert isinstance(planner, ApiAgentLoop)
     assert isinstance(planner, Planner)
     assert planner.interactive is True
+
+
+@pytest.mark.parametrize("planner_type", ["claude_code", "codex"])
+@pytest.mark.parametrize("use_memory", [True, False])
+def test_factory_mounts_memory_only_when_enabled(
+    tmp_path, planner_type, use_memory
+):
+    from rpent.planner.base import build_planner
+
+    planner = build_planner(
+        planner_type,
+        output_dir=tmp_path,
+        recipe_tag="test",
+        robot_name="test",
+        memory_dir=tmp_path / "memory",
+        use_memory=use_memory,
+        dashboard_events=Events(),
+    )
+    assert planner._extra_dirs == (
+        [str(tmp_path / "memory")] if use_memory else []
+    )
 
 
 @pytest.mark.parametrize("no_images", [False, True])

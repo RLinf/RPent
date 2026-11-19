@@ -71,7 +71,7 @@ class DualFrankaToolkit(FrankaToolkit):
         *,
         runtime_kwargs: dict[str, Any],
         dashboard_events: DashboardEventSink,
-        memory: MemoryManager,
+        memory: MemoryManager | None,
         mode: str = "evaluation",
         attempts_per_session: int = 0,
         state_output_dir: Path | str | None = None,
@@ -524,6 +524,16 @@ class DualFrankaToolkit(FrankaToolkit):
         audit_path.write_text(json.dumps(audit, indent=2) + "\n")
         return str(recipe)
 
+    @tool
+    def observe(self) -> ToolResult:
+        """Capture fresh cameras and arm state without moving or resetting the robot.
+
+        The normal tool execution path records and publishes the observation.
+        Observing does not confirm scene readiness or an operator verdict.
+        """
+        self.raise_if_cancelled()
+        return ToolResult(data={"ok": True})
+
     @classmethod
     def declared_tools(cls) -> list[Tool]:
         """Collect declarations for registration and the offline manual CLI."""
@@ -558,6 +568,7 @@ class DualFrankaToolkit(FrankaToolkit):
                     sam3_client=getattr(self._primitives, "_sam3_client", None),
                 ),
                 "request_scene_reset": self._request_scene_reset,
+                "observe": self.observe,
                 "request_operator_verdict": self._request_operator_verdict
                 if self._mode == "exploration"
                 else self._evaluation_verdict,

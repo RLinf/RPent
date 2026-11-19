@@ -18,28 +18,42 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 
+from robots.libero.prompts import code_policy as code_parts
 from robots.libero.prompts import evaluate as evaluate_parts
 from robots.libero.prompts import explore as explore_parts
 from robots.libero.prompts import user as user_parts
 from rpent.prompt.utils import PromptNode
-
 
 def system_prompt(
     variables: Mapping[str, object] | None = None,
 ) -> PromptNode:
     """Assemble the LIBERO system prompt for the selected run mode."""
     variables = variables or {}
+
+    if variables.get("policy_mode") == "code":
+        return code_parts.system_prompt()
+
     if (
         variables.get("mode", "eval") == "explore"
         and variables.get("policy_kind") != "wam"
     ):
         return explore_parts.system_prompt(variables)
-    return evaluate_parts.system_prompt(variables)
 
+    return evaluate_parts.system_prompt(variables)
 
 def user_prompt(variables: Mapping[str, object] | None = None) -> PromptNode:
     """Assemble the LIBERO user prompt tree."""
     variables = variables or {}
+
+    if variables.get("policy_mode") == "code":
+        return {
+            "CELL": "- suite: {{suite}}\n- task: {{task}}\n- seed: {{seed}}",
+            "BEGIN": (
+                "The task instruction comes from `task_language` in "
+                "`robo.view_env_state(step=0)`."
+            ),
+        }
+
     if variables.get("policy_kind") == "wam":
         return {
             "CELL": user_parts.CELL,
@@ -47,11 +61,11 @@ def user_prompt(variables: Mapping[str, object] | None = None) -> PromptNode:
             "BEGIN": user_parts.WAM_BEGIN,
         }
     mode = user_parts.GEOMETRY_MODE if variables.get("geometry") else user_parts.MODE
+
     return {
         "CELL": user_parts.CELL,
         "MODE": mode,
         "BEGIN": user_parts.BEGIN,
     }
-
 
 __all__ = ["system_prompt", "user_prompt"]

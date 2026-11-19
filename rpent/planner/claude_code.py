@@ -456,7 +456,7 @@ class _Recorder:
     def observe_tool_result(self, name: str, result: ToolResult) -> None:
         """Accept only the toolkit's authoritative finish verdict."""
         if (
-            name == "finish"
+            name in {"finish", "python"}
             and not result.is_error
             and result.data.get("_finish") is True
             and self.finish_result is None

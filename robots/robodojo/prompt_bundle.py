@@ -18,26 +18,45 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 
+from robots.robodojo.prompts import code_policy as code_parts
 from robots.robodojo.prompts import evaluate as evaluate_parts
 from robots.robodojo.prompts import explore as explore_parts
 from robots.robodojo.prompts import user as user_parts
 from robots.robodojo.prompts.policy import POLICY_PROMPTS
 from rpent.prompt.utils import PromptNode
 
-
 def system_prompt(
     variables: Mapping[str, object] | None = None,
 ) -> PromptNode:
-    """Select the RoboDojo evaluation or exploration system prompt."""
-    if (variables or {}).get("mode") == "explore":
-        return explore_parts.system_prompt(variables)
-    return evaluate_parts.system_prompt(variables)
+    """Select the RoboDojo system prompt for the selected run mode."""
+    variables = variables or {}
 
+    if variables.get("policy_mode") == "code":
+        return code_parts.system_prompt()
+
+    if variables.get("mode") == "explore":
+        return explore_parts.system_prompt(variables)
+
+    return evaluate_parts.system_prompt(variables)
 
 def user_prompt(
     variables: Mapping[str, object] | None = None,
 ) -> PromptNode:
-    backend = (variables or {}).get("vla_backend") or "vpp2"
+    variables = variables or {}
+    backend = variables.get("vla_backend") or "vpp2"
+
+    if variables.get("policy_mode") == "code":
+        return {
+            "TASK": user_parts.TASK.replace(
+                "{{policy_control}}",
+                POLICY_PROMPTS[backend]["policy_control"],
+            ),
+            "BEGIN": (
+                "The task instruction comes from `task_language` in "
+                "`robo.view_env_state(step=0)`."
+            ),
+        }
+
     sections = {
         "TASK": user_parts.TASK.replace(
             "{{policy_control}}",
@@ -45,8 +64,10 @@ def user_prompt(
         ),
         "BEGIN": user_parts.BEGIN,
     }
-    if (variables or {}).get("mode") == "eval-fair":
+
+    if variables.get("mode") == "eval-fair":
         return {"TASK": "{{task}} / layout {{layout}}"}
+
     return sections
 
 
