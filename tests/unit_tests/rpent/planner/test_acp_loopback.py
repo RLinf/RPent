@@ -48,6 +48,9 @@ class LocalAgent:
     async def initialize(self, protocol_version, **kwargs):
         self.record = {"pid": os.getpid(), "url": None, "cwd": os.getcwd()}
         Path(sys.argv[1]).write_text(json.dumps(self.record))
+        if sys.argv[2] == "no-capabilities":
+            # Preserve explicit null, which the SDK model serializer omits.
+            return {"protocolVersion": protocol_version, "agentCapabilities": None}
         return schema.InitializeResponse(
             protocol_version=protocol_version,
             agent_capabilities=schema.AgentCapabilities(
@@ -128,6 +131,7 @@ class LocalAgent:
     [
         ("ok", None),
         ("no-http", "must support HTTP MCP"),
+        ("no-capabilities", "must support HTTP MCP"),
         ("no-model", "no model selector"),
     ],
 )
@@ -186,6 +190,9 @@ def test_harness_reuses_acp_tools_probe_and_cleanup(tmp_path, monkeypatch, mode,
         dashboard_events=NullDashboardEventSink(),
         model="test-model",
     )
+    if mode != "no-model":
+        assert planner.probe("ping") == "<TEST_HARNESS_API_KEY>"
+        assert json.loads(record.read_text())["url"] is None
     result = planner.solve(
         system_prompt="rules", user_message="task", toolkit=toolkit, max_turns=2
     )
@@ -209,8 +216,6 @@ def test_harness_reuses_acp_tools_probe_and_cleanup(tmp_path, monkeypatch, mode,
     assert child["url"].startswith("http://127.0.0.1:")
     for name in ("output_path", "raw_stream_path", "stderr_path"):
         assert secret not in Path(result.stats[name]).read_text()
-    assert planner.probe("ping") == "<TEST_HARNESS_API_KEY>"
-    assert json.loads(record.read_text())["url"] is None
 
 
 if __name__ == "__main__":

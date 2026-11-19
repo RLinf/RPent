@@ -297,8 +297,12 @@ class AcpSession:
         initialized = await connection.initialize(protocol_version=PROTOCOL_VERSION)
         if initialized.protocol_version != PROTOCOL_VERSION:
             raise RuntimeError("The agent does not support this ACP protocol version")
-        capabilities = initialized.agent_capabilities.mcp_capabilities
-        if self._mcp_url and not (capabilities and capabilities.http):
+        capabilities = initialized.agent_capabilities
+        if self._mcp_url and not (
+            capabilities
+            and capabilities.mcp_capabilities
+            and capabilities.mcp_capabilities.http
+        ):
             raise RuntimeError("The ACP agent must support HTTP MCP servers")
         # Authentication remains owned by the harness; do not rewrite its login.
         from acp.schema import HttpMcpServer
