@@ -779,6 +779,8 @@ def test_full_cli_exploration_finalizes_memory_without_starting_gpu_runtime(
             str(tmp_path / "memory"),
             "--output-dir",
             str(tmp_path),
+            "--codex-sandbox",
+            "read-only",
             "--max-turns",
             "4",
             "--explore-sessions",
@@ -790,6 +792,7 @@ def test_full_cli_exploration_finalizes_memory_without_starting_gpu_runtime(
 
     assert cli.main() == 0
     assert calls["build_planner"][1]["interactive"] is interactive
+    assert calls["build_planner"][1]["codex_sandbox"] == "read-only"
     saved_tasks = {
         data["task_id"]: data
         for path in tmp_path.glob("**/trajectories/*/task.json")
@@ -1056,6 +1059,72 @@ def test_full_cli_calls_robot_result_finalizer_without_robot_special_case(
         "planner_claim": {"status": "success", "summary": "planner claim"},
     }
     assert robot_toolkit.closed is True
+    assert daemon.stopped is True
+
+
+def test_prompt_hook_failure_stops_the_started_runtime(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The hook runs after ``init_runtime`` and before the agent-loop cleanup."""
+    cli = _cli_module()
+    from rpent.robots import PromptBundle, RobotSpec, RunConfig
+
+    class FakeDaemon:
+        stopped = False
+
+        def stop(self) -> None:
+            self.stopped = True
+
+    def add_cli_args(parser: Any, use_dashboard: bool) -> None:
+        del use_dashboard
+        parser.add_argument("--task-name", required=True)
+
+    def parse_config(args: Any) -> RunConfig:
+        return RunConfig(
+            recipe_tag=args.task_name,
+            output_dir=Path(args.output_dir),
+            prompt_vars={"memory_dir": args.memory_dir},
+            task_desc={"task_name": args.task_name},
+        )
+
+    def prepare_prompt_vars(*args: Any) -> dict[str, Any]:
+        raise RuntimeError("capability probe failed")
+
+    daemon = FakeDaemon()
+    robot_spec = RobotSpec(
+        name="testrobot",
+        prompts=PromptBundle(
+            system=lambda variables: "system",
+            user=lambda variables: "task",
+        ),
+        add_cli_args=add_cli_args,
+        parse_config=parse_config,
+        init_runtime=lambda *args: ([daemon], {"runtime": "simulated"}),
+        prepare_prompt_vars=prepare_prompt_vars,
+    )
+
+    monkeypatch.setattr(cli, "enumerate_robots", lambda: ("testrobot",))
+    monkeypatch.setattr(cli, "get_robot_spec", lambda name: robot_spec)
+    monkeypatch.setattr(cli, "build_planner", lambda *args, **kwargs: SimpleNamespace())
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "rpent",
+            "--robot",
+            "testrobot",
+            "--task-name",
+            "OpenDrawer",
+            "--memory-profile",
+            "local",
+            "--output-dir",
+            str(tmp_path),
+        ],
+    )
+
+    with pytest.raises(RuntimeError, match="capability probe failed"):
+        cli.main()
+
     assert daemon.stopped is True
 
 

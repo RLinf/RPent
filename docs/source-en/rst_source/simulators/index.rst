@@ -18,3 +18,5 @@ Choose a platform for installation and usage instructions.
      - Bimanual manipulation and RoboTwin C2R experiments.
    * - :doc:`robodojo`
      - Dual-arm ARX-X5 manipulation with Isaac Sim and the RLinf Pi0.5 policy.
+   * - :doc:`efe`
+     - EFE robot task benchmark; runs through Harbor and spans task simulators.
