@@ -563,6 +563,40 @@ def test_recipe_exports_each_segment_once_and_keeps_repeated_calls(
     assert commands == [command, command]
 
 
+def test_recipe_exports_generic_segment_calls_without_geometry_masks(tmp_path):
+    import json
+
+    from robots.libero.tools import write_recipe_from_states
+    from rpent.session import EnvState
+
+    state = EnvState(tmp_path)
+    call = {"camera": "wrist", "prompt": "cup", "point": [3, 5], "image_shape": [6, 8]}
+    previous = {
+        "camera": "agentview",
+        "point": [1, 2],
+        "image_shape": [6, 8],
+        "min_score": 0.4,
+    }
+    with state.record_step(state={}, terminated=True):
+        state.save("segment_0a1b2c_001.json", {**call, "found": True})
+        state.save(
+            "geometry_segment_123456abcdef_002.json", {**previous, "found": True}
+        )
+        state.save(
+            "geometry_segment_123456abcdef_003.json", {**previous, "found": False}
+        )
+        state.save(
+            "geometry_segment_0a1b2c_000_rim_000.json",
+            {**previous, "found": True},
+        )
+    name = write_recipe_from_states(state, "test", output_dir=tmp_path)
+    commands = [json.loads(line) for line in (tmp_path / name).read_text().splitlines()]
+    assert commands == [
+        {"action": "segment", **call},
+        {"action": "segment", **previous},
+    ]
+
+
 class _LiberoBackend:
     def __init__(self):
         self.executed = []
