@@ -20,6 +20,7 @@ import sys
 from copy import deepcopy
 from dataclasses import asdict, replace
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 from PIL import Image
@@ -1078,7 +1079,14 @@ def test_vlm_export_selects_confirmed_episodes_and_counts_rejections(
         _write_vlm_episode(jobs / name, result, [api_opening])
 
     out = tmp_path / "dataset"
-    report = export_vlm_samples(jobs, out)
+    with patch(
+        "rpent.flywheel.vlm_clean.filter_vlm_sample", wraps=filter_vlm_sample
+    ) as clean:
+        report = export_vlm_samples(jobs, out)
+    assert [
+        (call.args[0].turn_id, call.kwargs["recent_planner_ids"])
+        for call in clean.call_args_list
+    ] == [("P1", ()), ("P7", ("P5", "P6")), ("P8", ("P6", "P7"))]
     assert report == json.loads((out / "report.json").read_text())
     assert (
         report["episode_count"],

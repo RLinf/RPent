@@ -16,7 +16,7 @@
 
 import json
 import mimetypes
-from collections import Counter, defaultdict
+from collections import Counter, defaultdict, deque
 from dataclasses import asdict, replace
 from hashlib import sha256
 from pathlib import Path
@@ -140,6 +140,7 @@ def filter_vlm_sample(
     image_history: int = 2,
     reasoning: str = "drop",
     prior_calls: dict[str, dict] | None = None,
+    recent_planner_ids: tuple[str, ...] | None = None,
 ) -> VLMSample:
     """Keep recent observation images and optionally remove marked assistant thinking."""
     if image_history < 0 or reasoning not in {"drop", "keep"}:
@@ -270,8 +271,11 @@ def export_vlm_samples(
                     report["selected_episode_count"] += 1
                 samples_before = report["sample_count"]
                 prior_calls = {}
+                recent_turns = deque(maxlen=2)
                 source_paths = {}
                 for planner in iter_jsonl(root / "planners.jsonl"):
+                    recent_planner_ids = tuple(recent_turns)
+                    recent_turns.append(planner["planner_id"])
                     report["turn_count"] += 1
                     source = {
                         "episode_id": task["task_id"],
@@ -303,6 +307,7 @@ def export_vlm_samples(
                             image_history=image_history,
                             reasoning=reasoning,
                             prior_calls=prior_calls,
+                            recent_planner_ids=recent_planner_ids,
                         )
                     except (ValueError, KeyError) as exc:
                         report["excluded"].append(
