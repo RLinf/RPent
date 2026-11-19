@@ -43,11 +43,10 @@ def system_prompt(variables: Mapping[str, object] | None = None) -> dict[str, st
     exploring = variables.get("mode") == "explore"
     workflow = explore if exploring else evaluate
     read_order = exploration.READ_ORDER if exploring else system.READ_ORDER
-    transfer = system.UNIWAM_TRANSFER if backend == "uniwam" else system.TRANSFER
     return workflow.system_prompt(
         role=system.ROLE,
         runtime="" if exploring else system.EVAL_ACCESS,
-        initialization=read_order + "\n\n" + transfer,
+        initialization=read_order,
         perception=system.PERCEPTION,
         action=system.CONTROL,
         recovery=exploration.RECOVERY if exploring else system.BUDGET,

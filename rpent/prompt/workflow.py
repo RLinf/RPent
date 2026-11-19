@@ -31,14 +31,26 @@ INITIALIZATION = """Take the goal from the current task instruction and the scen
 observations. Use approved memory only when it fits both. When a semantic
 summary and an action log are available (for example, JSON and JSONL), use
 the summary to plan phases and the log to check which actions actually ran,
-in what order, and for how long. Re-estimate geometry in this scene. Choose
-policy timing for the current controller and observed progress."""
+in what order, and for how long.
+
+When current evidence supports a recipe, use its phase order, observable
+completion conditions, division of roles between arms or tools, choice of
+policy or primitive, and final action. Account for known failure modes.
+Treat an experimental recipe as a hypothesis. Identify the actual objects,
+destinations and relations in this attempt. Confirm which arm or tool can
+reach each target and remeasure relevant pixels, poses, surface heights,
+clearances and grasp, contact or release points. Use recorded chunk timing
+as a starting point only for a compatible controller and adjust to progress."""
 
 PERCEPTION = """Before manipulating, locate the target, its reference object or destination,
 and the relation the instruction asks to change. Disambiguate look-alikes
 using visible features and relative position. For metric targets, select
 interior pixels on the intended surface in a current image and use the matching
-view, step and coordinate frame. Inspect the mask or projected point when
+view, step and coordinate frame. When looking up geometry by image pixel,
+pair observations from the same step and view. For direct indexing, use
+aligned maps at the same resolution; otherwise use the documented pixel
+mapping. Discard non-finite or otherwise invalid samples.
+Inspect the mask or projected point when
 available. Reject background, rim or occluder samples and check another view
 when identity or depth is ambiguous. Re-localize after contact or motion that
 could have displaced the target. For a robot-state task, compare measured

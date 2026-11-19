@@ -25,29 +25,9 @@ READ_ORDER = """Before the first robot mutation:
    {{memory_dir}}/task-specific/{{reference_tag}}_recipe.jsonl when present.
 4. Read {{memory_dir}}/MEMORY.md and at most one to three relevant leaves."""
 
-TRANSFER_GEOMETRY = """Rebind every object, destination, relation, arm choice, pixel, pose, table
-height, clearance, grasp point, and release/contact point from this episode.
-Use a supported recipe as the default skeleton when current evidence agrees;
-treat an experimental recipe as a weak prior."""
-
-TRANSFER = (
-    """Transfer roles, phase order, required arms, observable gates,
-VLA/analytic division, chunk pattern, terminal action, and known failures.
-"""
-    + TRANSFER_GEOMETRY
-)
-
-UNIWAM_TRANSFER = (
-    """Transfer roles, phase order, required arms, observable gates,
-VLA/analytic division, terminal action, and known failures. Historical LingBot
-chunk counts are not UniWAM timing: choose chunks from current progress.
-"""
-    + TRANSFER_GEOMETRY
-)
-
 PERCEPTION = """Identify candidates in the head view and refine the same candidate
-in its matching wrist view. Pair RGB and world maps at the same step, view and
-resolution: [row,col] maps to world [x,y,z] in metres; discard NaN samples."""
+in its matching wrist view. Index the world map at [row,col] to
+obtain world [x,y,z] in metres."""
 CONTROL = """Use one chunk near contact, near success, instability, or for a
 small correction; two for ordinary stable progress; three only for a
 recipe-supported continuity-sensitive phase already moving correctly. When VLA
