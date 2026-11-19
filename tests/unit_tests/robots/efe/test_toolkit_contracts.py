@@ -16,8 +16,6 @@
 
 from __future__ import annotations
 
-import pytest
-
 from robots.efe.toolkit import EfeToolkit
 from rpent.dashboard.events import NullDashboardEventSink
 from rpent.memory.manager import MemoryManager
