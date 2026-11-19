@@ -305,7 +305,7 @@ def check_planner_mcp_servers(
         except ImportError as exc:
             return (
                 "attaching external MCP servers requires the MCP client; "
-                'install it with `pip install "pydantic-ai-slim[mcp]"`: '
+                'install it with `pip install "mcp"`: '
                 f"{exc}"
             )
         except Exception as exc:  # noqa: BLE001 - reported, not raised

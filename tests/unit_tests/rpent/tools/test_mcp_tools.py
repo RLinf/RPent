@@ -289,7 +289,7 @@ def test_binary_and_resource_blocks_keep_only_metadata() -> None:
         isError=False,
     )
 
-    payload = mcp_tools._result_payload(result)
+    payload = mcp_tools.result_payload(result)
 
     # Trajectory saving dumps this payload with a strict json.dump.
     json.dumps(payload)
@@ -363,7 +363,7 @@ def test_error_results_surface_as_errors(spec: McpServerSpec) -> None:
         isError=True,
     )
 
-    assert mcp_tools._result_payload(result) == {
+    assert mcp_tools.result_payload(result) == {
         "text": "door is locked",
         "error": "door is locked",
     }

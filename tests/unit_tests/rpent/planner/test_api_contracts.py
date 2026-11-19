@@ -17,15 +17,16 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 import copy
 import json
 import math
 import queue
-import sys
 import threading
 import time
 from datetime import datetime
 from types import SimpleNamespace
+from typing import Any
 from xml.etree import ElementTree
 from zoneinfo import ZoneInfo
 
@@ -34,6 +35,7 @@ import pytest
 from pydantic_ai import (
     BinaryContent,
     ModelRequest,
+    ModelRetry,
     TextPart,
     ToolReturnPart,
     UserPromptPart,
@@ -1691,26 +1693,118 @@ def test_toolkit_tool_reusing_read_image_ends_the_run_with_a_planner_error() -> 
     assert result.error is not None and "read_image" in result.error
 
 
-def test_external_toolsets_require_the_mcp_extra(monkeypatch) -> None:
-    # Force the optional pydantic-ai MCP import to fail.
-    monkeypatch.setitem(sys.modules, "pydantic_ai.mcp", None)
+def test_external_toolset_lists_the_remote_tools(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from rpent.planner import api_loop
+
+    async def remote_tools(spec: McpServerSpec) -> list[Any]:
+        return [
+            SimpleNamespace(
+                name="search",
+                description="Search the site index.",
+                inputSchema={
+                    "type": "object",
+                    "properties": {"q": {"type": "string"}},
+                },
+            )
+        ]
+
+    monkeypatch.setattr(api_loop, "list_remote_tools_async", remote_tools)
     events = Events()
     planner = ApiAgentLoop(
         model=TestModel(),
         dashboard_events=events,
         mcp_servers=(
-            McpServerSpec(
-                name="web",
-                url="https://mcp.example/mcp",
-                planner_tools="*",
-            ),
+            McpServerSpec(name="web", url="https://mcp.example/mcp", planner_tools="*"),
         ),
     )
     adapter = _HarnessToolkit(
         RobotToolkit(events), dashboard_events=events, no_images=True
     )
-    with pytest.raises(RuntimeError, match=r"pydantic-ai-slim\[mcp\]"):
-        planner._external_toolsets(adapter)
+
+    (prefixed,) = planner._external_toolsets(adapter)
+    tools = asyncio.run(prefixed.wrapped.get_tools(SimpleNamespace(max_retries=2)))
+
+    (tool,) = tools.values()
+    assert tool.tool_def.name == "search"
+    assert tool.tool_def.description == "Search the site index."
+    # The remote input schema is what the model sees; RPent adds no local
+    # validation that could reject an argument the server accepts.
+    assert tool.tool_def.parameters_json_schema["properties"] == {
+        "q": {"type": "string"}
+    }
+    assert tool.max_retries == 2
+
+
+def test_external_toolset_returns_text_and_png_images(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from rpent.planner import api_loop
+
+    async def call(spec: McpServerSpec, name: str, arguments: dict[str, Any]) -> Any:
+        assert (name, arguments) == ("search", {"q": "x"})
+        return SimpleNamespace(
+            content=[
+                SimpleNamespace(type="text", text="ok"),
+                SimpleNamespace(
+                    type="image",
+                    mimeType="image/png",
+                    data=base64.b64encode(b"png").decode(),
+                ),
+            ],
+            structuredContent=None,
+            isError=False,
+        )
+
+    monkeypatch.setattr(api_loop, "call_remote_tool_async", call)
+    events = Events()
+    planner = ApiAgentLoop(
+        model=TestModel(),
+        dashboard_events=events,
+        mcp_servers=(
+            McpServerSpec(name="web", url="https://mcp.example/mcp", planner_tools="*"),
+        ),
+    )
+    adapter = _HarnessToolkit(
+        RobotToolkit(events), dashboard_events=events, no_images=True
+    )
+    (prefixed,) = planner._external_toolsets(adapter)
+
+    content = asyncio.run(prefixed.wrapped.direct_call_tool("search", {"q": "x"}))
+
+    assert content[0] == "ok"
+    assert isinstance(content[1], BinaryContent) and content[1].data == b"png"
+
+
+def test_external_toolset_turns_a_remote_error_into_a_retry(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from rpent.planner import api_loop
+
+    async def call(spec: McpServerSpec, name: str, arguments: dict[str, Any]) -> Any:
+        return SimpleNamespace(
+            content=[SimpleNamespace(type="text", text="no such index")],
+            structuredContent=None,
+            isError=True,
+        )
+
+    monkeypatch.setattr(api_loop, "call_remote_tool_async", call)
+    events = Events()
+    planner = ApiAgentLoop(
+        model=TestModel(),
+        dashboard_events=events,
+        mcp_servers=(
+            McpServerSpec(name="web", url="https://mcp.example/mcp", planner_tools="*"),
+        ),
+    )
+    adapter = _HarnessToolkit(
+        RobotToolkit(events), dashboard_events=events, no_images=True
+    )
+    (prefixed,) = planner._external_toolsets(adapter)
+
+    with pytest.raises(ModelRetry, match="no such index"):
+        asyncio.run(prefixed.wrapped.direct_call_tool("search", {"q": "x"}))
 
 
 def test_external_toolsets_attach_only_the_planner_layer() -> None:

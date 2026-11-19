@@ -64,7 +64,7 @@ _JSON_TYPES: dict[str, Any] = {
 
 _MCP_CLIENT_HINT = (
     "adopting site MCP tools requires the MCP client; install it with "
-    '`pip install "pydantic-ai-slim[mcp]"`.'
+    '`pip install "mcp"`.'
 )
 
 
@@ -238,33 +238,51 @@ def _make_handler(spec: McpServerSpec, name: str) -> Callable[..., ToolResult]:
     def handler(**arguments: Any) -> ToolResult:
         sent = {key: value for key, value in arguments.items() if value is not _OMITTED}
         result = _call_remote_tool(spec, name, sent)
-        return ToolResult(data=_result_payload(result), images=_result_images(result))
+        return ToolResult(data=result_payload(result), images=result_images(result))
 
     return handler
 
 
-def list_remote_tools(spec: McpServerSpec) -> list[Any]:
-    """Fetch every tool descriptor a server exposes, following pagination.
+async def _list_tools(session: Any) -> list[Any]:
+    """Fetch every page of ``tools/list``.
 
     ``tools/list`` returns one page per request; the SDK does not follow
     ``nextCursor`` for the caller. Adoption and the planner-layer preflight
     both need the complete list, so a tool on a later page must not be
-    reported as missing.
+    reported as missing. A server that repeats a cursor is treated as finished
+    rather than followed forever.
     """
+    tools: list[Any] = []
+    cursor: str | None = None
+    seen: set[str] = set()
+    while True:
+        page = await session.list_tools(cursor=cursor)
+        tools.extend(page.tools)
+        cursor = page.nextCursor
+        if not cursor or cursor in seen:
+            return tools
+        seen.add(cursor)
 
-    async def list_tools(session: Any) -> list[Any]:
-        tools: list[Any] = []
-        cursor: str | None = None
-        seen: set[str] = set()
-        while True:
-            page = await session.list_tools(cursor=cursor)
-            tools.extend(page.tools)
-            cursor = page.nextCursor
-            if not cursor or cursor in seen:
-                return tools
-            seen.add(cursor)
 
-    return _run_remote(spec, list_tools)
+def list_remote_tools(spec: McpServerSpec) -> list[Any]:
+    """Fetch every tool descriptor a server exposes, following pagination."""
+    return _run_remote(spec, _list_tools)
+
+
+async def list_remote_tools_async(spec: McpServerSpec) -> list[Any]:
+    """Async form of :func:`list_remote_tools` for the planner layer."""
+    return await run_remote(spec, _list_tools)
+
+
+async def call_remote_tool_async(
+    spec: McpServerSpec, name: str, arguments: dict[str, Any]
+) -> Any:
+    """Call one remote tool from an event loop and return the MCP result."""
+
+    async def call(session: Any) -> Any:
+        return await session.call_tool(name, arguments)
+
+    return await run_remote(spec, call)
 
 
 def _call_remote_tool(spec: McpServerSpec, name: str, arguments: dict[str, Any]) -> Any:
@@ -345,12 +363,10 @@ def _leaf_error(exc: BaseException) -> BaseException:
     return exc
 
 
-def _run_remote(spec: McpServerSpec, action: Callable[[Any], Awaitable[Any]]) -> Any:
-    """Run one MCP session action to completion.
-
-    Tool handlers execute on planner worker threads, where ``asyncio.run`` is
-    safe. If a handler is ever invoked from a thread that already owns a loop,
-    the action runs on a short-lived helper thread instead of failing.
+async def run_remote(
+    spec: McpServerSpec, action: Callable[[Any], Awaitable[Any]]
+) -> Any:
+    """Run one action on a fresh MCP session.
 
     Each call opens its own session and bounds every request — ``initialize``,
     ``tools/list``, and ``tools/call`` — by ``MCP_CALL_TIMEOUT_S`` (60 seconds
@@ -358,12 +374,15 @@ def _run_remote(spec: McpServerSpec, action: Callable[[Any], Awaitable[Any]]) ->
     checkpoint while the remote call is in flight, so this deadline is also
     the bound on how long ``Toolkit.cancel_active_and_wait`` waits for an
     adopted tool.
+
+    The transports close a failed session inside an anyio task group, which
+    reports the real error as a nested ``ExceptionGroup``; it is unwrapped here
+    so callers see the timeout or refused connection instead of the group.
     """
     ClientSession, streamablehttp_client = _mcp_client()
     headers = request_headers(spec) or None
     timeout = timedelta(seconds=call_timeout_s())
-
-    async def main() -> Any:
+    try:
         async with streamablehttp_client(spec.url, headers=headers) as (
             read,
             write,
@@ -374,12 +393,20 @@ def _run_remote(spec: McpServerSpec, action: Callable[[Any], Awaitable[Any]]) ->
             ) as session:
                 await session.initialize()
                 return await action(session)
+    except _EXCEPTION_GROUP_TYPES as exc:
+        raise _leaf_error(exc) from None
+
+
+def _run_remote(spec: McpServerSpec, action: Callable[[Any], Awaitable[Any]]) -> Any:
+    """Run :func:`run_remote` to completion from synchronous toolkit code.
+
+    Tool handlers execute on planner worker threads, where ``asyncio.run`` is
+    safe. If a handler is ever invoked from a thread that already owns a loop,
+    the action runs on a short-lived helper thread instead of failing.
+    """
 
     def run() -> Any:
-        try:
-            return asyncio.run(main())
-        except _EXCEPTION_GROUP_TYPES as exc:
-            raise _leaf_error(exc) from None
+        return asyncio.run(run_remote(spec, action))
 
     try:
         asyncio.get_running_loop()
@@ -402,8 +429,8 @@ def _run_remote(spec: McpServerSpec, action: Callable[[Any], Awaitable[Any]]) ->
     return outcome["value"]
 
 
-def _result_images(result: Any) -> list[bytes]:
-    """Decode PNG image blocks into ToolResult's image payload.
+def result_images(result: Any) -> list[bytes]:
+    """Decode PNG image blocks into RPent's image payload.
 
     RPent's planners advertise ``ToolResult.images`` as PNG, so only
     ``image/png`` blocks are forwarded as native images. A block whose payload
@@ -436,7 +463,7 @@ def _block_metadata(block: Any) -> dict[str, Any]:
     return metadata
 
 
-def _result_payload(result: Any) -> dict[str, Any]:
+def result_payload(result: Any) -> dict[str, Any]:
     """Render an MCP tool result as RPent's serializable result dict.
 
     Text and PNG images are the content RPent forwards; PNG blocks travel

@@ -816,6 +816,10 @@ def _codex_mcp_config_overrides(
         if server.planner_tools is None:
             continue
         config.append((f"mcp_servers.{server.name}.url", server.url))
+        # A declared server is part of the run: when Codex cannot initialize
+        # it, the thread must fail instead of silently running without the
+        # tools the site configured.
+        config.append((f"mcp_servers.{server.name}.required", True))
         if server.headers:
             config.append((f"mcp_servers.{server.name}.http_headers", server.headers))
         if server.env_http_headers:

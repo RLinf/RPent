@@ -310,7 +310,7 @@ CLI 会把站点服务合并进所有 robot 的运行，不需要改动 robot �
 
 服务名会成为工具的命名空间：``claude_code`` 和 ``codex`` 显示为 ``mcp__<server>__<tool>``，``api`` 显示为 ``<server>_<tool>``。名字必须以字母或数字开头，其余字符可以是字母、数字、``_`` 或 ``-``，且不能包含 ``__``。``rpent`` 保留给 RPent 自带的 Toolkit 服务。
 
-声明了 ``planner_tools`` 的服务会接入每个在线规划器（``api``、``claude_code``、``codex``）。``api`` 规划器通过 Pydantic AI 的 MCP 客户端接入服务，该客户端由 ``pydantic-ai-slim[mcp]`` extra 安装，RPent 默认列出这个 extra。没有规划器层服务的运行不会导入它。
+声明了 ``planner_tools`` 的服务会接入每个在线规划器（``api``、``claude_code``、``codex``）。``api`` 规划器使用与 Toolkit 采纳相同的 ``mcp`` 客户端接入服务，无需安装额外包。
 
 运行时行为与时限
 ~~~~~~~~~~~~~~~~

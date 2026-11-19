@@ -442,9 +442,8 @@ start with a letter or digit, may otherwise contain letters, digits, ``_``, or
 server.
 
 A server declared with ``planner_tools`` reaches every online planner (``api``,
-``claude_code``, ``codex``). The ``api`` planner attaches servers through
-Pydantic AI's MCP client, installed by the ``pydantic-ai-slim[mcp]`` extra that
-RPent lists by default. A run with no planner-layer server never imports it.
+``claude_code``, ``codex``). The ``api`` planner attaches servers with the same
+``mcp`` client RPent uses for Toolkit adoption, so no extra package is needed.
 
 Run behavior and deadlines
 ~~~~~~~~~~~~~~~~~~~~~~~~~~

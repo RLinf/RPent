@@ -214,7 +214,7 @@ def test_check_planner_mcp_servers_reports_a_missing_client(
     )
 
     # The install hint, not the bare ImportError, is what the run reports.
-    assert error is not None and "pydantic-ai-slim[mcp]" in error
+    assert error is not None and 'pip install "mcp"' in error
 
 
 def test_check_planner_mcp_servers_requires_the_named_tools(

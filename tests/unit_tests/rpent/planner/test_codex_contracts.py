@@ -490,7 +490,9 @@ def test_config_overrides_attach_external_mcp_servers(
 
     assert overrides == [
         'mcp_servers.web.url="https://mcp.example/mcp"',
+        "mcp_servers.web.required=true",
         'mcp_servers.kb.url="https://kb.example/mcp"',
+        "mcp_servers.kb.required=true",
         'mcp_servers.kb.http_headers={"Authorization" = "Bearer token"}',
         'mcp_servers.kb.env_http_headers={"X-Site-Token" = "SITE_TOKEN"}',
         'mcp_servers.kb.enabled_tools=["search", "fetch"]',
@@ -518,6 +520,7 @@ def test_config_overrides_keep_non_bmp_values_verbatim(
 
     assert overrides == [
         'mcp_servers.web.url="https://mcp.example/mcp"',
+        "mcp_servers.web.required=true",
         'mcp_servers.web.http_headers={"X-Emoji" = "😀"}',
     ]
 
