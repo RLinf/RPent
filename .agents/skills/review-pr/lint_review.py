@@ -73,8 +73,9 @@ HINTS = (
     "packaging/CI. Tests run and skipped, with hardware.",
     "Each changed page and its type, against docs/STYLE_GUIDE.md. Failing rules "
     "with inline pointers. Build result in EN and ZH. Or: the PR changes no docs.",
-    "Ready for senior review, Changes requested, or Blocked. Remaining actions "
-    "and expert review needed.",
+    "Start a line with Ready for senior review, Changes requested, or Blocked. "
+    "Give remaining actions and needed expert review in a following bullet or after "
+    "a period, colon, or dash.",
 )
 RECOMMENDATIONS = ("Ready for senior review", "Changes requested", "Blocked")
 EVENTS = ("COMMENT", "REQUEST_CHANGES", "APPROVE")
@@ -243,6 +244,14 @@ class ReviewLinter:
         self.findings.append(Finding("WARN", where, message))
 
     def run(self) -> list[Finding]:
+        if not isinstance(self.payload, dict):
+            self.error("payload", "must be a JSON object")
+            return self.findings
+        comments = self.payload.get("comments", [])
+        if not isinstance(comments, list):
+            self.error("comments", "must be a list (omit it or use [] for no comments)")
+            return self.findings
+
         extra = set(self.payload) - PAYLOAD_KEYS
         if extra:
             self.error(
@@ -254,16 +263,21 @@ class ReviewLinter:
                 "payload",
                 f"event must be one of {EVENTS}, found {self.payload['event']!r}",
             )
-        commit_id = self.payload.get("commit_id")
-        if self.pr and commit_id not in (None, self.pr.head_sha):
-            self.error(
-                "payload",
-                f"commit_id {str(commit_id)[:7]} is not the PR head "
-                f"{self.pr.head_sha[:7]}; re-check the findings on the new head",
-            )
-        self.check_body(self.payload.get("body") or "")
+        if "commit_id" in self.payload:
+            commit_id = self.payload["commit_id"]
+            if not isinstance(commit_id, str) or not re.fullmatch(
+                r"[0-9a-fA-F]{40}", commit_id
+            ):
+                self.error("commit_id", "must be a 40-character hexadecimal commit SHA")
+            elif self.pr and commit_id.lower() != self.pr.head_sha:
+                self.error(
+                    "commit_id",
+                    f"{commit_id[:7]} is not the PR head {self.pr.head_sha[:7]}; "
+                    "re-check the findings on the new head",
+                )
+        self.check_body(self.payload.get("body"))
         seen: set[tuple[str, str, int]] = set()
-        for i, comment in enumerate(self.payload.get("comments") or [], 1):
+        for i, comment in enumerate(comments, 1):
             self.check_comment(i, comment, seen)
         return self.findings
 
@@ -280,7 +294,10 @@ class ReviewLinter:
                     f"line {n} still holds a template hint: {line.strip()[:60]!r}",
                 )
 
-    def check_body(self, body: str) -> None:
+    def check_body(self, body: object) -> None:
+        if not isinstance(body, str):
+            self.error("body", "must be a string")
+            return
         self.check_prose("body", body)
         sections: list[tuple[int, str, list[str]]] = []
         preamble = [n for n, line in Markdown.unfenced(body) if line.strip()][:1]
@@ -316,11 +333,16 @@ class ReviewLinter:
             if not "\n".join(lines).strip():
                 self.error("body", f"section at line {n} ({heading}) is empty")
         last = sections[-1][2] if sections and sections[-1][1] == expected[-1] else []
-        picked = [r for r in RECOMMENDATIONS if r.lower() in "\n".join(last).lower()]
+        labels = set()
+        for line in last:
+            text = re.sub(r"^(?:[-*+]|\d+[.)])\s+", "", line.strip())
+            label = re.split(r"[.:][`*_]*(?:\s|$)|[–—]|\s-\s", text, maxsplit=1)[0]
+            labels.add(label.strip().strip("`*_").casefold())
+        picked = [r for r in RECOMMENDATIONS if r.casefold() in labels]
         if not picked:
             self.error(
                 "body",
-                f"question {len(QUESTIONS)} must name one recommendation: {RECOMMENDATIONS}",
+                f"question {len(QUESTIONS)} must start a line with one recommendation: {RECOMMENDATIONS}",
             )
         elif len(picked) > 1:
             self.warn(
@@ -328,8 +350,11 @@ class ReviewLinter:
                 f"question {len(QUESTIONS)} names several recommendations {picked}; state one",
             )
 
-    def check_comment(self, i: int, c: dict, seen: set) -> None:
-        path, line, body = c.get("path"), c.get("line"), c.get("body") or ""
+    def check_comment(self, i: int, c: object, seen: set) -> None:
+        if not isinstance(c, dict):
+            self.error(f"comment {i}", "must be an object")
+            return
+        path, line, body = c.get("path"), c.get("line"), c.get("body")
         side = c.get("side", "RIGHT")
         where = f"comment {i} ({path}:{line})"
         extra = set(c) - COMMENT_KEYS
@@ -337,10 +362,11 @@ class ReviewLinter:
             self.error(
                 where, f"unknown keys {sorted(extra)}; expected {sorted(COMMENT_KEYS)}"
             )
-        if not isinstance(path, str) or not isinstance(line, int) or not body.strip():
-            self.error(
-                where, "needs a string path, an integer line, and a non-empty body"
-            )
+        if not isinstance(body, str) or not body.strip():
+            self.error(where, "body must be a non-empty string")
+            return
+        if not isinstance(path, str) or not isinstance(line, int):
+            self.error(where, "needs a string path and an integer line")
             return
         if side not in ("RIGHT", "LEFT") or c.get("start_side", side) != side:
             self.error(
@@ -402,8 +428,11 @@ class ReviewLinter:
 def report(findings: list[Finding], payload: dict, checked_lines: bool) -> int:
     errors = [f for f in findings if f.level == "ERROR"]
     warns = [f for f in findings if f.level == "WARN"]
-    n = len(payload.get("comments") or [])
-    print(f"review: {payload.get('event', 'COMMENT')}, body + {n} inline comment(s)")
+    if not errors:
+        n = len(payload.get("comments", []))
+        print(
+            f"review: {payload.get('event', 'COMMENT')}, body + {n} inline comment(s)"
+        )
     print(f"{len(errors)} error(s), {len(warns)} warning(s)")
     for f in errors + warns:
         print(f"[{f.level[0]}] {f.where}: {f.message}")
@@ -437,7 +466,7 @@ def main(argv: list[str] | None = None) -> int:
     status = report(ReviewLinter(payload, pr).run(), payload, pr is not None)
     if args.cmd == "lint" or status:
         return status
-    payload.setdefault("commit_id", pr.head_sha)
+    payload["commit_id"] = pr.head_sha
     payload.setdefault("event", "COMMENT")
     print(f"posted: {pr.post(payload)}")
     return 0

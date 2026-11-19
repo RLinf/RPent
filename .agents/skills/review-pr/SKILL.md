@@ -11,26 +11,35 @@ Most of the review is about correctness, clean design, reuse of what RPent and R
 
 ## 1. Set up
 
-Take a PR URL or number (or an explicitly selected local diff; for a local diff, compare against `RLinf/RPent:main` and stop after step 6). All cross-references are against the `main` branch of `github.com/RLinf/RPent`, never the local working tree, which may be on another branch or hold uncommitted work:
+For a PR URL or number, use GitHub's base and head commits to identify what the PR changes. Use upstream `main` for design and reuse comparisons. For an explicitly selected local diff, compare against `RLinf/RPent:main` and stop after step 6.
 
 ```bash
 N=<PR number>
 REMOTE=$(git remote -v | awk '/github\.com[:\/]RLinf\/RPent(\.git)? \(fetch\)/ {print $1; exit}')
-git fetch "$REMOTE" main "pull/$N/head:pr-$N"
-BASE="$REMOTE/main"; PR_HEAD="pr-$N"
+read -r BASE_NAME BASE PR_HEAD < <(
+  gh pr view "$N" --repo RLinf/RPent --json baseRefName,baseRefOid,headRefOid \
+    --jq '[.baseRefName, .baseRefOid, .headRefOid] | @tsv'
+)
+git fetch "$REMOTE" main "$BASE" "$PR_HEAD"
+printf 'head %.7s · base %s@%.7s\n' "$PR_HEAD" "$BASE_NAME" "$BASE"
 
-gh pr view "$N" --repo RLinf/RPent --json title,body,author,headRefOid,commits,files
+gh pr view "$N" --repo RLinf/RPent --json title,body,author,commits,files
 gh pr checks "$N" --repo RLinf/RPent                     # CI status
 git log --oneline "$BASE..$PR_HEAD"                      # what the PR adds
 git diff --stat "$BASE...$PR_HEAD"                       # the same diff GitHub shows
-git show "$BASE:<path>"                                  # a file on main
-git grep <pattern> "$BASE"                               # search main
-gh api "repos/RLinf/RPent/pulls/$N/comments" --paginate  # earlier review threads
+git show "$REMOTE/main:<path>"                           # a file on upstream main
+git grep "<pattern>" "$REMOTE/main"                      # search upstream main
 ```
 
 Check out `$PR_HEAD` in a separate git worktree (with an isolated `uv` `.venv` when installing dependencies) whenever running code or tests. Never edit the PR branch or push to it. Without `gh`, read the PR page, `<PR URL>.diff` (or `<PR URL>.patch`), and files on `https://github.com/RLinf/RPent/blob/main/<path>`; the review can still run, though posting needs `gh`.
 
-On a second round of review, go through every earlier thread first. Verify in the new code which ones the new commits fix and which are still open, and carry the open ones forward rather than writing them again.
+Read earlier feedback from all three places. On a re-review, check each request against the current code and link unresolved findings to the original discussion.
+
+```bash
+gh api "repos/RLinf/RPent/pulls/$N/reviews" --paginate    # review summaries
+gh api "repos/RLinf/RPent/issues/$N/comments" --paginate  # PR discussion
+gh api "repos/RLinf/RPent/pulls/$N/comments" --paginate   # inline comments and replies
+```
 
 ## 2. Understand the PR
 
@@ -38,7 +47,7 @@ Read the description, the linked issue, the commits, and the whole diff. Then wr
 
 - the problem the PR solves and its core idea, in one or two sentences;
 - the areas it touches (for example planner, toolkit, robot integration, packaging, docs, CI) and what could regress (robots, planners, CLI or Dashboard runs, prompts and tool schemas);
-- the closest current sibling on `main` it should look like (`git log "$BASE" -- <dir>` shows which sibling is recent).
+- the closest current sibling on `main` it should look like (`git log "$REMOTE/main" -- <dir>` shows which sibling is recent).
 
 ## 3. Run the reproduction
 
@@ -63,7 +72,7 @@ Judge each change by category and map every finding to its main-comment question
 | `docs-style` | changed pages and README text against `docs/STYLE_GUIDE.md` | 8 |
 | `style` | Ruff lint/format, docstrings, type hints, logging, license headers, commits, PR metadata | 9 |
 
-For every changed function, read the `main` version and the PR version side by side. Label a finding that came from reading `main` rather than the diff alone as a `main-branch cross-check`. Check that robot-specific policy stays in `robots/<robot>/` while shared code uses RPent's extension points (`RobotSpec`, `Toolkit`, `Planner`, RPC facades) rather than robot- or planner-name branches, keeps optional imports lazy, preserves owned-daemon vs. borrowed-endpoint cleanup, and keeps rendered prompts and tool schemas accurate and concise.
+For each changed function, compare the full versions at the merge base and the PR head. Label a finding that relies on a separate comparison with upstream `main` as a `main-branch cross-check`. Check that robot-specific policy stays in `robots/<robot>/` while shared code uses RPent's extension points (`RobotSpec`, `Toolkit`, `Planner`, RPC facades) rather than robot- or planner-name branches, keeps optional imports lazy, preserves owned-daemon vs. borrowed-endpoint cleanup, and keeps rendered prompts and tool schemas accurate and concise.
 
 Apply the matching skill for each touched area—[add-robot](../add-robot/SKILL.md) for robot, Env/VLA, or tool wiring, [verify-change](../verify-change/SKILL.md) for unit/e2e coverage, `pyproject.toml` extras, and CI, and [docs-check](../docs-check/SKILL.md) for docs against code (in both directions) and EN/ZH parity.
 
@@ -92,7 +101,7 @@ Print the review in the user's language (keeping step 8 comments in English unle
 ````markdown
 # Review of #<N>: <PR title>
 
-<PR URL> · head `<sha7>` · base `main@<sha7>` · <YYYY-MM-DD>
+<PR URL> · head `<sha7>` · base `<base branch>@<base sha7>` · <YYYY-MM-DD>
 
 ## What the PR does
 
@@ -118,7 +127,7 @@ Print the review in the user's language (keeping step 8 comments in English unle
 
 Code walkthrough:
 
-<The key snippets from the PR, and from main when compared, each under a `path:line` header, then the steps that lead from the input to the bug.>
+<The key snippets from the PR diff and any comparison with upstream main, each under a `path:line` header, then the steps that lead from the input to the bug.>
 
 Evidence: <the command and its result, or the trace; for an unresolved finding, what would settle it>
 
@@ -148,7 +157,7 @@ Skip this step for local diff reviews. Otherwise, posting speaks for the user, s
 
 ## 8. Post
 
-Write the review as the JSON payload of GitHub's create-review API with `json.dump` so escaping is right, then lint and post it:
+Return to the root of the RPent checkout where you loaded this skill. From there, use `json.dump` to write the payload for GitHub's create-review API to `review.json` and run the commands below.
 
 ```bash
 python3 .agents/skills/review-pr/lint_review.py template
@@ -233,4 +242,4 @@ The main comment holds only the nine sections, each under its question as a `###
 6. **Does it reuse existing modules/functions properly?** Avoidable duplication and the `main:<path>:<line>` helper (or RLinf component) to reuse, or else the implementation compared against.
 7. **Are tests and documentation adequate?** Whether offline CPU tests cover the changed behavior; docs, EN/ZH updates, README highlights where warranted, and `pyproject.toml` extras/CI coverage; tests and checks run (command, hardware/scope, result) and skipped checks with reasons.
 8. **Does the documentation follow the docs style guide?** Every page the PR adds or changes, in both languages, with its type and whether it follows `docs/STYLE_GUIDE.md` (first-time reader clarity, lead and flow, voice, page anatomy, and natural phrasing in each language), failing rules with inline pointers, and both EN and ZH build results. When the PR changes no docs, say so; a missing page belongs in question 7.
-9. **What is your recommendation?** Exactly one of `Ready for senior review` (no open critical or major finding, and reproduction passed or was not needed), `Changes requested` (open critical or major findings the author can fix), or `Blocked` (needs a maintainer decision, unavailable hardware/assets, or an unresolved failure outside the author's fix), followed by remaining actions and needed expert review.
+9. **What is your recommendation?** Start a line with exactly one of `Ready for senior review` (no open critical or major finding, and reproduction passed or was not needed), `Changes requested` (open critical or major findings the author can fix), or `Blocked` (needs a maintainer decision, unavailable hardware/assets, or an unresolved failure outside the author's fix). Give remaining actions and needed expert review in a following bullet or after a period, colon, or dash.
