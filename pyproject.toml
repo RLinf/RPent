@@ -188,6 +188,8 @@ robodojo-sim = [
 robolab = [
     "rpent[rlinf]",
     "rpent-openpi @ git+https://github.com/RLinf/openpi.git@rpent",
+    # OpenPI uses NumPy 1.x. PyArrow 26 requires NumPy 2 at import time.
+    "pyarrow<26",
 ]
 
 [tool.uv]
