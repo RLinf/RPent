@@ -12,20 +12,19 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Internal BEHAVIOR Env facade and an official-policy bridge service.
-
-The service forwards policy observations and actions; the separately launched
-official evaluator owns simulation, reset and task scoring.
-"""
+"""Serve the RLinf BEHAVIOR environment through main-thread RPent RPC."""
 
 from __future__ import annotations
 
 import argparse
-import asyncio
+import importlib
 import math
+import os
 import signal
-import threading
+import sys
 from collections.abc import Callable
+from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 import numpy as np
@@ -34,28 +33,20 @@ from robots.behavior.env_client import (
     env_runtime_contract,
     validate_native_actions,
 )
-from robots.behavior.tasks import TASK_NAMES
+from robots.behavior.tasks import TASK_LANGUAGE, TASK_NAMES
+from rpent.evaluation import write_json_atomic
 from rpent.robots.components.env_facade_base import BaseEnvFacade
 from rpent.utils.logging import get_logger
+from rpent.utils.rpc.main_thread_serve import MainThreadServeMixin
 
 logger = get_logger("behavior_env_server")
 
 
-class BehaviorEnvFacade(BaseEnvFacade):
-    """Expose a borrowed backend through RPent's standard Env RPC routes.
+class BehaviorEnvFacade(MainThreadServeMixin, BaseEnvFacade):
+    """Expose a borrowed native environment; its owner closes it after serving.
 
-    Args:
-        backend: Bridge providing observation, session-status and motion-snapshot
-            readers, and ``chunk_step`` Gym 5-tuples. Unknown reward and terminal
-            feedback must remain None.
-        task_id: BEHAVIOR task served by this single-environment adapter.
-        on_shutdown: Optional owner callback that cancels bridge waits before
-            the standard shutdown route acquires the Env dispatch lock. A
-            borrowed backend is not closed unless its owner supplies this.
-        motion_planner: Optional borrowed planner implementing
-            ``plan_arm_path(arm=..., target_pose=..., observation=...)``.
-            It receives public observations, never the simulator or task state.
-        motion_model: Lazy access to the static model owned by the launcher.
+    All environment and planning methods run on the constructing thread.
+    ``on_shutdown`` may only signal cancellation, never call the simulator.
     """
 
     def __init__(
@@ -71,7 +62,7 @@ class BehaviorEnvFacade(BaseEnvFacade):
         if backend is None:
             raise RuntimeError(
                 "BEHAVIOR requires an injected environment backend; "
-                "the launcher must construct and own the evaluator bridge"
+                "the launcher must construct and own the RLinf environment"
             )
         self._backend = backend
         self._task_id = task_id
@@ -100,19 +91,19 @@ class BehaviorEnvFacade(BaseEnvFacade):
         self._rpc["env.get_arm_joint_limits"] = self.get_arm_joint_limits
 
     def get_arm_joint_limits(self) -> dict[str, list[list[float]]]:
-        """Read static limits without requiring CuRobo or advancing simulation."""
+        """Read native joint limits without loading CuRobo or advancing simulation."""
         if self._motion_model is None:
             raise RuntimeError("BEHAVIOR Env has no motion model provider")
         model = self._motion_model()
         return {arm: model.joint_limits(arm).tolist() for arm in ("left", "right")}
 
     def get_env_meta(self) -> dict[str, Any]:
-        """Return the internal adapter contract, not official protocol metadata."""
+        """Return the native RLinf adapter identity and reset ownership."""
         return env_runtime_contract(self._task_id)
 
-    def reset(self) -> None:
-        """Reject autonomous reset; the official evaluator owns reset."""
-        raise RuntimeError("BEHAVIOR reset is owned by the official evaluator")
+    def reset(self) -> tuple:
+        """Explicitly reset the owned episode; connections do not reset it."""
+        return self._backend.reset()
 
     def plan_arm_path(
         self,
@@ -184,140 +175,283 @@ class BehaviorEnvFacade(BaseEnvFacade):
             **kwargs,
         )
 
+    def get_camera_meta(self, camera_name: str | None = None) -> dict:
+        """Return calibration paired with the latest confirmed frame."""
+        return self._backend.get_camera_meta(camera_name)
+
+    def render_camera(self, camera_name: str = "head") -> np.ndarray:
+        """Return one camera from the latest confirmed frame."""
+        return self._backend.render_camera(camera_name)
+
     def get_task_language(self) -> str | None:
         """Return the task instruction supplied by the launcher."""
         return self._task_language
 
 
-async def _serve(args: argparse.Namespace) -> None:
-    from robots.behavior.eval.evaluator import EvaluatorStepBridge, serve_websocket
-
-    bridge = EvaluatorStepBridge(
-        simulation_timeout_s=args.simulation_timeout_s,
-        action_timeout_s=args.action_timeout_s,
-        chunk_timeout_s=args.chunk_timeout_s,
+def build_parser() -> argparse.ArgumentParser:
+    """Expose the RLinf environment configuration and existing RPC options."""
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--env-config", type=Path, required=True)
+    parser.add_argument(
+        "--env-api",
+        choices=("behavior-env", "simulator"),
+        help="Use RLinf BehaviorEnv or the in-process BehaviorSimulator. "
+        "Existing simulator checkouts keep their native motion support.",
     )
-    motion_planner = None
+    parser.add_argument("--task-id", type=int, choices=tuple(TASK_NAMES), required=True)
+    parser.add_argument("--task-language")
+    parser.add_argument(
+        "--instance-split", choices=("train", "public_test", "hidden_test")
+    )
+    parser.add_argument("--instance-id", type=int)
+    parser.add_argument("--max-steps", type=int)
+    parser.add_argument("--seed", type=int)
+    for name in ("action-frequency", "rendering-frequency", "physics-frequency"):
+        parser.add_argument(f"--{name}", type=float)
+    parser.add_argument("--camera-size", type=int)
+    parser.add_argument("--torch-num-threads", type=int, default=4)
+    parser.add_argument(
+        "--env-wrapper", choices=("rgb", "rgbd", "default"), default="rgbd"
+    )
+    parser.add_argument("--output-dir", type=Path, required=True)
+    parser.add_argument("--host", default="127.0.0.1")
+    parser.add_argument("--port", type=int, required=True)
+    parser.add_argument("--transport", choices=("socket", "http"), default="socket")
+    parser.add_argument("--parent-watch", action="store_true")
+    parser.add_argument("--motion-backend", choices=("none", "curobo"), default="none")
+    parser.add_argument("--motion-device", default="cuda:0")
+    return parser
+
+
+def build_config(args: argparse.Namespace) -> Any:
+    """Compose the existing RLinf YAML, then apply explicit operator overrides."""
+    from hydra import compose, initialize_config_dir
+    from omegaconf import OmegaConf
+
+    source = args.env_config.expanduser().resolve(strict=True)
+    with initialize_config_dir(version_base=None, config_dir=str(source.parent)):
+        cfg = compose(config_name=source.stem)
+    overrides = {
+        "total_num_envs": 1,
+        "auto_reset": False,
+        "ignore_terminations": False,
+        "torch_num_threads": args.torch_num_threads,
+        "omni_config.env.automatic_reset": False,
+        "omni_config.env.env_wrapper": "rgb"
+        if args.env_wrapper == "rgbd"
+        else args.env_wrapper,
+        "omni_config.task.activity_name": TASK_NAMES[args.task_id],
+        "video_cfg.save_video": False,
+        "video_cfg.video_base_dir": str(args.output_dir / "video"),
+    }
+    if args.env_api == "behavior-env":
+        if args.instance_split or OmegaConf.select(
+            cfg, "omni_config.task.instance_split"
+        ):
+            raise ValueError(
+                "BehaviorEnv selects the split through omni_config.task.activity_instance_dir "
+                "in --env-config. Set the path for your split there and omit --instance-split."
+            )
+        if OmegaConf.select(cfg, "omni_config.robots[0].proprio_obs") is not None:
+            raise ValueError(
+                "Use the official 2026 proprio layout: remove the robot proprio_obs override."
+            )
+        overrides.update(use_2026_eval_proprio_and_rooms=True, num_env_subprocess=1)
+    optional = {
+        "seed": args.seed,
+        "max_episode_steps": args.max_steps,
+        "omni_config.task.instance_split": args.instance_split,
+        "omni_config.task.activity_instance_id": args.instance_id,
+    }
+    for rate in ("action_frequency", "rendering_frequency", "physics_frequency"):
+        optional[f"omni_config.env.{rate}"] = getattr(args, rate)
+    overrides.update(
+        {key: value for key, value in optional.items() if value is not None}
+    )
+    if args.camera_size is not None:
+        for camera in ("head", "wrist"):
+            overrides[f"omni_config.camera.{camera}_resolution"] = [
+                args.camera_size
+            ] * 2
+    for key, value in overrides.items():
+        OmegaConf.update(cfg, key, value, force_add=True)
+    if args.env_wrapper == "rgbd":
+        # RPent uses its segmentation service; native semantic/instance
+        # annotators are unnecessary for its RGB-D geometry tools.
+        OmegaConf.update(
+            cfg,
+            "omni_config.robots.0.obs_modalities",
+            ["rgb", "proprio", "depth_linear"],
+            force_add=True,
+        )
+    for key in ("max_episode_steps", "torch_num_threads"):
+        if int(cfg[key]) <= 0:
+            raise ValueError(f"{key} must be positive")
+    for name in ("action_frequency", "rendering_frequency", "physics_frequency"):
+        value = float(cfg.omni_config.env[name])
+        if not math.isfinite(value) or value <= 0:
+            raise ValueError(f"{name} must be positive and finite")
+    return cfg
+
+
+def main(argv: list[str] | None = None) -> None:
+    """Construct one native environment, serve RPC, and save before SDK shutdown."""
+    parser = build_parser()
+    args = parser.parse_args(argv)
+    if not 0 < args.port < 65536:
+        parser.error("--port must be between 1 and 65535")
+    if args.camera_size is not None and args.camera_size <= 0:
+        parser.error("--camera-size must be positive")
+    args.task_language = (
+        TASK_LANGUAGE[args.task_id]
+        if args.task_language is None
+        else args.task_language.strip()
+    )
+    if not args.task_language:
+        parser.error("--task-language must not be empty")
+    from omegaconf import OmegaConf
+
+    from robots.behavior.rlinf_env import PublicBehaviorEnv, RlinfBehaviorEnv
+
+    if args.env_api is None:
+        package = importlib.import_module("rlinf.envs.sim.behavior")
+        args.env_api = (
+            "simulator" if hasattr(package, "BehaviorSimulator") else "behavior-env"
+        )
+    public = args.env_api == "behavior-env"
+    if public and args.motion_backend == "curobo":
+        parser.error("CuRobo needs the in-process robot exposed by --env-api simulator")
+    cfg = build_config(args)
+
+    args.output_dir.mkdir(parents=True, exist_ok=True)
+    OmegaConf.save(cfg, args.output_dir / "env_config.yaml", resolve=True)
+    result_path = args.output_dir / "env-result.json"
+    result: dict[str, Any] = {
+        "server_status": "starting",
+        "task_id": args.task_id,
+        "env_api": args.env_api,
+    }
+    write_json_atomic(result_path, result)
+    simulator = None
+    env = None
     motion_model = None
+    owned_ray = None
 
     def get_motion_model() -> Any:
         nonlocal motion_model
         if motion_model is None:
             from robots.behavior.motion import R1ProMotionModel
 
-            motion_model = R1ProMotionModel()
+            motion_model = R1ProMotionModel(simulator.get_robot)
         return motion_model
 
-    if args.motion_backend == "curobo":
-        from robots.behavior.motion import R1ProMotionPlanner
+    try:
+        if args.motion_backend == "curobo":
+            # OG pins Warp 1.12; Kit bundles older modules. Load the CuRobo
+            # compatibility namespaces before Kit's importer can mix versions.
+            for namespace in ("warp.context", "warp.torch", "warp.types"):
+                importlib.import_module(namespace)
+        if public:
+            import ray
+            from rlinf.envs.sim.behavior.behavior_env import BehaviorEnv
 
-        motion_planner = R1ProMotionPlanner(
-            model=get_motion_model(),
+            # RLinf creates CPU-scheduled Ray actors that render on the service GPU.
+            if not ray.is_initialized():
+                gpu_env = {"RAY_EXPERIMENTAL_NOSET_CUDA_VISIBLE_DEVICES": "1"}
+                if "CUDA_VISIBLE_DEVICES" in os.environ:
+                    gpu_env["CUDA_VISIBLE_DEVICES"] = os.environ["CUDA_VISIBLE_DEVICES"]
+                ray.init(
+                    address="local",
+                    num_cpus=2,
+                    include_dashboard=False,
+                    runtime_env={"env_vars": gpu_env},
+                )
+                owned_ray = ray
+            simulator = BehaviorEnv(
+                cfg,
+                num_envs=1,
+                seed_offset=0,
+                total_num_processes=1,
+                worker_info=SimpleNamespace(group_world_size=1),
+            )
+            env = PublicBehaviorEnv(
+                simulator, task_id=args.task_id, task_language=args.task_language
+            )
+        else:
+            from rlinf.envs.sim.behavior import BehaviorSimulator
+
+            simulator = BehaviorSimulator(cfg, num_envs=1, seed=int(cfg.seed))
+            env = RlinfBehaviorEnv(
+                simulator, task_id=args.task_id, task_language=args.task_language
+            )
+        env.reset()
+        motion_planner = None
+        if args.motion_backend == "curobo":
+            from robots.behavior.motion import R1ProMotionPlanner
+
+            motion_planner = R1ProMotionPlanner(
+                model=get_motion_model(),
+                task_id=args.task_id,
+                device=args.motion_device,
+            )
+        facade = BehaviorEnvFacade(
+            env,
             task_id=args.task_id,
-            device=args.motion_device,
+            task_language=args.task_language,
+            on_shutdown=env.stop,
+            motion_planner=motion_planner,
+            motion_model=None if public else get_motion_model,
         )
-    facade = BehaviorEnvFacade(
-        bridge,
-        task_id=args.task_id,
-        task_language=args.task_language,
-        on_shutdown=bridge.stop,
-        motion_planner=motion_planner,
-        motion_model=get_motion_model,
-    )
-    errors: list[BaseException] = []
 
-    def serve_rpc() -> None:
+        def stop_owned(signum: int, frame: Any) -> None:
+            env.stop()
+            facade._shutdown_event.set()
+
+        previous = {
+            sig: signal.signal(sig, stop_owned)
+            for sig in (signal.SIGTERM, signal.SIGINT)
+        }
         try:
+            result["server_status"] = "ready"
+            write_json_atomic(result_path, result)
             facade.serve(
                 transport=args.transport,
                 host=args.host,
                 port=args.port,
                 parent_watch=args.parent_watch,
             )
-        except BaseException as error:
-            errors.append(error)
-            facade._shutdown_event.set()
-
-    def stop_owned() -> None:
-        bridge.stop()
-        facade._shutdown_event.set()
-
-    loop = asyncio.get_running_loop()
-    worker = threading.Thread(target=serve_rpc, name="behavior-env-rpc", daemon=True)
-    installed_signals = []
-    try:
-        async with serve_websocket(
-            bridge,
-            host=args.policy_host,
-            port=args.policy_port,
-            task_id=args.task_id,
-            metadata={
-                "robot": "behavior",
-                "task_language": args.task_language,
-                "termination_owner": "official_evaluator",
-            },
-        ) as server:
-            for signum in (signal.SIGTERM, signal.SIGINT):
-                loop.add_signal_handler(signum, stop_owned)
-                installed_signals.append(signum)
-            worker.start()
-            task = asyncio.create_task(server.serve_forever())
-            try:
-                while not facade._shutdown_event.is_set() and not task.done():
-                    await asyncio.sleep(0.1)
-                if task.done():
-                    await task
-            finally:
-                stop_owned()
-                task.cancel()
-                await asyncio.gather(task, return_exceptions=True)
+            result["server_status"] = "stopped"
+        finally:
+            for sig, handler in previous.items():
+                signal.signal(sig, handler)
+    except BaseException as error:
+        result.update(server_status="error", error=f"{type(error).__name__}: {error}")
+        logger.exception("BEHAVIOR environment service failed")
+        raise
     finally:
-        stop_owned()
-        if worker.ident is not None:
-            await asyncio.to_thread(worker.join, 5.0)
-        for signum in installed_signals:
-            loop.remove_signal_handler(signum)
-        if worker.is_alive():
-            raise RuntimeError("BEHAVIOR Env RPC thread did not stop")
-        if motion_model is not None:
-            motion_model.close()
-    if errors:
-        raise RuntimeError("BEHAVIOR Env RPC service failed") from errors[0]
-
-
-def main(argv: list[str] | None = None) -> None:
-    """Parse configuration and serve Env RPC plus the official WebSocket."""
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument(
-        "--task-id", type=int, choices=tuple(TASK_NAMES), metavar="0..99", required=True
-    )
-    parser.add_argument("--task-language", required=True)
-    parser.add_argument("--host", default="127.0.0.1")
-    parser.add_argument("--port", type=int, required=True)
-    parser.add_argument("--transport", choices=("socket", "http"), default="socket")
-    parser.add_argument("--policy-host", default="127.0.0.1")
-    parser.add_argument("--policy-port", type=int, required=True)
-    parser.add_argument("--simulation-timeout-s", type=float, default=600.0)
-    parser.add_argument("--action-timeout-s", type=float, default=180.0)
-    parser.add_argument("--chunk-timeout-s", type=float, default=1200.0)
-    parser.add_argument("--parent-watch", action="store_true")
-    parser.add_argument("--motion-backend", choices=("none", "curobo"), default="none")
-    parser.add_argument("--motion-device", default="cuda:0")
-    args = parser.parse_args(argv)
-    if not args.task_language.strip():
-        parser.error("--task-language must not be empty")
-    if not all(0 < port < 65536 for port in (args.port, args.policy_port)):
-        parser.error("ports must be between 1 and 65535")
-    if args.port == args.policy_port:
-        parser.error("internal Env and official policy services require distinct ports")
-    for name in ("simulation_timeout_s", "action_timeout_s", "chunk_timeout_s"):
-        value = getattr(args, name)
-        if not math.isfinite(value) or value <= 0:
-            parser.error(f"--{name.replace('_', '-')} must be positive and finite")
-    if args.chunk_timeout_s < args.simulation_timeout_s:
-        parser.error("chunk timeout must cover the simulation inactivity timeout")
-    logger.info("Starting BEHAVIOR bridge for task %s", args.task_id)
-    asyncio.run(_serve(args))
+        # OmniGibson closes the dedicated process. Persist failure/scores and
+        # close auxiliary resources first; no Python cleanup can follow it.
+        try:
+            if env is not None:
+                result["session"] = env.session_status()
+            if simulator is not None and not public:
+                result["metrics"] = simulator.get_metrics()
+            if motion_model is not None:
+                motion_model.close()
+        except Exception as error:
+            result.update(
+                server_status="error", cleanup_error=f"{type(error).__name__}: {error}"
+            )
+            logger.exception("BEHAVIOR final state collection failed")
+        write_json_atomic(result_path, result)
+        sys.stdout.flush()
+        sys.stderr.flush()
+        try:
+            if simulator is not None:
+                simulator.close()
+        finally:
+            if owned_ray is not None:
+                owned_ray.shutdown()
 
 
 if __name__ == "__main__":

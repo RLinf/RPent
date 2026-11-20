@@ -65,8 +65,8 @@ Documentation = "https://rpent.readthedocs.io/en/latest/"
 
 [project.optional-dependencies]
 behavior = [
-    "msgpack>=1.0.5",
-    "websockets>=13,<18",
+    "hydra-core>=1.3,<2",
+    "omegaconf>=2.3,<3",
 ]
 behavior-vla = [
     # Install the compatible RLinf/OpenPI model runtime separately. The generic
@@ -86,7 +86,7 @@ rlinf = [
     "rlinf @ git+https://github.com/RLinf/RLinf.git@release/v0.4",
 ]
 sam3 = [
-    "sam3 @ git+https://github.com/RLinf/sam3.git@main",
+    "sam3 @ git+https://github.com/RLinf/sam3.git@c1f6b1e83967c912f675d8975d437ccdc41e17d8",
     "einops>=0.8.0",
     "pycocotools",
     "torch",

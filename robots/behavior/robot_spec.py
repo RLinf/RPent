@@ -14,9 +14,9 @@
 
 """BEHAVIOR configuration and borrowed-component wiring.
 
-The standard CLI connects to separately launched RPent Env/VLA facades. The
-Env service owns the official policy bridge; the official evaluator owns the
-simulation. Its WebSocket URL is distinct from the internal Env RPC endpoint.
+The CLI borrows separately launched Env/VLA facades. The Env process owns
+RLinf's BEHAVIOR simulator; the shared Pi0.5 service owns model inference.
+Task tools configure their clients here without resetting borrowed services.
 """
 
 from __future__ import annotations
@@ -106,7 +106,7 @@ def _add_cli_args(parser: argparse.ArgumentParser, use_dashboard: bool) -> None:
     parser.add_argument(
         "--behavior-config",
         type=Path,
-        help="BEHAVIOR tool/runtime YAML; set task identity and instruction via CLI.",
+        help="Planner/tool YAML; pass simulator YAML to the Env service's --env-config.",
     )
     parser.add_argument(
         "--task-id",
@@ -126,7 +126,7 @@ def _add_cli_args(parser: argparse.ArgumentParser, use_dashboard: bool) -> None:
         "--execution-horizon", type=int, help="Native actions per VLA call."
     )
     parser.add_argument(
-        "--env-endpoint", help="Borrowed RPent BEHAVIOR bridge RPC endpoint."
+        "--env-endpoint", help="Borrowed RPent BEHAVIOR simulator RPC endpoint."
     )
     add_am_args(parser, platform="behavior")
     parser.add_argument(
@@ -153,7 +153,7 @@ def _add_cli_args(parser: argparse.ArgumentParser, use_dashboard: bool) -> None:
     parser.add_argument(
         "--env-rpc-timeout-s",
         type=float,
-        help="Env RPC timeout, longer than the bridge's total chunk timeout.",
+        help="Env RPC timeout in seconds for a complete simulator/tool request.",
     )
 
 
@@ -177,7 +177,7 @@ def _settings(args: argparse.Namespace) -> dict[str, Any]:
         override = getattr(args, key, None)
         if override is not None:
             settings[key] = override
-    # The Env bridge and Agent share the same externally deployed policy.
+    # The planner borrows the separately deployed action-model service.
     am = select_am(args, "behavior")
     if am.endpoint is not None:
         settings["vla_endpoint"] = am.endpoint
@@ -248,8 +248,7 @@ def _settings(args: argparse.Namespace) -> dict[str, Any]:
             protocol, _, port = parse_endpoint(endpoint)
             if protocol not in {"http", "socket"} or not 0 < port < 65536:
                 raise ValueError(
-                    f"{key} must be an internal RPent http/socket RPC endpoint; "
-                    "the official evaluator WebSocket is a different interface"
+                    f"{key} must be an internal RPent http/socket RPC endpoint"
                 )
     return settings
 

@@ -390,6 +390,49 @@ def test_native_segment_keeps_mask_when_behavior_depth_is_unavailable(tmp_path):
         assert len(result.images) == 1
 
 
+@pytest.mark.parametrize(
+    "invalid", ["unlisted_depth", "depth_shape", "intrinsic", "calibration"]
+)
+def test_saved_geometry_readers_reject_invalid_pairs_but_keep_sam_mask(
+    tmp_path, invalid
+):
+    env, sam = _GeometryEnvironment(_geometry_observation()), _SAM()
+    with _template_toolkit(
+        tmp_path,
+        ["view_env_state", "pixel_to_robot_base", "segment", "finish"],
+        env=env,
+        sam=sam,
+    ) as toolkit:
+        record = toolkit.state.latest_record()
+        metadata = record.state["view_specs"]["head"]["camera_meta"]
+        if invalid == "unlisted_depth":
+            # A leftover file is not a depth artifact belonging to this record.
+            assert toolkit.state.artifact_path("head_depth.npy", step=0).exists()
+            record.artifacts.remove("head_depth.npy")
+        elif invalid == "depth_shape":
+            toolkit.state.save("head_depth.npy", np.ones((5, 7), np.float32), step=0)
+        elif invalid == "intrinsic":
+            metadata["intrinsic_K"][0][0] = 0
+        else:
+            metadata["calibration_available"] = False
+        reads = env.reads
+        pixel = toolkit.execute_tool(
+            "pixel_to_robot_base", {"camera": "head", "pixel": [112, 112], "step": 0}
+        )
+        mask = toolkit.execute_tool("segment", {"point": [112, 112], "step": 0})
+        assert pixel.is_error and pixel.data["code"] == "geometry_unavailable"
+        assert "point_robot_base" not in pixel.data
+        assert mask.data["found"] is True and mask.data["geometry_valid"] is False
+        assert mask.data["point_robot_base"] is None and mask.data["geometry_error"]
+        assert mask.data["coordinate_frame_step"] == 0
+        assert len(mask.images) == 1
+        saved_mask = toolkit.state.load(mask.data["segment_artifact"], step=0)
+        assert saved_mask["geometry_valid"] is False
+        assert saved_mask["point_robot_base"] is None
+        assert env.reads == reads and env.actions == 0
+        assert toolkit.state.latest_step == 0
+
+
 def _proprio():
     result = np.zeros(61, dtype=np.float64)
     result[3:10] = np.arange(7) * 0.02

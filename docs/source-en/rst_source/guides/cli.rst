@@ -62,7 +62,7 @@ These options control the planner, memory, output directory, and Dashboard.
      - Artifact directory; the environment generates the default name.
    * - ``--memory-profile``
      - ``—``
-     - Evaluation normally defaults to ``hf``; exploration and WAM evaluation use ``local``.
+     - Evaluation normally defaults to ``hf``; BEHAVIOR, exploration, and WAM evaluation use ``local``.
    * - ``--memory-dir``
      - ``—``
      - Local memory directory; use with the local profile or exploration.
@@ -96,7 +96,12 @@ Environment Options
 
 LIBERO selects tasks with ``--suite``, ``--task``, ``--seed``, and ``--libero-type``; the variant defaults to ``LIBERO_TYPE`` or ``pro``. RoboCasa365 and RoboTwin use ``--task-name``. Franka uses ``--task-id`` and ``--robot-config``. See :doc:`../simulators/libero`, :doc:`../simulators/robocasa`, :doc:`../simulators/robotwin`, :doc:`../real_world_robots/franka`, and :doc:`../real_world_robots/dual_franka` for details.
 
-``--env-endpoint``, ``--am-endpoint``, and LIBERO’s ``--sam3-endpoint`` connect to existing environment, action-model (VLA or WAM), and SAM3 services respectively. RPent RPC addresses use ``[protocol://]host:port``, defaulting to ``http``. LingBot uses native WebSocket; see :doc:`../simulators/robotwin`. See :doc:`advanced_deployment` for GPU assignment and remote services.
+``--env-endpoint``, ``--am-endpoint``, and ``--sam3-endpoint`` (where supported,
+including LIBERO and BEHAVIOR) connect to existing environment, action-model
+(VLA or WAM), and SAM3 services respectively. RPent RPC addresses use
+``[protocol://]host:port``, defaulting to ``http``. LingBot uses native WebSocket;
+see :doc:`../simulators/robotwin`. See :doc:`advanced_deployment` for GPU
+assignment and remote services.
 
 ``--am-backend`` selects one action model supported by the platform. LIBERO
 defaults to ``pi05`` and RoboTwin to ``lingbot``. VLA and WAM share

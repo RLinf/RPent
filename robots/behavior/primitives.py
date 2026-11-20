@@ -33,10 +33,11 @@ from pydantic import Field
 from robots.behavior.motion import (
     MAX_SINGLE_ARM_REPOSITION_M as MAX_MOVE_TO_REPOSITION_M,
 )
+from robots.behavior.observation import valid_observation_token
 from robots.behavior.tools import (
     decode_robot_state,
     extract_public_proprio,
-    prepare_behavior_observation,
+    policy_observation,
 )
 from rpent.tools import ToolResult, tool
 from rpent.utils.rpc.rpc_client import RpcError
@@ -315,13 +316,14 @@ class BehaviorPrimitives:
     # Shared execution and measured hold state.
 
     def _ended(self) -> bool:
-        if self._session_ended:
-            return True
-        # Injected environments may omit the optional session-status RPC.
-        status_reader = getattr(self.env, "get_session_status", None)
-        if callable(status_reader):
-            self._session_ended = status_reader()["ended"]
+        if not self._session_ended:
+            self._session_ended = self.env.get_session_status()["ended"]
         return self._session_ended
+
+    def _invalidate_command_history(self) -> None:
+        """Require explicit recovery after a possibly issued or malformed action."""
+        self._last_issued_action = None
+        self._command_history_unknown = True
 
     def _send_actions(
         self, actions: np.ndarray, *, expected_observation_token: dict | None = None
@@ -329,10 +331,9 @@ class BehaviorPrimitives:
         """Retain only a known issued command; failed RPCs leave its value unknown."""
         previous = self._last_issued_action
         previously_unknown = self._command_history_unknown
-        self._last_issued_action = None
         # A transport error may occur after the simulator has received actions.
         # Never turn that uncertainty into a new measured-position hold target.
-        self._command_history_unknown = True
+        self._invalidate_command_history()
         kwargs = (
             {"expected_observation_token": expected_observation_token}
             if expected_observation_token is not None
@@ -381,8 +382,7 @@ class BehaviorPrimitives:
         fresh = info.get("observation_after_last_issued_action")
         if errors:
             counts = dict.fromkeys(COUNT_NAMES)
-            self._last_issued_action = None
-            self._command_history_unknown = True
+            self._invalidate_command_history()
             self.last_observation = previous_observation
             fresh = False
         return {
@@ -495,10 +495,7 @@ class BehaviorPrimitives:
                     else "episode_ended",
                 )
                 return ToolResult(data=data)
-            snapshot_reader = getattr(self.env, "get_motion_snapshot", None)
-            if not callable(snapshot_reader):
-                raise ValueError("move_base requires the atomic public motion snapshot")
-            snapshot = snapshot_reader()
+            snapshot = self.env.get_motion_snapshot()
             expected = validate_observation_token(snapshot["observation_token"])
             context = snapshot["motion_context"]
             self.last_observation = snapshot["observation"]
@@ -635,8 +632,7 @@ class BehaviorPrimitives:
                 TypeError,
                 ValueError,
             ) as error:
-                self._command_history_unknown = True
-                self._last_issued_action = None
+                self._invalidate_command_history()
                 data.update(dict.fromkeys(COUNT_NAMES))
                 data.update(
                     error=str(error),
@@ -646,8 +642,9 @@ class BehaviorPrimitives:
                 )
                 break
 
-            for name, count in counters.items():
-                data[name] += count
+            data.update(
+                MotionCallLedger.total((prefix, {"requested_actions": 1, **counters}))
+            )
             fresh = info.get("observation_after_last_issued_action") is True
             self._session_ended = info.get("stop_reason") == "session_ended"
             data.update(
@@ -670,8 +667,7 @@ class BehaviorPrimitives:
                         "base feedback is not bound to the confirmed frame"
                     )
             except (TypeError, ValueError) as error:
-                self._command_history_unknown = True
-                self._last_issued_action = None
+                self._invalidate_command_history()
                 data.update(
                     error=str(error),
                     stop_reason="invalid_execution_feedback",
@@ -681,8 +677,7 @@ class BehaviorPrimitives:
             confirmed = counters["confirmed_actions"] == 1 and fresh
             if not confirmed:
                 if counters["issued_actions"] or fresh:
-                    self._command_history_unknown = True
-                    self._last_issued_action = None
+                    self._invalidate_command_history()
                 data.update(
                     error="base action lacks its confirmed fresh observation",
                     stop_reason="session_ended"
@@ -697,8 +692,7 @@ class BehaviorPrimitives:
                     observation, info, expected, previous_proprio, task_id=self.task_id
                 )
             except (KeyError, TypeError, ValueError) as error:
-                self._command_history_unknown = True
-                self._last_issued_action = None
+                self._invalidate_command_history()
                 data.update(
                     error=f"invalid public base feedback: {error}",
                     stop_reason="invalid_public_observation",
@@ -762,13 +756,12 @@ class BehaviorPrimitives:
                 "instruction_mode=main requires the full configured task instruction; "
                 "omit prompt or pass that exact text"
             )
-        submitted = 0
-        counts: dict[str, int | None] = dict.fromkeys(COUNT_NAMES, 0)
+        totals = {"requested_actions": 0, **dict.fromkeys(COUNT_NAMES, 0)}
         failure: dict[str, Any] = {}
         observation_fresh: bool | None = None
         stop_reason = "requested_chunks_returned"
         for _ in range(chunks):
-            prefix = {"requested_actions": submitted, **counts}
+            prefix = dict(totals)
             previous_observation = self.last_observation
             pending = False
             phase = "preparation"
@@ -783,33 +776,24 @@ class BehaviorPrimitives:
                     break
                 phase = "observation"
                 self.last_observation = self.env.get_observation()
-                observation = prepare_behavior_observation(
+                observation = policy_observation(
                     self.last_observation,
                     task_id=self.task_id,
-                    task_language=self.task_language,
+                    task_language=instruction,
                 )
                 phase = "prediction"
-                actions = self.model.predict(
-                    {
-                        **observation["policy_observation"],
-                        "task_descriptions": instruction,
-                    }
-                )[: self.execution_horizon]
+                actions = self.model.predict(observation)[: self.execution_horizon]
                 self._check_cancelled()
                 phase = "execution"
-                submitted += len(actions)
+                totals["requested_actions"] += len(actions)
                 pending = True
                 info = self._accept_execution(self._send_actions(actions))
                 segment, errors = _action_counts(info, len(actions))
                 if errors:
                     raise ValueError("; ".join(errors))
-                for key, total in counts.items():
-                    value = segment[key]
-                    counts[key] = (
-                        total + value
-                        if total is not None and value is not None
-                        else None
-                    )
+                totals = MotionCallLedger.total(
+                    (prefix, {"requested_actions": len(actions), **segment})
+                )
                 pending = False
                 observation_fresh = info.get("observation_after_last_issued_action")
                 if self._session_ended:
@@ -823,12 +807,11 @@ class BehaviorPrimitives:
                     stop_reason = "partial_execution"
                     break
             except Exception as error:
-                if submitted == 0:
+                if totals["requested_actions"] == 0:
                     raise
                 if pending:
-                    counts = dict.fromkeys(COUNT_NAMES)
-                    self._command_history_unknown = True
-                    self._last_issued_action = None
+                    totals.update(dict.fromkeys(COUNT_NAMES))
+                    self._invalidate_command_history()
                     failure["known_execution_before_failure"] = prefix
                 if previous_observation is not None:
                     self.last_observation = previous_observation
@@ -851,8 +834,7 @@ class BehaviorPrimitives:
         return ToolResult(
             data={
                 "requested_chunks": chunks,
-                "requested_actions": submitted,
-                **counts,
+                **totals,
                 "observation_fresh": observation_fresh,
                 "observation_after_last_issued_action": observation_fresh,
                 "session_ended": self._session_ended,
@@ -1306,8 +1288,7 @@ class BehaviorPrimitives:
                 ):
                     ledger.preflight["status"] = "execution_outcome_unknown"
                     ledger.submissions[-1]["observation_fresh"] = False
-                    self._command_history_unknown = True
-                    self._last_issued_action = None
+                    self._invalidate_command_history()
                 # The native Toolkit catches these exceptions but otherwise
                 # drops action counters. Return the real spent/unknown prefix
                 # and keep its cancellation flag; never submit or retry again.
@@ -1398,8 +1379,7 @@ class BehaviorPrimitives:
         except (KeyError, TypeError, ValueError) as error:
             ledger.preflight["status"] = "feedback_invalid"
             ledger.submissions[-1]["observation_fresh"] = False
-            self._command_history_unknown = True
-            self._last_issued_action = None
+            self._invalidate_command_history()
             return _unissued(
                 error=str(error),
                 code="initial_sampling_unconfirmed",
@@ -1557,8 +1537,7 @@ class BehaviorPrimitives:
                     returned[0] if isinstance(returned, list) else returned
                 )
             else:
-                self._command_history_unknown = True
-                self._last_issued_action = None
+                self._invalidate_command_history()
                 report["status"] = "hold_unconfirmed"
                 return report
             if info.get("stop_reason") == "session_ended":
@@ -1613,19 +1592,12 @@ class BehaviorPrimitives:
                 if ended
                 else ("terminated" if self._terminated else "truncated"),
             )
-        planner = getattr(self.env, "plan_arm_path", None)
-        snapshot_reader = getattr(self.env, "get_motion_snapshot", None)
-        if not callable(planner) or not callable(snapshot_reader):
-            return _unissued(
-                error="the Env bridge requires a native arm planner and atomic motion snapshots",
-                code="motion_planner_unavailable",
-            )
         if self._command_history_unknown:
             return _unissued(
                 error="previous action execution is unknown; inspect the transport before sending another motion",
                 code="command_state_unknown",
             )
-        snapshot = snapshot_reader()
+        snapshot = self.env.get_motion_snapshot()
         target = None
         relax = _delta_yaw_deg is None and (quat is None or _delta_xyz is not None)
         try:
@@ -1673,7 +1645,7 @@ class BehaviorPrimitives:
             return target
         self._move_call_ledger.target_pose = target.tolist()
         token = snapshot["observation_token"]
-        planned = planner(
+        planned = self.env.plan_arm_path(
             arm=arm,
             target_pose=target,
             expected_observation_token=token,
@@ -1722,7 +1694,7 @@ class BehaviorPrimitives:
                 session_ended=True,
                 observation_fresh=False,
             )
-        current = snapshot_reader()
+        current = self.env.get_motion_snapshot()
         self.last_observation = current["observation"]
         if current["observation_token"] != token:
             self._move_call_ledger.observation_invalidated_by_newer_snapshot = True
@@ -1762,7 +1734,7 @@ class BehaviorPrimitives:
         at_target = None
         # Send the native path once. Each later submission is exactly its final
         # native23 command, including every locked joint and both grippers.
-        # Reading an observation alone would not advance the official evaluator.
+        # Reading an observation alone does not advance the simulator.
         for hold_index in range(settle_steps + 1):
             self._check_cancelled()  # Never convert toolkit cancellation to a retry.
             submitted = actions if hold_index == 0 else final_target
@@ -1947,12 +1919,7 @@ def validate_base_request(
 
 
 def validate_observation_token(value: Any) -> dict[str, int]:
-    keys = {"generation", "observation_index"}
-    if (
-        not isinstance(value, dict)
-        or set(value) != keys
-        or any(type(value[key]) is not int or value[key] < 0 for key in keys)
-    ):
+    if not valid_observation_token(value):
         raise ValueError("motion token must identify one public observation")
     return dict(value)
 

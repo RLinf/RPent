@@ -18,7 +18,6 @@ from __future__ import annotations
 
 import math
 import sys
-import xml.etree.ElementTree as ET
 from copy import deepcopy
 from types import ModuleType, SimpleNamespace
 
@@ -46,146 +45,150 @@ from tests.unit_tests.robots.behavior.conftest import (
 )
 
 
-@pytest.fixture
-def official_assets(tmp_path, monkeypatch):
-    """Small synthetic robot in the official directory layout, never a download."""
-    asset_root = tmp_path / "omnigibson-robot-assets"
-    model_dir = asset_root / "models/r1pro"
-    (model_dir / "urdf").mkdir(parents=True)
-    (model_dir / "curobo").mkdir()
-    (asset_root / "VERSION").write_text("3.8.2")
-    root = ET.Element("robot", name="fixture")
-    ET.SubElement(root, "link", name="base_link")
+class _NativeRobot:
+    """Loaded robot double; getters never move its joints or episode clock."""
 
-    def joint(name, parent, child, *, finger=False, fixed=False):
-        ET.SubElement(root, "link", name=child)
-        node = ET.SubElement(
-            root,
-            "joint",
-            name=name,
-            type="fixed" if fixed else "prismatic" if finger else "revolute",
-        )
-        ET.SubElement(node, "parent", link=parent)
-        ET.SubElement(node, "child", link=child)
-        ET.SubElement(node, "origin", xyz="0 0 0.1", rpy="0 0 0")
-        ET.SubElement(node, "axis", xyz="0 1 0")
-        ET.SubElement(
-            node,
-            "limit",
-            lower="0" if finger else "-3",
-            upper="0.05" if finger else "3",
-            velocity="1",
-            effort="1",
-        )
+    model = "r1pro"
+    usd_path = "/native/r1pro.usd"
+    eef_link_names = {"left": "left_eef_link", "right": "right_eef_link"}
 
-    parent = "base_link"
-    for i in range(1, 5):
-        joint(f"torso_joint{i}", parent, f"torso_link{i}")
-        parent = f"torso_link{i}"
-    for arm in ("left", "right"):
-        parent = "torso_link4"
-        for i in range(1, 8):
-            joint(f"{arm}_arm_joint{i}", parent, f"{arm}_arm_link{i}")
-            parent = f"{arm}_arm_link{i}"
-        joint(f"{arm}_gripper_joint", parent, f"{arm}_gripper_link", fixed=True)
-        for i in (1, 2):
-            joint(
-                f"{arm}_gripper_finger_joint{i}",
-                f"{arm}_gripper_link",
-                f"{arm}_gripper_finger_link{i}",
-                finger=True,
+    def __init__(self, path):
+        names = [
+            f"base_footprint_{axis}_joint" for axis in ("x", "y", "z", "rx", "ry", "rz")
+        ]
+        names += list(R1ProMotionModel.joint_positions(np.zeros(61)))
+        self.joints = {
+            name: SimpleNamespace(
+                lower_limit=0.0 if "finger" in name else -3.0,
+                upper_limit=0.05 if "finger" in name else 3.0,
+                max_velocity=1.0,
             )
-    for i in (1, 2, 3):
-        joint(f"steer_motor_joint{i}", "base_link", f"steer_motor_link{i}")
-        joint(f"wheel_motor_joint{i}", f"steer_motor_link{i}", f"wheel_motor_link{i}")
-    ET.ElementTree(root).write(model_dir / "urdf/r1pro.urdf")
-    names = [node.get("name") for node in root.findall("link")]
-    config = {
-        "collision_spheres": {
-            name: [{"center": [0, 0, 0.005], "radius": 0.02}]
             for name in names
-            if not name.startswith("steer_")
-        },
-        "collision_link_names": names + ["attached_object_left_eef_link"],
-        "self_collision_ignore": {
-            "base_link": [
-                "torso_link1",
-                "wheel_motor_link1",
-                "attached_object_left_eef_link",
-            ]
-        },
-        "collision_sphere_buffer": 0.002,
-        "self_collision_buffer": {"base_link": 0.02},
-        "use_global_cumul": True,
-        "cspace": {"max_acceleration": 15, "max_jerk": 500},
-    }
-    (model_dir / "curobo/r1pro_description_curobo_arm_no_torso.yaml").write_text(
-        yaml.safe_dump({"robot_cfg": {"kinematics": config}})
-    )
-    monkeypatch.setenv("OMNIGIBSON_DATA_PATH", str(tmp_path))
-    return model_dir
+        }
+        self.proprio = np.zeros(61)
+        self.base_positions = np.arange(6, dtype=float) * 0.1
+        self.world_pose = (np.zeros(3), np.array([0.0, 0.0, 0.0, 1.0]))
+        self.solver_pose = (np.zeros(3), np.array([0.0, 0.0, 0.0, 1.0]))
+        self.links = {
+            "base_footprint_x": SimpleNamespace(
+                get_position_orientation=lambda: self.solver_pose
+            )
+        }
+        self.curobo_path = {"arm": str(path)}
+
+    def get_joint_positions(self):
+        return np.r_[
+            self.base_positions,
+            list(R1ProMotionModel.joint_positions(self.proprio).values()),
+        ]
+
+    def get_position_orientation(self):
+        return self.world_pose
+
+    def get_relative_eef_pose(self, arm):
+        return np.array([0.0, 0.0, 1.14]), np.array([0.0, 0.0, 0.0, 1.0])
 
 
 @pytest.fixture
-def motion_model(official_assets):
-    model = R1ProMotionModel()
+def native_robot(tmp_path):
+    path = tmp_path / "r1pro_arm.yaml"
+    path.write_text(
+        yaml.safe_dump(
+            {
+                "robot_cfg": {
+                    "kinematics": {
+                        "base_link": "base_footprint_x",
+                        "ee_link": "left_eef_link",
+                        "link_names": ["right_eef_link"],
+                        "collision_spheres": {
+                            "left_arm_link1": [{"center": [0, 0, 0], "radius": 0.02}],
+                            "right_arm_link1": [{"center": [0, 0, 0], "radius": 0.02}],
+                        },
+                        "collision_link_names": ["left_arm_link1", "right_arm_link1"],
+                        "self_collision_ignore": {"base_link": ["torso_link1"]},
+                        "lock_joints": {},
+                        "cspace": {"max_acceleration": 15, "max_jerk": 500},
+                    }
+                }
+            }
+        )
+    )
+    return _NativeRobot(path)
+
+
+@pytest.fixture
+def motion_model(native_robot):
+    model = R1ProMotionModel(lambda: native_robot)
     yield model
     model.close()
 
 
-def test_official_assets_are_adapted_without_modifying_sources(
-    motion_model, official_assets
-):
-    original = {
-        path: path.read_bytes() for path in official_assets.rglob("*") if path.is_file()
-    }
-    state = np.zeros(61)
-    assert motion_model.asset_version == "3.8.2"
+@pytest.mark.parametrize("arm", ["left", "right"])
+def test_native_config_limits_and_locks_preserve_official_geometry(motion_model, arm):
+    robot = motion_model.robot
+    path = next(iter(robot.curobo_path.values()))
+    from pathlib import Path
+
+    original = Path(path).read_bytes()
+    config = motion_model.robot_config(arm, robot.proprio)["kinematics"]
+    active = [f"{arm}_arm_joint{i}" for i in range(1, 8)]
+    assert config["cspace"]["joint_names"] == active
+    assert config["ee_link"] == f"{arm}_eef_link"
+    assert config["use_usd_kinematics"] is True
+    assert len(config["lock_joints"]) == 21
+    assert set(config["lock_joints"]) == set(robot.joints) - set(active)
+    assert config["lock_joints"]["base_footprint_rz_joint"] == 0.5
+    source = yaml.safe_load(original)["robot_cfg"]["kinematics"]
+    assert config["collision_spheres"] == source["collision_spheres"]
+    assert config["self_collision_ignore"] == source["self_collision_ignore"]
+    assert Path(path).read_bytes() == original
     np.testing.assert_array_equal(
-        motion_model.joint_limits("left"), np.tile([-3, 3], (7, 1))
+        motion_model.joint_limits(arm), np.tile([-3, 3], (7, 1))
     )
-    # Twelve fixture joints contribute 0.1 m each, then the official EEF offset.
-    np.testing.assert_allclose(
-        motion_model.forward("left", state)["position"], [0, 0, 1.14]
+    robot.joints[active[0]].max_velocity = 0.3
+    assert motion_model.velocity_limits(arm)[0] == 0.3
+
+
+def test_motion_model_requires_native_provider_and_rebinds_after_scene_rebuild(
+    native_robot, tmp_path
+):
+    with pytest.raises(TypeError, match="get_robot"):
+        R1ProMotionModel(native_robot)
+    current = [native_robot]
+    model = R1ProMotionModel(lambda: current[0])
+    assert model.robot is native_robot
+    model._generators[("left", "cuda:0")] = object()
+    current[0] = _NativeRobot(next(iter(native_robot.curobo_path.values())))
+    assert model.robot is current[0]
+    assert model._generators == {}
+    model.close()
+
+
+def test_native_model_rejects_stale_public_joint_snapshot(motion_model):
+    state = motion_model.robot.proprio.copy()
+    state[28] = 0.1
+    with pytest.raises(ValueError, match="snapshot differs"):
+        motion_model.robot_config("left", state)
+
+
+def test_solver_frame_transform_uses_actual_robot_and_native_base_poses(motion_model):
+    robot = motion_model.robot
+    robot.world_pose = (
+        np.array([2.0, -1.0, 0.3]),
+        Rotation.from_euler("z", 0.6).as_quat(),
     )
-    config = motion_model.robot_config("left", state)["kinematics"]
-    assert config["cspace"]["joint_names"] == [
-        f"left_arm_joint{i}" for i in range(1, 8)
+    robot.solver_pose = (
+        np.array([0.2, 0.1, 0.0]),
+        Rotation.from_euler("z", -0.3).as_quat(),
+    )
+    goal = np.r_[
+        [0.4, -0.2, 0.9], Rotation.from_euler("xyz", [0.1, 0.2, 0.3]).as_quat()
     ]
-    assert len(config["lock_joints"]) == 15
-    assert config["self_collision_ignore"]["base_link"] == ["torso_link1"]
-    assert not any(
-        "wheel" in name or "attached" in name for name in config["collision_link_names"]
+    native = motion_model.transform_pose(goal, to_solver=True)
+    assert not np.allclose(native[:3], goal[:3])
+    np.testing.assert_allclose(
+        motion_model.transform_pose(native, to_solver=False), goal, atol=1e-12
     )
-    assert len(config["collision_spheres"]["base_link"]) == 4
-    assert config["collision_spheres"]["base_link"][-1]["radius"] == pytest.approx(
-        0.025
-    )
-    temporary = motion_model.urdf_path
-    assert not temporary.is_relative_to(official_assets)
-    motion_model.close()
-    assert not temporary.exists()
-    assert all(path.read_bytes() == content for path, content in original.items())
-
-
-@pytest.mark.parametrize("value", [None, "relative/data"])
-def test_motion_assets_require_an_explicit_absolute_data_path(monkeypatch, value):
-    monkeypatch.delenv("OMNIGIBSON_DATA_PATH", raising=False)
-    if value is not None:
-        monkeypatch.setenv("OMNIGIBSON_DATA_PATH", value)
-    with pytest.raises(ValueError, match="OMNIGIBSON_DATA_PATH"):
-        R1ProMotionModel()
-
-
-def test_missing_or_unsupported_official_assets_explain_the_problem(official_assets):
-    version = official_assets.parents[1] / "VERSION"
-    version.write_text("0.0.0")
-    with pytest.raises(ValueError, match="Unsupported robot asset version"):
-        R1ProMotionModel()
-    version.write_text("3.8.2")
-    (official_assets / "urdf/r1pro.urdf").unlink()
-    with pytest.raises(FileNotFoundError, match="r1pro.urdf"):
-        R1ProMotionModel()
 
 
 def test_physical_joint_map_uses_public_positions():
@@ -222,13 +225,13 @@ def motion_context(state, previous=None):
 @pytest.fixture
 def planning_request(motion_model):
     planner = R1ProMotionPlanner(model=motion_model, task_id=40)
-    proprio = np.zeros(61)
+    proprio = motion_model.robot.proprio
     proprio[24:26] = 0.05
     proprio[49:51] = 0.025
     for arm, offset in (("left", 17), ("right", 42)):
-        pose = planner.model.forward(arm, proprio)
-        proprio[offset : offset + 3] = pose["position"]
-        proprio[offset + 3 : offset + 7] = pose["quaternion_xyzw"]
+        position, quaternion = planner.model.robot.get_relative_eef_pose(arm)
+        proprio[offset : offset + 3] = position
+        proprio[offset + 3 : offset + 7] = quaternion
     raw = {
         "r1::proprio": proprio,
         "r1::cam_rel_poses": np.tile([0, 0, 0, 0, 0, 0, 1], 3),
@@ -291,9 +294,7 @@ def test_invalid_finger_geometry_is_rejected_before_ik(planning_request, monkeyp
 def _fake_curobo(monkeypatch):
     modules = {
         "curobo.types.math": {"Pose": SimpleNamespace},
-        "curobo.rollout.cost.pose_cost": {
-            "PoseCostMetric": lambda **kwargs: SimpleNamespace(**kwargs)
-        },
+        "curobo.rollout.cost.pose_cost": {"PoseCostMetric": _PoseCostMetric},
     }
     for name, attributes in modules.items():
         parts = name.split(".")
@@ -306,9 +307,18 @@ def _fake_curobo(monkeypatch):
         monkeypatch.setitem(sys.modules, name, module)
 
 
+class _PoseCostMetric(SimpleNamespace):
+    @classmethod
+    def reset_metric(cls):
+        return cls(reach_partial_pose=False, reach_full_pose=True)
+
+
 class _Tensor:
     def __init__(self, values):
         self.values = np.asarray(values)
+
+    def clone(self):
+        return _Tensor(self.values.copy())
 
     def detach(self):
         return self
@@ -327,6 +337,8 @@ class _IKSolver:
 
     def __init__(self, target, start_q, relaxed_wxyz=None, relaxed_success=True):
         self.target = target
+        self.primary_arm = "left"
+        self.other_pose = target.copy()
         self.target_q = start_q
         self.relaxed_wxyz = relaxed_wxyz
         self.relaxed_success = relaxed_success
@@ -343,14 +355,42 @@ class _IKSolver:
             return SimpleNamespace(
                 ee_position=_Tensor(self.target[:3]),
                 ee_quaternion=_Tensor(self.target[[6, 3, 4, 5]]),
+                link_poses={
+                    f"{arm}_eef_link": SimpleNamespace(
+                        position=_Tensor(
+                            (
+                                self.target
+                                if arm == self.primary_arm
+                                else self.other_pose
+                            )[:3].copy()
+                        ),
+                        quaternion=_Tensor(
+                            (
+                                self.target
+                                if arm == self.primary_arm
+                                else self.other_pose
+                            )[[6, 3, 4, 5]].copy()
+                        ),
+                    )
+                    for arm in ("left", "right")
+                },
             )
         return SimpleNamespace(
             ee_position=_Tensor(self.target[:3]),
             ee_quaternion=_Tensor(self.relaxed_wxyz),
         )
 
-    def solve_single(self, goal, seed_config=None, return_seeds=1):
-        relaxed = self.metric is not None
+    def solve_single(self, goal, seed_config=None, return_seeds=1, link_poses=None):
+        other = "right_eef_link" if self.primary_arm == "left" else "left_eef_link"
+        assert link_poses is not None
+        assert set(link_poses) == {other}
+        np.testing.assert_allclose(
+            link_poses[other].position.values, self.other_pose[:3]
+        )
+        np.testing.assert_allclose(
+            link_poses[other].quaternion.values, self.other_pose[[6, 3, 4, 5]]
+        )
+        relaxed = bool(getattr(self.metric, "reach_partial_pose", False))
         goal_q = np.asarray(seed_config).reshape(7) + (0.002 if relaxed else 0.001)
         success = (relaxed and self.relaxed_success) or self.relaxed_wxyz is None
         return SimpleNamespace(
@@ -395,6 +435,7 @@ def test_relaxed_orientation_retry_is_reported_not_hidden(
         motion_context=context,
         allow_orientation_relax=True,
     )
+    assert solver.metric.reach_partial_pose is False
     if not relaxed_success:
         assert relaxed["status"] == "Failed"
         assert relaxed["orientation_relax_attempted"] is True
@@ -405,6 +446,207 @@ def test_relaxed_orientation_retry_is_reported_not_hidden(
         assert relaxed["orientation_relaxed"] is True
         assert relaxed["ik_orientation_error_rad"] == pytest.approx(np.pi / 2, abs=1e-6)
         assert relaxed["target_pose"] == target.tolist()
+
+
+@pytest.mark.parametrize("arm", ["left", "right"])
+def test_cached_warmup_link_goal_is_replaced_and_owns_its_fk_snapshot(
+    planning_request, monkeypatch, arm
+):
+    planner, raw, _ = planning_request
+    state = raw["r1::proprio"]
+    offset, other_offset = (17, 42) if arm == "left" else (42, 17)
+    qpos = state[3:10] if arm == "left" else state[28:35]
+    target = state[offset : offset + 7].copy()
+    solver = _IKSolver(target, qpos)
+    solver.primary_arm = arm
+    other = "right_eef_link" if arm == "left" else "left_eef_link"
+    _fake_curobo(monkeypatch)
+    monkeypatch.setattr(planner, "_ik_solver", lambda *args: solver)
+    # Model the native solver's persistent warmup goal: None would retain it.
+    cached = {"position": np.full(3, 7.0), "original_fk": None}
+    original_fk, original_solve = solver.fk, solver.solve_single
+
+    def fk(q):
+        result = original_fk(q)
+        cached["original_fk"] = result.link_poses[other]
+        return result
+
+    def solve(*args, **kwargs):
+        links = kwargs.get("link_poses")
+        if links is not None:
+            cached["position"] = links[other].position.values.copy()
+        result = original_solve(*args, **kwargs)
+        result.success[:] = np.allclose(cached["position"], solver.other_pose[:3])
+        # Native FK uses reusable buffers. Optimizing another candidate must
+        # not move the already-supplied goal for the locked opposite arm.
+        cached["original_fk"].position.values[:] += 2
+        np.testing.assert_allclose(links[other].position.values, solver.other_pose[:3])
+        return result
+
+    monkeypatch.setattr(solver, "fk", fk)
+    monkeypatch.setattr(solver, "solve_single", solve)
+    for x_shift in (0.0, 0.012):
+        state[other_offset] = target[0] + x_shift
+        solver.other_pose = state[other_offset : other_offset + 7].copy()
+        plan = planner.plan_arm_path(
+            arm=arm,
+            target_pose=target,
+            observation=raw,
+            motion_context=motion_context(state),
+        )
+        assert plan["status"] == "Success"
+        np.testing.assert_allclose(cached["position"], solver.other_pose[:3])
+
+
+def test_native_ik_cache_updates_locks_and_rebuilds_after_reset(
+    native_robot, monkeypatch
+):
+    from pathlib import Path
+
+    current = [native_robot]
+    model = R1ProMotionModel(lambda: current[0])
+    created = []
+
+    class Generator:
+        def __init__(self, robot, **kwargs):
+            self.robot = robot
+            self.path = kwargs["robot_cfg_path"]
+            self.config = yaml.safe_load(Path(self.path).read_text())["robot_cfg"][
+                "kinematics"
+            ]
+            self.mg = {
+                "default": SimpleNamespace(
+                    ik_solver=SimpleNamespace(
+                        joint_names=self.config["cspace"]["joint_names"]
+                    )
+                )
+            }
+            self.updates = []
+            created.append(self)
+
+        def update_locked_joints(self, state, embodiment):
+            assert embodiment == "default"
+            self.updates.append(np.array(state.position, copy=True))
+
+    modules = {
+        "torch": {
+            "as_tensor": lambda x, **kwargs: np.asarray(x),
+            "float32": np.float32,
+        },
+        "curobo.types.state": {
+            "JointState": lambda **kwargs: SimpleNamespace(**kwargs)
+        },
+        "omnigibson.action_primitives.curobo": {
+            "CuRoboEmbodimentSelection": SimpleNamespace(DEFAULT="default"),
+            "CuRoboMotionGenerator": Generator,
+        },
+    }
+    for name, values in modules.items():
+        parts = name.split(".")
+        for count in range(1, len(parts)):
+            package = ".".join(parts[:count])
+            if package not in sys.modules:
+                monkeypatch.setitem(sys.modules, package, ModuleType(package))
+        module = ModuleType(name)
+        module.__dict__.update(values)
+        monkeypatch.setitem(sys.modules, name, module)
+    solver = model.ik_solver("left", native_robot.proprio, "cpu")
+    first = created[0]
+    native_robot.proprio[28] = 0.3
+    native_robot.proprio[49:51] = [0.02, 0.03]
+    native_robot.base_positions[5] = 0.8
+    assert model.ik_solver("left", native_robot.proprio, "cpu") is solver
+    assert len(created) == 1 and len(first.updates) == 2
+    np.testing.assert_array_equal(
+        first.updates[-1][0], native_robot.get_joint_positions()
+    )
+    assert not np.array_equal(first.updates[0], first.updates[1])
+    previous_path = first.path
+    current[0] = _NativeRobot(next(iter(native_robot.curobo_path.values())))
+    assert model.ik_solver("left", current[0].proprio, "cpu") is not solver
+    assert created[1].robot is current[0]
+    assert not Path(previous_path).exists()
+    final_path = created[1].path
+    model.close()
+    assert not Path(final_path).exists()
+
+
+def test_curobo_opposite_arm_fk_disagreement_refuses_plan(
+    planning_request, monkeypatch
+):
+    planner, raw, target = planning_request
+    _fake_curobo(monkeypatch)
+    solver = _IKSolver(target, raw["r1::proprio"][3:10])
+    original_fk = solver.fk
+
+    def wrong_locked_geometry(q):
+        value = original_fk(q)
+        value.link_poses["right_eef_link"].position = _Tensor(target[:3] + [0.1, 0, 0])
+        return value
+
+    monkeypatch.setattr(solver, "fk", wrong_locked_geometry)
+    monkeypatch.setattr(planner, "_ik_solver", lambda *args: solver)
+    result = planner.plan_arm_path(
+        arm="left",
+        target_pose=target,
+        observation=raw,
+        motion_context=motion_context(raw["r1::proprio"]),
+    )
+    assert result["status"] == "Unavailable" and result["code"] == "curobo_fk_mismatch"
+    assert result["fk_comparison"]["source"] == "native_usd_curobo_fk"
+    assert result["fk_comparison"]["right"]["position_error_m"] == pytest.approx(0.1)
+
+
+def test_cached_pose_metric_is_reset_even_if_relaxed_solve_raises(
+    planning_request, monkeypatch
+):
+    planner, raw, target = planning_request
+    _fake_curobo(monkeypatch)
+    solver = _IKSolver(
+        target, raw["r1::proprio"][3:10], relaxed_wxyz=np.array([1, 0, 0, 0])
+    )
+    original_solve = solver.solve_single
+
+    def failing_relaxed_solve(*args, **kwargs):
+        if getattr(solver.metric, "reach_partial_pose", False):
+            raise RuntimeError("IK failed during relaxed retry")
+        return original_solve(*args, **kwargs)
+
+    monkeypatch.setattr(solver, "solve_single", failing_relaxed_solve)
+    monkeypatch.setattr(planner, "_ik_solver", lambda *args: solver)
+    with pytest.raises(RuntimeError, match="relaxed retry"):
+        planner.plan_arm_path(
+            arm="left",
+            target_pose=target,
+            observation=raw,
+            motion_context=motion_context(raw["r1::proprio"]),
+            allow_orientation_relax=True,
+        )
+    assert solver.metric.reach_partial_pose is False
+    strict = planner.plan_arm_path(
+        arm="left",
+        target_pose=target,
+        observation=raw,
+        motion_context=motion_context(raw["r1::proprio"]),
+    )
+    assert (
+        strict["status"] == "Failed" and strict["orientation_relax_attempted"] is False
+    )
+
+
+def test_path_cap_cannot_override_native_velocity_limit(planning_request, monkeypatch):
+    planner, raw, target = planning_request
+    _fake_curobo(monkeypatch)
+    solver = _IKSolver(target, raw["r1::proprio"][3:10])
+    monkeypatch.setattr(planner, "_ik_solver", lambda *args: solver)
+    planner.model.robot.joints["left_arm_joint1"].max_velocity = 1e-6
+    result = planner.plan_arm_path(
+        arm="left",
+        target_pose=target,
+        observation=raw,
+        motion_context=motion_context(raw["r1::proprio"]),
+    )
+    assert result["status"] == "Unavailable" and result["code"] == "path_too_long"
 
 
 @pytest.mark.parametrize("arm,other_gripper", [("left", 1), ("right", 1), ("left", -1)])

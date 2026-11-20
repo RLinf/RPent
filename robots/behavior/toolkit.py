@@ -104,7 +104,7 @@ class BehaviorToolkit(Toolkit):
                 continue
             if definition.name == "vla_act":
                 definition = self._configure_vla_tool(definition)
-            self.add_tool(definition.with_handler(partial(self._step, definition.name)))
+            self.add_tool(definition)
 
     def _configure_vla_tool(self, definition: Tool) -> Tool:
         """Expose the run's action limit in the same schema used for validation."""
@@ -136,10 +136,6 @@ class BehaviorToolkit(Toolkit):
             )
         return definition
 
-    def _step(self, name: str, **kwargs: Any) -> ToolResult:
-        self.raise_if_cancelled()
-        return getattr(self._primitives, name)(**kwargs)
-
     def get_env_state(
         self,
         *,
@@ -151,11 +147,15 @@ class BehaviorToolkit(Toolkit):
         if (
             result.get("session_ended")
             or result.get("observation_fresh") is False
+            or (
+                command.get("action") == "vla_act"
+                and result.get("observation_fresh") is True
+            )
             or result.get("observation_capture_source") == "motion_call_cache"
         ):
             raw = self._primitives.last_observation
             if raw is None:
-                raise RuntimeError("ended BEHAVIOR session has no cached observation")
+                raise RuntimeError("BEHAVIOR action has no cached observation")
         else:
             raw = self._primitives.env.get_observation()
             self._primitives.last_observation = raw

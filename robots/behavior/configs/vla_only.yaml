@@ -1,4 +1,5 @@
-# Set --task-id and --task-language for the selected official task.
+# Set --task-id; --task-language defaults to its official instruction.
+# Start the Env process with a separate RLinf --env-config and borrow its endpoint.
 # This is still a Planner-run agent: the Planner decides when to call vla_act
 # and finish. It is not a pure-VLA baseline with a fixed execution loop.
 control_mode: agent
@@ -6,7 +7,7 @@ instruction_mode: main
 execution_horizon: 32
 max_chunks_per_call: 1
 tool_allowlist: [view_env_state, vla_act, finish]
-# Match the Env service's default chunk_timeout_s=1200, including RPC overhead.
+# Allow long simulator or motion-planning requests without timing out the client.
 env_rpc_timeout_s: 1230
 env_endpoint: null
 vla_endpoint: null

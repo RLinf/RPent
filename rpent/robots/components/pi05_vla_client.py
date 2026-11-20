@@ -77,23 +77,21 @@ def _behavior_rgb(value: Any, role: str) -> np.ndarray:
 
 
 def _encode_obs_behavior(env_obs: dict) -> dict:
-    """Encode a BEHAVIOR frame in RLinf's three-view, padded R1Pro layout."""
+    """Pass through public RLinf frames or encode flattened simulator sensors."""
+    from robots.behavior.observation import (
+        CAMERA_SUFFIXES,
+        native_policy_observation,
+        sensor_key,
+    )
+
+    if "states" in env_obs:
+        return native_policy_observation(env_obs, env_obs.get("task_descriptions"))
+
     instruction = env_obs.get("task_descriptions")
     if not isinstance(instruction, str) or not instruction.strip():
         raise ValueError("BEHAVIOR task_descriptions must be a nonempty instruction")
 
-    def sensor(suffix: str) -> Any:
-        matches = [
-            value
-            for key, value in env_obs.items()
-            if isinstance(key, (str, bytes))
-            and (key.decode() if isinstance(key, bytes) else key).endswith(suffix)
-        ]
-        if len(matches) != 1:
-            raise ValueError(f"expected one BEHAVIOR sensor ending in {suffix!r}")
-        return matches[0]
-
-    proprio = np.asarray(sensor("::proprio"), dtype=np.float32)
+    proprio = np.asarray(env_obs[sensor_key(env_obs, "::proprio")], dtype=np.float32)
     if proprio.shape not in {(61,), (256,)} or not np.isfinite(proprio).all():
         raise ValueError(
             "expected a finite R1Pro proprio vector of shape (61,) or (256,), "
@@ -105,9 +103,10 @@ def _encode_obs_behavior(env_obs: dict) -> dict:
         state = np.zeros(256, dtype=np.float32)
         for source, target in _BEHAVIOR_STATE_SLICES:
             state[target] = proprio[source]
-    head = _behavior_rgb(sensor("zed_link:Camera:0::rgb"), "head")
-    left = _behavior_rgb(sensor("left_realsense_link:Camera:0::rgb"), "left wrist")
-    right = _behavior_rgb(sensor("right_realsense_link:Camera:0::rgb"), "right wrist")
+    head, left, right = (
+        _behavior_rgb(env_obs[sensor_key(env_obs, suffix + "::rgb")], role)
+        for role, suffix in CAMERA_SUFFIXES.items()
+    )
     return {
         "main_images": head[None],
         "wrist_images": np.stack((left, right))[None],

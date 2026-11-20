@@ -30,6 +30,12 @@ import numpy as np
 from pydantic import Field
 from scipy.spatial.transform import Rotation
 
+from robots.behavior.observation import (
+    CAMERA_SUFFIXES,
+    native_policy_observation,
+    public_proprio,
+    sensor_key,
+)
 from rpent.session import EnvState, StepRecord
 from rpent.tools import ToolResult, tool
 from rpent.utils.transforms import transform_points
@@ -41,11 +47,6 @@ if TYPE_CHECKING:
 # The public camera-pose slots follow evaluator.py::_preprocess_obs / r1pro.yaml.
 R1PRO_EVAL_CAMERA_ORDER = ("left_wrist", "right_wrist", "head")
 CAMERA_NAMES = ("head", "left_wrist", "right_wrist")
-_CAMERA_SUFFIXES = {
-    "head": "zed_link:Camera:0",
-    "left_wrist": "left_realsense_link:Camera:0",
-    "right_wrist": "right_realsense_link:Camera:0",
-}
 # Official CAMERA_INTRINSICS: native RGBDFullResWrapper and 224² DefaultWrapper.
 _INTRINSICS = {
     "head": (720, 306.0),
@@ -57,42 +58,26 @@ _INTRINSICS = {
 # Observation parsing and measured robot state.
 
 
+def _check_task_id(raw: dict[str, Any], task_id: int | None) -> None:
+    if task_id is None:
+        return
+    ids = [raw[key] for key in ("task_id", b"task_id") if key in raw]
+    if len(ids) > 1:
+        raise ValueError("duplicate observation key: task_id")
+    if ids and (np.size(ids[0]) != 1 or np.asarray(ids[0]).item() != task_id):
+        raise ValueError("observation task_id does not match the configured task")
+
+
 def extract_public_proprio(
     raw: dict[str, Any], *, task_id: int | None = None
 ) -> np.ndarray:
-    """Read public61 without cameras or array copies.
-
-    Accept one unbatched or single-slot vector with any robot prefix. Check
-    a received task ID when ``task_id`` is supplied. Treat the returned view
-    as read-only; copy it when retaining independent control-frame history.
-    """
-    if task_id is not None:
-        received_ids = [raw[key] for key in ("task_id", b"task_id") if key in raw]
-        if len(received_ids) > 1:
-            raise ValueError("duplicate observation key: task_id")
-        if received_ids:
-            received_id = np.asarray(received_ids[0])
-            if received_id.size != 1 or received_id.reshape(-1)[0] != task_id:
-                raise ValueError(
-                    "observation task_id does not match the configured task"
-                )
-    matches = [
-        value
-        for key, value in raw.items()
-        if (key.decode() if isinstance(key, bytes) else str(key)).endswith("::proprio")
-    ]
-    if len(matches) != 1:
-        raise ValueError("expected one public sensor ending in ::proprio")
-    state = np.asarray(matches[0])
+    """Read measured R1Pro joints from a native or flattened frame."""
+    _check_task_id(raw, task_id)
+    key = "states" if "states" in raw else sensor_key(raw, "::proprio")
+    state = np.asarray(raw[key])
     if state.shape == (1, 61):
         state = state[0]
-    if (
-        state.shape != (61,)
-        or state.dtype.kind not in "fiu"
-        or not np.isfinite(state).all()
-    ):
-        raise ValueError("public R1Pro state must contain one finite 61D proprio")
-    return state
+    return public_proprio(state)
 
 
 def decode_robot_state(proprio: Any) -> dict[str, Any]:
@@ -198,73 +183,78 @@ def build_camera_metadata(
 def prepare_behavior_observation(
     raw: dict[str, Any], *, task_id: int, task_language: str
 ) -> dict[str, Any]:
-    """Validate and normalize one official observation for tools and VLA input.
+    """Build a tool snapshot from one RLinf frame or a flattened BEHAVIOR observation."""
+    _check_task_id(raw, task_id)
+    if "states" in raw:
+        policy = native_policy_observation(raw, task_language)
+        images = (policy["main_images"][0], *policy["wrist_images"][0])
+        views = {
+            name: {"rgb": rgb} for name, rgb in zip(CAMERA_NAMES, images, strict=True)
+        }
+        if "main_depths" in raw or "extra_view_depths" in raw:
+            depths = (raw["main_depths"][0], *raw["extra_view_depths"][0])
+            for name, depth in zip(CAMERA_NAMES, depths, strict=True):
+                views[name]["depth"] = depth
+        proprio = policy["states"][0]
+    else:
+        proprio, views, policy = _flattened_observation(raw)
+    return {
+        "task_id": task_id,
+        "task_language": task_language,
+        "proprio": proprio,
+        "views": views,
+        "policy_observation": policy,
+    }
 
-    Arrays share the input buffers where possible and must be treated as
-    read-only. RGB views are made contiguous when their layout requires it.
 
-    Args:
-        raw: Flattened sensor fields, unbatched or with a single leading slot.
-        task_id: Configured BEHAVIOR task, checked against the received task ID.
-        task_language: Explicit task instruction from the run configuration.
+def policy_observation(raw: dict, *, task_id: int, task_language: str) -> dict:
+    """Build the local VLA request from the selected frame and instruction."""
+    _check_task_id(raw, task_id)
+    if "states" in raw:
+        return {key: raw[key] for key in ("main_images", "wrist_images", "states")} | {
+            "task_descriptions": [task_language]
+        }
+    _, _, policy = _flattened_observation(raw)
+    return {**policy, "task_descriptions": task_language}
 
-    Returns:
-        Three RGB views, optional raw depth/public camera metadata, proprioception
-        and a filtered, unbatched ``policy_observation`` with original field names.
 
-    Raises:
-        ValueError: A sensor is missing, ambiguous or has an unsupported shape.
-    """
-    values: dict[str, Any] = {}
-    for key, value in raw.items():
-        name = key.decode() if isinstance(key, bytes) else str(key)
-        if name in values:
-            raise ValueError(f"duplicate observation key: {name}")
-        values[name] = value
+def _flattened_observation(raw: dict) -> tuple[np.ndarray, dict, dict]:
+    values = {
+        key.decode() if isinstance(key, bytes) else str(key): v
+        for key, v in raw.items()
+    }
+    if len(values) != len(raw):
+        raise ValueError("duplicate observation key")
+    key = sensor_key(values, "::proprio")
+    batched = np.ndim(values[key]) == 2
 
-    def find_key(suffix: str) -> str:
-        matches = [key for key in values if key.endswith(suffix)]
-        if len(matches) != 1:
-            raise ValueError(f"expected one sensor ending in {suffix!r}: {matches}")
-        return matches[0]
+    def sensor(name: str) -> np.ndarray:
+        value = np.asarray(values[name])
+        if batched:
+            if value.shape[:1] != (1,):
+                raise ValueError(f"{name} must match the single-slot batch")
+            return value[0]
+        return value
 
-    proprio_key = find_key("::proprio")
-    proprio = np.asarray(values[proprio_key])
-    batched = proprio.ndim == 2
-    if batched:
-        if proprio.shape[0] != 1:
-            raise ValueError("BEHAVIOR supports one environment at a time")
-        proprio = proprio[0]
-    if proprio.ndim != 1 or proprio.size == 0 or not np.isfinite(proprio).all():
+    proprio = sensor(key)
+    if proprio.ndim != 1 or not proprio.size or not np.isfinite(proprio).all():
         raise ValueError("proprio must be a nonempty finite vector")
-
-    if "task_id" in values:
-        received_id = np.asarray(values["task_id"])
-        if received_id.size != 1 or received_id.reshape(-1)[0] != task_id:
-            raise ValueError("observation task_id does not match the configured task")
-
-    policy_observation: dict[str, Any] = {proprio_key: proprio}
-    pose_key = proprio_key.removesuffix("::proprio") + "::cam_rel_poses"
-    camera_poses = None
+    policy_state = np.asarray(values.get("policy_proprio", proprio))
+    if policy_state.shape not in ((61,), (256,)) or not np.isfinite(policy_state).all():
+        raise ValueError("policy proprio must be one finite 61D or 256D vector")
+    policy = {key: policy_state}
+    metadata = values.get("camera_metadata")
+    pose_key = key.removesuffix("::proprio") + "::cam_rel_poses"
+    poses = None
     if pose_key in values:
-        camera_poses = np.asarray(values[pose_key], dtype=np.float64)
-        if batched:
-            if camera_poses.shape != (1, 21):
-                raise ValueError(
-                    "cam_rel_poses must match the single-slot [1,21] batch"
-                )
-            camera_poses = camera_poses[0]
-        if camera_poses.shape != (21,) or not np.isfinite(camera_poses).all():
+        poses = sensor(pose_key)
+        if poses.shape != (21,) or not np.isfinite(poses).all():
             raise ValueError("cam_rel_poses must contain three finite xyz+xyzw poses")
-        camera_poses = camera_poses.reshape(3, 7)
-    views: dict[str, dict[str, Any]] = {}
-    for name, suffix in _CAMERA_SUFFIXES.items():
-        rgb_key = find_key(f"{suffix}::rgb")
-        rgb = np.asarray(values[rgb_key])
-        if batched:
-            if rgb.ndim != 4 or rgb.shape[0] != 1:
-                raise ValueError(f"{name} RGB must match the single-slot batch")
-            rgb = rgb[0]
+        poses = poses.reshape(3, 7)
+    views = {}
+    for name, suffix in CAMERA_SUFFIXES.items():
+        rgb_key = sensor_key(values, suffix + "::rgb")
+        rgb = sensor(rgb_key)
         if (
             rgb.ndim != 3
             or rgb.shape[-1] not in (3, 4)
@@ -272,51 +262,48 @@ def prepare_behavior_observation(
             or rgb.dtype != np.uint8
         ):
             raise ValueError(f"{name} RGB must be a uint8 HWC RGB/RGBA image")
-        policy_observation[rgb_key] = rgb
-        views[name] = {"rgb": np.ascontiguousarray(rgb[..., :3])}
+        policy[rgb_key] = rgb
+        view = {"rgb": np.ascontiguousarray(rgb[..., :3])}
+        depth_keys = [
+            k
+            for k in values
+            if k.endswith((suffix + "::depth", suffix + "::depth_linear"))
+        ]
+        if len(depth_keys) > 1:
+            raise ValueError(f"multiple depth definitions for {name}")
         depth_type = None
-        for depth_suffix in ("::depth", "::depth_linear"):
-            matches = [key for key in values if key.endswith(suffix + depth_suffix)]
-            if len(matches) > 1:
-                raise ValueError(f"ambiguous {name} depth sensor")
-            if not matches:
-                continue
-            if "depth" in views[name]:
-                raise ValueError(f"multiple depth definitions for {name}")
-            depth_key = matches[0]
-            depth = np.asarray(values[depth_key])
-            if batched:
-                if depth.ndim < 3 or depth.shape[0] != 1:
-                    raise ValueError(f"{name} depth must match the single-slot batch")
-                depth = depth[0]
-            native_depth = depth
+        if depth_keys:
+            depth_key = depth_keys[0]
+            depth = policy[depth_key] = sensor(depth_key)
             if depth.ndim == 3 and depth.shape[-1] == 1:
                 depth = depth[..., 0]
-            if depth.ndim != 2 or depth.shape != rgb.shape[:2]:
+            if depth.shape != rgb.shape[:2]:
                 raise ValueError(f"{name} depth dimensions must match RGB")
-            views[name]["depth"] = depth
-            policy_observation[depth_key] = native_depth
+            view["depth"] = depth
             depth_type = (
                 "distance_to_image_plane"
-                if depth_suffix == "::depth_linear"
+                if depth_key.endswith("::depth_linear")
                 else "distance_to_camera"
             )
-        if camera_poses is not None:
-            views[name]["camera_meta"] = build_camera_metadata(
+        if metadata is not None:
+            meta = metadata[name]
+            if (meta.get("height"), meta.get("width")) != rgb.shape[:2]:
+                raise ValueError(f"{name} camera metadata dimensions must match RGB")
+            if meta.get("depth_type") != depth_type:
+                raise ValueError(
+                    f"{name} camera metadata must match the depth annotator"
+                )
+            view["camera_meta"] = deepcopy(meta)
+        elif poses is not None:
+            view["camera_meta"] = build_camera_metadata(
                 name,
-                tuple(rgb.shape[:2]),
-                camera_poses[R1PRO_EVAL_CAMERA_ORDER.index(name)],
+                rgb.shape[:2],
+                poses[R1PRO_EVAL_CAMERA_ORDER.index(name)],
                 pose_source=pose_key,
                 depth_type=depth_type,
             )
-
-    return {
-        "task_id": task_id,
-        "task_language": task_language,
-        "proprio": proprio,
-        "views": views,
-        "policy_observation": policy_observation,
-    }
+        views[name] = view
+    return proprio, views, policy
 
 
 # Camera pixels and masks in the observed robot-base frame.
@@ -533,21 +520,22 @@ def save_observation_record(
 ) -> StepRecord:
     """Save a validated observation; record indexes do not count evaluator actions."""
     step_idx = 0 if env_state.latest_step is None else env_state.latest_step + 1
+    files: dict[str, np.ndarray] = {}
+
+    def artifact(name: str, value: np.ndarray) -> str:
+        files[name] = value
+        return str(env_state.artifact_path(name, step=step_idx))
+
     artifacts: dict[str, Any] = {
-        "proprio": str(env_state.artifact_path("proprio.npy", step=step_idx)),
+        "proprio": artifact("proprio.npy", snapshot["proprio"]),
         "views": {},
     }
     view_specs: dict[str, Any] = {}
     for name in CAMERA_NAMES:
         view = snapshot["views"][name]
         artifacts["views"][name] = {
-            field: str(
-                env_state.artifact_path(
-                    f"{name}_{field}.{'png' if field == 'rgb' else 'npy'}",
-                    step=step_idx,
-                )
-            )
-            for field in ("rgb", "depth")
+            field: artifact(f"{name}_{field}.{extension}", view[field])
+            for field, extension in (("rgb", "png"), ("depth", "npy"))
             if field in view
         }
         view_specs[name] = {"image_shape": list(view["rgb"].shape[:2])}
@@ -563,32 +551,19 @@ def save_observation_record(
         "artifacts": artifacts,
         "view_specs": view_specs,
     }
-    result = (log or {}).get("result") or {}
+    log = log or {}
+    result = log.get("result") or {}
     with env_state.record_step(
         state=state,
         terminated=result.get("terminated") is True,
         truncated=result.get("truncated") is True,
-        command=(log or {}).get("command"),
-        result=(log or {}).get("result"),
-        elapsed_s=(log or {}).get("elapsed_s"),
+        command=log.get("command"),
+        result=log.get("result"),
+        elapsed_s=log.get("elapsed_s"),
     ) as recorded_step:
-        if (
-            env_state.save("proprio.npy", snapshot["proprio"], step=recorded_step)
-            is None
-        ):
-            raise RuntimeError("failed to save BEHAVIOR proprio artifact")
-        for name in CAMERA_NAMES:
-            view = snapshot["views"][name]
-            for field in ("rgb", "depth"):
-                if field in view:
-                    artifact = f"{name}_{field}.{'png' if field == 'rgb' else 'npy'}"
-                    if (
-                        env_state.save(artifact, view[field], step=recorded_step)
-                        is None
-                    ):
-                        raise RuntimeError(
-                            f"failed to save BEHAVIOR artifact: {artifact}"
-                        )
+        for name, value in files.items():
+            if env_state.save(name, value, step=recorded_step) is None:
+                raise RuntimeError(f"failed to save BEHAVIOR artifact: {name}")
     return env_state.get(step_idx)
 
 
@@ -671,6 +646,23 @@ def read_robot_state(
     )
 
 
+def _load_saved_rgbd(
+    state: EnvState, record: StepRecord, camera: str
+) -> dict[str, Any]:
+    """Load one declared RGB-D pair and its calibration at a fixed saved step."""
+    metadata = record.state.get("view_specs", {}).get(camera, {}).get("camera_meta")
+    if not isinstance(metadata, dict) or not metadata.get("calibration_available"):
+        raise ValueError("this observation has no verified public camera calibration")
+    rgb_name, depth_name = f"{camera}_rgb.png", f"{camera}_depth.npy"
+    if rgb_name not in record.artifacts or depth_name not in record.artifacts:
+        raise ValueError("matching RGB and depth are not available at this observation")
+    return {
+        "rgb": state.load(rgb_name, step=record.step_idx),
+        "depth": state.load(depth_name, step=record.step_idx),
+        "camera_meta": metadata,
+    }
+
+
 @tool(readonly=True, exclude=("state",))
 def pixel_to_robot_base(
     camera: Literal["head", "left_wrist", "right_wrist"],
@@ -699,23 +691,10 @@ def pixel_to_robot_base(
     """
     try:
         record = state.get(step)
-        view_spec = record.state.get("view_specs", {}).get(camera, {})
-        metadata = view_spec.get("camera_meta")
-        if not isinstance(metadata, dict) or not metadata.get("calibration_available"):
-            raise ValueError(
-                "this observation has no verified public camera calibration"
-            )
         rgb_name, depth_name = f"{camera}_rgb.png", f"{camera}_depth.npy"
-        if rgb_name not in record.artifacts or depth_name not in record.artifacts:
-            raise ValueError(
-                "matching RGB and depth are not available at this observation"
-            )
-        view = {
-            "rgb": state.load(rgb_name, step=record.step_idx),
-            "depth": state.load(depth_name, step=record.step_idx),
-            "camera_meta": metadata,
-        }
-        projected = locate_pixel_in_robot_base(view, pixel, neighborhood=neighborhood)
+        projected = locate_pixel_in_robot_base(
+            _load_saved_rgbd(state, record, camera), pixel, neighborhood=neighborhood
+        )
     except (KeyError, LookupError, OSError, TypeError, ValueError) as error:
         return ToolResult(
             data={
@@ -912,7 +891,7 @@ def segment(
     """
     try:
         record = state.get(step)
-        rgb_name, depth_name = f"{camera}_rgb.png", f"{camera}_depth.npy"
+        rgb_name = f"{camera}_rgb.png"
         if rgb_name not in record.artifacts:
             raise ValueError("requested camera RGB is not in the saved observation")
     except (LookupError, ValueError) as error:
@@ -932,13 +911,7 @@ def segment(
             try:
                 result.update(
                     estimate_mask_position_in_robot_base(
-                        {
-                            "rgb": state.load(rgb_name, step=record.step_idx),
-                            "depth": state.load(depth_name, step=record.step_idx),
-                            "camera_meta": record.state.get("view_specs", {})
-                            .get(camera, {})
-                            .get("camera_meta"),
-                        },
+                        _load_saved_rgbd(state, record, camera),
                         mask,
                     )
                 )

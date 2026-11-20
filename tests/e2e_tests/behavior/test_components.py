@@ -17,13 +17,14 @@
 from __future__ import annotations
 
 import os
-import unittest
 from typing import TYPE_CHECKING
 
 import numpy as np
-from scipy.spatial.transform import Rotation
+import pytest
 
-from robots.behavior.motion import R1ProMotionModel
+from robots.behavior.primitives import BehaviorPrimitives
+from robots.behavior.tools import decode_robot_state, extract_public_proprio
+from rpent.evaluation import write_json_atomic
 from tests.e2e_tests.common import publish_check
 
 if TYPE_CHECKING:
@@ -39,46 +40,63 @@ def test_vla_component(behavior_scenario: BehaviorScenario) -> None:
     publish_check("behavior_vla_component", behavior_scenario.vla)
 
 
-class TestBehaviorMotionModel(unittest.TestCase):
-    def setUp(self):
-        if os.environ.get("RPENT_RUN_BEHAVIOR_INTEGRATION") != "1":
-            self.skipTest(
-                "set RPENT_RUN_BEHAVIOR_INTEGRATION=1 and OMNIGIBSON_DATA_PATH"
-            )
-        self.model = R1ProMotionModel()
-        self.state = np.zeros(61)
-        self.state[24:26] = [0.02, 0.03]
-        self.state[49:51] = [0.035, 0.045]
-
-    def tearDown(self):
-        self.model.close()
-
-    def test_zero_pose_and_sourced_eef_frame(self):
-        expected = {
-            "left": [-0.07951818, 0.25199935, 0.65659],
-            "right": [-0.07951906, -0.25200065, 0.65659],
-        }
-        for arm in ("left", "right"):
-            pose = self.model.forward(arm, self.state)
-            np.testing.assert_allclose(pose["position"], expected[arm], atol=1e-10)
-            np.testing.assert_allclose(
-                Rotation.from_quat(pose["quaternion_xyzw"]).as_matrix(),
-                np.diag([-1, 1, -1]),
-                atol=1e-12,
-            )
-            self.assertEqual(pose["frame"], "robot_base")
-
-    def test_torso_joint3_uses_urdf_negative_axis_once(self):
-        self.state[55] = 0.3
-        pivot = np.asarray([-0.079032, 0.0001005, 1.04265])
-        old = np.asarray([-0.07951818, 0.25199935, 0.65659])
-        rotation = Rotation.from_euler("y", -0.3)
-        pose = self.model.forward("left", self.state)
-        np.testing.assert_allclose(
-            pose["position"], pivot + rotation.apply(old - pivot), atol=1e-10
+def test_native_motion_component(behavior_scenario: BehaviorScenario) -> None:
+    """Execute a bounded native arm hold, then check read-only IK for both arms."""
+    if os.environ.get("RPENT_RUN_BEHAVIOR_MOTION_INTEGRATION") != "1":
+        pytest.skip("set RPENT_RUN_BEHAVIOR_MOTION_INTEGRATION=1 with CuRobo Env")
+    env = behavior_scenario.env
+    snapshot = env.get_motion_snapshot()
+    state = decode_robot_state(extract_public_proprio(snapshot["observation"]))
+    primitive = BehaviorPrimitives(
+        env=env,
+        model=behavior_scenario.model,
+        task_id=behavior_scenario.args.task_id,
+        task_language=behavior_scenario.args.task_language,
+        check_cancelled=lambda: None,
+        execution_horizon=32,
+    )
+    hold = primitive.move_to(
+        arm="left",
+        xyz=state["left"]["eef_position"],
+        quat=state["left"]["eef_quaternion_xyzw"],
+        settle_steps=8,
+    )
+    assert hold.data.get("completed") is True, hold.data
+    assert hold.data["confirmed_actions"] > 0
+    assert hold.data["unconfirmed_actions"] == 0
+    # Reaching the pose tolerance may return before joint velocity settles.
+    # Supply counted hold frames before asking for a read-only static plan.
+    settled = primitive.rotate_wrist_joint(
+        arm="right", joint="roll", delta_deg=0.0, steps=1, settle_steps=12
+    )
+    assert settled.data["confirmed_actions"] == 13, settled.data
+    assert settled.data["unconfirmed_actions"] == 0
+    snapshot = env.get_motion_snapshot()
+    token = snapshot["observation_token"]
+    state = decode_robot_state(extract_public_proprio(snapshot["observation"]))
+    limits = env.arm_joint_limits
+    plans = {}
+    for arm in ("left", "right"):
+        bounds = np.asarray(limits[arm])
+        assert bounds.shape == (7, 2) and np.all(bounds[:, 0] < bounds[:, 1])
+        target = np.r_[state[arm]["eef_position"], state[arm]["eef_quaternion_xyzw"]]
+        plan = env.plan_arm_path(
+            arm=arm, target_pose=target, expected_observation_token=token
         )
-        np.testing.assert_allclose(
-            Rotation.from_quat(pose["quaternion_xyzw"]).as_matrix(),
-            rotation.as_matrix() @ np.diag([-1, 1, -1]),
-            atol=1e-12,
-        )
+        assert plan["status"] == "Success", plan
+        assert plan["observation_token"] == token
+        assert plan["joint_names"] == [f"{arm}_arm_joint{i}" for i in range(1, 8)]
+        np.testing.assert_allclose(plan["joint_position_limits_rad"], bounds)
+        assert env.get_motion_snapshot()["observation_token"] == token
+        plans[arm] = plan
+    result = {
+        "status": "passed",
+        "definition": "bounded arm hold followed by read-only native USD IK; no reset",
+        "hold_execution": hold.data,
+        "settle_execution": settled.data,
+        "plans": plans,
+        "observation_token": token,
+        "official_task_success": None,
+    }
+    write_json_atomic(behavior_scenario.output_dir / "motion-component.json", result)
+    publish_check("behavior_native_motion_component", result)

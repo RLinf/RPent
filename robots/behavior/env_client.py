@@ -12,11 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Client for the internal RPent BEHAVIOR bridge contract.
-
-This RPC contract is not the official evaluator's WebSocket protocol. An
-adapter must supply completed execution feedback before it can serve it.
-"""
+"""Client for the native RLinf BEHAVIOR environment served by RPent."""
 
 from __future__ import annotations
 
@@ -26,6 +22,7 @@ from typing import Any
 
 import numpy as np
 
+from robots.behavior.observation import valid_observation_token
 from robots.behavior.tools import extract_public_proprio
 from rpent.robots.components.env_client_base import BaseEnvClient
 from rpent.utils.rpc import RpcClient
@@ -34,13 +31,13 @@ BEHAVIOR_ACTION_DIM = 23
 
 
 def env_runtime_contract(task_id: int) -> dict[str, Any]:
-    """Describe one task on the internal bridge, including reset ownership."""
+    """Describe one task on the native environment, including reset ownership."""
     return {
         "name": "behavior",
-        "protocol": "rpent.behavior.internal.v1",
+        "protocol": "rpent.behavior.rlinf.v1",
         "task_id": task_id,
         "action_dim": BEHAVIOR_ACTION_DIM,
-        "reset_owner": "official_evaluator",
+        "reset_owner": "env_service",
     }
 
 
@@ -61,7 +58,7 @@ def validate_native_actions(values: Any, *, chunk: bool) -> np.ndarray:
 
 
 class BehaviorEnvClient(BaseEnvClient):
-    """Use an injected internal bridge without resetting the evaluator."""
+    """Connect to a native Env service without implicitly resetting its episode."""
 
     _TIMEOUT_S = {
         **BaseEnvClient._TIMEOUT_S,
@@ -71,7 +68,7 @@ class BehaviorEnvClient(BaseEnvClient):
 
     @cached_property
     def arm_joint_limits(self) -> dict[str, np.ndarray]:
-        """Cache the Env's URDF limits; no local robot assets are required."""
+        """Cache the native robot's limits; no client-side assets are required."""
         result = self._client.call(
             "env.get_arm_joint_limits", timeout_s=self._TIMEOUT_S["default"]
         )
@@ -108,6 +105,7 @@ class BehaviorEnvClient(BaseEnvClient):
             for method in (
                 "default",
                 "env.step",
+                "env.reset",
                 "env.chunk_step",
                 "env.plan_arm_path",
             ):
@@ -130,12 +128,18 @@ class BehaviorEnvClient(BaseEnvClient):
                     f"Planner={expected_task_language!r}, Env={actual!r}"
                 )
 
-    def reset(self) -> None:
-        """Reject reset because the official evaluator owns episode creation."""
-        raise RuntimeError("BEHAVIOR reset is owned by the official evaluator")
+    def reset(self) -> tuple[dict[str, Any], dict[str, Any]]:
+        """Explicitly reset the served episode and replace cached feedback."""
+        observation, info = self._client.call(
+            "env.reset", timeout_s=self._TIMEOUT_S["env.reset"]
+        )
+        self.last_obs = observation
+        self.last_info = info
+        self.__dict__.pop("arm_joint_limits", None)
+        return observation, info
 
     def get_observation(self) -> dict[str, Any]:
-        """Fetch the current raw observation for one evaluator environment."""
+        """Fetch the current raw observation for one native environment."""
         observation = self._client.call(
             "env.get_observation", timeout_s=self._TIMEOUT_S["default"]
         )
@@ -145,7 +149,7 @@ class BehaviorEnvClient(BaseEnvClient):
         return observation
 
     def get_session_status(self) -> dict[str, Any]:
-        """Read transport lifecycle state without advancing or scoring the task."""
+        """Read episode state without advancing or scoring the task."""
         status = self._client.call("env.get_session_status", timeout_s=30.0)
         if (
             not isinstance(status, dict)
@@ -182,8 +186,8 @@ class BehaviorEnvClient(BaseEnvClient):
     ) -> dict[str, Any]:
         """Request a seven-joint arm path to robot-base xyz + xyzw pose.
 
-        Planning uses the bridge's current public observation and does not
-        execute actions. The returned timing is the official control period,
+        Planning uses the environment's current public observation and does not
+        execute actions. The returned timing is the configured control period,
         independently of the video's encoding FPS.
         """
         pose = np.asarray(target_pose)
@@ -213,9 +217,7 @@ class BehaviorEnvClient(BaseEnvClient):
             confirmed = info.get("confirmed_actions")
             context = info.get("motion_context")
             if (
-                not isinstance(token, dict)
-                or set(token) != {"generation", "observation_index"}
-                or any(type(value) is not int or value < 0 for value in token.values())
+                not valid_observation_token(token)
                 or type(confirmed) is not int
                 or confirmed < 0
                 or token["generation"] != expected_observation_token["generation"]
@@ -231,9 +233,12 @@ class BehaviorEnvClient(BaseEnvClient):
                 result = (*result[:4], info)
         if isinstance(observation, list):
             if not observation:
-                if info.get("stop_reason") == "session_ended":
-                    # No subsequent frame acknowledged an action. Keep the last
-                    # observed frame without inventing a frame in the payload.
+                if info.get("stop_reason") == "session_ended" or (
+                    info.get("stop_reason") == "execution_outcome_unknown"
+                    and info.get("confirmed_actions") == 0
+                ):
+                    # Preserve an unknown execution result even when no new
+                    # frame exists. Never fabricate an acknowledgement.
                     self.last_info = info
                     return tuple(result)
                 raise ValueError("BEHAVIOR execution returned no observation frames")

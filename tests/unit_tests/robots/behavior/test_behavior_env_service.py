@@ -27,7 +27,6 @@ import pytest
 
 from robots.behavior.env_client import BehaviorEnvClient
 from robots.behavior.env_server import BehaviorEnvFacade
-from robots.behavior.eval.evaluator import EvaluatorStepBridge
 from rpent.robots.components.env_client_base import BaseEnvClient
 from rpent.utils.rpc import RpcError
 from rpent.utils.rpc.http_rpc import HttpRpcClient, HttpRpcServer
@@ -64,7 +63,8 @@ main(['--help'])
         [sys.executable, "-c", code], capture_output=True, text=True
     )
     assert result.returncode == 0, result.stderr
-    assert "--policy-port" in result.stdout
+    assert "--env-config" in result.stdout
+    assert "--policy-port" not in result.stdout
     assert "--am-endpoint" not in result.stdout
     assert "--vla-endpoint" not in result.stdout
 
@@ -82,11 +82,13 @@ def test_timeout_overrides_apply_to_actual_calls_without_changing_other_clients(
         client.get_observation()
         client.step(np.zeros(23))
         client.chunk_step(np.zeros((2, 23)))
+        client.reset()
         assert rpc.timeouts == [
             ("env.get_env_meta", timeout or behavior_defaults["default"]),
             ("env.get_observation", timeout or behavior_defaults["default"]),
             ("env.step", timeout or behavior_defaults["env.step"]),
             ("env.chunk_step", timeout or behavior_defaults["env.chunk_step"]),
+            ("env.reset", timeout or behavior_defaults["env.reset"]),
         ]
     assert BehaviorEnvClient._TIMEOUT_S == behavior_defaults
     assert BaseEnvClient._TIMEOUT_S == base_defaults
@@ -127,37 +129,108 @@ def test_final_chunk_with_no_confirmed_frame_preserves_cached_observation(
     assert "success" not in info
 
 
-def test_shutdown_rpc_cancels_waiting_chunk_before_taking_dispatch_lock():
-    bridge = EvaluatorStepBridge(
-        simulation_timeout_s=5, action_timeout_s=5, chunk_timeout_s=5
-    )
-    facade = BehaviorEnvFacade(bridge, task_id=40, on_shutdown=bridge.stop)
-    server = SocketRpcServer(("127.0.0.1", 0), facade._dispatch)
-    server_thread = threading.Thread(target=server.serve_forever, daemon=True)
-    server_thread.start()
-    rpc = SocketRpcClient(*server.server_address)
+def test_main_thread_rpc_and_shutdown_preserve_partial_execution():
+    ready = threading.Event()
+    started = threading.Event()
+    cancelled = threading.Event()
+    served = threading.Event()
+    state = {"calls": [], "errors": []}
+
+    class Backend(FakeEnvBackend):
+        def record(self, operation):
+            state["calls"].append((operation, threading.get_ident()))
+
+        def reset(self):
+            self.record("reset")
+            return super().reset()
+
+        def get_observation(self):
+            self.record("observe")
+            return super().get_observation()
+
+        def chunk_step(self, actions, **kwargs):
+            self.record("step")
+            started.set()
+            assert cancelled.wait(3), "shutdown did not signal the running action"
+            return (
+                self.observation,
+                0.0,
+                False,
+                False,
+                {
+                    "issued_actions": 1,
+                    "confirmed_actions": 1,
+                    "unconfirmed_actions": 0,
+                    "executed_actions": 1,
+                    "stop_reason": "cancelled",
+                },
+            )
+
+    def serve():
+        try:
+            state["owner"] = threading.get_ident()
+            backend = Backend()
+            facade = BehaviorEnvFacade(backend, task_id=40, on_shutdown=cancelled.set)
+            bind = facade._bind_and_announce
+
+            def bound(*args, **kwargs):
+                server = bind(*args, **kwargs)
+                state["address"] = server.server_address
+                ready.set()
+                return server
+
+            facade._bind_and_announce = bound
+            facade.serve(transport="socket", host="127.0.0.1", port=0)
+        except BaseException as error:
+            state["errors"].append(error)
+            ready.set()
+        finally:
+            served.set()
+
+    worker = threading.Thread(target=serve, daemon=True)
+    worker.start()
+    assert ready.wait(3) and not state["errors"]
+    rpc = SocketRpcClient(*state["address"])
+    shutdown_rpc = SocketRpcClient(*state["address"])
     try:
         client = BehaviorEnvClient(rpc, task_id=40, timeout_s=5)
-        with ThreadPoolExecutor(max_workers=2) as threads:
-            policy = threads.submit(bridge.observe_and_get_action, {"frame": 0})
-            bridge.get_observation()
-            chunk = threads.submit(client.chunk_step, np.zeros((2, 23)))
-            policy.result(timeout=2)
-            assert not chunk.done()
-
-            assert rpc.call("shutdown", timeout_s=1) == {"ok": True}
-            with pytest.raises(RpcError, match="closed"):
-                chunk.result(timeout=1)
-        assert facade._shutdown_event.is_set()
-        assert bridge.stats()["issued"] == bridge.stats()["unconfirmed"] == 1
-        assert bridge.stats()["confirmed"] == 0
-        assert bridge.session_status()["ended"] is False
+        assert state["calls"] == []  # Connecting never resets an episode.
+        client.reset()
+        client.get_observation()
+        with ThreadPoolExecutor(max_workers=1) as threads:
+            chunk = threads.submit(client.chunk_step, np.zeros((5, 23)))
+            assert started.wait(2)
+            assert shutdown_rpc.call("shutdown", timeout_s=2) == {"ok": True}
+            info = chunk.result(timeout=2)[4]
+            assert info["executed_actions"] == 1
+            assert info["unconfirmed_actions"] == 0
+        assert served.wait(3) and not state["errors"]
+        assert [operation for operation, _ in state["calls"]] == [
+            "reset",
+            "observe",
+            "step",
+        ]
+        assert {thread for _, thread in state["calls"]} == {state["owner"]}
     finally:
-        bridge.stop()
+        cancelled.set()
         rpc.close()
-        server.shutdown()
-        server.server_close()
-        server_thread.join(timeout=2)
+        shutdown_rpc.close()
+        worker.join(timeout=3)
+
+
+def test_explicit_reset_replaces_client_feedback_without_resetting_on_connect():
+    backend = FakeEnvBackend()
+    client = BehaviorEnvClient(
+        LocalRpc(BehaviorEnvFacade(backend, task_id=40)), task_id=40
+    )
+    assert backend.reset_calls == 0
+    client.chunk_step(np.zeros((3, 23)))
+    assert client.last_info["executed_actions"] == 3
+    observation, info = client.reset()
+    assert backend.reset_calls == 1
+    assert observation == {"fixture_frame": 0}
+    assert info == {"executed_actions": 0}
+    assert client.last_obs is observation and client.last_info is info
 
 
 def make_env():
@@ -214,6 +287,24 @@ def test_joint_limits_are_lazy_and_cached_without_local_assets(monkeypatch):
     assert not calls and not planned
     with pytest.raises(ValueError):
         first["left"][0, 0] = 0
+
+
+def test_reset_reloads_limits_after_native_robot_reconstruction():
+    backend = FakeEnvBackend()
+    limits = np.tile([-2.0, 2.0], (7, 1))
+    facade = BehaviorEnvFacade(
+        backend,
+        task_id=0,
+        motion_model=lambda: SimpleNamespace(joint_limits=lambda arm: limits),
+    )
+    rpc = LocalRpc(facade)
+    client = BehaviorEnvClient(rpc, task_id=0)
+    initial = client.arm_joint_limits
+    limits = np.tile([-1.0, 1.0], (7, 1))
+    client.reset()
+    assert client.arm_joint_limits is not initial
+    np.testing.assert_array_equal(client.arm_joint_limits["left"], limits)
+    assert rpc.calls.count("env.get_arm_joint_limits") == 2
 
 
 @pytest.fixture(params=["socket", "http"])
@@ -320,3 +411,308 @@ def test_invalid_action_payload_does_not_reach_the_backend(actions):
     with pytest.raises(ValueError):
         client.step(actions)
     assert calls == planned == []
+
+
+def _native_service_args(tmp_path, *overrides):
+    base = tmp_path / "base.yaml"
+    base.write_text(
+        "seed: 9\nmax_episode_steps: 100\nomni_config:\n"
+        "  env:\n    action_frequency: 60\n    rendering_frequency: 60\n"
+        "    physics_frequency: 120\n  task:\n    instance_split: train\n"
+        "    activity_instance_id: 0\n"
+        "  robots:\n    - type: R1Pro\n      name: robot_r1\n"
+        "      obs_modalities: [rgb, proprio]\n"
+    )
+    config = tmp_path / "native.yaml"
+    config.write_text("defaults:\n  - base\n  - _self_\nmax_episode_steps: 12\n")
+    return [
+        "--env-config",
+        str(config),
+        "--task-id",
+        "40",
+        "--output-dir",
+        str(tmp_path / "run"),
+        "--port",
+        "25000",
+        *overrides,
+    ]
+
+
+def test_service_composes_inherited_config_and_applies_only_operator_overrides(
+    tmp_path,
+):
+    from robots.behavior.env_server import build_config, build_parser
+
+    args = build_parser().parse_args(
+        _native_service_args(
+            tmp_path,
+            "--instance-split",
+            "public_test",
+            "--instance-id",
+            "301",
+            "--action-frequency",
+            "30",
+            "--rendering-frequency",
+            "30",
+            "--camera-size",
+            "128",
+        )
+    )
+    cfg = build_config(args)
+    assert cfg.seed == 9 and cfg.max_episode_steps == 12
+    assert cfg.omni_config.env.physics_frequency == 120
+    assert (
+        cfg.omni_config.env.action_frequency
+        == cfg.omni_config.env.rendering_frequency
+        == 30
+    )
+    assert cfg.omni_config.task.activity_name == "make_microwave_popcorn"
+    assert cfg.omni_config.task.instance_split == "public_test"
+    assert cfg.omni_config.task.activity_instance_id == 301
+    assert list(cfg.omni_config.camera.head_resolution) == [128, 128]
+    assert cfg.total_num_envs == 1 and cfg.auto_reset is False
+    assert cfg.ignore_terminations is False
+
+
+@pytest.mark.parametrize("serve_error", [False, True])
+@pytest.mark.parametrize("motion_backend", ["none", "curobo"])
+def test_service_saves_result_or_error_before_terminal_sdk_close(
+    tmp_path, monkeypatch, serve_error, motion_backend
+):
+    import importlib
+    import json
+    from types import ModuleType
+
+    from robots.behavior import env_server, rlinf_env
+
+    events = []
+    result_path = tmp_path / "run" / "env-result.json"
+    native_imports = (
+        ["warp.context", "warp.torch", "warp.types"]
+        if motion_backend == "curobo"
+        else []
+    )
+    original_import = importlib.import_module
+
+    def import_module(name, package=None):
+        if name.startswith("warp"):
+            assert motion_backend == "curobo", (
+                "VLA-only mode must not import motion dependencies"
+            )
+            assert "construct" not in events, (
+                "Warp namespaces must load before Kit starts"
+            )
+            events.append(name)
+            return ModuleType(name)
+        return original_import(name, package)
+
+    monkeypatch.setattr(importlib, "import_module", import_module)
+
+    class Simulator:
+        def __init__(self, cfg, num_envs, seed):
+            assert num_envs == 1 and seed == 9
+            assert events == native_imports
+            events.append("construct")
+
+        def get_robot(self):
+            raise AssertionError(
+                "motion solver must remain lazy until a planning request"
+            )
+
+        def get_metrics(self):
+            return [{"official_metrics": {}, "q_score": None, "episode_length": 0}]
+
+        def close(self):
+            events.append("close")
+            saved = json.loads(result_path.read_text())
+            assert saved["server_status"] == ("error" if serve_error else "stopped")
+            assert "metrics" in saved and "session" in saved
+            if serve_error:
+                assert "serve failed" in saved["error"]
+            raise SystemExit(0)  # Real SDK close may terminate the owner process.
+
+    class Adapter:
+        def __init__(self, simulator, *, task_id, task_language):
+            self.simulator = simulator
+            assert task_id == 40 and task_language
+
+        def reset(self):
+            events.append("reset")
+
+        def get_observation(self):
+            return {}
+
+        def get_motion_snapshot(self):
+            return {}
+
+        def session_status(self):
+            return {"ended": False, "outcome": "ongoing"}
+
+        def stop(self):
+            events.append("cancel")
+
+    module = ModuleType("rlinf.envs.sim.behavior")
+    module.BehaviorSimulator = Simulator
+    monkeypatch.setitem(sys.modules, module.__name__, module)
+    monkeypatch.setattr(rlinf_env, "RlinfBehaviorEnv", Adapter)
+
+    def serve(self, **kwargs):
+        events.append("serve")
+        assert json.loads(result_path.read_text())["server_status"] == "ready"
+        if serve_error:
+            raise RuntimeError("serve failed")
+
+    monkeypatch.setattr(BehaviorEnvFacade, "serve", serve)
+    with pytest.raises(SystemExit) as stopped:
+        env_server.main(
+            _native_service_args(tmp_path) + ["--motion-backend", motion_backend]
+        )
+    assert stopped.value.code == 0
+    assert events == native_imports + ["construct", "reset", "serve", "close"]
+    # An exit code 0 from SDK teardown cannot erase an earlier server failure.
+    assert json.loads(result_path.read_text())["server_status"] == (
+        "error" if serve_error else "stopped"
+    )
+
+
+@pytest.mark.parametrize(
+    "selection,wrapper,modalities",
+    [
+        (None, "rgb", ["rgb", "proprio", "depth_linear"]),
+        ("rgbd", "rgb", ["rgb", "proprio", "depth_linear"]),
+        ("rgb", "rgb", ["rgb", "proprio"]),
+        ("default", "default", ["rgb", "proprio"]),
+    ],
+)
+def test_service_selects_requested_native_observation_profile(
+    tmp_path, selection, wrapper, modalities
+):
+    from robots.behavior.env_server import build_config, build_parser
+
+    options = [] if selection is None else ["--env-wrapper", selection]
+    args = build_parser().parse_args(_native_service_args(tmp_path, *options))
+    cfg = build_config(args)
+    assert cfg.omni_config.env.env_wrapper == wrapper
+    assert list(cfg.omni_config.robots[0].obs_modalities) == modalities
+    assert cfg.omni_config.robots[0].type == "R1Pro"
+    assert cfg.omni_config.robots[0].name == "robot_r1"
+    if selection in (None, "rgbd"):
+        assert "seg_semantic" not in cfg.omni_config.robots[0].obs_modalities
+        assert "seg_instance_id" not in cfg.omni_config.robots[0].obs_modalities
+
+
+def test_rgbd_profile_accepts_robot_overrides_without_obs_modalities(tmp_path):
+    from robots.behavior.env_server import build_config, build_parser
+
+    argv = _native_service_args(tmp_path)
+    base = tmp_path / "base.yaml"
+    base.write_text(
+        base.read_text().replace("      obs_modalities: [rgb, proprio]\n", "")
+    )
+    cfg = build_config(build_parser().parse_args(argv))
+    assert cfg.omni_config.robots[0].type == "R1Pro"
+    assert list(cfg.omni_config.robots[0].obs_modalities) == [
+        "rgb",
+        "proprio",
+        "depth_linear",
+    ]
+
+
+@pytest.mark.parametrize("existing_ray", [False, True])
+def test_public_service_uses_behavior_env_and_closes_only_its_own_ray(
+    tmp_path, monkeypatch, existing_ray
+):
+    import json
+    from types import ModuleType
+
+    from robots.behavior.env_server import main
+
+    argv = _native_service_args(tmp_path, "--instance-id", "301")
+    base = tmp_path / "base.yaml"
+    base.write_text(
+        base.read_text().replace(
+            "instance_split: train", "activity_instance_dir: /instances"
+        )
+    )
+    events = []
+
+    class Environment:
+        def __init__(
+            self, cfg, *, num_envs, seed_offset, total_num_processes, worker_info
+        ):
+            assert num_envs == total_num_processes == worker_info.group_world_size == 1
+            assert seed_offset == 0
+            assert cfg.use_2026_eval_proprio_and_rooms
+            assert cfg.omni_config.task.activity_instance_id == 301
+            assert cfg.omni_config.task.activity_instance_dir == "/instances"
+            self.cfg = cfg
+            self.num_envs = num_envs
+            events.append("construct")
+
+        def reset(self):
+            state = np.zeros((1, 61), dtype=np.float32)
+            state[0, [23, 48]] = 1.0
+            events.append("reset")
+            return (
+                {
+                    "states": state,
+                    "main_images": np.zeros((1, 4, 4, 3), np.uint8),
+                    "wrist_images": np.zeros((1, 2, 4, 4, 3), np.uint8),
+                },
+                {"episode": {"episode_length": [0]}},
+            )
+
+        def close(self):
+            events.append("close")
+
+    package = ModuleType("rlinf.envs.sim.behavior")
+    module = ModuleType(package.__name__ + ".behavior_env")
+    module.BehaviorEnv = Environment
+    monkeypatch.setitem(sys.modules, package.__name__, package)
+    monkeypatch.setitem(sys.modules, module.__name__, module)
+
+    def ray_init(**kwargs):
+        assert kwargs["address"] == "local"
+        assert kwargs["runtime_env"]["env_vars"]["CUDA_VISIBLE_DEVICES"] == "2"
+        events.append("ray.init")
+
+    monkeypatch.setenv("CUDA_VISIBLE_DEVICES", "2")
+    monkeypatch.setitem(
+        sys.modules,
+        "ray",
+        SimpleNamespace(
+            is_initialized=lambda: existing_ray,
+            init=ray_init,
+            shutdown=lambda: events.append("ray.shutdown"),
+        ),
+    )
+
+    def serve(facade, **kwargs):
+        client = BehaviorEnvClient(LocalRpc(facade), task_id=40)
+        assert client.get_session_status()["episode_length"] == 0
+        assert client.render_camera("head").shape == (4, 4, 3)
+        events.append("serve")
+
+    monkeypatch.setattr(BehaviorEnvFacade, "serve", serve)
+    main(argv + (["--env-api", "behavior-env"] if existing_ray else []))
+    assert events == (
+        ([] if existing_ray else ["ray.init"])
+        + ["construct", "reset", "serve", "close"]
+        + ([] if existing_ray else ["ray.shutdown"])
+    )
+    result = json.loads((tmp_path / "run" / "env-result.json").read_text())
+    assert result["server_status"] == "stopped" and result["env_api"] == "behavior-env"
+    assert result["session"]["episode_length"] == 0
+    assert "official_metrics" not in result["session"] and "metrics" not in result
+
+
+def test_public_service_rejects_split_flag_and_curobo_before_startup(tmp_path, capsys):
+    from robots.behavior.env_server import main
+
+    argv = _native_service_args(tmp_path, "--env-api", "behavior-env")
+    with pytest.raises(ValueError, match="activity_instance_dir"):
+        main(argv + ["--instance-split", "public_test"])
+    with pytest.raises(SystemExit) as stopped:
+        main(argv + ["--motion-backend", "curobo"])
+    assert stopped.value.code == 2 and "CuRobo" in capsys.readouterr().err
+    assert not (tmp_path / "run").exists()

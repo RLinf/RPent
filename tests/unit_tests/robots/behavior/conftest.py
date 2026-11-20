@@ -111,6 +111,9 @@ class _GeometryEnvironment:
         self.reads = 0
         self.actions = 0
 
+    def get_session_status(self) -> dict[str, Any]:
+        return {"ended": False}
+
     def get_observation(self) -> dict[str, Any]:
         self.reads += 1
         return self.raw
@@ -178,6 +181,13 @@ class FakeEnvBackend:
         self.observation = {"fixture_frame": 0}
         self.actions = []
         self.info = {"executed_actions": 0}
+        self.reset_calls = 0
+
+    def reset(self):
+        self.reset_calls += 1
+        self.observation = {"fixture_frame": 0}
+        self.info = {"executed_actions": 0}
+        return self.observation, self.info
 
     def get_observation(self):
         return self.observation

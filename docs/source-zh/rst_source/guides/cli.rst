@@ -57,7 +57,7 @@
      - 保存本次运行文件的目录；默认目录名由环境生成。
    * - ``--memory-profile``
      - ``—``
-     - 通常评测默认为 ``hf``；探索和 WAM 评测使用 ``local``。
+     - 通常评测默认为 ``hf``；BEHAVIOR、探索和 WAM 评测使用 ``local``。
    * - ``--memory-dir``
      - ``—``
      - 本地记忆目录；与本地模式或探索一起使用。
@@ -91,7 +91,7 @@
 
 LIBERO 使用 ``--suite``、``--task``、``--seed`` 和 ``--libero-type`` 选择任务；默认类型为 ``LIBERO_TYPE`` 或 ``pro``。RoboCasa365 和 RoboTwin 使用 ``--task-name``。Franka 使用 ``--task-id`` 和 ``--robot-config``。具体选项见 :doc:`../simulators/libero`、:doc:`../simulators/robocasa`、:doc:`../simulators/robotwin`、:doc:`../real_world_robots/franka` 和 :doc:`../real_world_robots/dual_franka`。
 
-``--env-endpoint``、``--am-endpoint`` 和 LIBERO 的 ``--sam3-endpoint`` 分别连接已有的环境、动作模型（VLA 或 WAM）和 SAM3 服务。RPent RPC 地址格式为 ``[protocol://]host:port``，默认协议为 ``http``；LingBot 使用原生 WebSocket，见 :doc:`../simulators/robotwin`。GPU 分配和远程服务见 :doc:`advanced_deployment`。
+``--env-endpoint``、``--am-endpoint`` 和支持该参数的平台（包括 LIBERO、BEHAVIOR）的 ``--sam3-endpoint`` 分别连接已有的环境、动作模型（VLA 或 WAM）和 SAM3 服务。RPent RPC 地址格式为 ``[protocol://]host:port``，默认协议为 ``http``；LingBot 使用原生 WebSocket，见 :doc:`../simulators/robotwin`。GPU 分配和远程服务见 :doc:`advanced_deployment`。
 
 ``--am-backend`` 选择当前平台支持的一个动作模型；LIBERO 和 RoboTwin 默认分别为 ``pi05`` 和 ``lingbot``。VLA 和 WAM 共用 ``--am-endpoint`` 连接已有服务，共用 ``--am-checkpoint``、``--am-python``、``--am-root`` 和 ``--am-cuda-device`` 配置本地部署。使用 endpoint 时，显式传入本地部署参数会报错。
 

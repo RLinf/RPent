@@ -112,6 +112,31 @@ def test_behavior_prediction_uses_public_state_and_ordered_views():
     np.testing.assert_array_equal(result, native[0])
 
 
+@pytest.mark.parametrize(
+    "key,value",
+    [
+        ("states", np.zeros((1, 256), dtype=np.float32)),
+        ("states", np.full((1, 61), np.nan)),
+        ("main_images", np.zeros((4, 5, 3), dtype=np.uint8)),
+        ("wrist_images", np.zeros((1, 1, 4, 5, 3), dtype=np.uint8)),
+        ("wrist_images", np.zeros((1, 2, 4, 5, 3), dtype=np.float32)),
+        ("task_descriptions", ["first", "second"]),
+    ],
+)
+def test_behavior_invalid_native_input_fails_before_model_rpc(key, value):
+    packet = {
+        "main_images": np.zeros((1, 4, 5, 3), dtype=np.uint8),
+        "wrist_images": np.zeros((1, 2, 4, 5, 3), dtype=np.uint8),
+        "states": np.zeros((1, 61), dtype=np.float32),
+        "task_descriptions": ["make popcorn"],
+    }
+    packet[key] = value
+    rpc = Mock()
+    with pytest.raises(ValueError):
+        Pi05VLAClient(rpc, embodiment="behavior").predict(packet)
+    rpc.call.assert_not_called()
+
+
 def test_behavior_keeps_existing_state_layout_and_converts_float_chw():
     obs = _behavior_frame()
     obs[b"r1::proprio"] = np.arange(256, dtype=np.float32)

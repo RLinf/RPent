@@ -14,8 +14,8 @@
 
 """One bounded Toolkit/VLA/Env chain, without a CLI run or autonomous Planner.
 
-The services and official evaluator must already be running for one dedicated
-episode. Tests never reset or shut them down. This single-session borrowed
+The native RLinf Env and shared Pi0.5 services must already be running for one
+dedicated episode. Tests never reset or shut them down. This single-session borrowed
 service check is intentionally not a target of run_gpu_suite.sh.
 """
 

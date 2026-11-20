@@ -80,8 +80,8 @@ arguments and local RPC fixtures.
 | `test_behavior_config.py` | Task identity and instruction reach the planner; public templates select the intended tools; externally started services are borrowed. |
 | `test_behavior_observation.py` | Saved images and measured state agree; geometry and segmentation use the selected frame. |
 | `test_behavior_motion.py` | R1Pro planning and native arm, base, gripper and wrist tools produce the intended commands and preserve execution feedback. |
-| `test_behavior_env_service.py` | Env RPC preserves actions, poses and partial feedback; shutdown releases a waiting action call. |
-| `test_behavior_evaluator.py` | Official WebSocket messages exchange observations and actions; subsequent observations confirm actions; disconnects release waiters. |
+| `test_behavior_env_service.py` | Main-thread Env RPC preserves actions and poses; explicit reset refreshes client state; shutdown cancels a running chunk and results are saved before terminal SDK close. |
+| `test_behavior_rlinf_env.py` | Public RLinf RGB and 61D policy input, in-process simulator's separate 61D tool/256D model state, actual action counts, terminal/failure/reset boundaries, stale-plan rejection and cancellation. |
 | `test_behavior_agent_loop.py` | A scripted offline planner reads initial images, executes one VLA chunk, receives new images and records `finish`. |
 
 Pi0.5 observation encoding and model-worker configuration are covered by the
@@ -94,8 +94,11 @@ pytest tests/unit_tests/robots/behavior \
 ```
 
 The real model and simulator checks remain under `e2e_tests/behavior/` and use
-separately started services. Their component and policy-chain checks establish
-integration; official task scores come from the evaluator.
+separately started native RLinf Env and shared Pi0.5 services. Tests borrow one
+dedicated episode and never reset or shut down those services. Their component
+and bounded policy-chain checks establish integration and record the native
+episode feedback, including TaskMetric values on the in-process simulator.
+Benchmark success and the full CLI/Planner loop require separate tests. CPU fakes do not establish simulator correctness.
 
 ## RoboCasa environment smoke tests
 

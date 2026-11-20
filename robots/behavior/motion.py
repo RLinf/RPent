@@ -12,9 +12,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""R1Pro static model and native CuRobo single-arm inverse kinematics.
+"""R1Pro native robot state and official CuRobo single-arm inverse kinematics.
 
-The solver reads robot geometry from the installed official assets. It solves
+The solver reuses the loaded simulator robot and its official USD geometry. It solves
 the goal joint configuration with CuRobo IK, then interpolates the arm joints
 under the velocity limit. No path-level collision check is made against observed
 surfaces; the simulator's physics is the contact authority, so a carried object
@@ -24,17 +24,15 @@ that need it.
 
 from __future__ import annotations
 
-import copy
-import hashlib
-import os
 import tempfile
-import xml.etree.ElementTree as ET
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any, Literal
 
 import numpy as np
 import yaml
 
+from robots.behavior.observation import public_proprio, valid_observation_token
 from robots.behavior.tools import decode_robot_state, extract_public_proprio
 
 Arm = Literal["left", "right"]
@@ -56,14 +54,7 @@ _JOINT_SLICES = (
 
 
 def _proprio(value: Any) -> np.ndarray:
-    array = np.asarray(value)
-    if (
-        array.shape != (61,)
-        or array.dtype.kind not in "fiu"
-        or not np.isfinite(array).all()
-    ):
-        raise ValueError("proprio must contain 61 finite real numbers")
-    return array.astype(np.float64, copy=True)
+    return public_proprio(value).astype(np.float64, copy=True)
 
 
 def _arm(value: str) -> Arm:
@@ -72,9 +63,11 @@ def _arm(value: str) -> Arm:
     return value
 
 
-def _xyz(element: ET.Element | None, attribute: str) -> np.ndarray:
-    text = "0 0 0" if element is None else element.get(attribute, "0 0 0")
-    return np.asarray([float(x) for x in text.split()], dtype=np.float64)
+def _numpy(value: Any) -> np.ndarray:
+    """Copy a native CPU/GPU tensor without keeping simulator-owned storage."""
+    if hasattr(value, "detach"):
+        value = value.detach().cpu().numpy()
+    return np.array(value, dtype=np.float64, copy=True)
 
 
 # One reposition bound for every single-arm plan. The physical simulator still
@@ -88,127 +81,40 @@ RETREAT_SUGGESTION_M = 0.05
 
 
 class R1ProMotionModel:
-    """Adapt official R1Pro assets without importing CuRobo or a simulator.
+    """Borrow the current simulator robot and cache its native single-arm solvers.
 
     Args:
-        asset_dir: Official ``models/r1pro`` directory. By default, resolve it
-            under ``OMNIGIBSON_DATA_PATH/omnigibson-robot-assets``.
+        get_robot: Owner-thread provider for the current loaded R1Pro. Reset may
+            rebuild the scene, so solvers are discarded when robot identity changes.
+            This model never sets simulator joint positions or advances physics.
     """
 
-    def __init__(self, asset_dir: str | Path | None = None) -> None:
-        if asset_dir is None:
-            data_path = os.environ.get("OMNIGIBSON_DATA_PATH", "")
-            if not data_path or not Path(data_path).expanduser().is_absolute():
-                raise ValueError(
-                    "Set OMNIGIBSON_DATA_PATH to the absolute path of your existing "
-                    "official datasets directory (containing omnigibson-robot-assets)."
-                )
-            asset_dir = (
-                Path(data_path).expanduser() / "omnigibson-robot-assets/models/r1pro"
-            )
-        self.asset_dir = Path(asset_dir).resolve()
-        paths = (
-            self.asset_dir.parents[1] / "VERSION",
-            self.asset_dir / "urdf/r1pro.urdf",
-            self.asset_dir / "curobo/r1pro_description_curobo_arm_no_torso.yaml",
-        )
-        for path in paths:
-            if not path.is_file():
-                raise FileNotFoundError(
-                    f"Missing official R1Pro asset: {path}. Check OMNIGIBSON_DATA_PATH "
-                    "and your existing official asset installation."
-                )
-        self.asset_version = paths[0].read_text().strip()
-        if self.asset_version != "3.8.2":
-            raise ValueError(
-                f"Unsupported robot asset version {self.asset_version!r}; "
-                "the R1Pro motion adapter is validated with 3.8.2."
-            )
-        root = ET.parse(paths[1]).getroot()
-        source = yaml.safe_load(paths[2].read_text())["robot_cfg"]["kinematics"]
-        # Public proprioception omits the wheel/steering joints. Enclose each
-        # wheel at its fixed steering center for every unobserved rotation.
-        spheres = source["collision_spheres"]
-        for index in range(1, 4):
-            steer = root.find(f"joint[@name='steer_motor_joint{index}']")
-            wheel = root.find(f"joint[@name='wheel_motor_joint{index}']")
-            center = _xyz(steer.find("origin"), "xyz") + _xyz(
-                wheel.find("origin"), "xyz"
-            )
-            for sphere in spheres.pop(f"wheel_motor_link{index}"):
-                spheres["base_link"].append(
-                    {
-                        "center": center.tolist(),
-                        "radius": sphere["radius"]
-                        + float(np.linalg.norm(sphere["center"])),
-                    }
-                )
-        for element in list(root):
-            if element.get("name", "").startswith(("wheel_motor_", "steer_motor_")):
-                root.remove(element)
-            elif element.tag == "link":
-                # IK uses collision spheres, not meshes or inertia.
-                for child in list(element):
-                    element.remove(child)
-        # Official 3.8.2 USD gripper-to-EEF fixed joints: localPos0=(0,0,-.06),
-        # localRot0 wxyz=(0,0,1,0). These frames are absent from its URDF.
-        for arm in ARM_JOINT_NAMES:
-            ET.SubElement(root, "link", name=f"{arm}_eef_link")
-            joint = ET.SubElement(
-                root,
-                "joint",
-                name=f"{arm}_gripper_link_{arm}_eef_link_joint",
-                type="fixed",
-            )
-            ET.SubElement(joint, "parent", link=f"{arm}_gripper_link")
-            ET.SubElement(joint, "child", link=f"{arm}_eef_link")
-            ET.SubElement(joint, "origin", xyz="0 0 -0.06", rpy=f"0 {np.pi} 0")
-        self._joints = {joint.attrib["name"]: joint for joint in root.findall("joint")}
-        self._by_child = {
-            joint.find("child").attrib["link"]: joint for joint in self._joints.values()
-        }
-        self._links = tuple(link.attrib["name"] for link in root.findall("link"))
-        self._config = {
-            key: source[key]
-            for key in (
-                "collision_spheres",
-                "collision_sphere_buffer",
-                "self_collision_buffer",
-                "use_global_cumul",
-            )
-        }
-        self._config.update(
-            base_link="base_link",
-            collision_link_names=[
-                name for name in source["collision_link_names"] if name in self._links
-            ],
-            self_collision_ignore={
-                name: [other for other in ignored if other in self._links]
-                for name, ignored in source["self_collision_ignore"].items()
-                if name in self._links
-            },
-            mesh_link_names=[],
-            motion_limits={
-                key: source["cspace"][key] for key in ("max_acceleration", "max_jerk")
-            },
-        )
-        self._urdf = ET.tostring(root, encoding="utf-8")
-        self.urdf_sha256 = hashlib.sha256(self._urdf).hexdigest()
+    def __init__(self, get_robot: Callable[[], Any]) -> None:
+        if not callable(get_robot):
+            raise TypeError("get_robot must provide the current loaded simulator robot")
+        self._get_robot = get_robot
+        self._robot: Any = None
+        self._generators: dict[tuple[str, str], Any] = {}
         self._temp: tempfile.TemporaryDirectory | None = None
 
     @property
-    def urdf_path(self) -> Path:
-        """Materialize the adapted URDF only when CuRobo needs a file."""
-        if self._temp is None:
-            self._temp = tempfile.TemporaryDirectory(prefix="rpent-behavior-")
-            (Path(self._temp.name) / "r1pro.urdf").write_bytes(self._urdf)
-        return Path(self._temp.name) / "r1pro.urdf"
+    def robot(self) -> Any:
+        """Return the current native robot, invalidating caches after scene rebuild."""
+        robot = self._get_robot()
+        if robot is not self._robot:
+            if robot.model != "r1pro":
+                raise ValueError("single-arm motion requires the loaded R1Pro robot")
+            self.close()
+            self._robot = robot
+        return robot
 
     def close(self) -> None:
-        """Remove the owned temporary URDF without touching official assets."""
+        """Release owned solver references and temporary configs, not the robot."""
+        self._generators.clear()
         if self._temp is not None:
             self._temp.cleanup()
             self._temp = None
+        self._robot = None
 
     @staticmethod
     def active_joint_names(arm: Arm) -> tuple[str, ...]:
@@ -231,25 +137,26 @@ class R1ProMotionModel:
         }
 
     def joint_limits(self, arm: Arm) -> np.ndarray:
-        """Return seven [lower, upper] URDF position limits in radians."""
+        """Return seven native [lower, upper] position limits in radians."""
+        robot = self.robot
         return np.asarray(
             [
-                [
-                    float(self._joints[name].find("limit").attrib[key])
-                    for key in ("lower", "upper")
-                ]
+                [robot.joints[name].lower_limit, robot.joints[name].upper_limit]
                 for name in self.active_joint_names(arm)
-            ]
+            ],
+            dtype=np.float64,
         )
 
     def velocity_limits(self, arm: Arm) -> np.ndarray:
-        """Return the selected arm's sourced URDF velocity bounds in rad/s."""
-        return np.asarray(
-            [
-                float(self._joints[name].find("limit").attrib["velocity"])
-                for name in self.active_joint_names(arm)
-            ]
+        """Return the selected arm's actual simulator velocity bounds in rad/s."""
+        robot = self.robot
+        limits = np.asarray(
+            [robot.joints[name].max_velocity for name in self.active_joint_names(arm)],
+            dtype=np.float64,
         )
+        if not np.isfinite(limits).all() or np.any(limits <= 0):
+            raise ValueError("native arm velocity limits must be finite and positive")
+        return limits
 
     @staticmethod
     def static_state_contract(proprio: Any) -> dict[str, Any]:
@@ -322,13 +229,6 @@ class R1ProMotionModel:
             return invalid
         context = motion_context
 
-        def valid_token(token: Any) -> bool:
-            return (
-                isinstance(token, dict)
-                and set(token) == {"generation", "observation_index"}
-                and all(type(value) is int and value >= 0 for value in token.values())
-            )
-
         token = context.get("current_token")
         previous_token = context.get("previous_token")
         counts = [
@@ -338,7 +238,7 @@ class R1ProMotionModel:
         dt = context.get("control_dt_s")
         if (
             context.get("source") != "confirmed_public_control_observations"
-            or not valid_token(token)
+            or not valid_observation_token(token)
             or any(type(value) is not int or value < 0 for value in counts)
             or counts[0] != counts[1]
             or counts[2] != 0
@@ -375,7 +275,7 @@ class R1ProMotionModel:
         if (
             context.get("initial_bootstrap") is not False
             or context.get("pair_confirmed") is not True
-            or not valid_token(previous_token)
+            or not valid_observation_token(previous_token)
             or previous_token["generation"] != token["generation"]
             or previous_token["observation_index"] + 1 != token["observation_index"]
             or token["observation_index"] != counts[1]
@@ -423,136 +323,187 @@ class R1ProMotionModel:
     def validate_finger_geometry(self, proprio: Any) -> None:
         """Check measured geometry without deriving replacement gripper commands."""
         positions = self.joint_positions(proprio)
+        robot = self.robot
         for arm, names in FINGER_JOINT_NAMES.items():
             for name in names:
-                limits = self._joints[name].find("limit").attrib
+                joint = robot.joints[name]
                 if (
-                    not float(limits["lower"]) - 0.001
+                    not joint.lower_limit - 0.001
                     <= positions[name]
-                    <= float(limits["upper"]) + 0.001
+                    <= joint.upper_limit + 0.001
                 ):
                     raise ValueError(
-                        f"{arm} measured fingers exceed the URDF position limits"
+                        f"{arm} measured fingers exceed native position limits"
                     )
 
-    def robot_config(self, arm: Arm, proprio: Any) -> dict[str, Any]:
-        """Build the inner dictionary accepted by ``RobotConfig.from_dict``.
+    def _native_positions(self, proprio: Any) -> np.ndarray:
+        robot = self.robot
+        positions = _numpy(robot.get_joint_positions())
+        if positions.shape != (len(robot.joints),) or not np.isfinite(positions).all():
+            raise ValueError("native joint positions must be a finite ordered vector")
+        measured = dict(zip(robot.joints, positions))
+        if any(
+            abs(measured[name] - value) > 1e-5
+            for name, value in self.joint_positions(proprio).items()
+        ):
+            raise ValueError(
+                "public motion snapshot differs from the current native joints"
+            )
+        return positions
 
-        All four trunk joints, the opposite arm and both measured finger pairs
-        are locked at this observation. Both arms keep their self-collision
-        spheres so IK rejects configurations that intersect the robot itself.
-        Callers must check the static-state contract and retain matching hold
-        targets while executing; this configuration does not command the robot.
+    def robot_config(self, arm: Arm, proprio: Any) -> dict[str, Any]:
+        """Narrow official USD configuration to one arm; retain all collision geometry.
+
+        Base, trunk, opposite arm and both finger pairs are locked to real native
+        positions. The SDK updates their fixed transforms before each solve.
+        This configuration describes geometry and never changes hold commands.
         """
-        arm = _arm(arm)
-        positions = self.joint_positions(proprio)
+        robot = self.robot
+        positions = dict(zip(robot.joints, self._native_positions(proprio)))
+        path = robot.curobo_path
+        if isinstance(path, dict):
+            path = path["arm"]
+        config = yaml.safe_load(Path(path).read_text())["robot_cfg"]
+        kinematics = config["kinematics"]
         active = self.active_joint_names(arm)
-        config = copy.deepcopy(self._config)
-        dynamic_limits = config.pop("motion_limits")
-        config.update(
-            urdf_path=str(self.urdf_path),
-            asset_root_path=str(self.asset_dir),
-            use_usd_kinematics=False,
-            ee_link=f"{arm}_eef_link",
-            link_names=[f"{'right' if arm == 'left' else 'left'}_eef_link"],
+        kinematics.update(
+            use_usd_kinematics=True,
+            ee_link=robot.eef_link_names[arm],
+            link_names=[robot.eef_link_names["right" if arm == "left" else "left"]],
             lock_joints={
-                name: value for name, value in positions.items() if name not in active
-            },
-            cspace={
-                "joint_names": list(active),
-                "retract_config": [positions[name] for name in active],
-                "null_space_weight": [1.0] * 7,
-                "cspace_distance_weight": [1.0] * 7,
-                **dynamic_limits,
+                name: float(value)
+                for name, value in positions.items()
+                if name not in active
             },
         )
-        return {"kinematics": config}
+        kinematics["cspace"].update(
+            joint_names=list(active),
+            retract_config=[float(positions[name]) for name in active],
+            null_space_weight=[1.0] * 7,
+            cspace_distance_weight=[1.0] * 7,
+        )
+        return config
 
-    def link_transforms(self, proprio: Any) -> dict[str, np.ndarray]:
-        """Return static FK transforms from each modeled link to base_link."""
+    def ik_solver(self, arm: Arm, proprio: Any, device: str) -> Any:
+        """Reuse official USD loading/locked-joint updates and its CuRobo IK solver."""
+        import torch
+        from curobo.types.state import JointState
+        from omnigibson.action_primitives.curobo import (
+            CuRoboEmbodimentSelection,
+            CuRoboMotionGenerator,
+        )
+
+        robot = self.robot
+        positions = self._native_positions(proprio)
+        key = (_arm(arm), device)
+        embodiment = CuRoboEmbodimentSelection.DEFAULT
+        if key not in self._generators:
+            if self._temp is None:
+                self._temp = tempfile.TemporaryDirectory(prefix="rpent-behavior-")
+            path = Path(self._temp.name) / f"{arm}.yaml"
+            path.write_text(
+                yaml.safe_dump({"robot_cfg": self.robot_config(arm, proprio)})
+            )
+            self._generators[key] = CuRoboMotionGenerator(
+                robot,
+                robot_cfg_path=str(path),
+                robot_usd_path=robot.usd_path,
+                device=device,
+                batch_size=1,
+                use_cuda_graph=False,
+                use_default_embodiment_only=True,
+                motion_cfg_kwargs={
+                    "num_ik_seeds": 32,
+                    "num_batch_ik_seeds": 32,
+                    "position_threshold": FK_POSITION_TOLERANCE_M,
+                    "rotation_threshold": FK_ORIENTATION_TOLERANCE_RAD,
+                    "self_collision_check": True,
+                },
+            )
+        generator = self._generators[key]
+        solver = generator.mg[embodiment].ik_solver
+        if tuple(solver.joint_names) != self.active_joint_names(arm):
+            raise ValueError(
+                "native IK configuration must optimize only the selected seven arm joints"
+            )
+        generator.update_locked_joints(
+            JointState(
+                position=torch.as_tensor(
+                    positions[None], dtype=torch.float32, device=device
+                ),
+                joint_names=list(robot.joints),
+            ),
+            embodiment,
+        )
+        return solver
+
+    def transform_pose(self, pose: Any, *, to_solver: bool) -> np.ndarray:
+        """Convert between physical robot base and native CuRobo base, in xyz/xyzw."""
         from scipy.spatial.transform import Rotation
 
-        positions = self.joint_positions(proprio)
-        transforms = {"base_link": np.eye(4)}
+        robot = self.robot
+        path = robot.curobo_path
+        if isinstance(path, dict):
+            path = path["arm"]
+        base = yaml.safe_load(Path(path).read_text())["robot_cfg"]["kinematics"][
+            "base_link"
+        ]
+        physical = robot.get_position_orientation()
+        native = robot.links[base].get_position_orientation()
+        source, destination = (physical, native) if to_solver else (native, physical)
+        src_pos, src_rot = _numpy(source[0]), Rotation.from_quat(_numpy(source[1]))
+        dst_pos, dst_rot = (
+            _numpy(destination[0]),
+            Rotation.from_quat(_numpy(destination[1])),
+        )
+        pose = np.asarray(pose, dtype=np.float64)
+        return np.concatenate(
+            (
+                dst_rot.inv().apply(src_rot.apply(pose[:3]) + src_pos - dst_pos),
+                (dst_rot.inv() * src_rot * Rotation.from_quat(pose[3:])).as_quat(),
+            )
+        )
 
-        def transform(link: str) -> np.ndarray:
-            if link in transforms:
-                return transforms[link]
-            joint = self._by_child[link]
-            origin = joint.find("origin")
-            local = np.eye(4)
-            local[:3, :3] = Rotation.from_euler("xyz", _xyz(origin, "rpy")).as_matrix()
-            local[:3, 3] = _xyz(origin, "xyz")
-            kind = joint.attrib["type"]
-            if kind != "fixed":
-                axis = _xyz(joint.find("axis"), "xyz")
-                motion = np.eye(4)
-                q = positions[joint.attrib["name"]]
-                if kind == "revolute":
-                    motion[:3, :3] = Rotation.from_rotvec(axis * q).as_matrix()
-                elif kind == "prismatic":
-                    motion[:3, 3] = axis * q
-                else:
-                    raise ValueError(f"Unsupported joint type in derived model: {kind}")
-                local = local @ motion
-            result = transform(joint.find("parent").attrib["link"]) @ local
-            transforms[link] = result
-            return result
-
-        for link in self._links:
-            transform(link)
-        return transforms
-
-    def forward(self, arm: Arm, proprio: Any) -> dict[str, Any]:
-        """Return the EEF pose in meters and xyzw order in the physical base."""
-        from scipy.spatial.transform import Rotation
-
-        arm = _arm(arm)
-        matrix = self.link_transforms(proprio)[f"{arm}_eef_link"]
-        return {
-            "position": matrix[:3, 3].tolist(),
-            "quaternion_xyzw": Rotation.from_matrix(matrix[:3, :3]).as_quat().tolist(),
-            "frame": "robot_base",
-            "eef_link": f"{arm}_eef_link",
-        }
-
-    def compare_proprio(self, proprio: Any) -> dict[str, Any]:
-        """Compare independent URDF FK with public EEF positions/orientations."""
+    def compare_proprio(self, proprio: Any, fk_state: Any) -> dict[str, Any]:
+        """Compare both native-USD CuRobo FK results with the public snapshot."""
         from scipy.spatial.transform import Rotation
 
         state = _proprio(proprio)
         result: dict[str, Any] = {
             "frame": "robot_base",
-            "urdf_sha256": self.urdf_sha256,
-            "robot_asset_version": self.asset_version,
+            "source": "native_usd_curobo_fk",
         }
-        transforms = self.link_transforms(state)
         for arm, start in (("left", 17), ("right", 42)):
-            matrix = transforms[f"{arm}_eef_link"]
-            pose = {
-                "position": matrix[:3, 3].tolist(),
-                "quaternion_xyzw": Rotation.from_matrix(matrix[:3, :3])
-                .as_quat()
-                .tolist(),
-                "frame": "robot_base",
-                "eef_link": f"{arm}_eef_link",
-            }
-            observed_q = state[start + 3 : start + 7]
-            norm = np.linalg.norm(observed_q)
-            if abs(norm - 1.0) > 1e-3:
-                raise ValueError(f"{arm} public EEF quaternion must have unit norm")
-            observed = Rotation.from_quat(observed_q)
-            predicted = Rotation.from_quat(pose["quaternion_xyzw"])
-            result[arm] = {
-                "position_error_m": float(
-                    np.linalg.norm(
-                        np.asarray(pose["position"]) - state[start : start + 3]
+            link = self.robot.eef_link_names[arm]
+            native = fk_state.link_poses[link]
+            pose = self.transform_pose(
+                np.concatenate(
+                    (
+                        _numpy(native.position).reshape(3),
+                        _numpy(native.quaternion).reshape(4)[[1, 2, 3, 0]],
                     )
                 ),
-                "orientation_error_rad": float(
-                    (observed.inv() * predicted).magnitude()
+                to_solver=False,
+            )
+            observed_q = state[start + 3 : start + 7]
+            if abs(np.linalg.norm(observed_q) - 1.0) > 1e-3:
+                raise ValueError(f"{arm} public EEF quaternion must have unit norm")
+            result[arm] = {
+                "position_error_m": float(
+                    np.linalg.norm(pose[:3] - state[start : start + 3])
                 ),
-                "predicted": pose,
+                "orientation_error_rad": float(
+                    (
+                        Rotation.from_quat(observed_q).inv()
+                        * Rotation.from_quat(pose[3:])
+                    ).magnitude()
+                ),
+                "predicted": {
+                    "position": pose[:3].tolist(),
+                    "quaternion_xyzw": pose[3:].tolist(),
+                    "frame": "robot_base",
+                    "eef_link": link,
+                },
             }
         return result
 
@@ -563,7 +514,7 @@ class R1ProMotionPlanner:
     CuRobo imports and GPU allocation are deferred until the first request.
     The official action clock is 30 Hz; video encoding at 120 FPS is separate.
     Only short single-arm repositioning is supported by this adapter mode.
-    The caller owns the static model and its temporary URDF.
+    The caller owns the native model cache; the simulator owns the robot.
     """
 
     def __init__(
@@ -579,30 +530,8 @@ class R1ProMotionPlanner:
         self.control_dt_s = 1.0 / 30.0
 
     def _ik_solver(self, arm: str, proprio: np.ndarray) -> Any:
-        """Build a solver for this observation's locked joints.
-
-        The locked trunk, opposite arm and finger positions change with every
-        request, and CuRobo's IK solver cannot update them in place, so each
-        request gets its own solver.
-        """
-        from curobo.types.base import TensorDeviceType
-        from curobo.types.robot import RobotConfig
-        from curobo.wrap.reacher.ik_solver import IKSolver, IKSolverConfig
-
-        args = TensorDeviceType(device=self.device)
-        robot = RobotConfig.from_dict(self.model.robot_config(arm, proprio), args)
-        return IKSolver(
-            IKSolverConfig.load_from_robot_config(
-                robot_cfg=robot,
-                world_model=None,
-                tensor_args=args,
-                num_seeds=32,
-                use_cuda_graph=False,
-                self_collision_check=True,
-                position_threshold=FK_POSITION_TOLERANCE_M,
-                rotation_threshold=FK_ORIENTATION_TOLERANCE_RAD,
-            )
-        )
+        """Get native IK with the current base/trunk/opposite-arm/finger locks."""
+        return self.model.ik_solver(arm, proprio, self.device)
 
     def plan_arm_path(
         self,
@@ -675,7 +604,11 @@ class R1ProMotionPlanner:
                 "error": str(error),
                 "motion_state_contract": motion_state,
             }
-        comparison = self.model.compare_proprio(proprio)
+        solver = self._ik_solver(arm, proprio)
+        names = list(self.model.active_joint_names(arm))
+        start_q = np.asarray(state[arm]["arm_qpos"], dtype=np.float64)
+        native_fk = solver.fk(solver.tensor_args.to_device([start_q]))
+        comparison = self.model.compare_proprio(proprio, native_fk)
         if any(
             item["position_error_m"] > FK_POSITION_TOLERANCE_M
             or item["orientation_error_rad"] > FK_ORIENTATION_TOLERANCE_RAD
@@ -683,9 +616,13 @@ class R1ProMotionPlanner:
         ):
             return {
                 "status": "Unavailable",
-                "code": "robot_fk_mismatch",
+                "code": "curobo_fk_mismatch",
                 "fk_comparison": comparison,
             }
+        native_pose_error = {
+            key: comparison[arm][key]
+            for key in ("position_error_m", "orientation_error_rad")
+        }
         collision_scope = {
             "source": "none_ik_only",
             "occluded_space_checked": False,
@@ -698,62 +635,56 @@ class R1ProMotionPlanner:
         from curobo.types.math import Pose
         from scipy.spatial.transform import Rotation
 
-        solver = self._ik_solver(arm, proprio)
-        names = list(self.model.active_joint_names(arm))
-        start_q = np.asarray(state[arm]["arm_qpos"], dtype=np.float64)
-        native_fk = solver.fk(solver.tensor_args.to_device([start_q]))
-        native_xyz = native_fk.ee_position.detach().cpu().numpy().reshape(3)
-        native_wxyz = native_fk.ee_quaternion.detach().cpu().numpy().reshape(4)
-        native_pose_error = {
-            "position_error_m": float(
-                np.linalg.norm(native_xyz - state[arm]["eef_position"])
-            ),
-            "orientation_error_rad": float(
-                (
-                    Rotation.from_quat(native_wxyz[[1, 2, 3, 0]]).inv()
-                    * Rotation.from_quat(state[arm]["eef_quaternion_xyzw"])
-                ).magnitude()
-            ),
-        }
-        if (
-            native_pose_error["position_error_m"] > FK_POSITION_TOLERANCE_M
-            or native_pose_error["orientation_error_rad"] > FK_ORIENTATION_TOLERANCE_RAD
-        ):
-            return {
-                "status": "Unavailable",
-                "code": "curobo_fk_mismatch",
-                "native_fk": native_pose_error,
-                "fk_comparison": comparison,
-            }
+        native_goal = self.model.transform_pose(goal, to_solver=True)
         target = Pose(
-            position=solver.tensor_args.to_device([goal[:3]]),
-            quaternion=solver.tensor_args.to_device([goal[[6, 3, 4, 5]]]),
+            position=solver.tensor_args.to_device([native_goal[:3]]),
+            quaternion=solver.tensor_args.to_device([native_goal[[6, 3, 4, 5]]]),
         )
+        # MotionGen warmup may leave goals for additional links in the cached
+        # IK buffer. Passing None does not clear them. Explicitly hold each
+        # modeled non-primary EEF at this snapshot's FK pose on every solve.
+        held_link_poses = {
+            name: Pose(
+                position=pose.position.clone(), quaternion=pose.quaternion.clone()
+            )
+            for name, pose in native_fk.link_poses.items()
+            if name != self.model.robot.eef_link_names[arm]
+        }
         # The current configuration is passed as an IK seed. CuRobo also uses
         # its own seeds, so this does not guarantee a solution near the
         # present posture.
         seed = solver.tensor_args.to_device(
             np.asarray(start_q, dtype=np.float32).reshape(1, 1, 7)
         )
-        result = solver.solve_single(target, seed_config=seed, return_seeds=1)
-        orientation_relaxed = False
-        if not bool(result.success.reshape(-1)[0].item()) and allow_orientation_relax:
-            # Near full extension the arm often cannot keep the requested
-            # orientation for a small position change. Retry with the position
-            # constraint only and report how far the wrist will turn; the
-            # caller decides whether that is acceptable.
-            from curobo.rollout.cost.pose_cost import PoseCostMetric
+        from curobo.rollout.cost.pose_cost import PoseCostMetric
 
-            solver.update_pose_cost_metric(
-                PoseCostMetric(
-                    reach_partial_pose=True,
-                    reach_vec_weight=solver.tensor_args.to_device([0, 0, 0, 1, 1, 1]),
-                )
+        orientation_relaxed = False
+        try:
+            solver.update_pose_cost_metric(PoseCostMetric.reset_metric())
+            result = solver.solve_single(
+                target, seed_config=seed, return_seeds=1, link_poses=held_link_poses
             )
-            relaxed = solver.solve_single(target, seed_config=seed, return_seeds=1)
-            if bool(relaxed.success.reshape(-1)[0].item()):
-                result = relaxed
-                orientation_relaxed = True
+            if (
+                not bool(result.success.reshape(-1)[0].item())
+                and allow_orientation_relax
+            ):
+                solver.update_pose_cost_metric(
+                    PoseCostMetric(
+                        reach_partial_pose=True,
+                        reach_vec_weight=solver.tensor_args.to_device(
+                            [0, 0, 0, 1, 1, 1]
+                        ),
+                    )
+                )
+                relaxed = solver.solve_single(
+                    target, seed_config=seed, return_seeds=1, link_poses=held_link_poses
+                )
+                if bool(relaxed.success.reshape(-1)[0].item()):
+                    result = relaxed
+                    orientation_relaxed = True
+        finally:
+            # Solvers are cached; a retry must not relax any subsequent request.
+            solver.update_pose_cost_metric(PoseCostMetric.reset_metric())
         goal_q = (
             result.js_solution.get_ordered_joint_state(names)
             .position.detach()
@@ -768,7 +699,7 @@ class R1ProMotionPlanner:
             rotation_error = float(
                 (
                     Rotation.from_quat(relaxed_wxyz[[1, 2, 3, 0]]).inv()
-                    * Rotation.from_quat(goal[3:])
+                    * Rotation.from_quat(native_goal[3:])
                 ).magnitude()
             )
         else:
@@ -779,7 +710,19 @@ class R1ProMotionPlanner:
             # a retreat point: the same height, pulled back toward the base,
             # which usually restores a solvable posture.
             best_fk = solver.fk(solver.tensor_args.to_device([goal_q]))
-            best_xyz = best_fk.ee_position.detach().cpu().numpy().reshape(3)
+            best_pose = self.model.transform_pose(
+                np.concatenate(
+                    (
+                        best_fk.ee_position.detach().cpu().numpy().reshape(3),
+                        best_fk.ee_quaternion.detach()
+                        .cpu()
+                        .numpy()
+                        .reshape(4)[[1, 2, 3, 0]],
+                    )
+                ),
+                to_solver=False,
+            )
+            best_xyz = best_pose[:3]
             current_xyz = np.asarray(state[arm]["eef_position"], dtype=np.float64)
             planar = current_xyz[:2]
             norm = float(np.linalg.norm(planar))
@@ -803,7 +746,13 @@ class R1ProMotionPlanner:
         # at least one waypoint, never more than the native path cap.
         velocity = self.model.velocity_limits(arm)
         steps = int(np.ceil(np.max(np.abs(goal_q - start_q) / (velocity * dt))))
-        steps = int(np.clip(steps, 1, 600))
+        if steps > 600:
+            return {
+                "status": "Unavailable",
+                "code": "path_too_long",
+                "error": "native velocity limits require more than 600 action steps",
+            }
+        steps = max(steps, 1)
         path = start_q + (goal_q - start_q) * (np.arange(1, steps + 1) / steps)[:, None]
         return {
             "status": "Success",

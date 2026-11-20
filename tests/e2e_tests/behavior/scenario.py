@@ -14,7 +14,7 @@
 
 """Bounded integration checks against operator-owned BEHAVIOR services.
 
-The operator starts services and the official evaluator separately. These
+The operator starts the native RLinf Env and shared Pi0.5 services. These
 checks load no checkpoints or credentials and create no child processes.
 Closing client connections never sends reset or shutdown. The policy chain
 calls the standard Toolkit directly, not a CLI or VLM Planner.
@@ -180,7 +180,11 @@ class BehaviorScenario:
 
     @cached_property
     def environment(self) -> tuple[dict[str, Any], dict[str, Any]]:
+        status_before = self.env.get_session_status()
         raw = self.env.get_observation()
+        status_after = self.env.get_session_status()
+        if status_after["episode_length"] != status_before["episode_length"]:
+            raise RuntimeError("observation read advanced the native episode")
         public = prepare_behavior_observation(
             raw, task_id=self.args.task_id, task_language=self.args.task_language
         )
@@ -194,6 +198,8 @@ class BehaviorScenario:
             "definition": "real Env observation request; no actions or reset",
             "cameras": cameras,
             "proprio": array_summary(proprio),
+            "model_proprio": array_summary(raw.get("policy_proprio", proprio)),
+            "native_episode": status_after,
             "official_task_success": None,
         }
         write_json_atomic(self.output_dir / "environment-component.json", result)
@@ -213,7 +219,7 @@ class BehaviorScenario:
         np.save(self.output_dir / "component-prediction.npy", prediction)
         result = {
             "status": "passed",
-            "definition": "real VLA prediction from official observation; no execution",
+            "definition": "real VLA prediction from native RLinf observation; no execution",
             "prediction": array_summary(prediction),
             "prediction_file": "component-prediction.npy",
             "official_task_success": None,
@@ -245,7 +251,15 @@ class BehaviorScenario:
             _require_tool_images(toolkit.execute_tool("view_env_state", {"step": 0}))
             predictions_before = len(self.model.predictions)
             submissions_before = len(self.env.submitted)
+            before_episode = self.env.get_session_status()
+            if before_episode["ended"]:
+                raise RuntimeError(
+                    "policy-chain check needs a running dedicated episode"
+                )
+            before_token = self.env.get_motion_snapshot()["observation_token"]
             action_result = toolkit.execute_tool("vla_act", {"chunks": 1})
+            after_token = self.env.get_motion_snapshot()["observation_token"]
+            after_episode = self.env.get_session_status()
             _require_tool_images(action_result)
             if len(self.model.predictions) != predictions_before + 1:
                 raise RuntimeError("bounded chain must make one real VLA request")
@@ -256,22 +270,60 @@ class BehaviorScenario:
             np.testing.assert_array_equal(submitted, predicted[:32])
             count = len(submitted)
             execution = action_result.data["log"]["result"]
+            completed = execution.get("confirmed_actions")
             if (
                 not 0 < count <= 32
+                or type(completed) is not int
+                or not 0 < completed <= count
+                or execution.get("requested_actions") != count
                 or any(
-                    execution.get(key) != count
-                    for key in (
-                        "requested_actions",
-                        "executed_actions",
-                        "issued_actions",
-                        "confirmed_actions",
-                    )
+                    execution.get(key) != completed
+                    for key in ("issued_actions", "executed_actions")
                 )
                 or execution.get("unconfirmed_actions") != 0
+                or after_token["generation"] != before_token["generation"]
+                or after_token["observation_index"] - before_token["observation_index"]
+                != completed
             ):
                 raise RuntimeError(
-                    f"native actions were not fully confirmed: {execution}"
+                    f"native action counts disagree with physical episode progress: {execution}"
                 )
+            if completed < count and after_episode["ended"] is not True:
+                raise RuntimeError(
+                    "partial chunk must report the native episode ending"
+                )
+            native_score = after_episode.get("q_score")
+            official_metrics = after_episode.get("official_metrics")
+            length_delta = (
+                after_episode["episode_length"] - before_episode["episode_length"]
+            )
+            if "episode" in before_episode:
+                # OG 3.9.3 can report index zero at reset and after the first tick.
+                first_tick = (
+                    before_token["observation_index"] == 0
+                    and before_episode["episode_length"] == 0
+                )
+                if length_delta != completed and not (
+                    first_tick and length_delta == completed - 1
+                ):
+                    raise RuntimeError(
+                        "RLinf episode length disagrees with executed actions"
+                    )
+                if not isinstance(after_episode["episode"]["success"], bool):
+                    raise RuntimeError("expected the RLinf episode success flag")
+            else:
+                if (
+                    length_delta != completed
+                    or not isinstance(official_metrics, dict)
+                    or native_score is None
+                ):
+                    raise RuntimeError(
+                        "expected native episode progress and TaskMetric results"
+                    )
+                if official_metrics["q_score"]["final"] != native_score:
+                    raise RuntimeError(
+                        "reported q_score disagrees with official TaskMetric"
+                    )
             if execution.get("observation_after_last_issued_action") is not True:
                 raise RuntimeError("no fresh observation after the submitted actions")
             for name in CAMERA_NAMES:
@@ -300,6 +352,10 @@ class BehaviorScenario:
                 "vlm_planner_assessed": False,
                 "official_task_success": None,
                 "execution": execution,
+                "native_episode_before": before_episode,
+                "native_episode_after": after_episode,
+                "official_metrics": official_metrics,
+                "q_score": native_score,
                 "prediction_matches_submitted_prefix": True,
                 "camera_images": 3,
                 "finish": finish.data,
