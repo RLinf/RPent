@@ -23,6 +23,7 @@ import pytest
 from rpent.cli import check_llm as check_cli
 from rpent.planner.check import (
     CHECK_STATUSES,
+    EXTERNALLY_CONFIGURED_PLANNERS,
     STATUS_AUTH_FAILED,
     STATUS_MISSING_API_KEY,
     STATUS_OK,
@@ -207,7 +208,7 @@ def test_cli_json_output_is_parseable_and_matches_the_result(
 
 @pytest.mark.parametrize(
     "planner",
-    ["claude_code", "codex", "gemini_cli"],
+    EXTERNALLY_CONFIGURED_PLANNERS,
 )
 def test_cli_rejects_base_url_for_the_backends_that_ignore_it(
     monkeypatch: pytest.MonkeyPatch,

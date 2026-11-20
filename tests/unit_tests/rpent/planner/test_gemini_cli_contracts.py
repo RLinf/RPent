@@ -27,7 +27,8 @@ import pytest
 import rpent.planner.gemini_cli as gemini_module
 import rpent.planner.utils.agent_session as session_module
 from rpent.dashboard.events import NullDashboardEventSink, TranscriptEvent, UsageEvent
-from rpent.planner.gemini_cli import GeminiCliPlanner, _Recorder
+from rpent.planner.gemini_cli import GeminiCliPlanner
+from rpent.planner.utils.acp import AcpRecorder
 from rpent.tools import ToolResult
 
 
@@ -87,33 +88,28 @@ def test_workspace_settings_expose_only_rpent_mcp_and_set_turn_limit(
     assert "GEMINI_API_KEY" not in path.read_text()
 
 
-def test_command_uses_acp_and_exact_optional_model(
-    monkeypatch: pytest.MonkeyPatch,
+@pytest.mark.parametrize("model", [None, "gemini-upstream-id"])
+def test_launch_uses_exact_model_and_trusted_workspace_environment(
+    tmp_path, monkeypatch, acp_backend, model
 ) -> None:
-    monkeypatch.setenv("GEMINI_BIN", "/fake/gemini")
+    monkeypatch.setenv("NO_PROXY", "gateway.example")
+    monkeypatch.delenv("no_proxy", raising=False)
+    planner = GeminiCliPlanner(
+        output_dir=str(tmp_path),
+        model=model,
+        dashboard_events=NullDashboardEventSink(),
+    )
+    assert planner.probe("ping") == "done"
 
-    inherited = gemini_module._build_command(model=None)
-    overridden = gemini_module._build_command(model="gemini-upstream-id")
-
-    assert inherited == [
+    assert acp_backend["command"] == [
         "/fake/gemini",
         "--acp",
         "--allowed-mcp-server-names",
         "rpent",
         "--extensions",
         "none",
-    ]
-    assert overridden[-2:] == ["--model", "gemini-upstream-id"]
-
-
-def test_environment_trusts_generated_workspace_and_bypasses_loopback_proxy(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setenv("NO_PROXY", "gateway.example")
-    monkeypatch.delenv("no_proxy", raising=False)
-
-    env = gemini_module._gemini_environment()
-
+    ] + (["--model", model] if model else [])
+    env = acp_backend["env"]
     assert env["GEMINI_CLI_TRUST_WORKSPACE"] == "true"
     assert env["GEMINI_CLI_NO_RELAUNCH"] == "1"
     assert env["NO_PROXY"] == "gateway.example,127.0.0.1,localhost"
@@ -123,7 +119,7 @@ def test_environment_trusts_generated_workspace_and_bypasses_loopback_proxy(
 @pytest.mark.parametrize("tool_error", [False, True])
 def test_recorder_uses_actual_finish_and_accumulates_usage(tool_error):
     events = []
-    recorder = _Recorder(SimpleNamespace(enabled=True, emit=events.append))
+    recorder = AcpRecorder(SimpleNamespace(enabled=True, emit=events.append))
     recorder.observe(
         {
             "type": "rpent_tool",
@@ -188,7 +184,7 @@ def test_secret_redactor_snapshots_configuration_once_per_session(
         return read_text(path)
 
     monkeypatch.setattr(Path, "read_text", read)
-    redact = gemini_module._load_secret_redactor()
+    redact = GeminiCliPlanner._load_secret_redactor()
     dotenv.write_text("GEMINI_API_KEY=replacement-secret\n")
     for _ in range(3):
         assert redact(f"request failed for {secret}") == (
@@ -197,7 +193,7 @@ def test_secret_redactor_snapshots_configuration_once_per_session(
         assert redact("environment-google-secret") == "<GOOGLE_API_KEY>"
         assert redact("dotenv-google-secret") == "dotenv-google-secret"
     assert reads == [dotenv]
-    assert gemini_module._load_secret_redactor()("replacement-secret") == (
+    assert GeminiCliPlanner._load_secret_redactor()("replacement-secret") == (
         "<GEMINI_API_KEY>"
     )
     assert reads == [dotenv, dotenv]
@@ -213,6 +209,7 @@ def acp_backend(monkeypatch):
     @asynccontextmanager
     async def spawn(client, binary, *args, cwd, **kwargs):
         seen["command"] = [binary, *args]
+        seen["env"] = kwargs["env"]
         seen["settings"] = json.loads((cwd / ".gemini" / "settings.json").read_text())
         seen["cwd"] = cwd
         stderr = asyncio.StreamReader()
@@ -225,6 +222,9 @@ def acp_backend(monkeypatch):
                 seen["events"].append("initialize")
                 if "startup_error" in seen:
                     raise seen["startup_error"]
+                return acp.schema.InitializeResponse(
+                    protocol_version=acp.PROTOCOL_VERSION
+                )
 
             async def authenticate(self, **kwargs):
                 pytest.fail("RPent must not change CLI authentication")
@@ -403,7 +403,11 @@ def test_prompt_auth_required_preserves_type_and_redacts_key(
 
     if entrypoint == "probe":
         with pytest.raises(acp.RequestError) as caught:
-            gemini_module.run_probe_turn(prompt="ping", model=None, timeout_s=1)
+            GeminiCliPlanner(
+                output_dir=".",
+                dashboard_events=NullDashboardEventSink(),
+                timeout_s=1,
+            ).probe("ping")
         assert caught.value.code == error.code
         detail = str(caught.value)
     else:
@@ -417,22 +421,24 @@ def test_prompt_auth_required_preserves_type_and_redacts_key(
 
 @pytest.mark.parametrize("outcome", ["success", "timeout", "auth_error"])
 def test_probe_is_tool_free_and_closes_transport(acp_backend, outcome):
+    planner = GeminiCliPlanner(
+        output_dir=".",
+        dashboard_events=NullDashboardEventSink(),
+        timeout_s=0.05 if outcome == "timeout" else 1,
+    )
     acp_backend["block"] = outcome == "timeout"
     if outcome == "auth_error":
         acp_backend["prompt_error"] = RuntimeError("401 Unauthorized")
     if outcome == "success":
-        assert (
-            gemini_module.run_probe_turn(prompt="ping", model=None, timeout_s=1)
-            == "done"
-        )
+        assert planner.probe("ping") == "done"
     else:
         error, message = (
-            (TimeoutError, "did not finish within")
+            ((asyncio.TimeoutError, TimeoutError), None)
             if outcome == "timeout"
             else (RuntimeError, "401 Unauthorized")
         )
         with pytest.raises(error, match=message):
-            gemini_module.run_probe_turn(prompt="ping", model=None, timeout_s=0.05)
+            planner.probe("ping")
     assert "--model" not in acp_backend["command"]
     assert "mcpServers" not in acp_backend["settings"]
     assert not FakeMcpServer.instances

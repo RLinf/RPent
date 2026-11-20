@@ -15,9 +15,9 @@
    rpent --robot libero --suite libero_10_task --task 0 --seed 1 \
      --planner claude_code --model claude-opus-4-8 --tui
 
-使用 ``claude_code``、``codex`` 或 ``gemini_cli`` 时，首次输入会预填任务指令，可编辑后按 Enter 提交，也可直接提交。输入 ``/help`` 查看命令，输入 ``/quit``、``/exit`` 或 ``/q`` 结束会话。
+使用 ``claude_code``、``codex``、``gemini_cli`` 或 ``opencode`` 时，首次输入会预填任务指令，可编辑后按 Enter 提交，也可直接提交。输入 ``/help`` 查看命令，输入 ``/quit``、``/exit`` 或 ``/q`` 结束会话。
 
-例如，Claude Code、Codex 或 Gemini CLI 正在执行任务，你想让它检查杯子的位置。可以按需要选择以下输入方式，输入后按 Enter：
+例如，Claude Code、Codex、Gemini CLI 或 OpenCode 正在执行任务，你想让它检查杯子的位置。可以按需要选择以下输入方式，输入后按 Enter：
 
 .. list-table::
    :header-rows: 1
@@ -48,7 +48,7 @@
 Dashboard
 ---------
 
-Dashboard 支持 ``api``、``claude_code``、``codex`` 和 ``gemini_cli`` 规划器。在命令行传递 ``--planner`` 与 ``--model``，配置方式和普通运行一致，详见 :doc:`configure_planner`。
+Dashboard 支持 ``api``、``claude_code``、``codex``、``gemini_cli`` 和 ``opencode`` 规划器。在命令行传递 ``--planner`` 与 ``--model``，配置方式和普通运行一致，详见 :doc:`configure_planner`。
 
 启动并提交任务
 ~~~~~~~~~~~~~~~~~~~~~
@@ -68,7 +68,7 @@ Session 配置全部来自命令行，打开地址后会直接进入实时监控
 
 每个 TaskRun 使用独立环境，VLA 和 SAM3 服务由 Session 复用。可通过新的 ``/rpent-task`` 启动或切换任务；运行中也可以提交追加消息，或按 Esc 请求中断。在终端按 Ctrl+C 可结束 Session。
 
-使用 Claude Code、Codex 或 Gemini CLI 时，普通消息会排队等待当前 agent 回合结束。例如，想在任务运行中让规划器先检查杯子的位置：
+使用 Claude Code、Codex、Gemini CLI 或 OpenCode 时，普通消息会排队等待当前 agent 回合结束。例如，想在任务运行中让规划器先检查杯子的位置：
 
 1. 在输入框中输入“先检查杯子的位置”，按 Enter 提交，消息进入队列。
 2. 若不想等待当前回合自然结束，在输入框中按 Esc 请求中断。

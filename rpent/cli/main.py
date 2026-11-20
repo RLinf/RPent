@@ -61,7 +61,7 @@ from rpent.planner.base import (
     build_planner,
     is_recoverable_agent_error,
 )
-from rpent.planner.check import EXTERNALLY_CONFIGURED_PLANNERS
+from rpent.planner.check import CHECK_PLANNERS, EXTERNALLY_CONFIGURED_PLANNERS
 from rpent.robots import enumerate_robots, get_robot_spec, get_toolkit
 from rpent.session.planner_capture import end_planner_task, start_planner_task
 from rpent.utils.logging import get_logger, init_output_dir
@@ -138,9 +138,9 @@ def _build_argparser() -> argparse.ArgumentParser:
     ap.add_argument(
         "--planner",
         default="api",
-        choices=["api", "claude_code", "codex", "gemini_cli", "flash"],
-        help="Planner backend: api | claude_code | codex | gemini_cli are LLMs in the "
-        "loop; flash is evaluation-only and replays a plan from memory, re-localizing "
+        choices=[*CHECK_PLANNERS, "flash"],
+        help="Planner backend. Online planners use an LLM in the loop; "
+        "flash is evaluation-only and replays a plan from memory, re-localizing "
         "each waypoint's anchor.",
     )
     ap.add_argument(
@@ -148,8 +148,8 @@ def _build_argparser() -> argparse.ArgumentParser:
         default=None,
         help="Model id. For the 'api' planner, prefix the provider "
         "(e.g. anthropic:claude-opus-4-8, google:Argon, "
-        "openai:gpt-5.5, openai-chat:glm-5.2). For claude_code, codex, and "
-        "gemini_cli this overrides the backend or upstream default model.",
+        "openai:gpt-5.5, openai-chat:glm-5.2). For external harnesses this "
+        "overrides their default model.",
     )
     ap.add_argument(
         "--base-url",
@@ -168,7 +168,7 @@ def _build_argparser() -> argparse.ArgumentParser:
         choices=REASONING_EFFORTS,
         default="none",
         help="Planner reasoning effort for api, claude_code, and "
-        "codex. gemini_cli supports none only. Higher effort may improve "
+        "codex. gemini_cli and opencode support none only. Higher effort may improve "
         "task success rate but increases runtime. Defaults to high for api "
         "and none for CLI/SDK planners.",
     )
@@ -184,7 +184,7 @@ def _build_argparser() -> argparse.ArgumentParser:
         "--planner-timeout-s",
         type=int,
         default=None,
-        help="Wall-clock cap for api/claude_code/codex/gemini_cli planner runs. "
+        help="Wall-clock cap for online planner runs. "
         "Terminal interactive API/Claude sessions are exempt. "
         "Defaults to CODEX_TIMEOUT_S (codex only), GEMINI_CLI_TIMEOUT_S "
         "(gemini_cli only), CELL_TIMEOUT_S, or 1200.",
@@ -199,7 +199,7 @@ def _build_argparser() -> argparse.ArgumentParser:
         "--claude-code-max-budget-usd",
         type=float,
         default=None,
-        help="Budget passed to claude -p --max-budget-usd. "
+        help="Spending limit in USD for the claude_code planner. "
         "Defaults to MAX_BUDGET_USD env or 10.",
     )
 
@@ -404,9 +404,9 @@ def main() -> int:
     )
     if args.dashboard and args.tui:
         parser.error("--dashboard and --tui cannot be used together")
-    if args.planner == "gemini_cli" and args.reasoning_effort != "none":
+    if args.planner in {"gemini_cli", "opencode"} and args.reasoning_effort != "none":
         parser.error(
-            "--reasoning-effort is not supported by the gemini_cli planner; use 'none'"
+            f"--reasoning-effort is not supported by the {args.planner} planner; use 'none'"
         )
     try:
         external_env_dashboard = (
@@ -539,10 +539,10 @@ def main() -> int:
     if args.tui and not native_cli:
         input_queue = queue.Queue()
         queued_help = (
-            "Claude Code/Codex/Gemini: messages queue until the current turn completes.\n"
+            "Messages queue until the current turn completes.\n"
             "/interrupt [message] stops the current turn, then sends queued input "
             "(or the supplied message first).\n"
-            if args.planner in {"claude_code", "codex", "gemini_cli"}
+            if args.planner in EXTERNALLY_CONFIGURED_PLANNERS
             else ""
         )
         # Pre-fill the first prompt with the rendered default task (editable
