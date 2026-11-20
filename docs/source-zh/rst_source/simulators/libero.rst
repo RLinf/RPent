@@ -191,7 +191,7 @@ WAM 评测
      --am-endpoint http://127.0.0.1:8116 --memory-profile local \
      --planner api --model <planner-model>
 
-Fast-WAM 使用 ``--am-backend fast-wam`` 及其 worker 地址。LIBERO-Pro 需在 Pro 环境中选择 Pro suite 并指定 ``--libero-type pro``。WAM 不支持 LIBERO-Plus、Flash 和探索。WAM 必须启用本地记忆管理器和文件工具，默认目录按后端区分，语料允许为空；可通过 ``--memory-dir`` 指定兼容的本地语料，目前不支持 HF 记忆。``wam_act(prompt=None, max_chunks=1)`` 替换 Pi0.5 工具，每次执行 1 至 4 个 chunk，每个 chunk 前重新获取观测。每个 chunk 的动作数由 worker 的 ``chunk_size`` 元数据声明。prompt 仅覆盖本次调用，chunk 预算不指定在 chunk 内的哪一步停止。
+Fast-WAM 使用 ``--am-backend fast-wam`` 及其 worker 地址。LIBERO-Pro 需在 Pro 环境中选择 Pro suite 并指定 ``--libero-type pro``。WAM 不支持 LIBERO-Plus、Flash 和探索。WAM 必须启用本地记忆管理器和文件工具，默认目录按后端区分，语料允许为空；可通过 ``--memory-dir`` 指定兼容的本地语料，目前不支持 HF 记忆。``wam_act(prompt=None, max_chunks=1)`` 替换 Pi0.5 工具，每次执行 1 至 4 个 chunk，每个 chunk 前重新获取观测。每个 chunk 的动作数由 worker 的 ``chunk_size`` 元数据声明。prompt 仅覆盖本次调用。评测 VLA 或 WAM 时，执行器在每个原生控制步检查结果，遇到成功或截断即停止执行该 chunk 的剩余动作。
 
 查看结果
 ------------
@@ -199,6 +199,16 @@ Fast-WAM 使用 ``--am-backend fast-wam`` 及其 worker 地址。LIBERO-Pro 需�
 终端会显示服务器启动、规划器对话和工具调用。结束后查看输出目录中的 ``episode.mp4``、``transcript_*.json`` 和 ``run.log``；默认目录与逐步观测文件见 :ref:`run-output-files`。
 
 通过 ``view_env_state(step=-1)`` 查看最终状态，顶层 ``terminated`` 表示环境是否判定成功。规划器调用 ``finish`` 只表示结束规划。实时观察方法见 :doc:`../guides/dashboard`。
+
+自动评测还会生成 ``metrics/<run_id>/episode_metrics.json``。直接评测动作模型可运行以下命令：
+
+.. code-block:: bash
+
+   python -m robots.libero.direct_eval --suite libero_object_swap --task 2 --seed 0 \
+      --am-backend pi05 --max-episode-steps 280 --output-dir runs/libero-pro
+
+按 :ref:`episode-metrics-summary` 汇总原生成功率、运行耗时和 token 用量。比较各方法时固定 LIBERO 版本、套件、任务编号、seed 和预算。
+远程环境端须在复位时返回试次 ID，才能核验这些指标并执行 ``--trial-wall-s``。旧版环境端的统一指标记录为待核实。
 
 .. _libero-exploration:
 

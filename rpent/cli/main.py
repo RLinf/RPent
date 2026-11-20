@@ -469,7 +469,7 @@ def main() -> int:
         parser.error("--memory-dir requires --memory-profile local or --explore")
     if args.memory_repo is not None and args.memory_profile == "local":
         parser.error("--memory-repo requires HF evaluation")
-    from rpent.memory.loading import prepare_run_memory
+    from rpent.evaluation.runtime import prepare_run_trial
 
     try:
         if args.memory_repo is not None:
@@ -500,14 +500,9 @@ def main() -> int:
     output_dir = init_output_dir(output_dir, verbose=args.verbose)
     logger.info("physical agent cmd: %s", shlex.join([sys.executable, *sys.argv]))
 
-    trial = (
-        robot_spec.create_evaluation_trial(args, run_config)
-        if getattr(robot_spec, "create_evaluation_trial", None)
-        and not args.explore
-        and not args.tui
-        else None
+    trial = prepare_run_trial(
+        args, robot_spec, run_config, automatic=not args.explore and not args.tui
     )
-    prepare_run_memory(args, robot_spec, run_config)
 
     dashboard_events = NullDashboardEventSink()
 
@@ -614,11 +609,11 @@ def main() -> int:
             # editable default.
             user_msg = prompt_bundle.render("user", variables=prompt_vars)
         system_prompt = prompt_bundle.render("system", variables=prompt_vars)
-    except BaseException:
+    except BaseException as exc:
         # The agent-loop ``finally`` below stops the daemons. A prompt or hook
         # failure happens before it and must not leak the runtime.
         if trial is not None:
-            trial.finalize(error=True)
+            trial.finalize(error=True, startup_error=exc)
         for daemon in daemons:
             daemon.stop()
         raise

@@ -24,6 +24,8 @@ from threading import Lock
 from typing import Any, Iterator
 from uuid import uuid4
 
+from rpent.utils.rpc.rpc_client import unconfirmed_rpc_observer
+
 
 class TokenLedger:
     """Collect model-native usage without converting between tokenizers or modalities."""
@@ -31,6 +33,7 @@ class TokenLedger:
     def __init__(self) -> None:
         self._entries: dict[tuple[str | None, str, str], dict[str, Any]] = {}
         self._lock = Lock()
+        self._unconfirmed_model_requests: list[dict[str, str]] = []
 
     def record_usage(
         self,
@@ -116,18 +119,40 @@ class TokenLedger:
     @contextmanager
     def unmetered_call(self, *, model: str, module: str, stage: str) -> Iterator[None]:
         """Record one opaque model invocation, including failed and interrupted attempts."""
+        request_id = uuid4().hex
         status = "failed"
+
+        def unconfirmed(method: str, cause: str) -> None:
+            with self._lock:
+                self._unconfirmed_model_requests.append(
+                    {
+                        "request_id": request_id,
+                        "module": module,
+                        "model": model,
+                        "rpc_method": method,
+                        "cause": cause,
+                    }
+                )
+
+        token = unconfirmed_rpc_observer.set(unconfirmed)
         try:
             yield
             status = "completed"
         finally:
+            unconfirmed_rpc_observer.reset(token)
             self.record_usage(
-                request_id=uuid4().hex,
+                request_id=request_id,
                 model=model,
                 module=module,
                 stage=stage,
                 status=status,
             )
+
+    @property
+    def unconfirmed_model_requests(self) -> list[dict[str, str]]:
+        """Return submitted model RPCs without evidence that the worker stopped."""
+        with self._lock:
+            return deepcopy(self._unconfirmed_model_requests)
 
     def observe_planner(
         self,

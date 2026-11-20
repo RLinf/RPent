@@ -25,16 +25,23 @@ from __future__ import annotations
 
 import base64
 import json
+import socket
 import urllib.error
 import urllib.parse
 import urllib.request
+from http.client import HTTPException
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any, Callable
 
 import numpy as np
 
 from rpent.utils.logging import get_logger
-from rpent.utils.rpc.rpc_client import RpcClient, RpcError, check_response
+from rpent.utils.rpc.rpc_client import (
+    RpcClient,
+    RpcError,
+    check_response,
+    report_unconfirmed_rpc,
+)
 from rpent.utils.rpc.rpc_facade import make_error_response
 
 DEFAULT_TIMEOUT_S = 30.0
@@ -123,18 +130,24 @@ class HttpRpcClient(RpcClient):
         )
         try:
             open_request = self._opener.open if self._opener else urllib.request.urlopen
-            with open_request(req, timeout=request_timeout) as resp:
+            try:
+                resp = open_request(req, timeout=request_timeout)
+            except urllib.error.HTTPError as exc:
+                # The server can return an acknowledged method error in this body.
+                resp = exc
+            with resp:
                 raw = resp.read()
-        except urllib.error.HTTPError as exc:
-            # HTTPError is an OSError subclass; catch first so we can parse
-            # the ok=False body the server sent alongside the status code.
-            raw = exc.read()
-        except OSError as exc:
+        except (OSError, HTTPException) as exc:
+            cause = getattr(exc, "reason", exc)
+            # No request reached the peer on a refused connection or DNS failure.
+            if not isinstance(cause, (ConnectionRefusedError, socket.gaierror)):
+                report_unconfirmed_rpc(method, type(cause).__name__)
             raise RpcError(method, f"HTTP request failed: {exc}") from exc
 
         try:
             response = _from_json(json.loads(raw))
-        except json.JSONDecodeError as exc:
+        except (ValueError, TypeError, KeyError) as exc:
+            report_unconfirmed_rpc(method, "invalid_response_body")
             raise RpcError(method, f"invalid JSON response: {exc}") from exc
 
         return check_response(response, method)

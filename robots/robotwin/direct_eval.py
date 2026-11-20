@@ -47,15 +47,6 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
         kwargs = trial.start(runtime)
         policy = RoboTwinPrimitives(**kwargs, check_cancelled=trial.remaining)
-        trial.trial.record_usage(
-            request_id="no-planner",
-            model="none",
-            module="planner",
-            stage="online",
-            granularity="session",
-            input_tokens=0,
-            output_tokens=0,
-        )
         if policy.policy_kind == "wam":
             policy.model.reset()
         while True:

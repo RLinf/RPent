@@ -73,6 +73,10 @@ class LocalPointAgent:
             retries=0,
         )
 
+    def for_trial(self, ledger):
+        """Bind inference accounting before constructing this task's point agent."""
+        return LocalPointAgent(self._backend.for_trial(ledger))
+
     def verify(
         self, image: bytes, query: str | None, *, isolated: bool = False
     ) -> str | None:

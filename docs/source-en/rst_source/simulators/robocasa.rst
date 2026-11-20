@@ -207,6 +207,16 @@ View Results
 
 Task success comes from the environment’s ``_check_success()`` result, exposed as ``state.success``. The planner’s ``finish`` status ends its conversation and is not an evaluation label. Inspect ``result.json``, ``transcript_*.json``, and ``run.log`` in the output directory; service startup errors are in ``env_server.log`` and ``vla_server.log``.
 
+Automatic evaluations also write ``metrics/<run_id>/episode_metrics.json``.
+To measure the action model directly, run:
+
+.. code-block:: bash
+
+   python -m robots.robocasa.direct_eval --task-name OpenDrawer --split target --seed 0 \
+      --max-episode-steps 560 --actions-per-chunk 8 --output-dir runs/robocasa
+
+Compare native success, elapsed time and token usage using :ref:`episode-metrics-summary`. Keep the split, seed and execution budgets fixed when comparing methods. Update remote RoboCasa environment workers to enable measured episodes and control-step or wall-clock limits. Older workers can continue ordinary agent runs with unresolved metrics.
+
 Use ``--dashboard`` to watch cameras and planner output; see :doc:`../guides/dashboard` for the shared workflow.
 
 Task Memory

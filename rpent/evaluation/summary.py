@@ -227,19 +227,53 @@ def summarize(trials: Iterable[Mapping[str, Any]], records: Iterable[dict]) -> d
             if field in spec and spec[field] != record[field]:
                 raise ValueError(f"Mismatched {field} for {key}")
         attempts.append(record)
+    # Older single-benchmark manifests may omit the environment. A missing
+    # episode in a multi-benchmark batch needs an explicit assignment.
+    known_environments = defaultdict(set)
+    for spec, attempts in planned.values():
+        environments = {
+            e
+            for e in (
+                spec.get("environment"),
+                *(r.get("environment") for r in attempts),
+            )
+            if e is not None
+        }
+        if len(environments) > 1:
+            raise ValueError(f"Conflicting environments for {spec['trial_id']}")
+        if environments:
+            spec["environment"] = environments.pop()
+            known_environments[spec["method"]].add(spec["environment"])
     cells = defaultdict(list)
     reviews = []
     for spec, attempts in planned.values():
         reviews.extend(_infrastructure_reviews(spec, attempts))
-        cells[(spec["method"], spec["task"], spec["scene"])].append((spec, attempts))
+        method = spec["method"]
+        environment = spec.get("environment")
+        if environment is None:
+            if len(known_environments[method]) > 1:
+                raise ValueError(
+                    f"Specify environment in manifest for {spec['trial_id']}"
+                )
+            environment = next(iter(known_environments[method]), None)
+        cells[(method, environment, spec["task"], spec["scene"])].append(
+            (spec, attempts)
+        )
     rows = []
     methods = defaultdict(list)
-    for (method, task, scene), items in cells.items():
-        row = {"method": method, "task": task, "scene": scene, **_cell(items)}
+    for (method, environment, task, scene), items in cells.items():
+        identity = {"environment": environment} if environment is not None else {}
+        row = {
+            "method": method,
+            **identity,
+            "task": task,
+            "scene": scene,
+            **_cell(items),
+        }
         rows.append(row)
-        methods[method].append(row)
+        methods[(method, environment)].append(row)
     by_method = []
-    for method, group in methods.items():
+    for (method, environment), group in methods.items():
         complete = all(row["unresolved"] == 0 for row in group)
         per_task = defaultdict(list)
         if complete:
@@ -248,6 +282,7 @@ def summarize(trials: Iterable[Mapping[str, Any]], records: Iterable[dict]) -> d
         by_method.append(
             {
                 "method": method,
+                **({"environment": environment} if environment is not None else {}),
                 "complete": complete,
                 "native_sr_macro": mean(mean(rates) for rates in per_task.values())
                 if complete

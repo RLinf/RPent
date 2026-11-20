@@ -273,3 +273,32 @@ def test_reject_unknown_mode_on_client_and_rpc():
 def test_molmo_client_rejects_invalid_coordinates(point):
     with pytest.raises(RuntimeError, match="invalid Molmo point_xy"):
         MolmoClient(_FakeRpcClient({"point_xy": point})).ground(_png(), "the cup")
+
+
+def test_perception_ledger_counts_only_run_scoped_provider_requests():
+    from rpent.evaluation.usage import TokenLedger
+
+    ledger = TokenLedger()
+    transport = _FakeRpcClient({"answer": "absent"})
+    shared = MolmoClient(transport)
+    measured = shared.for_trial(ledger)
+    with pytest.raises(ValueError, match="non-empty query"):
+        measured.ground(b"image", "")
+    shared.ground(b"image", "cup")
+    measured.ground(b"image", "cup")
+    measured.verify(b"image", "cup")
+
+    entries = ledger.to_dict()["entries"]
+    assert [call[0] for call in transport.calls] == [
+        "molmo.ground",
+        "molmo.ground",
+        "molmo.verify",
+    ]
+    assert len(entries) == 2
+    assert all(
+        e["model"] == "molmo"
+        and e["module"] == "perception"
+        and e["coverage"] == "unknown"
+        and e["status"] == "completed"
+        for e in entries
+    )

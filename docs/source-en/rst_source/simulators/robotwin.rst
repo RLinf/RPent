@@ -422,6 +422,8 @@ For offline evaluation, download the subtree first and use
 ``--memory-profile local --memory-dir <downloaded-corpus>`` without
 ``--memory-version``. The selected directory must retain the RoboTwin memory layout.
 
+.. _episode-metrics-summary:
+
 Compare episode metrics
 -----------------------
 
@@ -460,15 +462,19 @@ method's overall score pending. To adjudicate an unresolved environment startup
 failure, add ``infrastructure_reviews`` to that manifest entry, mapping the
 original ``run_id`` to the verified infrastructure cause. Keep the original
 episode file alongside the replacement. The overall score weights scenes equally
-within each task, then weights tasks equally.
+within each task, then weights tasks equally. In a multi-benchmark manifest,
+set the episode’s ``environment`` on each entry. Each method receives a separate
+score for each environment, even when task and scene names coincide.
 
 ``run_s`` measures elapsed monotonic time from the available instruction
 and initial observation until the executor confirms it has stopped. The
 summary gives the median and P90 with their sample counts. ``success_s``
 measures time to confirmed native success. When the environment is remote, the
 runner subtracts the server-reported age of the event from the local receipt
-time. This gives an upper bound that includes response transit. A missing stop confirmation leaves
-``run_s`` empty. Inspect the episode's ``token_ledger`` for model input and
+time. This gives an upper bound that includes response transit. A wall cutoff
+closes action admission; ``tail_s`` includes time until the local executor drains
+and the environment seals the episode. A missing stop confirmation leaves
+``run_s`` empty. If an action or perception model request loses its reply over RPent HTTP or socket RPC, inspect ``timing.unconfirmed_model_requests`` for the request and cause. The episode retains its confirmed native verdict, stop time and observed duration. Both ``run_s`` and ``tail_s`` remain empty until executor completion can be confirmed. Inspect the episode's ``token_ledger`` for model input and
 output, stage, source and coverage. Session totals retain their original
 granularity. The summary reports available subtotals from partially metered
 episodes separately. Continuous robot commands have no language token unit.

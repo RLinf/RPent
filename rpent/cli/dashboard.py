@@ -208,9 +208,14 @@ def _run_dashboard_task(
         raise ValueError(f"--explore is not supported for robot {robot_spec.name!r}")
     task_args.output_dir = str(claimed.output_dir)
     run_config = robot_spec.parse_config(task_args)
-    from rpent.memory.loading import prepare_run_memory
+    from rpent.evaluation.runtime import prepare_run_trial
 
-    prepare_run_memory(task_args, robot_spec, run_config)
+    trial = prepare_run_trial(
+        task_args,
+        robot_spec,
+        run_config,
+        automatic=not task_args.explore and not human_interactive_run,
+    )
     output_dir = init_output_dir(run_config.output_dir, verbose=args.verbose)
 
     recipe_tag = run_config.recipe_tag
@@ -225,13 +230,6 @@ def _run_dashboard_task(
     memory_manager = None
     environment_success = None
     environment_metrics: dict = {}
-    trial = (
-        robot_spec.create_evaluation_trial(task_args, run_config)
-        if getattr(robot_spec, "create_evaluation_trial", None)
-        and not task_args.explore
-        and not human_interactive_run
-        else None
-    )
     try:
         task_daemons, task_runtime_kwargs = robot_spec.init_runtime(
             task_args,

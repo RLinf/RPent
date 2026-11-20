@@ -21,6 +21,7 @@ import json
 import time
 from argparse import Namespace
 from dataclasses import replace
+from threading import Event
 from types import SimpleNamespace
 
 import numpy as np
@@ -243,3 +244,130 @@ def test_startup_component_does_not_certify_infrastructure(
         "ValueError",
     )
     assert record["native_verdict"] is None and record["timing"]["run_s"] is None
+
+
+@pytest.mark.parametrize("sealed_value", [False, True, None])
+def test_late_seal_only_backdates_a_latched_negative(
+    tmp_path, monkeypatch, sealed_value
+):
+    """A late success lacks in-budget evidence; a latched false covers the deadline."""
+    from rpent.evaluation import runtime
+
+    clock = [10.0]
+    monkeypatch.setattr(runtime.time, "monotonic", lambda: clock[0])
+    args = Namespace(
+        seed=7,
+        task_name="hammer",
+        task_config="demo_randomized",
+        max_episode_steps=10,
+        trial_wall_s=1000,
+        am_endpoint="http://localhost:9999",
+    )
+    trial = RoboTwinTrial(args, SimpleNamespace(output_dir=tmp_path), direct=True)
+    env = RoboTwinEnvClient(NativeRPC(success=None), expected_meta={"seed": 7})
+    trial.start({"env": env})
+    clock[0] += 1000.01
+    trial.close_admission("wall_budget")
+    trial.native_update(sealed_value, source=trial.native_source, sealed=True)
+    trial._timer.cancel()
+    trial._timer.join()
+    trial.trial.quiesce(at=clock[0])
+    record = json.loads(trial.trial.finish().read_text())
+    assert record["status"] == "failure"
+    assert record["native_verdict"] is (False if sealed_value is False else None)
+    assert record["timing"]["success_s"] is None
+
+
+def test_failed_memory_setup_keeps_the_resolved_method_and_missing_time(
+    tmp_path, monkeypatch
+):
+    from rpent.evaluation.runtime import prepare_run_trial
+
+    def missing_memory(args, config):
+        raise OSError("test corpus is unavailable")
+
+    monkeypatch.setenv("CODEX_MODEL", "pinned-model")
+    spec = replace(get_robot_spec(), prepare_memory=missing_memory)
+    args = Namespace(
+        seed=0, task_config="suite", task_name="hammer", planner="codex", model=None
+    )
+    with pytest.raises(OSError, match="corpus is unavailable"):
+        prepare_run_trial(
+            args, spec, SimpleNamespace(output_dir=tmp_path), automatic=True
+        )
+    [path] = tmp_path.glob("metrics/*/episode_metrics.json")
+    row = json.loads(path.read_text())
+    assert row["method"] == "agentic/codex/pinned-model/lingbot"
+    assert (row["status"], row["stop_reason"], row["error_type"]) == (
+        "unresolved",
+        "memory_initialization_failed",
+        "OSError",
+    )
+    assert row["timing"]["run_s"] is None and row["native_verdict"] is None
+
+
+@pytest.mark.parametrize("loses_reply", [True, False], ids=["timeout", "remote-error"])
+def test_model_rpc_requires_a_completion_reply_for_runtime(
+    tmp_path, transport, make_server_and_client, loses_reply
+):
+    """A sealed environment and an open model request have distinct end times."""
+    from rpent.utils.rpc import RpcError, RpcFacade
+
+    worker_started, allow_finish, worker_finished = Event(), Event(), Event()
+
+    def predict():
+        worker_started.set()
+        try:
+            if loses_reply:
+                assert allow_finish.wait(10)
+                return []
+            raise ValueError("invalid observation")
+        finally:
+            worker_finished.set()
+
+    worker = RpcFacade()
+    worker._rpc["vla.predict"] = predict
+    args = Namespace(seed=7, task_name="hammer", task_config="demo_randomized")
+    env_rpc = NativeRPC(success=False)
+    env = RoboTwinEnvClient(env_rpc, expected_meta={"seed": 7})
+    trial = RoboTwinTrial(args, SimpleNamespace(output_dir=tmp_path), direct=True)
+    trial.start({"env": env})
+    try:
+        with make_server_and_client(worker, transport) as client:
+            with pytest.raises((RpcError, TimeoutError)):
+                with trial.trial.tokens.unmetered_call(
+                    model="test-policy", module="action_model", stage="execution"
+                ):
+                    client.call("vla.predict", timeout_s=0.1 if loses_reply else 2)
+            assert worker_started.wait(2)
+            trial.finalize(error=True)
+            data = json.loads(trial.trial.path.read_text())
+            assert env_rpc.sealed and data["native_verdict"] is False
+            assert data["status"] == "failure" and data["stop_reason"] == "method_error"
+            timing = data["timing"]
+            assert timing["observed_s"] >= timing["stop_s"] >= 0
+            if loses_reply:
+                assert not worker_finished.is_set()
+                assert timing["run_s"] is None and timing["tail_s"] is None
+                [request] = timing["unconfirmed_model_requests"]
+                [model_call] = [
+                    e
+                    for e in data["token_ledger"]["entries"]
+                    if e["module"] == "action_model"
+                ]
+                assert request == {
+                    "request_id": model_call["request_id"],
+                    "module": "action_model",
+                    "model": "test-policy",
+                    "rpc_method": "vla.predict",
+                    "cause": "TimeoutError",
+                }
+            else:
+                assert (
+                    worker_finished.is_set()
+                    and "unconfirmed_model_requests" not in timing
+                )
+                assert timing["run_s"] >= timing["stop_s"] and timing["tail_s"] >= 0
+    finally:
+        allow_finish.set()
+    assert worker_finished.wait(2)

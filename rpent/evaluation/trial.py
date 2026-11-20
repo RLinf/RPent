@@ -268,6 +268,9 @@ class TrialRecorder:
                 },
                 "token_ledger": self.tokens.to_dict(),
             }
+            unconfirmed = self.tokens.unconfirmed_model_requests
+            if unconfirmed:
+                record["timing"]["unconfirmed_model_requests"] = unconfirmed
             if error_type is not None:
                 record["error_type"] = error_type
             self.path.parent.mkdir(parents=True, exist_ok=True)

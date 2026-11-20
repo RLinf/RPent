@@ -19,7 +19,9 @@ from __future__ import annotations
 import argparse
 import os
 import sys
+import time
 from typing import TYPE_CHECKING, Any
+from uuid import uuid4
 
 import numpy as np
 
@@ -153,6 +155,12 @@ class LiberoEnvFacade(BaseEnvFacade):
         self._env = env
         self._env_idx = 0
         self._closed = False
+        self._episode_id = None
+        self._measured = False
+        self._sealed = False
+        self._success: bool | None = None
+        self._first_success = None
+        self._truncated = False
         # Identifies what task/seed this server was launched with — the
         # client compares against its own expected values at construction
         # and refuses to talk to a stale or mis-configured server.
@@ -163,6 +171,9 @@ class LiberoEnvFacade(BaseEnvFacade):
         super()._register_rpc()
         self._rpc.update(
             {
+                "env.begin_trial": self.begin_trial,
+                "env.trial_actions": self.trial_actions,
+                "env.seal_episode": self.seal_episode,
                 "env.raw_obs": self.raw_obs,
                 "env.render_camera": self.render_camera,
                 "env.get_camera_meta": self.get_camera_meta,
@@ -198,11 +209,21 @@ class LiberoEnvFacade(BaseEnvFacade):
     # ---- gym-like surface ----
 
     def reset(self):
+        if self._measured and not self._sealed:
+            raise RuntimeError("Cannot reset an active evaluation episode")
+        self._episode_id = uuid4().hex
+        self._measured = False
+        self._sealed = False
         obs, info = self._env.reset()
         obs = self._strip_obs(to_numpy_tree(obs))
-        return obs, to_numpy_tree(info)
+        return obs, {**to_numpy_tree(info), "episode_id": self._episode_id}
 
     def step(self, action):
+        if self._measured:
+            raise RuntimeError("Measured actions require an active episode ID")
+        return self._step(action)
+
+    def _step(self, action):
         obs, rew, term, trunc, info = self._env.step(self._expand_action(action))
         obs = self._strip_obs(to_numpy_tree(obs))
         term = self._strip(to_numpy_tree(term))
@@ -227,6 +248,8 @@ class LiberoEnvFacade(BaseEnvFacade):
         the leading env dim is stripped — the agent reduces across the
         chunk itself.
         """
+        if self._measured:
+            raise RuntimeError("Measured actions require an active episode ID")
         obs_list, rew, term, trunc, info = self._env.chunk_step(
             self._expand_chunk(actions)
         )
@@ -240,6 +263,87 @@ class LiberoEnvFacade(BaseEnvFacade):
             term,
             trunc,
             to_numpy_tree(info),
+        )
+
+    def begin_trial(self, episode_id: str) -> dict:
+        """Bind one reset to its evaluator and read the settled native predicate."""
+        if not episode_id or episode_id != self._episode_id or self._measured:
+            raise RuntimeError("Cannot admit a stale or previously admitted episode")
+        self._success = bool(self._env.env.check_success()[self._env_idx])
+        self._first_success = None
+        self._truncated = False
+        self._measured = True
+        return self._trial_status()
+
+    def _trial_status(self) -> dict:
+        return {
+            "episode_id": self._episode_id,
+            "success": self._success,
+            "truncated": self._truncated,
+            "sealed": self._sealed,
+            "native_success_age_s": (
+                time.monotonic() - self._first_success
+                if self._first_success is not None
+                else None
+            ),
+        }
+
+    def seal_episode(self, episode_id: str) -> dict:
+        """Fence further actions under the same write lock as execution."""
+        if not episode_id or episode_id != self._episode_id:
+            raise RuntimeError("Cannot seal a stale episode")
+        if not self._measured:
+            # The client may have lost its begin response or overtaken it. Revoke
+            # the reservation without querying an environment of uncertain state.
+            self._measured = self._sealed = True
+            return {"episode_id": episode_id, "sealed": True}
+        self._sealed = True
+        status = self._trial_status()
+        # Report the fresh native final predicate separately: success at any
+        # earlier admitted step remains the authoritative latched verdict.
+        status["final_native_success"] = bool(
+            self._env.env.check_success()[self._env_idx]
+        )
+        status["executed_steps"] = int(self._env.elapsed_steps[self._env_idx])
+        return status
+
+    def trial_actions(
+        self, episode_id, actions, *, return_all_frames=False, remaining_s=None
+    ):
+        """Execute only the native control steps admitted within this trial."""
+        if episode_id != self._episode_id or not self._measured or self._sealed:
+            raise RuntimeError("Evaluation episode is stale or sealed")
+        if self._success or self._truncated:
+            raise RuntimeError("Evaluation episode is already terminal")
+        deadline = None if remaining_s is None else time.monotonic() + remaining_s
+        frames, rewards, terminated, truncated, infos = [], [], [], [], []
+        for action in actions:
+            if deadline is not None and time.monotonic() >= deadline:
+                break
+            # If an exception interrupts a state change, its outcome is unknown.
+            self._success = None
+            obs, reward, term, trunc, info = self._step(action)
+            self._success = bool(term)
+            self._truncated = bool(trunc)
+            if self._success:
+                self._first_success = time.monotonic()
+            if return_all_frames:
+                frames.append(obs)
+            rewards.append(reward)
+            terminated.append(term)
+            truncated.append(trunc)
+            infos.append(info)
+            if self._success or self._truncated:
+                break
+        if not rewards:
+            raise ValueError("No native steps were admitted")
+        return (
+            frames if return_all_frames else obs,
+            np.asarray(rewards),
+            np.asarray(terminated),
+            np.asarray(truncated),
+            infos,
+            self._trial_status(),
         )
 
     def raw_obs(self) -> dict:

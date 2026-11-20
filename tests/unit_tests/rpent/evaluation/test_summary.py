@@ -176,3 +176,20 @@ def test_reviewed_environment_start_allows_only_same_condition_retry(tmp_path):
             ],
             [unresolved, foreign_record],
         )
+
+
+def test_same_named_tasks_are_scored_within_their_environment(tmp_path):
+    a = dict(trial(0), environment="libero", trial_id="standard/0")
+    b = dict(trial(0), environment="libero-pro", trial_id="pro/0")
+    c = dict(trial(1), environment="libero-pro", trial_id="pro/1")
+    records = [episode(tmp_path, a, True), episode(tmp_path, b, False)]
+    result = summarize([a, b, c], records)
+    assert [
+        (r["environment"], r["native_sr"], r["unresolved"]) for r in result["cells"]
+    ] == [("libero", 1.0, 0), ("libero-pro", 0.0, 1)]
+    assert [r["native_sr_macro"] for r in result["methods"]] == [1.0, None]
+    c.pop("environment")
+    with pytest.raises(ValueError, match="Specify environment"):
+        summarize([a, b, c], records)
+    # Older manifests with just one benchmark still account for missing seeds.
+    assert summarize([b, c], records[1:])["cells"][0]["planned"] == 2
