@@ -262,6 +262,7 @@ async def run_agent(
             error = session.error
         except asyncio.TimeoutError:
             error = f"{label} timed out after {timeout_s}s"
+            artifacts.stop_reason = "timeout"
         except Exception as exc:
             error = redact(f"{type(exc).__name__}: {exc}")
         finally:

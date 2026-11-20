@@ -39,15 +39,17 @@ def system_prompt(
 
 def user_prompt(variables: Mapping[str, object] | None = None) -> PromptNode:
     """Assemble the LIBERO user prompt tree."""
-    if (variables or {}).get("policy_kind") == "wam":
+    variables = variables or {}
+    if variables.get("policy_kind") == "wam":
         return {
             "CELL": user_parts.CELL,
             "MEMORY": user_parts.WAM_MEMORY,
             "BEGIN": user_parts.WAM_BEGIN,
         }
+    mode = user_parts.GEOMETRY_MODE if variables.get("geometry") else user_parts.MODE
     return {
         "CELL": user_parts.CELL,
-        "MODE": user_parts.MODE,
+        "MODE": mode,
         "BEGIN": user_parts.BEGIN,
     }
 

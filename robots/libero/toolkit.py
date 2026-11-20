@@ -41,6 +41,7 @@ from rpent.utils.logging import get_logger, get_output_dir
 if TYPE_CHECKING:
     from robots.libero.env_client import LiberoEnvClient
     from rpent.memory.manager import MemoryManager
+    from toolkits.geometry.local_point_agent import VisualGrounder
 
 logger = get_logger("libero_toolkit")
 
@@ -59,9 +60,15 @@ class LiberoToolkit(Toolkit):
         attempts_per_session: int = 0,
         state_output_dir: Path | str | None = None,
         policy_kind: str = "vla",
+        generic_tools: bool = False,
+        geometry_grounder: VisualGrounder | None = None,
     ) -> None:
         if mode not in {"evaluation", "exploration"}:
             raise ValueError(f"unsupported LIBERO toolkit mode: {mode!r}")
+        sam3 = runtime_kwargs.get("sam3_client")
+        generic_tools = generic_tools or geometry_grounder is not None
+        if generic_tools and sam3 is None:
+            raise ValueError("Generic localization requires a SAM3 client.")
         self._state_output_dir = Path(state_output_dir or get_output_dir())
         state = EnvState(self._state_output_dir)
         super().__init__(
@@ -77,7 +84,37 @@ class LiberoToolkit(Toolkit):
         self._attempts_per_session: int = max(0, int(attempts_per_session))
         self._session_attempt: int = 1
         self.init_primitives(runtime_kwargs=runtime_kwargs)
-        self._register_libero_tools()
+        self._register_libero_tools(generic_tools=generic_tools)
+        self._geometry = None
+        if generic_tools:
+            from robots.libero.observations import LiberoGeometryObservations
+            from toolkits.back_project import back_project
+            from toolkits.segment import SegmentTool
+
+            observations = LiberoGeometryObservations(state)
+            self.add_tool(
+                back_project.with_handler(
+                    partial(back_project, observations=observations)
+                )
+            )
+            self.add_tool(
+                SegmentTool(
+                    observations=observations,
+                    state=state,
+                    segmenter=sam3,
+                ).segment
+            )
+            if geometry_grounder is not None:
+                from toolkits.geometry.geometry_tool import GeometryTool
+
+                self._geometry = GeometryTool(
+                    state=state,
+                    grounder=geometry_grounder,
+                    segmenter=sam3,
+                    observations=observations,
+                    check_cancelled=self.raise_if_cancelled,
+                )
+                self.add_tool(self._geometry.geometry)
         if policy_kind == "wam":
             finish = self._tools["finish"]
             self.add_tool(
@@ -99,12 +136,16 @@ class LiberoToolkit(Toolkit):
     # ------------------------------------------------------------------
     # Registration
     # ------------------------------------------------------------------
-    def _register_libero_tools(self) -> None:
+    def _register_libero_tools(self, *, generic_tools: bool) -> None:
         for definition in iter_tools(libero_tools):
+            if generic_tools and definition.name == "back_project":
+                continue
             self.add_tool(
                 definition.with_handler(partial(definition, state=self._state))
             )
         for definition in iter_tools(self._primitives):
+            if generic_tools and definition.name == "segment":
+                continue
             excluded = (
                 {"pi0_pick", "pi0_doubled"}
                 if self._policy_kind == "wam"
@@ -185,6 +226,8 @@ class LiberoToolkit(Toolkit):
         self._attempt += 1
         self._session_attempt += 1
         result = self._primitives.reset_episode(reason=reason)
+        if self._geometry is not None:
+            self._geometry.reset_cache()
         result["attempt"] = self._attempt
         result["notice"] = (
             f"Episode restarted; this is attempt {self._attempt}. The original "
