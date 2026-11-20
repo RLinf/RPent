@@ -21,6 +21,7 @@ import numpy as np
 from pydantic import Field
 
 from robots.robocasa.rldx_skill import RLDXSkill
+from rpent.evaluation.usage import TokenLedger
 from rpent.tools import ToolResult, tool
 
 OSC_POS_SCALE = 0.05  # action 1.0 -> 0.05 m target delta
@@ -36,6 +37,8 @@ class RoboCasaPrimitives:
         vla_client,
         check_cancelled=None,
         allow_reset: bool | None = None,
+        initial_observation_ready: bool = False,
+        token_ledger: TokenLedger | None = None,
     ):
         self.env = env_client
         self.workdir = workdir
@@ -58,12 +61,16 @@ class RoboCasaPrimitives:
             else bool(allow_reset)
         )
         os.makedirs(workdir, exist_ok=True)
-        self.env.reset()
+        if not initial_observation_ready:
+            self.env.reset()
         self._pos_jac = None  # 3x3 action(arm xyz) -> world dpos
         self._fwd_offset = None  # world_forward_heading = base_yaw + offset
         self._cam_meta_cache = {}
         self._rldx = RLDXSkill(
-            self.env, vla_client=vla_client, check_cancelled=check_cancelled
+            self.env,
+            vla_client=vla_client,
+            check_cancelled=check_cancelled,
+            token_ledger=token_ledger,
         )
         # "mid-call" desync guard: True whenever a NON-VLA primitive (move/navigate/
         # manual grasp) or a reset has stepped the env since the last rldx_skill call.

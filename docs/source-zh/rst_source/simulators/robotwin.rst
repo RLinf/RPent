@@ -325,3 +325,43 @@ CLI 与 Dashboard 默认继续使用 HF ``main`` 的未分版本 ``robotwin/`` �
 离线评测前先下载对应子目录，再使用
 ``--memory-profile local --memory-dir <下载的语料目录>``，不传
 ``--memory-version``。所选目录需保留 RoboTwin 的记忆布局。
+
+.. _episode-metrics-summary:
+
+比较各方法的试次指标
+--------------------
+
+RoboTwin 自动评测会在每次运行的输出目录中生成
+``metrics/<run_id>/episode_metrics.json``。比较不同方法时应使用相同的任务配置、seed、
+指令、物理步数和墙钟预算。用 ``--trial-wall-s`` 设置在线决策和执行时限。
+按上文准备仿真环境和模型后，可直接运行 LingBot：
+
+.. code-block:: bash
+
+   python -m robots.robotwin.direct_eval --task-name beat_block_hammer \
+     --task-config demo_randomized --seed 100000 --max-episode-steps 240 \
+     --trial-wall-s 300 --output-dir runs/direct-vla
+
+直接运行 WAM 时，使用与规划器 CLI 相同的后端参数。直接策略由指定的动作模型输出动作。
+评测 Agent 时使用常规的 ``rpent --robot robotwin`` 命令。
+
+评测前用 JSON 清单登记每个待测方法及其测试条件。以上例为例，``manifest.json`` 的内容如下：
+
+.. code-block:: json
+
+   {"trials": [{"method": "direct_vla/lingbot", "task": "beat_block_hammer",
+     "scene": "demo_randomized", "seed": 100000,
+     "trial_id": "robotwin/demo_randomized/beat_block_hammer/100000",
+     "budget": {"max_episode_steps": 240, "wall_s": 300}}]}
+
+执行 ``python -m rpent.evaluation.summary manifest.json runs summary.json``。
+各任务、场景分别统计原生成功数和有效试次数。方法错误和超时计入失败。确认属于公共设施故障的试次可以用原 seed 重测。
+若有试次缺失或原生结果待核实，方法总分保持为空。核实某次环境启动失败确属设施故障后，可在对应清单项的
+``infrastructure_reviews`` 中填入原 ``run_id`` 及核实原因，同时保留原始文件和重测记录。
+总分先对任务内的场景等权平均，再对各任务等权平均。一次汇总多个基准时，请在每个清单项填写试次对应的
+``environment``。每种方法在各环境中分别计分，即使任务和场景同名也会分开统计。
+
+``run_s`` 是从首个观测与任务指令可交付，到执行器确认停止的墙钟秒数，使用单调时钟计量。
+汇总表列出中位数、P90 和样本数。``success_s`` 是到环境确认原生成功时的耗时。远程部署时，用本地收到响应的时刻减去服务端上报的事件时长差，所得上界包含响应传输时间。
+触发墙钟时限后停止接收新动作。从此刻到本地执行器排空、环境确认停止的时间计入 ``tail_s``。缺少停止确认时，``run_s`` 留空。动作或感知模型通过 RPent HTTP 或 socket RPC 调用时，若缺少完成回执，可在 ``timing.unconfirmed_model_requests`` 查看请求及原因。试次保留已确认的原生判定、停止时刻和已观测时长，``run_s`` 和 ``tail_s`` 留空。试次文件中的 ``token_ledger`` 记录模型输入和输出 token、阶段、来源与覆盖情况。
+仅有会话总量时保留会话粒度，部分覆盖试次的已知用量单独汇总。连续机器人动作没有语言 token 单位。

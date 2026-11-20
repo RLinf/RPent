@@ -35,6 +35,7 @@ from robots.robotwin.primitives import RoboTwinPrimitives
 from robots.robotwin.robot_spec import env_runtime_contract
 from robots.robotwin.toolkit import _capture_robotwin_call
 from rpent.dashboard.events import NullDashboardEventSink
+from rpent.evaluation.usage import TokenLedger
 from rpent.flywheel.flywheel import select_vla_segments
 from rpent.flywheel.reader import iter_trajectories, read_array
 from rpent.memory import MemoryManager
@@ -675,13 +676,26 @@ def test_wam_executes_selected_control_and_refreshes_observation(action_type, di
         history_length=0,
         predict=Mock(return_value=np.zeros((3, dim))),
     )
+    ledger = TokenLedger()
     primitive = RoboTwinPrimitives(
-        env=env, model=model, seed=0, check_cancelled=lambda: None, policy_kind="wam"
+        env=env,
+        model=model,
+        seed=0,
+        check_cancelled=lambda: None,
+        policy_kind="wam",
+        token_ledger=ledger,
     )
     primitive.reset()
     model.reset.assert_called_once()
     assert primitive.wam_act("subtask").data["executed_steps"] == 3
     assert primitive.wam_act().data["executed_steps"] == 3
+    snapshot = ledger.to_dict()
+    assert snapshot["coverage"] == "unknown"
+    assert len(snapshot["entries"]) == 2
+    assert all(
+        e["module"] == "action_model" and e["output_tokens"] is None
+        for e in snapshot["entries"]
+    )
     calls = model.predict.call_args_list
     assert all("qpos_history" not in call.args[0] for call in calls)
     assert [call.args[0]["task_language"] for call in calls] == [

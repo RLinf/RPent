@@ -19,6 +19,7 @@ from __future__ import annotations
 import asyncio
 import os
 import queue
+import time
 from abc import ABC, abstractmethod
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
@@ -37,6 +38,8 @@ from rpent.utils.config import (
 
 if TYPE_CHECKING:
     from pydantic_ai.models import Model
+
+    from rpent.evaluation.usage import TokenLedger
 
 #: MCP namespace prefix for RPent tools (``mcp__<server>__<tool>``).
 #: Toolkits expose plain tool names; planners add/strip this prefix.
@@ -162,6 +165,15 @@ def is_recoverable_agent_error(agent_error: str | None) -> bool:
     return "timed out" in lowered or "planner response truncated" in lowered
 
 
+def remaining_planner_time(timeout_s: float, deadline: float | None) -> float:
+    """Bound a backend timeout at request admission after synchronous setup."""
+    return (
+        timeout_s
+        if deadline is None
+        else max(0.0, min(timeout_s, deadline - time.monotonic()))
+    )
+
+
 class Planner(ABC):
     """A planner selects or supplies the actions used to solve a task.
 
@@ -169,6 +181,11 @@ class Planner(ABC):
     tool definitions.  It returns a ``PlannerResult`` after the task is
     finished or the turn budget is exhausted.
     """
+
+    # Model-backed planners expose their wall timeout to trial-budget enforcement.
+    timeout_s: float
+    trial_deadline: float | None = None
+    token_ledger: TokenLedger | None = None
 
     @abstractmethod
     def solve(

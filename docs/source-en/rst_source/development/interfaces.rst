@@ -149,3 +149,38 @@ Details are in the env_server / vla_server sections of :doc:`add_robot`.
 
 WAM workers use ``BaseWAMClient`` and ``BaseWAMFacade`` with ``--am-endpoint``.
 See :doc:`add_action_model` for model adapters, control matching and lifecycle.
+
+Record a benchmark episode
+--------------------------
+
+Use ``rpent.evaluation.TrialRecorder`` when an environment or independent policy
+runner has access to its native verdict and executor. A stable ``trial_id``
+identifies the test condition across methods. Each recorder creates a unique
+``run_id``, including when the same condition is repeated after an
+infrastructure fault.
+
+.. code-block:: python
+
+   from rpent.evaluation import TrialRecorder
+
+   trial = TrialRecorder(output_dir, trial_id=condition_id, method=method_id,
+                         task=task_name, scene=scene, seed=seed,
+                         environment=env_name, budget={"wall_s": wall_s})
+   trial.start()  # Initial observation and instruction are available.
+   trial.record_usage(request_id=request_id, model=model_id, module="planner",
+                      stage="planning", input_tokens=input_tokens, output_tokens=output_tokens)
+   trial.record_native_verdict(native_success, source=verdict_field)
+   trial.stop(termination_reason)
+   if executor_confirmed_stopped:
+       trial.quiesce()
+   artifact = trial.finish()
+
+The runner enforces its budgets and prevents further actions at the stop
+boundary. Record native events when they occur, including inside an action
+chunk. If an executor cannot confirm its stop, omit ``quiesce()``; the artifact
+then reports observed duration and leaves run duration empty. Supply
+``failure=True`` to ``finish()`` for a known method failure. Reserve
+``infra_invalid=True`` for independently established infrastructure faults.
+For sessions with operator intervention, pass ``manual_intervention=True``.
+See the :doc:`RoboTwin guide </rst_source/simulators/robotwin>` for the manifest
+and summary command.

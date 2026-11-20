@@ -105,3 +105,30 @@ Planner
 细节见 :doc:`add_robot` 中的 env_server 与 vla_server 章节。
 
 WAM worker 使用 ``BaseWAMClient`` 和 ``BaseWAMFacade``，通过 ``--am-endpoint`` 连接。模型 adapter、控制匹配和生命周期见 :doc:`add_action_model`。
+
+记录一次评测试次
+----------------
+
+环境或独立策略运行器可通过 ``rpent.evaluation.TrialRecorder`` 记录原生判定及执行器状态。
+同一测试条件在不同方法下使用相同的 ``trial_id``。每次运行都会生成独立的 ``run_id``，便于核查设施故障后的重测。
+
+.. code-block:: python
+
+   from rpent.evaluation import TrialRecorder
+
+   trial = TrialRecorder(output_dir, trial_id=condition_id, method=method_id,
+                         task=task_name, scene=scene, seed=seed,
+                         environment=env_name, budget={"wall_s": wall_s})
+   trial.start()  # 首个观测和任务指令已就绪。
+   trial.record_usage(request_id=request_id, model=model_id, module="planner",
+                      stage="planning", input_tokens=input_tokens, output_tokens=output_tokens)
+   trial.record_native_verdict(native_success, source=verdict_field)
+   trial.stop(termination_reason)
+   if executor_confirmed_stopped:
+       trial.quiesce()
+   artifact = trial.finish()
+
+运行器负责执行预算限制，并在终止时停止接收新动作。原生判定应在发生时记录，包括动作块执行过程中的成功。
+执行器无法确认停稳时，省略 ``quiesce()``，试次文件会保留已观测时长，运行耗时留空。
+确认属于方法失败时，向 ``finish()`` 传入 ``failure=True``。能独立核实为设施故障时才使用 ``infra_invalid=True``。
+有人工干预时传入 ``manual_intervention=True``。测试清单和汇总命令见 :doc:`RoboTwin 指南 </rst_source/simulators/robotwin>`。

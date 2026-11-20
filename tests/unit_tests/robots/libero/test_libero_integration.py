@@ -646,6 +646,122 @@ class _LiberoBackend:
         )
 
 
+def test_stopped_trial_rejects_policy_prediction_before_contacting_provider():
+    env = _Env()
+    env.active_trial = Mock()
+    env.active_trial.admit_action.side_effect = RuntimeError("episode stopped")
+    policy = Mock()
+    primitives = LiberoPrimitives(
+        env=env, model=policy, sam3_client=None, check_cancelled=lambda: None
+    )
+    with pytest.raises(RuntimeError, match="episode stopped"):
+        primitives._vlm_chunk("move the bowl")
+    policy.predict.assert_not_called()
+
+
+def test_legacy_remote_runs_normally_without_attributing_shared_success(
+    make_server_and_client, tmp_path
+):
+    from robots.libero.env_client import LiberoEnvClient
+    from robots.libero.env_server import LiberoEnvFacade
+    from robots.libero.evaluation import LiberoTrial
+
+    class LegacyFacade(LiberoEnvFacade):
+        def reset(self):
+            obs, _ = super().reset()
+            return obs, {}
+
+    backend = _LiberoBackend()
+    backend.success_at = 1
+    with make_server_and_client(LegacyFacade(backend, meta={}), "socket") as rpc:
+        env = LiberoEnvClient(rpc, expected_meta={})
+        args = SimpleNamespace(
+            libero_type="standard", task=0, suite="libero_object", seed=0
+        )
+        trial = LiberoTrial(args, SimpleNamespace(output_dir=tmp_path), direct=True)
+        runtime = {"env": env}
+        assert trial.start(runtime) is runtime
+        assert env.step(np.zeros(7))[2]
+        assert env.active_trial is None
+        drain = Mock()
+        trial.finalize(drain=drain)
+        drain.assert_called_once()
+        record = json.loads(trial.trial.path.read_text())
+        assert record["status"] == "unresolved"
+        assert record["stop_reason"] == "unsupported_environment_protocol"
+        assert record["native_verdict"] is record["timing"]["run_s"] is None
+
+
+def test_lost_begin_response_releases_only_its_reset(
+    monkeypatch, make_server_and_client
+):
+    from robots.libero.env_client import LiberoEnvClient
+    from robots.libero.env_server import LiberoEnvFacade
+
+    backend = _LiberoBackend()
+    backend.env = SimpleNamespace(check_success=lambda: [False])
+    backend.elapsed_steps = [0]
+    facade = LiberoEnvFacade(backend, meta={})
+    with make_server_and_client(facade, "socket") as rpc:
+        env = LiberoEnvClient(rpc, expected_meta={})
+        call = rpc.call
+
+        def disconnected_after_begin(method, **kwargs):
+            result = call(method, **kwargs)
+            if method == "env.begin_trial":
+                raise RpcError(method, "reply lost")
+            return result
+
+        monkeypatch.setattr(rpc, "call", disconnected_after_begin)
+        with pytest.raises(RpcError, match="reply lost"):
+            env.begin_trial()
+        _, info = env.reset()
+        # A cancellation can arrive before an outstanding begin request too.
+        episode_id = info["episode_id"]
+        assert facade.seal_episode(episode_id)["sealed"]
+        with pytest.raises(RuntimeError, match="previously admitted"):
+            facade.begin_trial(episode_id)
+        env.reset()
+
+
+@pytest.mark.parametrize("fail_at", [None, 2])
+def test_measured_chunk_preserves_native_boundary_and_fences_stale_calls(fail_at):
+    from robots.libero.env_server import LiberoEnvFacade
+
+    backend = _LiberoBackend()
+    backend.env = SimpleNamespace(check_success=lambda: [len(backend.executed) == 3])
+    backend.fail_at = fail_at
+    facade = LiberoEnvFacade(backend, meta={})
+    _, reset = facade.reset()
+    episode_id = reset["episode_id"]
+    assert facade.begin_trial(episode_id)["success"] is False
+    with pytest.raises(RuntimeError, match="active evaluation"):
+        facade.reset()
+    commands = np.zeros((5, 7), dtype=np.float32)
+    if fail_at:
+        with pytest.raises(RuntimeError, match="native step failed"):
+            facade.trial_actions(episode_id, commands)
+    else:
+        obs, _, term, trunc, info, status = facade.trial_actions(
+            episode_id, commands, return_all_frames=True
+        )
+        assert len(obs) == len(info) == 3
+        assert term.tolist() == [False, False, True]
+        assert not np.any(trunc)
+        assert status["native_success_age_s"] >= 0
+    backend.elapsed_steps = [len(backend.executed)]
+    sealed = facade.seal_episode(episode_id)
+    assert sealed["success"] is (None if fail_at else True)
+    assert sealed["final_native_success"] is (not fail_at)
+    assert sealed["executed_steps"] == (fail_at or 3)
+    with pytest.raises(RuntimeError, match="sealed"):
+        facade.trial_actions(episode_id, commands)
+    _, new_reset = facade.reset()
+    assert new_reset["episode_id"] != episode_id
+    with pytest.raises(RuntimeError, match="stale"):
+        facade.trial_actions(episode_id, commands)
+
+
 @pytest.mark.parametrize(
     ("record", "all_frames", "default_all_frames"),
     [(True, False, True), (True, None, True), (False, None, False)],

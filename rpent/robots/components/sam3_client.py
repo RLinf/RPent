@@ -18,12 +18,15 @@ from __future__ import annotations
 
 import base64
 import io
+from contextlib import nullcontext
+from copy import copy
 from dataclasses import dataclass
 from typing import Any
 
 import imageio.v2 as imageio
 import numpy as np
 
+from rpent.evaluation.usage import TokenLedger
 from rpent.utils.rpc import RpcClient
 
 
@@ -43,8 +46,26 @@ class Sam3Client:
     """Client wrapping the SAM3 service over any :class:`RpcClient`."""
 
     def __init__(self, client: RpcClient, *, timeout_s: float = 120.0) -> None:
+        self._ledger: TokenLedger | None = None
         self._client = client
         self._timeout_s = timeout_s
+
+    def for_trial(self, ledger: TokenLedger) -> Sam3Client:
+        """Return a run-scoped view of this stateless inference client."""
+        client = copy(self)
+        client._ledger = ledger
+        return client
+
+    def _inference(self, method: str, **kwargs):
+        usage = (
+            self._ledger.unmetered_call(
+                model="sam3", module="perception", stage="execution"
+            )
+            if self._ledger is not None
+            else nullcontext()
+        )
+        with usage:
+            return self._client.call(method, **kwargs)
 
     def segment(
         self,
@@ -83,7 +104,7 @@ class Sam3Client:
         else:
             body["point"] = [int(point[0]), int(point[1])]
 
-        payload = self._client.call(
+        payload = self._inference(
             "sam3.segment",
             kwargs=body,
             timeout_s=self._timeout_s,

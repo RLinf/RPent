@@ -168,10 +168,12 @@ def test_dashboard_message_lifecycle_is_ordered_and_returns_detached_values(
     withdrawn = state.submit_input("withdraw this")
     withdrawn.status = "sent"
     assert state.withdraw_message(withdrawn.message_id).status == "withdrawn"
+    assert not state.manual_intervention
 
     sent = state.submit_input("send this")
     assert state.claim_next_pending_message().message_id == sent.message_id
     assert state.mark_message_sent(sent.message_id).status == "sent"
+    assert state.manual_intervention
     with pytest.raises(DashboardMessageConflictError, match="not sending"):
         state.mark_message_sent(sent.message_id)
 
@@ -207,7 +209,9 @@ def test_dashboard_interrupt_lifecycle_accepts_only_busy_active_tasks(
     assert state.request_interrupt() == "noop"
     state.set_planner_activity("busy")
 
+    assert not state.manual_intervention
     assert state.request_interrupt() == "accepted"
+    assert state.manual_intervention
     assert state.request_interrupt() == "duplicate"
     assert state.claim_next_pending_message() is None
     assert state.claim_interrupt_request() is True
@@ -433,10 +437,18 @@ def test_manual_result_does_not_resume_agent_without_user_message(tmp_path):
     toolkit.execute_tool.return_value = ToolResult(data={"error": "timeout"})
     state.bind_toolkit(toolkit)
     state.set_planner_activity("idle", accepting_input=True)
+    assert not state.manual_intervention
     state.execute_primitive("move_to", {})
+    assert state.manual_intervention
     assert state.claim_next_pending_message() is None
     state.submit_input("inspect state")
     assert "timeout" in state.claim_next_pending_message().text
+
+    state.request_task({"mode": "place", "seed": 3})
+    state.complete_task_replacement()
+    state.complete_task(state="cancelled")
+    assert state.wait_for_task(timeout=0) is not None
+    assert not state.manual_intervention
 
 
 def test_explore_continuation_queues_at_idle_and_interrupt_pauses(tmp_path):

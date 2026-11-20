@@ -25,6 +25,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from robots.robocasa.eval.result import finalize_cell_result
+from robots.robocasa.evaluation import RoboCasaTrial
 from robots.robocasa.memory import (
     MEMORY_VERSIONS,
     RoboCasaMemoryManager,
@@ -221,6 +222,7 @@ def get_robot_spec() -> RobotSpec:
         flywheel=FLYWHEEL_CONFIG,
         supports_exploration=True,
         finalize_run=finalize_cell_result,
+        create_evaluation_trial=RoboCasaTrial,
         prepare_memory=prepare_memory,
         validate_args=validate_options,
     )
@@ -293,6 +295,16 @@ def _add_cli_args(parser: argparse.ArgumentParser, use_dashboard: bool) -> None:
     )
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument(
+        "--max-episode-steps",
+        type=int,
+        help="Maximum executed control steps per evaluation episode.",
+    )
+    parser.add_argument(
+        "--trial-wall-s",
+        type=float,
+        help="Wall-clock budget after the evaluation observation is available.",
+    )
+    parser.add_argument(
         "--auto-merge-memory",
         action=argparse.BooleanOptionalAction,
         default=True,
@@ -332,6 +344,12 @@ def _parse_config(args: argparse.Namespace) -> RunConfig:
     """Validate final ``args`` and derive per-run identifiers."""
     select_am(args, "robocasa")
     validate_options(args)
+    wall = getattr(args, "trial_wall_s", None)
+    if wall is not None and not 0 < wall < float("inf"):
+        raise ValueError("--trial-wall-s must be positive and finite")
+    steps = getattr(args, "max_episode_steps", None)
+    if steps is not None and steps <= 0:
+        raise ValueError("--max-episode-steps must be positive")
     if not args.task_name:
         raise ValueError("--task-name is required")
 

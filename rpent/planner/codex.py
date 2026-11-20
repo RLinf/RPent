@@ -41,6 +41,7 @@ from rpent.dashboard.events import (
 )
 from rpent.dashboard.interaction import DashboardInteractionPort, DashboardMessage
 from rpent.dashboard.planner_control import PlannerInteractionControl
+from rpent.evaluation.usage import TokenLedger
 from rpent.planner.base import (
     REASONING_EFFORTS,
     Planner,
@@ -95,7 +96,7 @@ class CodexPlanner(Planner):
         """Initialize the Codex SDK backend."""
         self._output_dir = str(output_dir)
         self._repo_root = str(repo_root) if repo_root else str(get_repo_root())
-        self._timeout_s = timeout_s
+        self.timeout_s = timeout_s
         self._extra_dirs = extra_dirs or []
         self._output_path = Path(output_path) if output_path else None
         self._model = model or os.environ.get("CODEX_MODEL", None)
@@ -181,7 +182,10 @@ class CodexPlanner(Planner):
         """Run one SDK session, optionally accepting queued follow-up input."""
         artifacts = AgentArtifacts("codex_sdk", self._output_path)
         recorder = _Recorder(
-            max_turns=max_turns, dashboard_events=self._dashboard_events
+            max_turns=max_turns,
+            dashboard_events=self._dashboard_events,
+            token_ledger=self.token_ledger,
+            model=self._model,
         )
 
         def create_session(url, control, emit):
@@ -201,7 +205,8 @@ class CodexPlanner(Planner):
             recorder=recorder,
             events=self._dashboard_events,
             create_session=create_session,
-            timeout_s=self._timeout_s,
+            timeout_s=self.timeout_s,
+            trial_deadline=self.trial_deadline,
             label="Codex SDK",
             input_queue=input_queue,
             interaction=interaction,
@@ -382,6 +387,8 @@ class _Recorder:
     max_turns: int
     dashboard_events: DashboardEventSink
     turns: int = 0
+    token_ledger: TokenLedger | None = None
+    model: str | None = None
     _seen_usage: set[tuple[int, ...]] = field(default_factory=set)
     tool_calls: int = 0
     usage_observed: bool = False
@@ -537,7 +544,32 @@ class _Recorder:
             ),
         }
         key = tuple(updated.values())
-        if not any(key) or key in self._seen_usage:
+        if key in self._seen_usage:
+            return False
+        if self.token_ledger is not None and (any(key) or not self.usage_observed):
+            raw = {
+                field: get_field(total, field)
+                for field in (
+                    "input_tokens",
+                    "output_tokens",
+                    "cached_input_tokens",
+                    "reasoning_output_tokens",
+                )
+                if get_field(total, field) is not None
+            }
+            if raw:
+                self.token_ledger.record_usage(
+                    request_id="codex-thread",
+                    model=self.model or "unknown",
+                    module="planner",
+                    stage="online_unattributed",
+                    provider="codex",
+                    granularity="session",
+                    input_tokens=raw.get("input_tokens"),
+                    output_tokens=raw.get("output_tokens"),
+                    raw_usage=raw,
+                )
+        if not any(key):
             return False
         self._seen_usage.add(key)
         self.usage = updated

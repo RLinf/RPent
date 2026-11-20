@@ -42,6 +42,7 @@ from rpent.dashboard.events import (
 )
 from rpent.dashboard.interaction import DashboardInteractionPort, DashboardMessage
 from rpent.dashboard.planner_control import PlannerInteractionControl
+from rpent.evaluation.usage import TokenLedger
 from rpent.planner.base import Planner, PlannerResult
 from rpent.planner.utils.agent_runtime import (
     AgentArtifacts,
@@ -93,7 +94,7 @@ class GeminiCliPlanner(Planner):
                 "gemini_cli does not support --reasoning-effort; use 'none'"
             )
         self._output_dir = Path(output_dir)
-        self._timeout_s = timeout_s
+        self.timeout_s = timeout_s
         self._output_path = Path(output_path) if output_path else None
         self._model = model
         self._dashboard_events = dashboard_events
@@ -137,7 +138,9 @@ class GeminiCliPlanner(Planner):
         artifacts = AgentArtifacts(
             "gemini_cli", self._output_path, directory=self._output_dir
         )
-        recorder = _Recorder(self._dashboard_events)
+        recorder = _Recorder(
+            self._dashboard_events, token_ledger=self.token_ledger, model=self._model
+        )
         redact = _load_secret_redactor()
         stderr_path = artifacts.sidecar(".stderr.log")
         self._output_dir.mkdir(parents=True, exist_ok=True)
@@ -169,7 +172,8 @@ class GeminiCliPlanner(Planner):
                 recorder=recorder,
                 events=self._dashboard_events,
                 create_session=create_session,
-                timeout_s=self._timeout_s,
+                timeout_s=self.timeout_s,
+                trial_deadline=self.trial_deadline,
                 label="Gemini CLI",
                 input_queue=input_queue,
                 interaction=interaction,
@@ -390,6 +394,9 @@ class _Recorder:
     tool_calls: int = 0
     finish_result: dict[str, Any] | None = None
     final_response: str = ""
+    model: str | None = None
+    token_ledger: TokenLedger | None = None
+    prompts: int = 0
     usage: dict[str, int] = field(
         default_factory=lambda: {
             "total_input_tokens": 0,
@@ -398,11 +405,92 @@ class _Recorder:
         }
     )
 
+    def _usage_snapshot(self, event: dict[str, Any]) -> None:
+        # Gemini CLI reports candidate output and thoughts in separate fields.
+        # Its ACP prompt spans model turns and may include a model switch.
+        usage = event.get("usage") or {}
+        quota = (event.get("_meta") or {}).get("quota")
+        quota = quota if isinstance(quota, dict) else {}
+        counts = quota.get("token_count")
+        counts = (
+            {k: v for k, v in counts.items() if type(v) is int and v >= 0}
+            if isinstance(counts, dict)
+            else {}
+        )
+        groups = quota.get("model_usage")
+        grouped = {}
+        for item in groups if isinstance(groups, list) else ():
+            if isinstance(item, dict) and isinstance(item.get("model"), str):
+                values = item.get("token_count")
+                if isinstance(values, dict) and all(
+                    type(values.get(key)) is int and values[key] >= 0
+                    for key in ("input_tokens", "output_tokens")
+                ):
+                    grouped[item["model"]] = values
+        inp = usage.get("inputTokens", counts.get("input_tokens"))
+        out = usage.get("outputTokens", counts.get("output_tokens"))
+        thought = usage.get("thoughtTokens") or 0
+        evidence = {"usage": usage, "quota": quota}
+        has_counts = inp is not None or out is not None
+        coverage = "partial" if has_counts and not usage else None
+        rows = []
+        if len(grouped) > 1 and (
+            sum(c["input_tokens"] for c in grouped.values()),
+            sum(c["output_tokens"] for c in grouped.values()),
+        ) == (inp, out):
+            for model, counts in grouped.items():
+                rows.append(
+                    (
+                        model,
+                        counts["input_tokens"],
+                        counts["output_tokens"],
+                        counts,
+                        "partial" if thought else coverage,
+                    )
+                )
+            if thought:
+                # The prompt reports all reasoning tokens without identifying
+                # their individual models. Preserve this known subtotal once.
+                rows.append(("unattributed", 0, thought, evidence, "partial"))
+        else:
+            model = (
+                next(iter(grouped))
+                if len(grouped) == 1
+                else ("unattributed" if grouped else self.model or "unknown")
+            )
+            rows.append(
+                (
+                    model,
+                    inp,
+                    out + thought if out is not None else None,
+                    evidence,
+                    coverage,
+                )
+            )
+        for index, (model, inp, out, raw, coverage) in enumerate(rows):
+            self.token_ledger.record_usage(
+                request_id=f"acp-prompt-{self.prompts}-{index}",
+                model=model,
+                module="planner",
+                stage="online_unattributed",
+                provider="gemini_cli",
+                granularity="session",
+                input_tokens=inp,
+                output_tokens=out,
+                raw_usage=raw,
+                coverage=coverage,
+                status=event.get("stopReason", "unconfirmed"),
+            )
+
     def stats(self) -> dict[str, Any]:
         return {"tool_calls": self.tool_calls, **self.usage}
 
     def observe(self, event: dict[str, Any]) -> str:
         event_type = str(event.get("type") or "")
+        if event_type == "acp_prompt":
+            self.prompts += 1
+            if self.token_ledger is not None:
+                self._usage_snapshot({})
         if event_type == "rpent_tool":
             name, arguments, output = event["name"], event["args"], event["result"]
             self.tool_calls += 1
@@ -448,6 +536,8 @@ class _Recorder:
             return ""
         if event_type == "acp_result":
             usage = event.get("usage") or {}
+            if self.token_ledger is not None:
+                self._usage_snapshot(event)
             for target, source in (
                 ("total_input_tokens", "inputTokens"),
                 ("total_output_tokens", "outputTokens"),

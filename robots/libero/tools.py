@@ -37,6 +37,7 @@ from rpent.utils.logging import get_logger
 
 if TYPE_CHECKING:
     from robots.libero.wam_client import LiberoWAMClient
+    from rpent.evaluation.usage import TokenLedger
     from rpent.robots.components.am_client_base import BaseVLAClient
 
 logger = get_logger("libero_tools")
@@ -68,10 +69,12 @@ class LiberoPrimitives:
         check_cancelled: Callable[[], None],
         molmo_client: MolmoClient | None = None,
         policy_kind: str = "vla",
+        token_ledger: TokenLedger | None = None,
     ):
         self.env = env
         self.model = model
         self.policy_kind = policy_kind
+        self.token_ledger = token_ledger
         self._sam3_client = sam3_client
         self._segment_index_lock = threading.Lock()
         self._segment_index = 0
@@ -151,13 +154,28 @@ class LiberoPrimitives:
     def _vlm_chunk(self, instruction: str, *, raw_obs: dict | None = None):
         """Predict and execute one action chunk with a request-local instruction."""
         self._check_cancelled()
+        trial = getattr(self.env, "active_trial", None)
+        if trial is not None:
+            trial.admit_action()
         capturing = isinstance(self.env, CapturingEnvClient)
         policy_obs = (self._last_obs if raw_obs is None else raw_obs).copy()
         policy_obs["task_descriptions"] = instruction
         policy_obs.setdefault("extra_view_images", None)
         prediction = self.env.prediction(instruction) if capturing else nullcontext()
         with prediction:
-            actions = self.model.predict(policy_obs, options={"mode": "eval"})
+            usage = (
+                self.token_ledger.unmetered_call(
+                    model=self.model.wam.model_meta["backend"]
+                    if self.policy_kind == "wam"
+                    else "pi05",
+                    module="action_model",
+                    stage="execution",
+                )
+                if self.token_ledger is not None
+                else nullcontext()
+            )
+            with usage:
+                actions = self.model.predict(policy_obs, options={"mode": "eval"})
             self._check_cancelled()
             all_frames = self._recording
             chunk_obs, *_ = self.env.chunk_step(
@@ -178,7 +196,7 @@ class LiberoPrimitives:
         *,
         max_chunks: Annotated[int, Field(strict=True, ge=1, le=4)] = 1,
     ) -> ToolResult:
-        """Execute bounded WAM action chunks on current observations. Omit prompt for the native task, or supply a subtask for this call. Inspect the resulting state before continuing; predictions do not establish task success. Episode termination prevents the next chunk, not remaining actions within the current chunk.
+        """Execute bounded WAM action chunks on current observations. Omit prompt for the native task, or supply a subtask for this call. Inspect the resulting state before continuing; predictions do not establish task success. During a measured trial, native termination or truncation stops the current chunk.
 
         Args:
             prompt: Concrete instruction for this call; omit or null for the native task.

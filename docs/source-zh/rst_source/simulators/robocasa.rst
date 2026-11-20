@@ -188,6 +188,15 @@ RLDX-1 需要微调权重和基础模型的支持文件，两项都要下载。�
 
 任务是否成功由环境的 ``_check_success()`` 判定，其布尔结果记录在 ``state.success`` 中。规划器调用 ``finish`` 会结束对话，但其中声明的状态不作为评测结果。查看输出目录中的 ``result.json``、``transcript_*.json`` 和 ``run.log``；服务启动问题分别记录在 ``env_server.log``、``vla_server.log``。
 
+自动评测还会生成 ``metrics/<run_id>/episode_metrics.json``。直接评测动作模型可运行以下命令：
+
+.. code-block:: bash
+
+   python -m robots.robocasa.direct_eval --task-name OpenDrawer --split target --seed 0 \
+      --max-episode-steps 560 --actions-per-chunk 8 --output-dir runs/robocasa
+
+按 :ref:`episode-metrics-summary` 汇总原生成功率、运行耗时和 token 用量。比较各方法时固定数据划分、seed 和执行预算。更新远程 RoboCasa 环境端后可记录完整试次，并设置控制步数或墙钟上限。旧版环境端仍可执行常规 Agent 任务，统一指标标为待核实。
+
 可使用 ``--dashboard`` 观察相机和规划器输出，通用操作见 :doc:`../guides/dashboard`。
 
 任务记忆

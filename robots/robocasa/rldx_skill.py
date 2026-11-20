@@ -31,6 +31,7 @@ import imageio.v2 as imageio
 import numpy as np
 
 from robots.robocasa.env_client import RoboCasaEnvClient
+from rpent.evaluation.usage import TokenLedger
 from rpent.session.env_capture import CapturingEnvClient
 from rpent.utils.logging import get_logger
 
@@ -43,12 +44,14 @@ class RLDXSkill:
         env_client: RoboCasaEnvClient | CapturingEnvClient,
         vla_client=None,
         check_cancelled=None,
+        token_ledger: TokenLedger | None = None,
     ):
         self.env = env_client  # RoboCasaEnvClient
         self._vla_client = vla_client  # VLA RPC client (when set, _load() uses it instead of loading the model directly)
         self._check_cancelled = (
             check_cancelled  # optional cancellation checkpoint callback
         )
+        self._token_ledger = token_ledger
         self._vdi = None  # video delta indices, e.g. [-6,-4,-2,0]
         self._hist = None  # deque of raw frame dicts
         self._unmap = None  # lazy: eval's PandaOmronKeyConverter.unmap_action
@@ -268,6 +271,7 @@ class RLDXSkill:
         grip_prev = float(self.env.gripper_qpos[0])
         eef_min_z = float(self.env.eef_pos[2])
         peak_lift = 0.0
+        exhausted = False
         applied = 0
         settled = 0
         status = "cap"
@@ -286,7 +290,15 @@ class RLDXSkill:
                 else nullcontext()
             )
             with prediction:
-                actions = self._vla_client.predict(obs, options)
+                usage = (
+                    self._token_ledger.unmetered_call(
+                        model="rldx", module="action_model", stage="execution"
+                    )
+                    if self._token_ledger is not None
+                    else nullcontext()
+                )
+                with usage:
+                    actions = self._vla_client.predict(obs, options)
                 # gym Dict -> native flat 12-d [eef_pos(3),eef_rot(3),gripper(1),base(4),mode(1)]
                 horizon = actions["action.gripper_close"].shape[1]
                 for step in range(min(n_action_steps, horizon)):
@@ -314,7 +326,7 @@ class RLDXSkill:
                     )
                     if self._check_cancelled is not None:
                         self._check_cancelled()
-                    self.env.step(a)
+                    step_result = self.env.step(a)
                     if recording:
                         record_frame()
                     applied += 1
@@ -322,6 +334,13 @@ class RLDXSkill:
                         prompt
                     )  # PER-SIM-STEP history (matches eval cadence)
                     self._capture_video_frame()  # OPTIONAL video (no-op if RLDX_VIDEO_DIR unset)
+                    # A measured server fences the first native success even when
+                    # the policy predicted more actions in this chunk.
+                    if step_result:
+                        measured = step_result[3].get("evaluation", {})
+                        exhausted = measured.get("exhausted", False)
+                        if exhausted or measured.get("success"):
+                            break
             # ROBUST grasp check once per chunk (direction-agnostic; see _grasp_contact)
             g_now, g_obj = self._grasp_contact()
             if g_now:
@@ -329,6 +348,9 @@ class RLDXSkill:
                 grasp_obj = grasp_obj or g_obj
             if self.env.check_success():
                 status = "success"
+                break
+            if exhausted:
+                status = "action_budget"
                 break
             eef_now = np.asarray(self.env.eef_pos, np.float64)
             grip_now = float(self.env.gripper_qpos[0])
