@@ -12,18 +12,18 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Expose selected site MCP tools as first-class Toolkit tools.
+"""Expose selected external MCP tools as first-class Toolkit tools.
 
-Tools that need coordination with the robot's execution loop do not belong in
-the planner layer: the model must not be able to call a charging-dock or
-safety interlock out of band. A robot adopts them through
+Tools that need coordination with the robot's execution loop do not belong
+with the planner: the model must not be able to call a charging dock or
+safety interlock out of band. A robot registers them through
 :meth:`~rpent.tools.toolkit.Toolkit.add_mcp_tools`, which registers the named
 remote tools on its Toolkit. They become ordinary Toolkit tools, so every
 planner exposes them the same way: ``claude_code`` and ``codex`` as
 ``mcp__rpent__<name>``, ``api`` by the tool's own name.
 
-Adoption is explicit on purpose. Site configuration can declare a server and
-reserve its tools by omitting ``planner_tools``, but only robot code that
+Registration is explicit on purpose. The shared config can declare a server
+and reserve its tools by omitting ``planner_tools``, but only robot code that
 knows how to coordinate with the device registers them here.
 """
 
@@ -73,25 +73,25 @@ def register_mcp_tools(
 
     Args:
         toolkit: The robot Toolkit receiving the tools.
-        servers: Candidate specs, usually ``RunConfig.mcp_servers`` (site-level
+        servers: Candidate specs, usually ``RunConfig.mcp_servers`` (shared
             plus robot-declared).
-        tools: Server name to the remote tool names this robot adopts. Servers
-            that are not listed are ignored.
+        tools: Server name to the remote tool names this robot registers.
+            Servers that are not listed are ignored.
 
     Returns:
         The registered tool names, in the order given.
 
     Raises:
         ValueError: On an unknown server or tool name, a name that already
-            belongs to the toolkit or another adopted server, or a tool the
-            planner layer also attaches.
+            belongs to the toolkit or another registered server, or a tool the
+            planner also attaches.
     """
     by_name = {server.name: server for server in servers}
     unknown_servers = sorted(set(tools) - set(by_name))
     if unknown_servers:
         declared = sorted(by_name) or "none"
         raise ValueError(
-            f"cannot adopt MCP tools from undeclared server(s) {unknown_servers}; "
+            f"cannot register MCP tools from undeclared server(s) {unknown_servers}; "
             f"declared servers: {declared}"
         )
 
@@ -100,19 +100,19 @@ def register_mcp_tools(
     for server_name, names in tools.items():
         spec = by_name[server_name]
         # A coordinated tool must not also be callable directly: the planner
-        # layer would bypass the operation slot and observation capture that
-        # are the reason to adopt it.
+        # would bypass the execution ordering and observation capture that
+        # are the reason to register it.
         if spec.planner_tools == ALL_TOOLS:
             raise ValueError(
-                f"cannot adopt MCP tool(s) {sorted(names)} from {server_name!r}: "
+                f"cannot register MCP tool(s) {sorted(names)} from {server_name!r}: "
                 "planner_tools is '*', so every tool is also attached to the "
                 "planner; list only the independent tools under planner_tools "
-                "and adopt the coordinated ones"
+                "and register the coordinated ones"
             )
         overlap = sorted(set(names) & set(spec.planner_tools or ()))
         if overlap:
             raise ValueError(
-                f"cannot adopt MCP tool(s) {overlap} from {server_name!r}: they "
+                f"cannot register MCP tool(s) {overlap} from {server_name!r}: they "
                 "are also attached to the planner by planner_tools"
             )
         # Fail at toolkit construction, not on the first tool call.
@@ -127,18 +127,18 @@ def register_mcp_tools(
         for name in names:
             if name in taken:
                 raise ValueError(
-                    f"cannot adopt MCP tool {name!r} from {server_name!r}: the "
+                    f"cannot register MCP tool {name!r} from {server_name!r}: the "
                     "tool name is already registered by the toolkit or another "
                     "server"
                 )
             tool = remote[name]
-            toolkit.add_tool(_adopted_tool(spec, tool))
+            toolkit.add_tool(_registered_tool(spec, tool))
             taken.add(name)
             registered.append(name)
     return tuple(registered)
 
 
-def _adopted_tool(spec: McpServerSpec, tool: Any) -> Tool:
+def _registered_tool(spec: McpServerSpec, tool: Any) -> Tool:
     """Wrap one remote tool descriptor as a native Toolkit declaration."""
     schema = tool.inputSchema or {"type": "object", "properties": {}}
     return Tool(
@@ -213,7 +213,7 @@ def _is_read_only(tool: Any) -> bool:
 
     MCP's ``readOnlyHint`` maps onto RPent's :func:`readonly` marker, so read
     tools do not capture a fresh observation after every call while
-    side-effecting facility tools do.
+    side-effecting tools do.
     """
     annotations = getattr(tool, "annotations", None)
     return bool(annotations is not None and annotations.readOnlyHint)
@@ -234,10 +234,10 @@ async def _list_tools(session: Any) -> list[Any]:
     """Fetch every page of ``tools/list``.
 
     ``tools/list`` returns one page per request; the SDK does not follow
-    ``nextCursor`` for the caller. Adoption and the planner-layer preflight
-    both need the complete list, so a tool on a later page must not be
-    reported as missing. A server that repeats a cursor is treated as finished
-    rather than followed forever.
+    ``nextCursor`` for the caller. Toolkit registration and the planner's
+    startup check both need the complete list, so a tool on a later page must
+    not be reported as missing. A server that repeats a cursor is treated as
+    finished rather than followed forever.
     """
     tools: list[Any] = []
     cursor: str | None = None
@@ -257,7 +257,7 @@ def list_remote_tools(spec: McpServerSpec) -> list[Any]:
 
 
 async def list_remote_tools_async(spec: McpServerSpec) -> list[Any]:
-    """Async form of :func:`list_remote_tools` for the planner layer."""
+    """Async form of :func:`list_remote_tools` for the planner."""
     return await run_remote(spec, _list_tools)
 
 
@@ -361,7 +361,7 @@ async def run_remote(
     by default). Toolkit cancellation is cooperative and the handler has no
     checkpoint while the remote call is in flight, so this deadline is also
     the bound on how long ``Toolkit.cancel_active_and_wait`` waits for an
-    adopted tool.
+    registered tool.
 
     The transports close a failed session inside an anyio task group, which
     reports the real error as a nested ``ExceptionGroup``; it is unwrapped here

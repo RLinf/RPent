@@ -20,7 +20,7 @@ import pytest
 
 from rpent.utils.mcp_servers import (
     McpServerSpec,
-    load_site_mcp_servers,
+    load_mcp_config,
     merge_mcp_servers,
     parse_mcp_servers,
     request_headers,
@@ -177,35 +177,35 @@ def test_request_headers_rejects_unset_environment_variable(
         request_headers(spec)
 
 
-def test_merge_rejects_duplicate_site_and_robot_names() -> None:
+def test_merge_rejects_duplicate_shared_and_robot_names() -> None:
     robot = (McpServerSpec(name="web", url="https://robot.example/mcp"),)
-    site = (McpServerSpec(name="web", url="https://site.example/mcp"),)
+    shared = (McpServerSpec(name="web", url="https://shared.example/mcp"),)
 
     with pytest.raises(ValueError, match="duplicate MCP server name 'web'"):
-        merge_mcp_servers(robot, site)
+        merge_mcp_servers(robot, shared)
 
 
 def test_merge_preserves_order() -> None:
     robot = (McpServerSpec(name="mine", url="https://robot.example/mcp"),)
-    site = (
+    shared = (
         McpServerSpec(name="lights", url="https://lights.example/mcp"),
         McpServerSpec(name="docs", url="https://docs.example/mcp"),
     )
 
-    assert [spec.name for spec in merge_mcp_servers(robot, site)] == [
+    assert [spec.name for spec in merge_mcp_servers(robot, shared)] == [
         "mine",
         "lights",
         "docs",
     ]
 
 
-def test_load_site_config_reads_only_the_mcp_section(
+def test_load_mcp_config_reads_only_the_mcp_section(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setenv("FACILITY_TOKEN", "secret")
-    path = tmp_path / "site.yaml"
+    path = tmp_path / "mcp.yaml"
     path.write_text(
-        "site_name: lab-a\n"
+        "label: lab-a\n"
         "mcp_servers:\n"
         "  lights:\n"
         "    url: https://lights.example/mcp\n"
@@ -216,7 +216,7 @@ def test_load_site_config_reads_only_the_mcp_section(
         "    url: https://dock.example/mcp\n"
     )
 
-    assert load_site_mcp_servers(path) == (
+    assert load_mcp_config(path) == (
         McpServerSpec(
             name="lights",
             url="https://lights.example/mcp",
@@ -227,11 +227,11 @@ def test_load_site_config_reads_only_the_mcp_section(
     )
 
 
-def test_load_site_config_ignores_unresolved_values_outside_the_section(
+def test_load_mcp_config_ignores_unresolved_values_outside_the_section(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.delenv("VLA_CKPT", raising=False)
-    path = tmp_path / "site.yaml"
+    path = tmp_path / "mcp.yaml"
     path.write_text(
         "vla:\n"
         "  checkpoint: ${oc.env:VLA_CKPT}\n"
@@ -240,16 +240,16 @@ def test_load_site_config_ignores_unresolved_values_outside_the_section(
         "    url: https://dock.example/mcp\n"
     )
 
-    assert load_site_mcp_servers(path) == (
+    assert load_mcp_config(path) == (
         McpServerSpec(name="dock", url="https://dock.example/mcp"),
     )
 
 
-def test_load_site_config_rejects_unresolved_value_in_the_section(
+def test_load_mcp_config_rejects_unresolved_value_in_the_section(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.delenv("WEB_TOKEN", raising=False)
-    path = tmp_path / "site.yaml"
+    path = tmp_path / "mcp.yaml"
     path.write_text(
         "mcp_servers:\n"
         "  web:\n"
@@ -259,16 +259,16 @@ def test_load_site_config_rejects_unresolved_value_in_the_section(
     )
 
     with pytest.raises(ValueError, match="WEB_TOKEN"):
-        load_site_mcp_servers(path)
+        load_mcp_config(path)
 
 
-def test_load_site_config_without_section_yields_no_specs(tmp_path: Path) -> None:
-    path = tmp_path / "site.yaml"
-    path.write_text("site_name: lab-a\n")
+def test_load_mcp_config_without_section_yields_no_specs(tmp_path: Path) -> None:
+    path = tmp_path / "mcp.yaml"
+    path.write_text("label: lab-a\n")
 
-    assert load_site_mcp_servers(path) == ()
+    assert load_mcp_config(path) == ()
 
 
-def test_load_site_config_rejects_missing_file(tmp_path: Path) -> None:
-    with pytest.raises(ValueError, match="site config not found"):
-        load_site_mcp_servers(tmp_path / "missing.yaml")
+def test_load_mcp_config_rejects_missing_file(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match="MCP config not found"):
+        load_mcp_config(tmp_path / "missing.yaml")

@@ -30,7 +30,7 @@ from typing import TYPE_CHECKING, Any
 from rpent.cli.main import (
     _handoff_message,
     _serialize_messages,
-    _with_site_mcp_servers,
+    _with_shared_mcp_servers,
 )
 from rpent.dashboard.events import RunStartedEvent
 from rpent.evaluation import RunFinalizationContext
@@ -211,9 +211,9 @@ def _run_dashboard_task(
     if task_args.explore and not robot_spec.supports_exploration:
         raise ValueError(f"--explore is not supported for robot {robot_spec.name!r}")
     task_args.output_dir = str(claimed.output_dir)
-    run_config = _with_site_mcp_servers(
+    run_config = _with_shared_mcp_servers(
         robot_spec.parse_config(task_args),
-        getattr(task_args, "site_mcp_servers", ()),
+        getattr(task_args, "shared_mcp_servers", ()),
     )
     from rpent.memory.loading import prepare_run_memory
 

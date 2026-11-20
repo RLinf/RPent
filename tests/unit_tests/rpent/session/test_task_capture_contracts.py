@@ -158,13 +158,13 @@ def test_task_config_snapshot_redacts_mcp_header_values(tmp_path) -> None:
     )
 
     config = task_config_snapshot(
-        {"planner": "api", "site_mcp_servers": (spec,)}, run_config
+        {"planner": "api", "shared_mcp_servers": (spec,)}, run_config
     )
 
     assert "Bearer secret" not in json.dumps(to_jsonable_python(config))
     redacted = {"Authorization": "<redacted>"}
     assert config["run"]["mcp_servers"][0]["headers"] == redacted
-    assert config["arguments"]["site_mcp_servers"][0]["headers"] == redacted
+    assert config["arguments"]["shared_mcp_servers"][0]["headers"] == redacted
     # Names, URLs, and tool selection stay, so the record still describes the
     # run; only the values that may be credentials are gone.
     assert config["run"]["mcp_servers"][0]["env_http_headers"] == {
@@ -185,10 +185,10 @@ def test_task_config_snapshot_omits_empty_mcp_lists(tmp_path) -> None:
     )
 
     config = task_config_snapshot(
-        {"planner": "api", "site_mcp_servers": ()}, run_config
+        {"planner": "api", "shared_mcp_servers": ()}, run_config
     )
 
     # A run without external MCP servers keeps the trajectory shape from before
     # the feature existed.
-    assert "site_mcp_servers" not in config["arguments"]
+    assert "shared_mcp_servers" not in config["arguments"]
     assert "mcp_servers" not in config["run"]

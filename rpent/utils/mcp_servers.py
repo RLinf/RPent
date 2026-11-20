@@ -14,32 +14,30 @@
 
 """External MCP servers RPent may consume.
 
-MCP is a transport, not a layer. Which RPent layer consumes a server's tools
-is decided by whether the control loop must coordinate with the device:
+MCP is only the transport. Where a server's tools appear depends on whether
+the control loop must coordinate with the device:
 
-* Tools that are independent of the robot's execution loop are exposed to the
-  planners directly: they are listed under ``planner_tools`` and attached by
-  ``api``, ``claude_code`` and ``codex``.
-* Tools that need coordination with the execution loop, a safety interlock,
-  or the observation stream are first-class robot/Env capabilities. They are
-  exposed through the robot's Toolkit with
-  :meth:`~rpent.tools.toolkit.Toolkit.add_mcp_tools`; planner adapters then
-  expose them like any Toolkit tool (``claude_code`` and ``codex`` add the
-  ``mcp__rpent__`` prefix, ``api`` uses the tool's own name). A robot must opt
-  in; a server is never promoted to the toolkit layer by configuration alone.
+* Tools the model can call at any time are attached to the planners. They are
+  listed under ``planner_tools``; ``api``, ``claude_code`` and ``codex``
+  consume that field.
+* Tools that must be ordered against robot actions, a safety interlock, or the
+  observation stream are registered on the robot's Toolkit with
+  :meth:`~rpent.tools.toolkit.Toolkit.add_mcp_tools`. Planner adapters then
+  expose them like any Toolkit tool: ``claude_code`` and ``codex`` add the
+  ``mcp__rpent__`` prefix, while ``api`` uses the tool's own name. A robot must
+  opt in; configuration alone never registers a tool on the Toolkit.
 
-A single server can mix both kinds of tools: list the independent ones under
-``planner_tools`` and adopt the rest in robot code.
+A server can supply both kinds: list the independent tools under
+``planner_tools`` and register the rest in robot code.
 
-Configuration has two axes:
+Configuration comes from two places:
 
-* Site config (``--site-config``) is deployment-level and shared by every
-  robot at that site. Facility devices (lighting, charging docks, power
-  outlets) belong here so robots do not each copy their endpoint.
+* A shared config (``--mcp-config``) is merged into every run, so several
+  robots can use one endpoint without copying it.
 * A robot's own config may declare ``mcp_servers`` for services that belong to
   that robot. Its ``parse_config`` runs :func:`parse_mcp_servers` and carries
   the result on :class:`~rpent.robots.robot_spec.RunConfig`; the CLI merges
-  those specs with the site config at run time.
+  both sources at run time.
 
 Only streamable-HTTP servers are supported: a spec carries a ``url`` and
 optional headers, no stdio ``command``. YAML interpolation (``${oc.env:...}``)
@@ -67,8 +65,8 @@ ALL_TOOLS = "*"
 #: Allowed server names: the token between ``mcp__`` and ``__<tool>``.
 _NAME_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]*$")
 
-#: Tool selection for the planner layer. ``None`` keeps the server out of the
-#: planner layer (the robot's Env/Toolkit layer may still adopt its tools).
+#: Tool selection for the planner. ``None`` keeps the server out of the
+#: planner; the robot's Toolkit may still register its tools.
 PlannerTools = tuple[str, ...] | Literal["*"] | None
 
 
@@ -88,7 +86,7 @@ class McpServerSpec:
             config and out of the child process arguments.
         planner_tools: ``"*"`` attaches every tool to the planners; a tuple
             attaches only those names; ``None`` does not attach the server to
-            the planners at all. Only the planner layer consumes this field.
+            the planners at all. Only the planners consume this field.
             ``api`` and ``codex`` expose exactly the named tools;
             ``claude_code`` mounts the whole server and uses the tuple as its
             auto-approved set, so the server's other tools stay visible to the
@@ -108,7 +106,7 @@ def parse_mcp_servers(
     """Validate an ``mcp_servers`` section into specs.
 
     Args:
-        raw: The ``mcp_servers`` mapping from a site or robot config, or
+        raw: The ``mcp_servers`` mapping from a shared or robot config, or
             ``None`` when the config declares none.
 
     Returns:
@@ -130,18 +128,18 @@ def parse_mcp_servers(
     return tuple(specs)
 
 
-def load_site_mcp_servers(
+def load_mcp_config(
     path: str | Path | None,
 ) -> tuple[McpServerSpec, ...]:
-    """Load the ``mcp_servers`` section of a deployment-level site config.
+    """Load the ``mcp_servers`` section of a shared MCP config.
 
     The file is a YAML mapping; only its ``mcp_servers`` key is consumed, so
-    it can carry other site settings. OmegaConf resolves ``${oc.env:...}``
+    it can carry unrelated settings. OmegaConf resolves ``${oc.env:...}``
     interpolation in that section before validation; other sections may keep
     unresolved references because RPent does not read them.
 
     Args:
-        path: Path to the site config, or ``None`` when ``--site-config`` was
+        path: Path to the shared config, or ``None`` when ``--mcp-config`` was
             not passed.
 
     Returns:
@@ -156,21 +154,21 @@ def load_site_mcp_servers(
         return ()
     config_path = Path(path).expanduser()
     if not config_path.is_file():
-        raise ValueError(f"site config not found: {config_path}")
+        raise ValueError(f"MCP config not found: {config_path}")
 
     from omegaconf import DictConfig, OmegaConf
 
     try:
         config = OmegaConf.load(config_path)
     except Exception as exc:
-        raise ValueError(f"invalid site config {config_path}: {exc}") from exc
+        raise ValueError(f"invalid MCP config {config_path}: {exc}") from exc
     if not isinstance(config, DictConfig):
-        raise ValueError(f"site config must be a mapping: {config_path}")
+        raise ValueError(f"MCP config must be a mapping: {config_path}")
     section = config.get("mcp_servers")
     try:
         raw = None if section is None else OmegaConf.to_container(section, resolve=True)
     except Exception as exc:
-        raise ValueError(f"invalid site config {config_path}: {exc}") from exc
+        raise ValueError(f"invalid MCP config {config_path}: {exc}") from exc
     return parse_mcp_servers(raw)
 
 
@@ -180,9 +178,9 @@ def merge_mcp_servers(
     """Concatenate spec groups, rejecting duplicate server names.
 
     Raises:
-        ValueError: If two groups declare the same server name. Site-level and
-            robot-level config must not silently shadow each other, and a
-            duplicate would collide in the MCP tool namespace.
+        ValueError: If two groups declare the same server name. The shared
+            config and a robot's config must not silently shadow each other,
+            and a duplicate would collide in the MCP tool namespace.
     """
     merged: list[McpServerSpec] = []
     seen: set[str] = set()
@@ -191,7 +189,8 @@ def merge_mcp_servers(
             if spec.name in seen:
                 raise ValueError(
                     f"duplicate MCP server name {spec.name!r}: it is declared "
-                    "both at site level and by the robot, or twice in one config"
+                    "both in the shared MCP config and by the robot, or twice "
+                    "in one config"
                 )
             seen.add(spec.name)
             merged.append(spec)
@@ -223,8 +222,9 @@ REDACTED_HEADER_VALUE = "<redacted>"
 def public_spec(spec: McpServerSpec) -> dict[str, Any]:
     """Return a serializable view of a spec that omits header values.
 
-    A site config resolves ``${oc.env:...}`` in ``headers`` when it is loaded,
-    so the values may be credentials. Task records keep the run configuration,
+    A shared config resolves ``${oc.env:...}`` in ``headers`` when it is
+    loaded, so the values may be credentials. Task records keep the run
+    configuration,
     and that payload is written to ``task.json`` and the Dashboard task record,
     so only header names are kept.
     """
@@ -346,6 +346,6 @@ def _parse_planner_tools(raw: Any, where: str) -> PlannerTools:
     if not raw:
         raise ValueError(
             f"{where}.planner_tools must not be empty; omit it to keep the "
-            "server out of the planner layer"
+            "server out of the planner"
         )
     return tuple(dict.fromkeys(str(item) for item in raw))

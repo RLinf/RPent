@@ -71,7 +71,7 @@ from rpent.session.planner_capture import (
 from rpent.utils.logging import get_logger, init_output_dir
 from rpent.utils.mcp_servers import (
     McpServerSpec,
-    load_site_mcp_servers,
+    load_mcp_config,
     merge_mcp_servers,
 )
 
@@ -213,12 +213,11 @@ def _build_argparser() -> argparse.ArgumentParser:
     )
 
     ap.add_argument(
-        "--site-config",
+        "--mcp-config",
         default=None,
-        help="Deployment-level YAML shared by every robot at this site. Its "
-        "mcp_servers section declares facility MCP servers; tools listed "
-        "under planner_tools are attached to the selected planner, while "
-        "unlisted tools stay available to the robot's Env/Toolkit layer.",
+        help="Path to a shared MCP config YAML. Its mcp_servers section is "
+        "merged into every run; a server's planner_tools decides whether its "
+        "tools reach the planner or stay available to the robot's Toolkit.",
     )
 
     # other config
@@ -337,21 +336,21 @@ def _handoff_message(
     )
 
 
-def _with_site_mcp_servers(
+def _with_shared_mcp_servers(
     run_config: RunConfig,
-    site_servers: tuple[McpServerSpec, ...],
+    shared_servers: tuple[McpServerSpec, ...],
 ) -> RunConfig:
-    """Merge deployment-level MCP servers into a robot's run config.
+    """Merge shared MCP servers into a robot's run config.
 
-    Site servers are shared by every robot at the deployment, so the CLI adds
-    them after the robot's own ``parse_config``. Duplicate names are rejected:
-    a robot must not silently shadow a facility server.
+    The shared config applies to every robot, so the CLI adds its servers
+    after the robot's own ``parse_config``. Duplicate names are rejected: a
+    robot must not silently shadow a server from the shared config.
     """
-    if not site_servers:
+    if not shared_servers:
         return run_config
     return replace(
         run_config,
-        mcp_servers=merge_mcp_servers(run_config.mcp_servers, site_servers),
+        mcp_servers=merge_mcp_servers(run_config.mcp_servers, shared_servers),
     )
 
 
@@ -438,7 +437,7 @@ def main() -> int:
     if "--interactive" in sys.argv or "-i" in sys.argv:
         logger.warning("--interactive is deprecated; use --tui instead")
     try:
-        args.site_mcp_servers = load_site_mcp_servers(args.site_config)
+        args.shared_mcp_servers = load_mcp_config(args.mcp_config)
     except (OSError, ValueError) as exc:
         parser.error(str(exc))
     human_interactive_exploration = (
@@ -528,8 +527,8 @@ def main() -> int:
         return run_dashboard_session(args, robot_spec, parser=parser)
 
     try:
-        run_config = _with_site_mcp_servers(
-            robot_spec.parse_config(args), args.site_mcp_servers
+        run_config = _with_shared_mcp_servers(
+            robot_spec.parse_config(args), args.shared_mcp_servers
         )
     except (OSError, ValueError) as exc:
         parser.error(str(exc))

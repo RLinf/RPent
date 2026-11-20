@@ -279,7 +279,7 @@ def build_api_model(model: str | None, base_url: str | None = None) -> "Model":
 def check_planner_mcp_servers(
     mcp_servers: tuple["McpServerSpec", ...],
 ) -> str | None:
-    """Return an error message when a planner-layer server cannot be reached.
+    """Return an error message when a server attached to the planner fails.
 
     A declared server is part of the run: the episode must end with a planner
     error instead of continuing without it. Every backend consults this before
@@ -292,8 +292,9 @@ def check_planner_mcp_servers(
         mcp_servers: Servers available to this run.
 
     Returns:
-        ``None`` when every planner-layer server answered and exposed its
-        declared tools, otherwise a message naming the first failure.
+        ``None`` when every server attached to the planner answered and
+        exposed its declared tools, otherwise a message naming the first
+        failure.
     """
     from rpent.tools.mcp_tools import list_remote_tools
 
@@ -307,7 +308,7 @@ def check_planner_mcp_servers(
         if spec.planner_tools != ALL_TOOLS:
             missing = sorted(set(spec.planner_tools) - exposed)
             if missing:
-                # Same contract as Toolkit adoption: a named tool the server
+                # Same contract as Toolkit registration: a named tool the server
                 # does not expose is a configuration error, not an empty
                 # toolset the model silently does without.
                 return (
@@ -339,10 +340,10 @@ def build_planner(
     """Build a planner for the given backend, resolving credentials from env vars.
 
     ``mcp_servers`` are external streamable-HTTP MCP servers available to this
-    run (site-level plus robot-declared). Only specs with ``planner_tools`` set
-    are attached: servers reserved for the robot's Env/Toolkit layer are
-    skipped here because the model must reach those tools through a
-    coordinated first-class tool instead.
+    run (shared plus robot-declared). Only specs with ``planner_tools`` set are
+    attached: servers reserved for the robot's Toolkit are skipped here
+    because the model must reach those tools through a coordinated
+    first-class tool instead.
     """
     planner_servers = tuple(
         server for server in mcp_servers if server.planner_tools is not None

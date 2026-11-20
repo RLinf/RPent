@@ -220,7 +220,7 @@ class ApiAgentLoop(Planner):
             )
         try:
             # Building the toolsets resolves env-backed MCP headers, so keep it
-            # inside the try: a bad site config must end as PlannerResult.error,
+            # inside the try: a bad shared config must end as PlannerResult.error,
             # not as an exception that skips RPent's normal failure handling.
             agent = Agent(
                 capture if capture is not None else self.model,
@@ -285,16 +285,16 @@ class ApiAgentLoop(Planner):
         )
 
     def _external_toolsets(self, recorder: "_HarnessToolkit") -> list[Any]:
-        """Build one MCP toolset per planner-layer external server.
+        """Build one MCP toolset per external server attached to the planner.
 
         Each server's tools are prefixed with its name (``<server>_<tool>``).
         The single-underscore join is not injective, so a name that collides
         with another server's or with an RPent tool is reported by pydantic-ai
         during the first run step. A spec that names its tools is filtered
-        before dispatch, so coordinated tools adopted by the robot's Toolkit
-        cannot leak back into the planner layer. Servers are reached with the
-        same MCP client RPent uses for adoption, so every request keeps the
-        ``MCP_CALL_TIMEOUT_S`` deadline.
+        before dispatch, so coordinated tools registered by the robot's
+        Toolkit cannot leak back into the planner. Servers are reached with the
+        same MCP client RPent uses for Toolkit registration, so every request
+        keeps the ``MCP_CALL_TIMEOUT_S`` deadline.
         """
         servers = [
             server for server in self.mcp_servers if server.planner_tools is not None
@@ -374,10 +374,11 @@ def _omit_external_images(result: Any) -> Any:
 class _RemoteMCPToolset(AbstractToolset[Any]):
     """Expose one external MCP server to an agent run.
 
-    Planner-layer servers use the same MCP client as Toolkit adoption, so a
-    run needs no second MCP stack. Tools are discovered and called on their
-    own short-lived session, each bounded by ``MCP_CALL_TIMEOUT_S``; argument
-    validation is left to the remote schema, which is what the model sees.
+    Servers attached to the planner use the same MCP client as Toolkit
+    registration, so a run needs no second MCP stack. Tools are discovered and
+    called on their own short-lived session, each bounded by
+    ``MCP_CALL_TIMEOUT_S``; argument validation is left to the remote schema,
+    which is what the model sees.
     """
 
     def __init__(

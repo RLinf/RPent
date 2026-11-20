@@ -317,7 +317,7 @@ def test_options_attach_external_mcp_servers(
         "url": "https://facility.example/mcp",
         "headers": {"Authorization": "${FACILITY_TOKEN}"},
     }
-    # A spec without ``planner_tools`` stays in the Env/Toolkit layer.
+    # A spec without ``planner_tools`` is left for the robot's Toolkit.
     assert "dock" not in options["mcp_servers"]
     # ``planner_tools="*"`` allows the whole server; a listed spec names each.
     assert "mcp__web" in options["allowed_tools"]

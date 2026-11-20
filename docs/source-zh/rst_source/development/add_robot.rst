@@ -242,7 +242,7 @@ toolkit 模块通常包含四部分：
 
 ``runtime_kwargs`` 由 ``robot_spec.py:get_toolkit`` 转发给 toolkit，再原样传入 primitives 的 ``__init__``。其中通常包含 ``{"env": MyEnvClient(...), "model": VLAClient(...), ...}``。
 
-如果执行循环必须与站点 MCP 服务暴露的设备协调，应把这些工具采纳为 Toolkit 的一等工具。不要把它们挂到规划器上。``get_toolkit`` 会收到本次运行的 ``config``，因此站点服务和 robot 自有服务都能采纳：
+如果执行循环必须与 MCP 服务暴露的设备协调，应把这些工具注册到 Toolkit 上，而不是把服务挂到规划器。经规划器提供的工具会绕过 Toolkit 的执行顺序和观测记录，而需要协调的设备正依赖这两者。``get_toolkit`` 会收到本次运行的 ``config``，因此共享配置和 robot 自有服务都能注册：
 
 .. code-block:: python
 
@@ -254,18 +254,22 @@ toolkit 模块通常包含四部分：
                root=config.prompt_vars.get("memory_dir") or get_memory_dir("myrobot"),
            ),
        )
+       # power 在共享 MCP 配置里声明；服务必须提供这些工具名，否则构建
+       # Toolkit 时抛出 ValueError。
        toolkit.add_mcp_tools(
            config.mcp_servers,
-           tools={"facility": ["set_charging_dock", "read_battery"]},
+           tools={"power": ["set_charging_dock", "read_battery"]},
        )
        return toolkit
 
-构建 Toolkit 时，采纳会对照服务端的工具列表校验名称。名字写错会在启动时报 ``ValueError``，不会拖到第一次调用。远端输入 schema 原样保留；服务返回 ``readOnlyHint`` 时，工具标为 ``readonly``。采纳后的工具与本地工具一样参与观测记录。``claude_code`` 和 ``codex`` 显示为 ``mcp__rpent__<name>``，``api`` 使用原名。无需协调的工具请放进 ``planner_tools``，见 :ref:`external-mcp-servers`。
+构建 Toolkit 时，注册会对照服务端的工具列表校验名称：服务没有提供的名字会在启动时报 ``ValueError``，不会拖到第一次调用。远端输入 schema 原样保留；服务返回 ``readOnlyHint`` 时，工具标为 ``readonly``。注册后的工具与本地工具一样参与观测记录。``claude_code`` 和 ``codex`` 显示为 ``mcp__rpent__<name>``，``api`` 使用原名。无需协调的工具请放进 ``planner_tools``，见 :ref:`external-mcp-servers`。
 
-MCP 客户端给采纳的工具带来两个限制：
+同一个服务可以同时供规划器和 Toolkit 使用：独立工具列入 ``planner_tools``，需要协调的工具在这里注册。一个工具只能挂在一处；注册一个同时被 ``planner_tools`` 挂载的名字会抛出 ``ValueError``。
 
-- 调用在 Toolkit 的操作槽上同步执行，不受 RPent 的取消机制控制。取消一次运行时，最多要等正在执行的调用到期。单次请求的响应时限见 :ref:`external-mcp-servers`。
-- 只有 ``image/png`` 块会变成原生图片。其他类型的块只带元数据，不带载荷。
+MCP 客户端给注册的工具带来两个限制：
+
+- 调用同步执行，执行期间无法取消。取消一次运行时，最多要等正在执行的调用到期；单次请求的响应时限见 :ref:`external-mcp-servers`。
+- 只有 ``image/png`` 块会变成原生图片。其他类型的块只保留元数据，不附带数据。
 
 建议遵循的约定
 --------------
@@ -292,7 +296,7 @@ MCP 客户端给采纳的工具带来两个限制：
 - ``output_dir`` —— 单次运行的临时目录路径。main.py 随后调用 ``init_output_dir`` 创建目录并配置日志。
 - ``prompt_vars`` —— 传给 ``PromptBundle.render`` 的字典，通常包含运行标识和 prompt 引用的其他变量。
 - ``task_desc`` —— 机器人特定的任务标识字典，会原样写入 transcript JSON 记录（LIBERO 使用 ``{"suite": ..., "task": ..., "seed": ...}``）。
-- ``mcp_servers`` —— 可选的元组，列出该 robot 贡献的 MCP 服务，由 robot config 的 ``mcp_servers`` 段经 :func:`~rpent.utils.mcp_servers.parse_mcp_servers` 解析得到。CLI 会合并部署级的站点服务，因此 robot 没有自有服务时留空即可。只有声明了 ``planner_tools`` 的条目会进入规划器；Env/Toolkit 层通过 :meth:`~rpent.tools.toolkit.Toolkit.add_mcp_tools` 采纳需要协调的工具。参见 :ref:`external-mcp-servers`。
+- ``mcp_servers`` —— 可选的元组，列出该 robot 贡献的 MCP 服务，由 robot config 的 ``mcp_servers`` 段经 :func:`~rpent.utils.mcp_servers.parse_mcp_servers` 解析得到。CLI 会合并共享 MCP 配置，因此 robot 没有自有服务时留空即可。只有声明了 ``planner_tools`` 的条目会进入规划器；需要协调的工具通过 :meth:`~rpent.tools.toolkit.Toolkit.add_mcp_tools` 注册。参见 :ref:`external-mcp-servers`。
 
 .. code-block:: python
 

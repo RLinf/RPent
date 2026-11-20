@@ -70,18 +70,20 @@ def task_config_snapshot(
     """Build the task record's config payload for one run.
 
     The payload is written to ``task.json`` and the Dashboard task record, so
-    MCP header values are replaced with a placeholder: a site config resolves
+    MCP header values are replaced with a placeholder: a shared config resolves
     ``${oc.env:...}`` in ``headers`` at load time, and the result may be a
     credential. Header names, URLs, and ``planner_tools`` are kept. Empty
     server lists are omitted, so a run without external MCP servers keeps the
     payload shape it had before the feature existed.
     """
     config = dict(arguments)
-    site_servers = [public_spec(spec) for spec in config.get("site_mcp_servers", ())]
-    if site_servers:
-        config["site_mcp_servers"] = site_servers
+    shared_servers = [
+        public_spec(spec) for spec in config.get("shared_mcp_servers", ())
+    ]
+    if shared_servers:
+        config["shared_mcp_servers"] = shared_servers
     else:
-        config.pop("site_mcp_servers", None)
+        config.pop("shared_mcp_servers", None)
     run = asdict(run_config)
     if run_config.mcp_servers:
         run["mcp_servers"] = [public_spec(spec) for spec in run_config.mcp_servers]

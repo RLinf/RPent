@@ -662,14 +662,14 @@ class _Recorder:
 def _external_mcp_config(
     mcp_servers: tuple["McpServerSpec", ...],
 ) -> tuple[dict[str, Any], list[str]]:
-    """Render planner-layer MCP servers for the SDK and its allowlist.
+    """Render MCP servers attached to the planner for the SDK and its allowlist.
 
     Each spec becomes an SDK streamable-HTTP entry. ``allowed_tools`` is an
     allowlist, so every tool the model may call must be named: a spec that
     lists ``planner_tools`` yields ``mcp__<server>__<tool>`` per name; a spec
     that admits all tools yields the server-level ``mcp__<server>`` rule. A
-    server with ``planner_tools`` unset belongs to the robot's Env/Toolkit
-    layer and is skipped here. The SDK still mounts the whole server, so the
+    server with ``planner_tools`` unset is registered by the robot's Toolkit
+    and is skipped here. The SDK still mounts the whole server, so the
     list controls auto-approval, not what the model can see; use one server
     entry per permission boundary when that distinction matters.
 

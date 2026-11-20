@@ -88,10 +88,10 @@ def test_registers_named_tools_with_remote_schemas(
     )
 
     assert registered == ("set_scene",)
-    adopted = toolkit.tools["set_scene"]
-    assert adopted.name == "set_scene"
-    assert adopted.description == "Change the lights."
-    assert adopted.input_schema == {"type": "object", "properties": {}}
+    tool = toolkit.tools["set_scene"]
+    assert tool.name == "set_scene"
+    assert tool.description == "Change the lights."
+    assert tool.input_schema == {"type": "object", "properties": {}}
     assert "unused" not in toolkit.tools
 
 
@@ -331,14 +331,14 @@ def test_optional_arguments_are_not_forwarded_as_null(
     )
     toolkit = FakeToolkit()
     mcp_tools.register_mcp_tools(toolkit, (spec,), tools={"facility": ["status"]})
-    adopted = toolkit.tools["status"]
+    tool = toolkit.tools["status"]
 
-    parameters = adopted.args_schema.model_validate({"detail": "high"}, strict=True)
-    adopted.handler(
+    parameters = tool.args_schema.model_validate({"detail": "high"}, strict=True)
+    tool.handler(
         **{name: getattr(parameters, name) for name in type(parameters).model_fields}
     )
 
-    assert adopted.input_schema == schema
+    assert tool.input_schema == schema
     assert calls == [{"detail": "high"}]
 
 
@@ -558,7 +558,7 @@ def _toolkit(root: Path) -> Toolkit:
     )
 
 
-def test_adopted_tool_deadline_ends_a_slow_call(
+def test_registered_tool_deadline_ends_a_slow_call(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setenv("MCP_CALL_TIMEOUT_S", "0.2")
@@ -572,27 +572,27 @@ def test_adopted_tool_deadline_ends_a_slow_call(
 
     server_toolkit.add_tool(slow_sense)
     server = HttpMcpServer(server_toolkit)
-    adopted = _toolkit(tmp_path)
+    registered = _toolkit(tmp_path)
     try:
         url = server.start()
         mcp_tools.register_mcp_tools(
-            adopted,
+            registered,
             (McpServerSpec(name="facility", url=url),),
             tools={"facility": ["slow_sense"]},
         )
         started = time.monotonic()
-        result = adopted.execute_tool("slow_sense", {})
+        result = registered.execute_tool("slow_sense", {})
         elapsed = time.monotonic() - started
     finally:
         server.stop()
         server_toolkit.close()
-        adopted.close()
+        registered.close()
 
     assert "Timed out" in result.data["error"]
     assert elapsed < 3
 
 
-def test_adopted_tool_reaches_a_real_server(tmp_path: Path) -> None:
+def test_registered_tool_reaches_a_real_server(tmp_path: Path) -> None:
     init_output_dir(tmp_path / "log")
     server_toolkit = _toolkit(tmp_path)
     received: list[str] = []
@@ -604,30 +604,30 @@ def test_adopted_tool_reaches_a_real_server(tmp_path: Path) -> None:
 
     server_toolkit.add_tool(get_level)
     server = HttpMcpServer(server_toolkit)
-    adopted = _toolkit(tmp_path)
+    registered = _toolkit(tmp_path)
     try:
         url = server.start()
         mcp_tools.register_mcp_tools(
-            adopted,
+            registered,
             (McpServerSpec(name="facility", url=url),),
             tools={"facility": ["get_level"]},
         )
-        result = adopted.execute_tool("get_level", {"label": "high"})
+        result = registered.execute_tool("get_level", {"label": "high"})
     finally:
         server.stop()
         server_toolkit.close()
-        adopted.close()
+        registered.close()
 
     assert received == ["high"]
     assert not result.is_error
 
 
-def test_adopted_tool_forwards_arguments_the_schema_admits(
+def test_registered_tool_forwards_arguments_the_schema_admits(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """The remote schema, not the local model, decides which keys reach it."""
     init_output_dir(tmp_path / "log")
-    adopted = _toolkit(tmp_path)
+    registered = _toolkit(tmp_path)
     sent: list[dict[str, Any]] = []
 
     def call(spec, name, arguments):  # noqa: ANN001
@@ -642,19 +642,19 @@ def test_adopted_tool_forwards_arguments_the_schema_admits(
     monkeypatch.setattr(mcp_tools, "_call_remote_tool", call)
     try:
         mcp_tools.register_mcp_tools(
-            adopted,
+            registered,
             (McpServerSpec(name="facility", url="https://facility.example/mcp"),),
             tools={"facility": ["set_level"]},
         )
-        result = adopted.execute_tool("set_level", {"level": "high", "fade_s": 2})
+        result = registered.execute_tool("set_level", {"level": "high", "fade_s": 2})
     finally:
-        adopted.close()
+        registered.close()
 
     assert sent == [{"level": "high", "fade_s": 2}]
     assert not result.is_error
 
 
-def test_rejects_adopting_from_a_server_the_planner_attaches_whole() -> None:
+def test_rejects_registering_from_a_server_the_planner_attaches_whole() -> None:
     with pytest.raises(ValueError, match="planner_tools is '\\*'"):
         mcp_tools.register_mcp_tools(
             FakeToolkit(),
@@ -669,7 +669,7 @@ def test_rejects_adopting_from_a_server_the_planner_attaches_whole() -> None:
         )
 
 
-def test_rejects_adopting_a_tool_the_planner_also_attaches() -> None:
+def test_rejects_registering_a_tool_the_planner_also_attaches() -> None:
     with pytest.raises(ValueError, match="also attached to the planner"):
         mcp_tools.register_mcp_tools(
             FakeToolkit(),

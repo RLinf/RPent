@@ -91,7 +91,7 @@ class GeminiCliPlanner(Planner):
                 Gemini CLI and its configured upstream choose the model.
             reasoning_effort: Must be ``none`` because Gemini CLI has no matching
                 stable command-line option.
-            mcp_servers: Planner-layer external servers. The backend does not
+            mcp_servers: External servers attached to the planner. The backend does not
                 attach them yet, so :meth:`solve` reports an error instead of
                 running the episode without the declared tools.
         """

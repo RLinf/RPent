@@ -644,7 +644,7 @@ def build_codex_config(
             override to reach RPent tools under ``deny_all``.
         trace_root: Directory where Codex writes native rollout traces. If ``None``,
             the child inherits the parent's ``CODEX_ROLLOUT_TRACE_ROOT`` setting.
-        mcp_servers: Planner-layer streamable-HTTP MCP servers to attach
+        mcp_servers: Streamable-HTTP MCP servers to attach to the planner
             alongside RPent's own, each rendered as an ``mcp_servers.<name>``
             table. Specs without ``planner_tools`` are skipped.
 
@@ -817,7 +817,7 @@ def _codex_mcp_config_overrides(
         config.append((f"mcp_servers.{server.name}.url", server.url))
         # A declared server is part of the run: when Codex cannot initialize
         # it, the thread must fail instead of silently running without the
-        # tools the site configured.
+        # tools the shared config declared.
         config.append((f"mcp_servers.{server.name}.required", True))
         if server.headers:
             config.append((f"mcp_servers.{server.name}.http_headers", server.headers))

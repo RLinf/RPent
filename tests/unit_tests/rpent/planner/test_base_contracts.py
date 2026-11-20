@@ -140,8 +140,8 @@ def test_check_planner_mcp_servers_skips_the_toolkit_layer(
 
     monkeypatch.setattr(mcp_tools, "list_remote_tools", unreachable)
 
-    # A server reserved for the robot's Env/Toolkit layer is not attached to
-    # the planner, so a planner-side connection failure is not this run's.
+    # A server reserved for the robot's Toolkit is not attached to the
+    # planner, so a planner-side connection failure is not this run's.
     assert (
         check_planner_mcp_servers(
             (McpServerSpec(name="dock", url="https://dock.example/mcp"),)
@@ -220,7 +220,7 @@ def test_check_planner_mcp_servers_requires_the_named_tools(
         )
     )
 
-    # Same contract as Toolkit adoption: a name the server does not expose is
+    # Same contract as Toolkit registration: a name the server does not expose is
     # a configuration error, not a tool the model silently does without.
     assert error == (
         "mcp_servers.facility did not expose tool(s) ['set_outlet']; "
