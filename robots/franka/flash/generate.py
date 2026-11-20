@@ -96,7 +96,7 @@ def generate(
                     "source contains multiple attempts; select one successful attempt"
                 )
             continue
-        if action in {"flash_observe", "observe_for_verdict"}:
+        if action in {"flash_observe", "observe_for_verdict", "refresh_observation"}:
             checked_result(row.get("result"))
             continue
         if action not in ACTIONS:
