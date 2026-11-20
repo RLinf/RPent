@@ -37,7 +37,7 @@ jobs:
       - name: Install Flywheel export dependencies
         run: uv pip install --system -e ".[flywheel]" --torch-backend cpu
       - name: Run unit tests with coverage
-        run: coverage run --source=rpent,robots -m pytest tests/unit_tests -v
+        run: coverage run --source=rpent,robots,toolkits -m pytest tests/unit_tests -v
       - name: Generate coverage report
         run: coverage report -m
 
