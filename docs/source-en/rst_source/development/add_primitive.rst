@@ -76,7 +76,7 @@ An exception during post-action state capture conservatively marks execution unc
 Return ``ToolResult(execution_uncertain=True, data={"error": ...})`` when native
 feedback cannot establish the execution outcome. Toolkit preserves this flag
 through observation capture; it is internal metadata, not part of ``to_dict()``
-or the model's arguments. Validation failures and cancellation before the
+or the model-facing result payload. Validation failures and cancellation before the
 handler starts do not set it. Invalid JSON results carry
 ``code="tool_result_serialization_failed"`` separately from execution certainty;
 callers must treat that code as incomplete result delivery.
