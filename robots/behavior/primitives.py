@@ -23,7 +23,6 @@ from __future__ import annotations
 
 import math
 from collections.abc import Callable
-from copy import deepcopy
 from numbers import Real
 from typing import TYPE_CHECKING, Annotated, Any, Literal
 
@@ -33,13 +32,21 @@ from pydantic import Field
 from robots.behavior.motion import (
     MAX_SINGLE_ARM_REPOSITION_M as MAX_MOVE_TO_REPOSITION_M,
 )
-from robots.behavior.observation import valid_observation_token
+from robots.behavior.motion import (
+    R1ProMotionModel,
+)
+from robots.behavior.observation import (
+    CONTROL_DT_S,
+    confirmation_matches,
+    valid_observation_token,
+)
 from robots.behavior.tools import (
     decode_robot_state,
     extract_public_proprio,
     policy_observation,
 )
 from rpent.tools import ToolResult, tool
+from rpent.tools.toolkit import ToolCancelled
 from rpent.utils.rpc.rpc_client import RpcError
 
 if TYPE_CHECKING:
@@ -47,7 +54,6 @@ if TYPE_CHECKING:
     from rpent.robots.components.pi05_vla_client import Pi05VLAClient
 
 
-CONTROL_DT_S = 1.0 / 30.0
 BASE_OUTPUT_SCALE = np.array([0.75, 0.75, 1.0], dtype=np.float64)
 MAX_NORMALIZED_LINEAR_NORM = 1.0
 MAX_NORMALIZED_TURN = 1.0
@@ -124,29 +130,6 @@ def _termination_flag(value: Any) -> bool | None:
     if array.dtype.kind != "b" or array.size == 0:
         raise ValueError("BEHAVIOR termination feedback must be boolean or None")
     return bool(array.any())
-
-
-def _build_joint_ramp_actions(
-    native: np.ndarray,
-    index: int,
-    current: float,
-    target: float,
-    steps: int,
-    settle_steps: int,
-    *,
-    scale: float = 1.0,
-    offset: float = 0.0,
-) -> np.ndarray:
-    """Interpolate one channel, repeat its target, and hold all other channels.
-
-    Scale and offset map tool units to native commands: radians use (1, 0),
-    while a gripper opening in [0, 1] uses (2, -1).
-    """
-    values = [current + (target - current) * i / steps for i in range(1, steps + 1)]
-    values.extend([target] * settle_steps)
-    actions = np.tile(native, (len(values), 1))
-    actions[:, index] = scale * np.asarray(values) + offset
-    return actions
 
 
 def _validate_single_step_observation(
@@ -312,6 +295,7 @@ class BehaviorPrimitives:
         self._session_ended = False
         self._last_issued_action: np.ndarray | None = None
         self._command_history_unknown = False
+        self._move_call_ledger: MotionCallLedger | None = None
 
     # Shared execution and measured hold state.
 
@@ -320,13 +304,53 @@ class BehaviorPrimitives:
             self._session_ended = self.env.get_session_status()["ended"]
         return self._session_ended
 
+    @property
+    def _episode_reason(self) -> str | None:
+        if self._session_ended:
+            return "session_ended"
+        if self._terminated:
+            return "terminated"
+        return "truncated" if self._truncated else None
+
+    @property
+    def _episode_flags(self) -> dict[str, bool | None]:
+        return {
+            "session_ended": self._session_ended,
+            "terminated": self._terminated,
+            "truncated": self._truncated,
+        }
+
+    def _motion_start_error(self, *, planned: bool = False) -> ToolResult | None:
+        self._check_cancelled()
+        self._ended()
+        if self._episode_reason:
+            return _unissued(
+                error="episode has ended",
+                **self._episode_flags,
+                stop_reason=self._episode_reason,
+                observation_fresh=False,
+                **({"code": "session_ended"} if planned else {}),
+            )
+        if self._command_history_unknown:
+            return _unissued(
+                error="previous action execution is unknown; inspect the transport before sending another motion"
+                if planned
+                else "previous action execution outcome is unknown",
+                code="command_state_unknown",
+            )
+        return None
+
     def _invalidate_command_history(self) -> None:
         """Require explicit recovery after a possibly issued or malformed action."""
         self._last_issued_action = None
         self._command_history_unknown = True
 
     def _send_actions(
-        self, actions: np.ndarray, *, expected_observation_token: dict | None = None
+        self,
+        actions: np.ndarray,
+        *,
+        expected_observation_token: dict | None = None,
+        phase: str = "path",
     ) -> tuple:
         """Retain only a known issued command; failed RPCs leave its value unknown."""
         previous = self._last_issued_action
@@ -339,8 +363,8 @@ class BehaviorPrimitives:
             if expected_observation_token is not None
             else {}
         )
-        ledger = getattr(self, "_move_call_ledger", None)
-        entry = ledger.start(actions, self._move_call_phase) if ledger else None
+        ledger = self._move_call_ledger
+        entry = ledger.start(actions, phase) if ledger else None
         result = self.env.chunk_step(actions, **kwargs)
         if ledger:
             ledger.returned(entry, result)
@@ -356,14 +380,17 @@ class BehaviorPrimitives:
             self._command_history_unknown = previously_unknown if issued == 0 else False
         return result
 
+    def _update_flags(self, terminated, truncated) -> None:
+        self._terminated = _termination_flag(terminated)
+        self._truncated = _termination_flag(truncated)
+
     def _accept_execution(
         self, result: tuple, *, update_flags: bool = True
     ) -> dict[str, Any]:
         """Update cached observations and episode flags from one returned submission."""
         observation, _, terminated, truncated, info = result
         if update_flags:
-            self._terminated = _termination_flag(terminated)
-            self._truncated = _termination_flag(truncated)
+            self._update_flags(terminated, truncated)
         if isinstance(observation, list):
             if observation:
                 self.last_observation = observation[-1]
@@ -372,35 +399,53 @@ class BehaviorPrimitives:
         self._session_ended = info.get("stop_reason") == "session_ended"
         return info
 
-    def _execution_summary(
-        self, result: tuple, *, requested_actions: int, default_reason: str
-    ) -> dict[str, Any]:
-        """Validate direct joint feedback before treating its counts as execution."""
+    def _execute_joint_ramp(
+        self, arm, native, index, current, target, steps, settle_steps, *, gripper=False
+    ) -> tuple[dict, dict | None]:
+        """Submit one joint ramp and decode its measured arm only on fresh feedback."""
+        values = [current + (target - current) * i / steps for i in range(1, steps + 1)]
+        values.extend([target] * settle_steps)
+        actions = np.tile(native, (len(values), 1))
+        actions[:, index] = 2.0 * np.asarray(values) - 1.0 if gripper else values
+        self._check_cancelled()
+        result = self._send_actions(actions)
         previous_observation = self.last_observation
         info = self._accept_execution(result)
-        counts, errors = _action_counts(info, requested_actions)
+        counts, errors = _action_counts(info, len(actions))
         fresh = info.get("observation_after_last_issued_action")
         if errors:
             counts = dict.fromkeys(COUNT_NAMES)
             self._invalidate_command_history()
             self.last_observation = previous_observation
             fresh = False
-        return {
+        feedback = {
             **counts,
+            **self._episode_flags,
+            "requested_actions": len(actions),
+            "ramp_steps": steps,
+            "settle_steps": settle_steps,
             "observation_fresh": fresh,
             "observation_after_last_issued_action": fresh,
-            "session_ended": self._session_ended,
-            "stop_reason": "invalid_execution_feedback"
-            if errors
-            else info.get("stop_reason", default_reason),
-            "terminated": self._terminated,
-            "truncated": self._truncated,
-            **(
-                {"error": "; ".join(errors), "code": "invalid_execution_feedback"}
-                if errors
-                else {}
+            "stop_reason": info.get(
+                "stop_reason",
+                "requested_gripper_returned"
+                if gripper
+                else "requested_joint_ramp_returned",
             ),
         }
+        if errors:
+            feedback.update(
+                error="; ".join(errors),
+                code="invalid_execution_feedback",
+                stop_reason="invalid_execution_feedback",
+            )
+        if fresh is True:
+            try:
+                return feedback, self._robot_state(self.last_observation)[arm]
+            except (TypeError, ValueError, IndexError) as error:
+                label = "post-gripper state" if gripper else "post-motion joint"
+                feedback["error"] = f"{label} could not be evaluated: {error}"
+        return feedback, None
 
     def _robot_state(self, observation: dict[str, Any]) -> dict[str, Any]:
         return decode_robot_state(
@@ -453,24 +498,8 @@ class BehaviorPrimitives:
 
     def _prepare_joint_action(self) -> tuple[dict, np.ndarray, str] | ToolResult:
         """Read one hold state shared by direct gripper and wrist-joint tools."""
-        self._check_cancelled()
-        ended = self._ended()
-        if ended or self._terminated is True or self._truncated is True:
-            return _unissued(
-                error="episode has ended",
-                session_ended=ended,
-                terminated=self._terminated,
-                truncated=self._truncated,
-                observation_fresh=False,
-                stop_reason="session_ended"
-                if ended
-                else ("terminated" if self._terminated else "truncated"),
-            )
-        if self._command_history_unknown:
-            return _unissued(
-                error="previous action execution outcome is unknown",
-                code="command_state_unknown",
-            )
+        if (error := self._motion_start_error()) is not None:
+            return error
         self.last_observation = self.env.get_observation()
         try:
             state = self._robot_state(self.last_observation)
@@ -481,15 +510,11 @@ class BehaviorPrimitives:
 
     def _prepare_base_action(self, data: dict[str, Any]) -> tuple | ToolResult:
         """Capture an atomic start frame and fixed non-base commands for one segment."""
-        from rpent.tools.toolkit import ToolCancelled
-
         try:
             self._check_cancelled()
-            if self._ended() or self._terminated is True or self._truncated is True:
+            if self._ended() or self._episode_reason:
                 data.update(
-                    session_ended=self._session_ended,
-                    terminated=self._terminated,
-                    truncated=self._truncated,
+                    **self._episode_flags,
                     stop_reason="session_ended"
                     if self._session_ended
                     else "episode_ended",
@@ -512,7 +537,7 @@ class BehaviorPrimitives:
                     "existing actions have no known gripper command in this tool session"
                 )
             state = decode_robot_state(proprio)
-            hold, hold_source = self._current_hold_action(state)
+            hold, _ = self._current_hold_action(state)
         except ToolCancelled as error:
             data.update(
                 error=str(error), interrupted=True, stop_reason="tool_cancelled"
@@ -529,16 +554,6 @@ class BehaviorPrimitives:
             data.update(error=str(error), stop_reason="base_start_unavailable")
             return ToolResult(data=data)
 
-        hold = np.asarray(hold, dtype=np.float32).copy()
-        if hold.shape != (23,) or not np.isfinite(hold).all():
-            data.update(
-                error="invalid native23 hold target",
-                stop_reason="base_start_unavailable",
-            )
-            return ToolResult(data=data)
-        # Existing hold owner fixes all 20 non-base channels once for this call.
-        # Its original command-history checks also protect partial/unknown grasps.
-        hold[:3] = 0.0
         data["observation_fresh"] = True
         return hold, proprio.copy(), expected
 
@@ -575,8 +590,6 @@ class BehaviorPrimitives:
             turn: Local positive yaw command; 0.1 requests 0.1 rad/s.
             steps: Moving control actions at 30 Hz; default 10.
         """
-        from rpent.tools.toolkit import ToolCancelled
-
         native_velocity = validate_base_request(forward, lateral, turn, steps)
         data: dict[str, Any] = {
             "completed": False,
@@ -621,8 +634,7 @@ class BehaviorPrimitives:
                 if not isinstance(info, dict):
                     raise ValueError("base execution info must be a dictionary")
                 counters = one_action_counts(info)
-                self._terminated = _termination_flag(terminated)
-                self._truncated = _termination_flag(truncated)
+                self._update_flags(terminated, truncated)
             except (
                 AttributeError,
                 IndexError,
@@ -648,20 +660,13 @@ class BehaviorPrimitives:
             fresh = info.get("observation_after_last_issued_action") is True
             self._session_ended = info.get("stop_reason") == "session_ended"
             data.update(
-                session_ended=self._session_ended,
-                terminated=self._terminated,
-                truncated=self._truncated,
+                **self._episode_flags,
                 observation_fresh=fresh,
             )
             try:
-                token = validate_observation_token(info.get("observation_token"))
-                if (
-                    info.get("motion_feedback_error")
-                    or token["generation"] != expected["generation"]
-                    or token["observation_index"]
-                    != expected["observation_index"] + counters["confirmed_actions"]
-                    or not isinstance(info.get("motion_context"), dict)
-                    or info["motion_context"].get("current_token") != token
+                validate_observation_token(info.get("observation_token"))
+                if info.get("motion_feedback_error") or not confirmation_matches(
+                    info, expected, counters["confirmed_actions"]
                 ):
                     raise ValueError(
                         "base feedback is not bound to the confirmed frame"
@@ -711,18 +716,14 @@ class BehaviorPrimitives:
                 )
             else:
                 data["confirmed_move_steps"] += 1
-            if (
-                self._session_ended
-                or self._terminated is True
-                or self._truncated is True
-            ):
+            if self._episode_reason:
                 if not stopping:
                     data.update(
                         error="episode ended before the stop command",
                         stop_reason="session_ended",
                     )
                 break
-        return ToolResult(data=deepcopy(data))
+        return ToolResult(data=data)
 
     @tool
     def vla_act(
@@ -740,8 +741,6 @@ class BehaviorPrimitives:
             chunks: Number of prediction/execution cycles within this run's call limit.
             prompt: Policy instruction; main mode permits only the configured task text.
         """
-        from rpent.tools.toolkit import ToolCancelled
-
         if type(chunks) is not int or chunks < 1:
             raise ValueError("chunks must be a positive integer")
         if self.max_chunks_per_call is not None and chunks > self.max_chunks_per_call:
@@ -796,11 +795,8 @@ class BehaviorPrimitives:
                 )
                 pending = False
                 observation_fresh = info.get("observation_after_last_issued_action")
-                if self._session_ended:
-                    stop_reason = "session_ended"
-                    break
-                if self._terminated is True or self._truncated is True:
-                    stop_reason = "terminated" if self._terminated else "truncated"
+                if self._episode_reason:
+                    stop_reason = self._episode_reason
                     break
                 count = segment["executed_actions"]
                 if count is not None and count < len(actions):
@@ -837,10 +833,8 @@ class BehaviorPrimitives:
                 **totals,
                 "observation_fresh": observation_fresh,
                 "observation_after_last_issued_action": observation_fresh,
-                "session_ended": self._session_ended,
+                **self._episode_flags,
                 "stop_reason": stop_reason,
-                "terminated": self._terminated,
-                "truncated": self._truncated,
                 "prompt": instruction,
                 **failure,
             }
@@ -1004,57 +998,33 @@ class BehaviorPrimitives:
         if isinstance(prepared, ToolResult):
             return prepared
         state, native, hold_source = prepared
-        arm_slice = slice(7, 14) if arm == "left" else slice(15, 22)
-        joint_index = arm_slice.start + WRIST_JOINT_OFFSET[joint]
-        limits = self.env.arm_joint_limits[arm][WRIST_JOINT_OFFSET[joint]]
-        current = float(native[joint_index])
+        offset = WRIST_JOINT_OFFSET[joint]
+        index = (7 if arm == "left" else 15) + offset
+        limits = self.env.arm_joint_limits[arm][offset]
+        current = float(native[index])
         requested = current + math.radians(float(delta_deg))
-        target = float(np.clip(requested, limits[0], limits[1]))
-        clipped = abs(target - requested) > 1e-9
-        actions = _build_joint_ramp_actions(
-            native, joint_index, current, target, steps, settle_steps
+        target = float(np.clip(requested, *limits))
+        feedback, after = self._execute_joint_ramp(
+            arm, native, index, current, target, steps, settle_steps
         )
-        self._check_cancelled()
-        feedback = self._execution_summary(
-            self._send_actions(actions),
-            requested_actions=len(actions),
-            default_reason="requested_joint_ramp_returned",
-        )
-        fresh = feedback["observation_fresh"]
-        measured_after = None
-        measured_delta_deg = None
-        measurement_error = None
-        if fresh is True:
-            try:
-                after_arm = self._robot_state(self.last_observation)[arm]
-                measured_after = float(after_arm["arm_qpos"][WRIST_JOINT_OFFSET[joint]])
-                measured_delta_deg = math.degrees(
-                    measured_after
-                    - float(state[arm]["arm_qpos"][WRIST_JOINT_OFFSET[joint]])
-                )
-            except (TypeError, ValueError, IndexError) as error:
-                measurement_error = f"post-motion joint could not be evaluated: {error}"
+        measured = float(after["arm_qpos"][offset]) if after is not None else None
         return ToolResult(
             data={
                 "arm": arm,
                 "joint": joint,
-                "joint_name": f"{arm}_arm_joint{WRIST_JOINT_OFFSET[joint] + 1}",
+                "joint_name": f"{arm}_arm_joint{offset + 1}",
                 "requested_delta_deg": float(delta_deg),
                 "commanded_delta_deg": math.degrees(target - current),
-                "clipped_to_joint_limit": clipped,
+                "clipped_to_joint_limit": abs(target - requested) > 1e-9,
                 "joint_limit_rad": limits.tolist(),
-                "measured_delta_deg": measured_delta_deg,
-                "measured_joint_rad_after": measured_after,
-                "requested_actions": len(actions),
-                "ramp_steps": steps,
-                "settle_steps": settle_steps,
+                "measured_delta_deg": math.degrees(
+                    measured - state[arm]["arm_qpos"][offset]
+                )
+                if measured is not None
+                else None,
+                "measured_joint_rad_after": measured,
                 **feedback,
                 "gripper_hold_source": hold_source,
-                **(
-                    {"error": measurement_error}
-                    if measurement_error is not None
-                    else {}
-                ),
             }
         )
 
@@ -1116,44 +1086,23 @@ class BehaviorPrimitives:
         gripper_index = 14 if arm == "left" else 22
         current = float((native[gripper_index] + 1.0) / 2.0)
         target = float(val)
-        actions = _build_joint_ramp_actions(
+        feedback, after = self._execute_joint_ramp(
+            arm,
             native,
             gripper_index,
             current,
             target,
             steps,
             settle_steps,
-            scale=2.0,
-            offset=-1.0,
+            gripper=True,
         )
-        self._check_cancelled()
-        feedback = self._execution_summary(
-            self._send_actions(actions),
-            requested_actions=len(actions),
-            default_reason="requested_gripper_returned",
-        )
-        fresh = feedback["observation_fresh"]
-        measured_finger_qpos = None
-        measured_finger_qvel = None
-        target_error = None
-        position_target_reached = None
-        settled = None
-        measurement_error = None
-        if fresh is True:
-            try:
-                after_state = self._robot_state(self.last_observation)[arm]
-                measured_finger_qpos = after_state["finger_qpos"]
-                measured_finger_qvel = after_state["finger_qvel"]
-                error = np.asarray(measured_finger_qpos) - 0.05 * target
-                target_error = error.tolist()
-                position_target_reached = bool(np.all(np.abs(error) <= 0.001))
-                settled = position_target_reached and bool(
-                    np.all(np.abs(measured_finger_qvel) <= 0.002)
-                )
-            except (TypeError, ValueError) as error:
-                measurement_error = (
-                    f"post-gripper state could not be evaluated: {error}"
-                )
+        qpos = after["finger_qpos"] if after is not None else None
+        qvel = after["finger_qvel"] if after is not None else None
+        position_error = reached = settled = None
+        if after is not None:
+            position_error = np.asarray(qpos) - 0.05 * target
+            reached = bool(np.all(np.abs(position_error) <= 0.001))
+            settled = reached and bool(np.all(np.abs(qvel) <= 0.002))
         return ToolResult(
             data={
                 "arm": arm,
@@ -1162,16 +1111,15 @@ class BehaviorPrimitives:
                 "start_source": hold_source,
                 "native_target_command": 2.0 * target - 1.0,
                 "target_finger_qpos_m": [0.05 * target, 0.05 * target],
-                "requested_actions": len(actions),
-                "ramp_steps": steps,
-                "settle_steps": settle_steps,
                 **feedback,
                 "finger_qpos_before_m": state[arm]["finger_qpos"],
-                "finger_qpos_after_m": measured_finger_qpos,
+                "finger_qpos_after_m": qpos,
                 "finger_qvel_before_m_s": state[arm]["finger_qvel"],
-                "finger_qvel_after_m_s": measured_finger_qvel,
-                "finger_target_position_error_m": target_error,
-                "finger_target_position_reached": position_target_reached,
+                "finger_qvel_after_m_s": qvel,
+                "finger_target_position_error_m": position_error.tolist()
+                if position_error is not None
+                else None,
+                "finger_target_position_reached": reached,
                 "finger_target_position_tolerance_m": 0.001,
                 "settled": settled,
                 "finger_settled_velocity_tolerance_m_s": 0.002,
@@ -1180,11 +1128,6 @@ class BehaviorPrimitives:
                     native[22 if arm == "left" else 14]
                 ),
                 "grasp_success": None,
-                **(
-                    {"error": measurement_error}
-                    if measurement_error is not None
-                    else {}
-                ),
             }
         )
 
@@ -1261,59 +1204,49 @@ class BehaviorPrimitives:
         self, *, arm, xyz, quat=None, settle_steps=0, delta_yaw_deg=None, delta_xyz=None
     ) -> ToolResult:
         """Share the motion ledger for absolute poses and same-snapshot rotations."""
-        from rpent.tools.toolkit import ToolCancelled
-
-        if getattr(self, "_move_call_ledger", None) is not None:
+        if self._move_call_ledger is not None:
             raise RuntimeError("an arm motion invocation is already active")
         ledger = MotionCallLedger()
-        self._auto_settle_report = None
         self._move_call_ledger = ledger
-        self._move_call_phase = "path"
         try:
-            try:
-                result = self._plan_and_execute_arm_motion(
-                    arm=arm,
-                    xyz=xyz,
-                    quat=quat,
-                    settle_steps=settle_steps,
-                    _delta_yaw_deg=delta_yaw_deg,
-                    _delta_xyz=delta_xyz,
-                )
-            except Exception as error:
-                if not ledger.submissions:
-                    raise
-                if (
-                    ledger.submissions[-1]["phase"] == "preflight"
-                    and ledger.preflight["status"] != "confirmed"
-                ):
-                    ledger.preflight["status"] = "execution_outcome_unknown"
-                    ledger.submissions[-1]["observation_fresh"] = False
-                    self._invalidate_command_history()
-                # The native Toolkit catches these exceptions but otherwise
-                # drops action counters. Return the real spent/unknown prefix
-                # and keep its cancellation flag; never submit or retry again.
-                result = ToolResult(
-                    data={
-                        "error": str(error),
-                        "error_type": type(error).__name__,
-                        "code": "tool_cancelled"
-                        if isinstance(error, ToolCancelled)
-                        else "execution_outcome_unknown"
-                        if not ledger.submissions[-1]["counts_valid"]
-                        else "motion_call_failed",
-                        "interrupted": isinstance(error, ToolCancelled),
-                        "completed": False,
-                        "target_reached": None,
-                    }
-                )
-            result.data = ledger.merge(result.data)
-            report = getattr(self, "_auto_settle_report", None)
-            if report is not None:
-                result.data.setdefault("auto_settle", report)
-            return result
+            result = self._plan_and_execute_arm_motion(
+                arm=arm,
+                xyz=xyz,
+                quat=quat,
+                settle_steps=settle_steps,
+                _delta_yaw_deg=delta_yaw_deg,
+                _delta_xyz=delta_xyz,
+            )
+        except Exception as error:
+            if not ledger.submissions:
+                raise
+            if (
+                ledger.submissions[-1]["phase"] == "preflight"
+                and not ledger.probe_confirmed
+            ):
+                ledger.submissions[-1]["observation_fresh"] = False
+                self._invalidate_command_history()
+            # The native Toolkit catches these exceptions but otherwise
+            # drops action counters. Return the real spent/unknown prefix
+            # and keep its cancellation flag; never submit or retry again.
+            result = ToolResult(
+                data={
+                    "error": str(error),
+                    "error_type": type(error).__name__,
+                    "code": "tool_cancelled"
+                    if isinstance(error, ToolCancelled)
+                    else "execution_outcome_unknown"
+                    if not ledger.submissions[-1]["counts_valid"]
+                    else "motion_call_failed",
+                    "interrupted": isinstance(error, ToolCancelled),
+                    "completed": False,
+                    "target_reached": None,
+                }
+            )
         finally:
             self._move_call_ledger = None
-            self._move_call_phase = None
+        result.data = ledger.merge(result.data)
+        return result
 
     def _initial_motion_probe(self, snapshot, native, planning_state):
         """One counted initial hold, never an implicit observation-side step."""
@@ -1333,42 +1266,39 @@ class BehaviorPrimitives:
                 else "gripper_state_unsettled",
                 unsettled_groups=sorted(unsettled),
             )
-        expected = dict(snapshot["observation_token"])
+        frame = self._confirmed_hold(snapshot, native, phase="preflight")
+        if isinstance(frame, str):
+            return _unissued(
+                error=frame,
+                code="initial_sampling_unconfirmed",
+                completed=False,
+                observation_fresh=False,
+                session_ended=self._session_ended,
+            )
+        ledger.probe_confirmed = True
+        return frame
+
+    def _confirmed_hold(self, snapshot, native, *, phase: str) -> dict | str:
+        """Submit a stationary command and bind the reply to its actual start frame."""
+        expected = snapshot["observation_token"]
         before = extract_public_proprio(
             snapshot["observation"], task_id=self.task_id
         ).copy()
         validate_public_base_context(snapshot["motion_context"], expected, before)
-        action = np.asarray(native, dtype=np.float32).reshape(1, 23).copy()
-        if not np.isfinite(action).all() or np.any(action[:, :3] != 0):
-            return _unissued(
-                error="invalid initial native23 hold", code="invalid_hold_state"
-            )
-        ledger.preflight["status"] = "requested"
         self._check_cancelled()
-        self._move_call_phase = "preflight"
         returned, _, terminated, truncated, info = self._send_actions(
-            action, expected_observation_token=expected
+            native[None, :], expected_observation_token=expected, phase=phase
         )
-        self._terminated, self._truncated = (
-            _termination_flag(terminated),
-            _termination_flag(truncated),
-        )
+        self._update_flags(terminated, truncated)
         self._session_ended = info.get("stop_reason") == "session_ended"
         try:
-            counts = one_action_counts(info)
             if (
-                counts
-                != {
-                    "issued_actions": 1,
-                    "confirmed_actions": 1,
-                    "unconfirmed_actions": 0,
-                    "executed_actions": 1,
-                }
+                one_action_counts(info)["confirmed_actions"] != 1
                 or info.get("observation_after_last_issued_action") is not True
                 or info.get("motion_feedback_error")
             ):
                 raise ValueError(
-                    "initial sampling action lacks one confirmed fresh observation"
+                    f"{'initial sampling' if phase == 'preflight' else 'settling'} action lacks one confirmed fresh observation"
                 )
             returned, _, token = _validate_single_step_observation(
                 returned, info, expected, before, task_id=self.task_id
@@ -1377,19 +1307,10 @@ class BehaviorPrimitives:
             if context.get("initial_bootstrap") is not False:
                 raise ValueError("initial sampling did not end the bootstrap state")
         except (KeyError, TypeError, ValueError) as error:
-            ledger.preflight["status"] = "feedback_invalid"
-            ledger.submissions[-1]["observation_fresh"] = False
+            self._move_call_ledger.submissions[-1]["observation_fresh"] = False
             self._invalidate_command_history()
-            return _unissued(
-                error=str(error),
-                code="initial_sampling_unconfirmed",
-                completed=False,
-                observation_fresh=False,
-                session_ended=self._session_ended,
-            )
+            return str(error)
         self.last_observation = returned
-        ledger.preflight["status"] = "confirmed"
-        self._move_call_phase = "path"
         return {
             "observation": returned,
             "observation_token": token,
@@ -1398,8 +1319,6 @@ class BehaviorPrimitives:
 
     def _arm_start(self, snapshot: dict[str, Any]) -> tuple[dict, dict]:
         """Read robot state and planning prerequisites from one bound public frame."""
-        from robots.behavior.motion import R1ProMotionModel
-
         self.last_observation = snapshot["observation"]
         proprio = extract_public_proprio(self.last_observation, task_id=self.task_id)
         context = snapshot["motion_context"]
@@ -1417,12 +1336,37 @@ class BehaviorPrimitives:
     def _settled_arm_start(self, snapshot, state, contract):
         """Attempt bounded holds, then return the final planning snapshot and state."""
         report = None
-        if contract.get("valid") is True and not contract["stationary"]:
-            report = self._auto_settle_before_planning(state)
-            self._auto_settle_report = report
-            if report.get("status") == "stationary":
-                snapshot = self.env.get_motion_snapshot()
-                state, contract = self._arm_start(snapshot)
+        if contract["valid"] and not contract["stationary"]:
+            report = {"attempted": 0, "confirmed": 0, "status": "still_unsettled"}
+            try:
+                native, _ = self._current_hold_action(state)
+            except (TypeError, ValueError) as error:
+                report.update(status="hold_unavailable", error=str(error))
+            else:
+                for _ in range(MAX_AUTO_SETTLE_ACTIONS):
+                    if self._ended() or self._episode_reason:
+                        report["status"] = "episode_ended"
+                        break
+                    frame = self._confirmed_hold(snapshot, native, phase="auto_settle")
+                    report["attempted"] += 1
+                    if isinstance(frame, str):
+                        report.update(status="hold_unconfirmed", error=frame)
+                        break
+                    report["confirmed"] += 1
+                    if self._episode_reason:
+                        report["status"] = "episode_ended"
+                        break
+                    if report["confirmed"] == MAX_AUTO_SETTLE_ACTIONS:
+                        # The existing settle budget ends at this hold; leave replanning to the caller.
+                        break
+                    snapshot = frame
+                    state, contract = self._arm_start(snapshot)
+                    if not contract["valid"] or contract["stationary"]:
+                        report["status"] = (
+                            "stationary" if contract["valid"] else "invalid_history"
+                        )
+                        break
+            self._move_call_ledger.auto_settle = report
         if contract.get("valid") is not True or not contract["stationary"]:
             code = contract.get("code") or (
                 "base_not_stationary"
@@ -1482,71 +1426,6 @@ class BehaviorPrimitives:
             )
         return target
 
-    def _auto_settle_before_planning(self, state: dict[str, Any]) -> dict[str, Any]:
-        """Spend bounded hold actions to reach a planable stationary start.
-
-        A rejected plan costs one whole call and yields zero actions, so the
-        caller is better served by settling first. Holds repeat the current
-        measured joint targets and the last known gripper commands, so they
-        never invent command history; the base is commanded to zero.
-        """
-        report: dict[str, Any] = {"attempted": 0, "confirmed": 0, "status": "unsettled"}
-        if self._command_history_unknown:
-            report.update(status="command_state_unknown")
-            return report
-        try:
-            native, hold_source = self._current_hold_action(state)
-        except (TypeError, ValueError) as error:
-            report.update(status="hold_unavailable", error=str(error))
-            return report
-        native = np.asarray(native, dtype=np.float32).copy()
-        native[:3] = 0.0
-        if native.shape != (23,) or not np.isfinite(native).all():
-            report.update(status="invalid_hold")
-            return report
-        action = native.reshape(1, 23)
-        from robots.behavior.motion import R1ProMotionModel
-
-        for _ in range(MAX_AUTO_SETTLE_ACTIONS):
-            self._check_cancelled()
-            if self._ended() or self._terminated is True or self._truncated is True:
-                report["status"] = "episode_ended"
-                return report
-            snapshot = self.env.get_motion_snapshot()
-            self.last_observation = snapshot["observation"]
-            before = extract_public_proprio(self.last_observation, task_id=self.task_id)
-            contract = R1ProMotionModel.planning_state_contract(
-                before, snapshot["motion_context"]
-            )
-            if contract.get("stationary") is True:
-                report["status"] = "stationary"
-                return report
-            self._move_call_phase = "auto_settle"
-            returned, _, terminated, truncated, info = self._send_actions(
-                action, expected_observation_token=snapshot["observation_token"]
-            )
-            report["attempted"] += 1
-            self._terminated, self._truncated = (
-                _termination_flag(terminated),
-                _termination_flag(truncated),
-            )
-            confirmed = info.get("confirmed_actions")
-            if type(confirmed) is int and confirmed == 1:
-                report["confirmed"] += 1
-                self.last_observation = (
-                    returned[0] if isinstance(returned, list) else returned
-                )
-            else:
-                self._invalidate_command_history()
-                report["status"] = "hold_unconfirmed"
-                return report
-            if info.get("stop_reason") == "session_ended":
-                self._session_ended = True
-                report["status"] = "episode_ended"
-                return report
-        report["status"] = "still_unsettled"
-        return report
-
     def _plan_and_execute_arm_motion(
         self,
         *,
@@ -1578,25 +1457,8 @@ class BehaviorPrimitives:
             or not np.isclose(np.linalg.norm(orientation), 1.0, atol=1e-4, rtol=0)
         ):
             raise ValueError("quat must be a unit xyzw quaternion")
-        self._check_cancelled()
-        ended = self._ended()
-        if ended or self._terminated is True or self._truncated is True:
-            return _unissued(
-                error="episode has ended",
-                code="session_ended",
-                session_ended=ended,
-                terminated=self._terminated,
-                truncated=self._truncated,
-                observation_fresh=False,
-                stop_reason="session_ended"
-                if ended
-                else ("terminated" if self._terminated else "truncated"),
-            )
-        if self._command_history_unknown:
-            return _unissued(
-                error="previous action execution is unknown; inspect the transport before sending another motion",
-                code="command_state_unknown",
-            )
+        if (error := self._motion_start_error(planned=True)) is not None:
+            return error
         snapshot = self.env.get_motion_snapshot()
         target = None
         relax = _delta_yaw_deg is None and (quat is None or _delta_xyz is not None)
@@ -1616,7 +1478,7 @@ class BehaviorPrimitives:
                 snapshot = self._initial_motion_probe(snapshot, native, contract)
                 if isinstance(snapshot, ToolResult):
                     return snapshot
-                if self._ended() or self._terminated is True or self._truncated is True:
+                if self._ended() or self._episode_reason:
                     return _unissued(
                         error="episode ended during initial sampling",
                         code="session_ended",
@@ -1638,9 +1500,9 @@ class BehaviorPrimitives:
             target = self._arm_target(
                 state, arm, position, orientation, _delta_xyz, _delta_yaw_deg
             )
-            if isinstance(target, ToolResult):
-                return target
-        target = self._arm_target(state, arm, target[:3], target[3:], None, None)
+        else:
+            # A bootstrap hold may have displaced the arm from its frozen target.
+            target = self._arm_target(state, arm, target[:3], target[3:], None, None)
         if isinstance(target, ToolResult):
             return target
         self._move_call_ledger.target_pose = target.tolist()
@@ -1729,9 +1591,6 @@ class BehaviorPrimitives:
         )
         execution_error = None
         fresh = None
-        actual = None
-        position_error = orientation_error = None
-        at_target = None
         # Send the native path once. Each later submission is exactly its final
         # native23 command, including every locked joint and both grippers.
         # Reading an observation alone does not advance the simulator.
@@ -1742,9 +1601,10 @@ class BehaviorPrimitives:
             position_error = orientation_error = None
             at_target = None
             try:
-                self._move_call_phase = "path" if hold_index == 0 else "target_hold"
                 result = self._send_actions(
-                    submitted, expected_observation_token=expected_token
+                    submitted,
+                    expected_observation_token=expected_token,
+                    phase="path" if hold_index == 0 else "target_hold",
                 )
                 _, _, terminated, truncated, info = result
             except (OSError, RpcError, TypeError, ValueError) as error:
@@ -1759,11 +1619,9 @@ class BehaviorPrimitives:
                 break
             motion_feedback_error = info.get("motion_feedback_error")
             entry = ledger.submissions[-1]
-            segment_counts = {name: entry[name] for name in COUNT_NAMES}
             feedback_errors = list(entry["count_errors"])
             try:
-                self._terminated = _termination_flag(terminated)
-                self._truncated = _termination_flag(truncated)
+                self._update_flags(terminated, truncated)
             except (TypeError, ValueError) as error:
                 self._terminated = self._truncated = None
                 feedback_errors.append(str(error))
@@ -1776,18 +1634,11 @@ class BehaviorPrimitives:
                 if motion_feedback_error
                 else info.get("observation_after_last_issued_action")
             )
-            if fresh is True and not motion_feedback_error:
+            if fresh is True:
                 # EnvClient has bound this token to the last confirmed public
                 # frame; preserve it even if the episode has just terminated.
                 expected_token = info["observation_token"]
-            complete = (
-                not feedback_errors
-                and segment_counts["issued_actions"] == len(submitted)
-                and segment_counts["confirmed_actions"] == len(submitted)
-                and segment_counts["executed_actions"] == len(submitted)
-                and segment_counts["unconfirmed_actions"] == 0
-            )
-            missing_counts = any(value is None for value in segment_counts.values())
+            missing_counts = any(entry[name] is None for name in COUNT_NAMES)
             measurement_error = None
             if fresh is True and not feedback_errors and not missing_counts:
                 try:
@@ -1810,18 +1661,8 @@ class BehaviorPrimitives:
                     measurement_error = (
                         f"post-motion pose could not be evaluated: {error}"
                     )
-            if (
-                self._session_ended
-                or self._terminated is True
-                or self._truncated is True
-            ):
-                stop_reason = (
-                    "session_ended"
-                    if self._session_ended
-                    else "terminated"
-                    if self._terminated
-                    else "truncated"
-                )
+            if self._episode_reason:
+                stop_reason = self._episode_reason
                 break
             if feedback_errors or missing_counts:
                 self._command_history_unknown = True
@@ -1837,8 +1678,8 @@ class BehaviorPrimitives:
                     or "motion execution counters are incomplete"
                 )
                 break
-            if not complete:
-                if segment_counts["unconfirmed_actions"]:
+            if entry["confirmed_actions"] != len(submitted):
+                if entry["unconfirmed_actions"]:
                     self._command_history_unknown = True
                 stop_reason = "partial_execution"
                 execution_error = "motion execution returned before all requested actions were confirmed"
@@ -1876,10 +1717,8 @@ class BehaviorPrimitives:
                     ]
                 )["confirmed_actions"],
                 "observation_fresh": fresh,
-                "session_ended": self._session_ended,
+                **self._episode_flags,
                 "stop_reason": stop_reason,
-                "terminated": self._terminated,
-                "truncated": self._truncated,
                 "final_eef_position": None
                 if actual is None
                 else actual["eef_position"],
@@ -1962,7 +1801,8 @@ class MotionCallLedger:
 
     def __init__(self):
         self.submissions: list[dict[str, Any]] = []
-        self.preflight: dict[str, Any] = {"status": "not_required"}
+        self.probe_confirmed = False
+        self.auto_settle: dict | None = None
         self.target_pose: list[float] | None = None
         self.observation_invalidated_by_newer_snapshot = False
 
@@ -2011,6 +1851,8 @@ class MotionCallLedger:
 
     def merge(self, data):
         data = dict(data)
+        if self.auto_settle is not None:
+            data.setdefault("auto_settle", self.auto_settle)
         if self.target_pose is not None:
             data.setdefault("target_pose", self.target_pose)
         if not self.submissions:

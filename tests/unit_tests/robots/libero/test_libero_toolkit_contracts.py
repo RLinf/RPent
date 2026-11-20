@@ -281,10 +281,11 @@ def test_parallel_segments_preserve_artifacts_without_capturing_state(
         inference_barrier.wait()
         return Sam3Result(found=True, mask=np.ones((4, 4), dtype=bool), score=1.0)
 
+    sam3_client = SimpleNamespace(segment=segment)
     primitives = toolkit.libero_tools.LiberoPrimitives(
         env=object(),
         model=object(),
-        sam3_client=SimpleNamespace(segment=segment),
+        sam3_client=sam3_client,
         check_cancelled=lambda: None,
     )
     robot_toolkit = Toolkit(
@@ -328,7 +329,7 @@ def test_parallel_segments_preserve_artifacts_without_capturing_state(
 
     # A failed JSON write must not release an index for another call to reuse.
     monkeypatch.setattr(toolkit.libero_tools, "_mask_to_world", project)
-    primitives._sam3_client.segment = lambda *args, **kwargs: Sam3Result(
+    sam3_client.segment = lambda *args, **kwargs: Sam3Result(
         found=True, mask=np.ones((4, 4), dtype=bool), score=1.0
     )
     save = state.save

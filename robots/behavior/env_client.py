@@ -22,7 +22,7 @@ from typing import Any
 
 import numpy as np
 
-from robots.behavior.observation import valid_observation_token
+from robots.behavior.observation import confirmation_matches
 from robots.behavior.tools import extract_public_proprio
 from rpent.robots.components.env_client_base import BaseEnvClient
 from rpent.utils.rpc import RpcClient
@@ -212,25 +212,11 @@ class BehaviorEnvClient(BaseEnvClient):
         observation, _, _, _, info = result
         if not isinstance(info, dict):
             raise TypeError("BEHAVIOR final observation and info must be dictionaries")
-        if expected_observation_token is not None:
-            token = info.get("observation_token")
-            confirmed = info.get("confirmed_actions")
-            context = info.get("motion_context")
-            if (
-                not valid_observation_token(token)
-                or type(confirmed) is not int
-                or confirmed < 0
-                or token["generation"] != expected_observation_token["generation"]
-                or token["observation_index"]
-                != expected_observation_token["observation_index"] + confirmed
-                or not isinstance(context, dict)
-                or context.get("current_token") != token
-            ):
-                info = {
-                    **info,
-                    "motion_feedback_error": "confirmation frame is not bound",
-                }
-                result = (*result[:4], info)
+        if expected_observation_token is not None and not confirmation_matches(
+            info, expected_observation_token, info.get("confirmed_actions")
+        ):
+            info = {**info, "motion_feedback_error": "confirmation frame is not bound"}
+            result = (*result[:4], info)
         if isinstance(observation, list):
             if not observation:
                 if info.get("stop_reason") == "session_ended" or (
@@ -245,7 +231,7 @@ class BehaviorEnvClient(BaseEnvClient):
             final_observation = observation[-1]
         else:
             final_observation = observation
-        if not isinstance(final_observation, dict) or not isinstance(info, dict):
+        if not isinstance(final_observation, dict):
             raise TypeError("BEHAVIOR final observation and info must be dictionaries")
         if (
             expected_observation_token is not None

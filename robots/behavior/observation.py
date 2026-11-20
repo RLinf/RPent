@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import numpy as np
 
+CONTROL_DT_S = 1.0 / 30.0
 CAMERA_SUFFIXES = {
     "head": "zed_link:Camera:0",
     "left_wrist": "left_realsense_link:Camera:0",
@@ -20,6 +21,21 @@ def valid_observation_token(token: object) -> bool:
         isinstance(token, dict)
         and token.keys() == {"generation", "observation_index"}
         and all(type(value) is int and value >= 0 for value in token.values())
+    )
+
+
+def confirmation_matches(info: dict, expected: dict, confirmed: int) -> bool:
+    """Bind a step reply to the requested episode and its confirmed frame count."""
+    token = info.get("observation_token")
+    context = info.get("motion_context")
+    return (
+        valid_observation_token(token)
+        and type(confirmed) is int
+        and confirmed >= 0
+        and token["generation"] == expected["generation"]
+        and token["observation_index"] == expected["observation_index"] + confirmed
+        and isinstance(context, dict)
+        and context.get("current_token") == token
     )
 
 

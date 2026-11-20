@@ -164,6 +164,28 @@ def test_motion_model_requires_native_provider_and_rebinds_after_scene_rebuild(
     model.close()
 
 
+def test_native_config_is_reused_until_the_robot_changes(native_robot, monkeypatch):
+    current = [native_robot]
+    model = R1ProMotionModel(lambda: current[0])
+    reads = []
+    load = yaml.safe_load
+
+    def read_config(source):
+        reads.append(source)
+        return load(source)
+
+    monkeypatch.setattr(yaml, "safe_load", read_config)
+    left = model.robot_config("left", native_robot.proprio)
+    left["kinematics"]["base_link"] = "modified_by_caller"
+    model.transform_pose([0, 0, 0, 0, 0, 0, 1], to_solver=True)
+    right = model.robot_config("right", native_robot.proprio)
+    assert right["kinematics"]["base_link"] == "base_footprint_x"
+    assert len(reads) == 1
+    current[0] = _NativeRobot(native_robot.curobo_path["arm"])
+    model.robot_config("right", current[0].proprio)
+    assert len(reads) == 2
+
+
 def test_native_model_rejects_stale_public_joint_snapshot(motion_model):
     state = motion_model.robot.proprio.copy()
     state[28] = 0.1
@@ -1328,25 +1350,53 @@ def test_arm_path_holds_the_final_planning_state_after_settling(motion, monkeypa
     primitives, backend, planner, _, _ = motion
     _establish_prior_hold(motion)
     backend.raw["r1::proprio"][53] += 0.03
-    final_start = []
+    state = backend.raw["r1::proprio"].copy()
+    state[53] += 0.02
+    state[28:35] += 0.01
+    step = backend.chunk_step
 
-    def settle(state):
-        backend.raw["r1::proprio"][53] += 0.02
-        backend.raw["r1::proprio"][28:35] += 0.01
-        backend.previous_proprio = backend.raw["r1::proprio"].copy()
-        final_start.append(backend.previous_proprio.copy())
-        return {"status": "stationary", "attempted": 0, "confirmed": 0}
+    def settle(actions, **kwargs):
+        response = step(actions, **kwargs)
+        if not planner.calls:
+            backend.raw["r1::proprio"][:] = state
+        frame = backend.get_motion_snapshot()
+        response[4]["motion_context"] = frame["motion_context"]
+        return frame["observation"], *response[1:]
 
-    monkeypatch.setattr(primitives, "_auto_settle_before_planning", settle)
+    monkeypatch.setattr(backend, "chunk_step", settle)
     _follow_planned_pose(backend, planner)
     result = primitives.move_to(arm="left", xyz=_motion_target(backend))
     assert not result.is_error, result.data
-    assert len(final_start) == 1
-    state = final_start[0]
+    assert result.data["auto_settle"] == {
+        "attempted": 2,
+        "confirmed": 2,
+        "status": "stationary",
+    }
+    assert [len(actions) for actions in backend.actions] == [1, 1, 4]
     np.testing.assert_array_equal(planner.calls[0][2]["r1::proprio"], state)
     commands = backend.actions[-1]
     np.testing.assert_allclose(commands[:, 3:7], np.tile(state[53:57], (4, 1)))
     np.testing.assert_allclose(commands[:, 15:22], np.tile(state[28:35], (4, 1)))
+
+
+def test_settling_rejects_a_reply_bound_to_the_wrong_prior_frame(motion, monkeypatch):
+    primitive, backend, planner, _, _ = motion
+    _establish_prior_hold(motion)
+    backend.raw["r1::proprio"][53] += 0.03
+    step = backend.chunk_step
+
+    def stale_hold(actions, **kwargs):
+        reply = step(actions, **kwargs)
+        reply[4]["motion_context"]["previous_proprio"][53] += 0.1
+        return reply
+
+    monkeypatch.setattr(backend, "chunk_step", stale_hold)
+    result = primitive.move_to(arm="left", xyz=_motion_target(backend))
+    assert result.data["auto_settle"]["status"] == "hold_unconfirmed"
+    assert result.data["observation_fresh"] is False
+    assert len(backend.actions) == 1
+    assert planner.calls == []
+    assert primitive.release(arm="right").data["code"] == "command_state_unknown"
 
 
 @pytest.mark.parametrize("tool", ["set_gripper", "release"])

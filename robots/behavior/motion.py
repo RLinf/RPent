@@ -26,13 +26,18 @@ from __future__ import annotations
 
 import tempfile
 from collections.abc import Callable
+from copy import deepcopy
 from pathlib import Path
 from typing import Any, Literal
 
 import numpy as np
 import yaml
 
-from robots.behavior.observation import public_proprio, valid_observation_token
+from robots.behavior.observation import (
+    CONTROL_DT_S,
+    public_proprio,
+    valid_observation_token,
+)
 from robots.behavior.tools import decode_robot_state, extract_public_proprio
 
 Arm = Literal["left", "right"]
@@ -44,17 +49,63 @@ FINGER_JOINT_NAMES = {
     arm: tuple(f"{arm}_gripper_finger_joint{i}" for i in range(1, 3))
     for arm in ("left", "right")
 }
-_JOINT_SLICES = (
-    (TRUNK_JOINT_NAMES, slice(53, 57)),
-    (ARM_JOINT_NAMES["left"], slice(3, 10)),
-    (ARM_JOINT_NAMES["right"], slice(28, 35)),
-    (FINGER_JOINT_NAMES["left"], slice(24, 26)),
-    (FINGER_JOINT_NAMES["right"], slice(49, 51)),
+# The base publishes velocity only. Each remaining group has measured qpos and qvel.
+_ANGULAR_REST = (0.02, "radian_per_second")
+_FINGER_REST = (0.002, "metre_per_second")
+_CONTROL_GROUPS = (
+    ("base", (), None, slice(0, 3), (0.01, "metre_or_radian_per_second")),
+    ("trunk", TRUNK_JOINT_NAMES, slice(53, 57), slice(57, 61), _ANGULAR_REST),
+    ("left_arm", ARM_JOINT_NAMES["left"], slice(3, 10), slice(10, 17), _ANGULAR_REST),
+    (
+        "right_arm",
+        ARM_JOINT_NAMES["right"],
+        slice(28, 35),
+        slice(35, 42),
+        _ANGULAR_REST,
+    ),
+    (
+        "left_fingers",
+        FINGER_JOINT_NAMES["left"],
+        slice(24, 26),
+        slice(26, 28),
+        _FINGER_REST,
+    ),
+    (
+        "right_fingers",
+        FINGER_JOINT_NAMES["right"],
+        slice(49, 51),
+        slice(51, 53),
+        _FINGER_REST,
+    ),
 )
 
 
+def _velocity_contract(state: np.ndarray, previous: np.ndarray | None = None) -> dict:
+    """Measure rest from a single raw frame or an adjacent confirmed pair."""
+    groups = {}
+    unsettled = []
+    for name, _, qpos, qvel, (tolerance, unit) in _CONTROL_GROUPS:
+        velocity = state[qvel]
+        if previous is not None and qpos is not None:
+            velocity = (state[qpos] - previous[qpos]) / CONTROL_DT_S
+        peak = float(np.max(np.abs(velocity)))
+        group = {"measured_max_abs": peak, "max_abs_tolerance": tolerance, "unit": unit}
+        if previous is not None:
+            group["source"] = (
+                "public_base_qvel" if qpos is None else "adjacent_confirmed_public_qpos"
+            )
+        groups[name] = group
+        if peak > tolerance:
+            unsettled.append(name)
+    return {
+        "velocity_groups": groups,
+        "stationary": not unsettled,
+        "unsettled_groups": unsettled,
+    }
+
+
 def _proprio(value: Any) -> np.ndarray:
-    return public_proprio(value).astype(np.float64, copy=True)
+    return public_proprio(value).astype(np.float64, copy=False)
 
 
 def _arm(value: str) -> Arm:
@@ -68,6 +119,13 @@ def _numpy(value: Any) -> np.ndarray:
     if hasattr(value, "detach"):
         value = value.detach().cpu().numpy()
     return np.array(value, dtype=np.float64, copy=True)
+
+
+def _fk_pose(position: Any, quaternion: Any) -> np.ndarray:
+    """Pack native CuRobo position and wxyz rotation into xyz/xyzw."""
+    return np.r_[
+        _numpy(position).reshape(3), _numpy(quaternion).reshape(4)[[1, 2, 3, 0]]
+    ]
 
 
 # One reposition bound for every single-arm plan. The physical simulator still
@@ -94,6 +152,7 @@ class R1ProMotionModel:
             raise TypeError("get_robot must provide the current loaded simulator robot")
         self._get_robot = get_robot
         self._robot: Any = None
+        self._config: dict | None = None
         self._generators: dict[tuple[str, str], Any] = {}
         self._temp: tempfile.TemporaryDirectory | None = None
 
@@ -115,6 +174,7 @@ class R1ProMotionModel:
             self._temp.cleanup()
             self._temp = None
         self._robot = None
+        self._config = None
 
     @staticmethod
     def active_joint_names(arm: Arm) -> tuple[str, ...]:
@@ -132,7 +192,8 @@ class R1ProMotionModel:
         state = _proprio(proprio)
         return {
             name: float(value)
-            for names, section in _JOINT_SLICES
+            for _, names, section, _, _ in _CONTROL_GROUPS
+            if section is not None
             for name, value in zip(names, state[section])
         }
 
@@ -169,32 +230,9 @@ class R1ProMotionModel:
         Command-to-opening agreement remains an execution-side requirement.
         """
         state = _proprio(proprio)
-        sections = {
-            "base": (slice(0, 3), 0.01, "metre_or_radian_per_second"),
-            "trunk": (slice(57, 61), 0.02, "radian_per_second"),
-            "left_arm": (slice(10, 17), 0.02, "radian_per_second"),
-            "right_arm": (slice(35, 42), 0.02, "radian_per_second"),
-            "left_fingers": (slice(26, 28), 0.002, "metre_per_second"),
-            "right_fingers": (slice(51, 53), 0.002, "metre_per_second"),
-        }
-        groups = {
-            name: {
-                "measured_max_abs": float(np.max(np.abs(state[section]))),
-                "max_abs_tolerance": tolerance,
-                "unit": unit,
-            }
-            for name, (section, tolerance, unit) in sections.items()
-        }
-        unsettled = [
-            name
-            for name, group in groups.items()
-            if group["measured_max_abs"] > group["max_abs_tolerance"]
-        ]
         return {
             "source": "current_public_proprio",
-            "stationary": not unsettled,
-            "unsettled_groups": unsettled,
-            "velocity_groups": groups,
+            **_velocity_contract(state),
             "held_finger_qpos": {
                 "left": state[24:26].tolist(),
                 "right": state[49:51].tolist(),
@@ -245,7 +283,7 @@ class R1ProMotionModel:
             or context.get("actions_pending") is not False
             or isinstance(dt, bool)
             or not isinstance(dt, (int, float))
-            or not np.isclose(dt, 1 / 30, atol=1e-12, rtol=0)
+            or not np.isclose(dt, CONTROL_DT_S, atol=1e-12, rtol=0)
         ):
             return invalid
         try:
@@ -285,37 +323,13 @@ class R1ProMotionModel:
             previous = _proprio(context.get("previous_proprio"))
         except (TypeError, ValueError):
             return invalid
-        position_sections = {
-            "trunk": slice(53, 57),
-            "left_arm": slice(3, 10),
-            "right_arm": slice(28, 35),
-            "left_fingers": slice(24, 26),
-            "right_fingers": slice(49, 51),
-        }
-        groups = {
-            "base": {**raw["velocity_groups"]["base"], "source": "public_base_qvel"}
-        }
-        for name, section in position_sections.items():
-            velocity = (current[section] - previous[section]) / (1 / 30)
-            groups[name] = {
-                **raw["velocity_groups"][name],
-                "measured_max_abs": float(np.max(np.abs(velocity))),
-                "source": "adjacent_confirmed_public_qpos",
-            }
-        unsettled = [
-            name
-            for name, group in groups.items()
-            if group["measured_max_abs"] > group["max_abs_tolerance"]
-        ]
         return {
             **raw,
+            **_velocity_contract(current, previous),
             "source": "adjacent_confirmed_public_qpos",
             "valid": True,
-            "stationary": not unsettled,
-            "unsettled_groups": unsettled,
-            "velocity_groups": groups,
             "raw_velocity_groups": raw["velocity_groups"],
-            "control_dt_s": 1 / 30,
+            "control_dt_s": CONTROL_DT_S,
             "observation_token": token,
             "previous_observation_token": previous_token,
         }
@@ -351,6 +365,16 @@ class R1ProMotionModel:
             )
         return positions
 
+    def _native_config(self) -> dict:
+        """Read the immutable CuRobo template once for each loaded robot."""
+        robot = self.robot
+        if self._config is None:
+            path = robot.curobo_path
+            if isinstance(path, dict):
+                path = path["arm"]
+            self._config = yaml.safe_load(Path(path).read_text())["robot_cfg"]
+        return self._config
+
     def robot_config(self, arm: Arm, proprio: Any) -> dict[str, Any]:
         """Narrow official USD configuration to one arm; retain all collision geometry.
 
@@ -360,10 +384,7 @@ class R1ProMotionModel:
         """
         robot = self.robot
         positions = dict(zip(robot.joints, self._native_positions(proprio)))
-        path = robot.curobo_path
-        if isinstance(path, dict):
-            path = path["arm"]
-        config = yaml.safe_load(Path(path).read_text())["robot_cfg"]
+        config = deepcopy(self._native_config())
         kinematics = config["kinematics"]
         active = self.active_joint_names(arm)
         kinematics.update(
@@ -442,12 +463,7 @@ class R1ProMotionModel:
         from scipy.spatial.transform import Rotation
 
         robot = self.robot
-        path = robot.curobo_path
-        if isinstance(path, dict):
-            path = path["arm"]
-        base = yaml.safe_load(Path(path).read_text())["robot_cfg"]["kinematics"][
-            "base_link"
-        ]
+        base = self._native_config()["kinematics"]["base_link"]
         physical = robot.get_position_orientation()
         native = robot.links[base].get_position_orientation()
         source, destination = (physical, native) if to_solver else (native, physical)
@@ -477,12 +493,7 @@ class R1ProMotionModel:
             link = self.robot.eef_link_names[arm]
             native = fk_state.link_poses[link]
             pose = self.transform_pose(
-                np.concatenate(
-                    (
-                        _numpy(native.position).reshape(3),
-                        _numpy(native.quaternion).reshape(4)[[1, 2, 3, 0]],
-                    )
-                ),
+                _fk_pose(native.position, native.quaternion),
                 to_solver=False,
             )
             observed_q = state[start + 3 : start + 7]
@@ -527,7 +538,7 @@ class R1ProMotionPlanner:
         self.task_id = task_id
         self.device = device
         self.model = model
-        self.control_dt_s = 1.0 / 30.0
+        self.control_dt_s = CONTROL_DT_S
 
     def _ik_solver(self, arm: str, proprio: np.ndarray) -> Any:
         """Get native IK with the current base/trunk/opposite-arm/finger locks."""
@@ -664,10 +675,8 @@ class R1ProMotionPlanner:
             result = solver.solve_single(
                 target, seed_config=seed, return_seeds=1, link_poses=held_link_poses
             )
-            if (
-                not bool(result.success.reshape(-1)[0].item())
-                and allow_orientation_relax
-            ):
+            solved = bool(result.success.reshape(-1)[0].item())
+            if not solved and allow_orientation_relax:
                 solver.update_pose_cost_metric(
                     PoseCostMetric(
                         reach_partial_pose=True,
@@ -681,7 +690,7 @@ class R1ProMotionPlanner:
                 )
                 if bool(relaxed.success.reshape(-1)[0].item()):
                     result = relaxed
-                    orientation_relaxed = True
+                    solved = orientation_relaxed = True
         finally:
             # Solvers are cached; a retry must not relax any subsequent request.
             solver.update_pose_cost_metric(PoseCostMetric.reset_metric())
@@ -704,22 +713,14 @@ class R1ProMotionPlanner:
             )
         else:
             rotation_error = float(result.rotation_error.reshape(-1)[0].item())
-        if not bool(result.success.reshape(-1)[0].item()):
+        if not solved:
             # Report where the arm could actually get to, so the caller can
             # decide between a shorter arm move and a base move. Also suggest
             # a retreat point: the same height, pulled back toward the base,
             # which usually restores a solvable posture.
             best_fk = solver.fk(solver.tensor_args.to_device([goal_q]))
             best_pose = self.model.transform_pose(
-                np.concatenate(
-                    (
-                        best_fk.ee_position.detach().cpu().numpy().reshape(3),
-                        best_fk.ee_quaternion.detach()
-                        .cpu()
-                        .numpy()
-                        .reshape(4)[[1, 2, 3, 0]],
-                    )
-                ),
+                _fk_pose(best_fk.ee_position, best_fk.ee_quaternion),
                 to_solver=False,
             )
             best_xyz = best_pose[:3]
@@ -774,7 +775,7 @@ class R1ProMotionPlanner:
             "held_finger_qpos": motion_state["held_finger_qpos"],
             "motion_state_contract": motion_state,
             "joint_position_limits_rad": self.model.joint_limits(arm).tolist(),
-            "joint_velocity_limits_rad_s": self.model.velocity_limits(arm).tolist(),
+            "joint_velocity_limits_rad_s": velocity.tolist(),
             "native_fk": native_pose_error,
             "fk_comparison": comparison,
             "collision_checked": False,

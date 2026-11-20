@@ -21,10 +21,8 @@ saved observations. Robot actions are declared by ``BehaviorPrimitives``;
 
 from __future__ import annotations
 
-import threading
-from collections.abc import Callable
 from copy import deepcopy
-from typing import TYPE_CHECKING, Annotated, Any, Literal
+from typing import Annotated, Any, Literal
 
 import numpy as np
 from pydantic import Field
@@ -36,13 +34,13 @@ from robots.behavior.observation import (
     public_proprio,
     sensor_key,
 )
+from rpent.robots.components.saved_image_segmenter import (
+    SavedImageSegmenter,
+    segment_prompt_error,
+)
 from rpent.session import EnvState, StepRecord
 from rpent.tools import ToolResult, tool
 from rpent.utils.transforms import transform_points
-
-if TYPE_CHECKING:
-    from rpent.robots.components.sam3_client import Sam3Client
-
 
 # The public camera-pose slots follow evaluator.py::_preprocess_obs / r1pro.yaml.
 R1PRO_EVAL_CAMERA_ORDER = ("left_wrist", "right_wrist", "head")
@@ -717,153 +715,6 @@ def pixel_to_robot_base(
     )
 
 
-class SavedImageSegmenter:
-    """Run native SAM3 segmentation and save artifacts without advancing state.
-
-    Each toolkit owns one instance. Calls may run concurrently; artifact indices
-    are reserved after inference and are not reused when persistence fails.
-    """
-
-    def __init__(self, client: Sam3Client) -> None:
-        self._client = client
-        self._index_lock = threading.Lock()
-        self._index = 0
-
-    def segment(
-        self,
-        *,
-        state: EnvState,
-        step: int,
-        camera: str,
-        image_artifact: str,
-        prompt: str = "",
-        point: list[int] | None = None,
-        min_score: float = 0.2,
-        project_mask: Callable[[np.ndarray | None, str | None], dict[str, Any]]
-        | None = None,
-        fallback: str = "Use manual visual localization and back_project.",
-    ) -> ToolResult:
-        """Segment one saved RGB image and attach results to its source step.
-
-        Args:
-            state: Session artifact store; no environment access is performed.
-            step: Concrete source step already resolved by the robot adapter.
-            camera: Camera label recorded in the result.
-            image_artifact: RGB artifact selected by the robot adapter.
-            prompt: Text prompt, mutually exclusive with point.
-            point: One positive pixel as [row, col].
-            min_score: Minimum accepted SAM3 score.
-            project_mask: Robot-specific projection of a mask, or of None and
-                the native SAM3 reason when no mask was found. The returned fields
-                are included in both the saved artifact and tool response.
-            fallback: Existing tool guidance used for service/persistence errors.
-
-        Returns:
-            Native segmentation fields, projection fields, saved artifact names,
-            and the overlay image when its save succeeds.
-        """
-        prompt = prompt.strip()
-        has_prompt = bool(prompt)
-        if has_prompt == (point is not None):
-            return ToolResult(
-                data={"error": "segment needs exactly one of prompt or point"}
-            )
-        source = {
-            "step": step,
-            "camera": camera,
-            "image_artifact": image_artifact,
-        }
-        try:
-            data = self._client.segment(
-                state.load_bytes(image_artifact, step=step),
-                text_prompt=prompt if has_prompt else None,
-                point=point,
-                min_score=min_score,
-            )
-        except ValueError as exc:
-            return ToolResult(data={"error": str(exc), **source})
-        except Exception as exc:
-            return ToolResult(
-                data={
-                    "error": f"segmentation service call failed: {exc}",
-                    **source,
-                    "fallback": fallback,
-                }
-            )
-
-        # Preserve the native reservation order; failed saves leave gaps.
-        with self._index_lock:
-            segment_index = self._index
-            self._index += 1
-        segment_name = f"segment_{segment_index:02d}.json"
-        overlay_name = f"segment_overlay_{segment_index:02d}.png"
-        mask = data.mask if data.found and isinstance(data.mask, np.ndarray) else None
-        projection = project_mask(mask, data.reason) if project_mask is not None else {}
-        saved_overlay = None
-        if mask is not None:
-            overlay = _make_segment_overlay(state.load(image_artifact, step=step), mask)
-            if overlay is not None and state.save(overlay_name, overlay, step=step):
-                saved_overlay = overlay_name
-
-        segment_blob = {
-            "found": data.found,
-            "mode": "text" if has_prompt else "point",
-            "camera": camera,
-            "source_step": step,
-            "segment_index": segment_index,
-            "image_artifact": image_artifact,
-            "min_score": min_score,
-            "score": round(float(data.score), 3) if data.score is not None else None,
-            "box": data.box,
-            "mask_shape": list(data.mask_shape) if data.mask_shape else None,
-        }
-        if has_prompt:
-            segment_blob["prompt"] = prompt
-        else:
-            segment_blob["point"] = point
-        if not data.found:
-            segment_blob["error"] = data.reason or "SAM3 found no mask"
-        segment_blob.update(projection)
-        saved_segment = state.save(segment_name, segment_blob, step=step)
-
-        result = {
-            "found": data.found,
-            **source,
-            "score": segment_blob["score"],
-            "box": segment_blob["box"],
-            **projection,
-        }
-        if saved_segment is None:
-            result["error"] = f"failed to persist segment artifact {segment_name}"
-            result["code"] = "segment_artifact_save_failed"
-            result["attempted_segment_artifact"] = segment_name
-            if "error" in segment_blob:
-                result["segmentation_error"] = segment_blob["error"]
-            result["fallback"] = fallback
-        else:
-            result["segment_artifact"] = saved_segment
-            if "error" in segment_blob:
-                result["error"] = segment_blob["error"]
-                result["fallback"] = fallback
-        images: list[bytes] = []
-        if saved_overlay is not None:
-            result["overlay_artifact"] = saved_overlay
-            images.append(state.load_bytes(saved_overlay, step=step))
-        return ToolResult(data=result, images=images)
-
-
-def _make_segment_overlay(image: np.ndarray, mask: np.ndarray) -> np.ndarray | None:
-    if image.ndim != 3 or image.shape[:2] != mask.shape:
-        return None
-    overlay = image.copy()
-    red = np.zeros_like(overlay)
-    red[..., 0] = 255
-    overlay[mask] = (
-        0.55 * overlay[mask].astype(np.float32) + 0.45 * red[mask].astype(np.float32)
-    ).astype(np.uint8)
-    return overlay
-
-
 @tool(readonly=True, exclude=("state", "segmenter"))
 def segment(
     prompt: str = "",
@@ -896,6 +747,9 @@ def segment(
             raise ValueError("requested camera RGB is not in the saved observation")
     except (LookupError, ValueError) as error:
         return ToolResult(data={"error": str(error)})
+
+    if error := segment_prompt_error(prompt, point):
+        return ToolResult(data={"error": error})
 
     def project_mask(mask: np.ndarray | None, reason: str | None) -> dict[str, Any]:
         result = {
