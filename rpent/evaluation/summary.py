@@ -229,7 +229,7 @@ def summarize(trials: Iterable[Mapping[str, Any]], records: Iterable[dict]) -> d
         attempts.append(record)
     # Older single-benchmark manifests may omit the environment. A missing
     # episode in a multi-benchmark batch needs an explicit assignment.
-    known_environments = defaultdict(set)
+    known_environments = set()
     for spec, attempts in planned.values():
         environments = {
             e
@@ -243,7 +243,7 @@ def summarize(trials: Iterable[Mapping[str, Any]], records: Iterable[dict]) -> d
             raise ValueError(f"Conflicting environments for {spec['trial_id']}")
         if environments:
             spec["environment"] = environments.pop()
-            known_environments[spec["method"]].add(spec["environment"])
+            known_environments.add(spec["environment"])
     cells = defaultdict(list)
     reviews = []
     for spec, attempts in planned.values():
@@ -251,11 +251,11 @@ def summarize(trials: Iterable[Mapping[str, Any]], records: Iterable[dict]) -> d
         method = spec["method"]
         environment = spec.get("environment")
         if environment is None:
-            if len(known_environments[method]) > 1:
+            if len(known_environments) > 1:
                 raise ValueError(
                     f"Specify environment in manifest for {spec['trial_id']}"
                 )
-            environment = next(iter(known_environments[method]), None)
+            environment = next(iter(known_environments), None)
         cells[(method, environment, spec["task"], spec["scene"])].append(
             (spec, attempts)
         )

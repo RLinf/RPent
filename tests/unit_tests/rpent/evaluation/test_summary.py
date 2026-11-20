@@ -193,3 +193,23 @@ def test_same_named_tasks_are_scored_within_their_environment(tmp_path):
         summarize([a, b, c], records)
     # Older manifests with just one benchmark still account for missing seeds.
     assert summarize([b, c], records[1:])["cells"][0]["planned"] == 2
+
+
+def test_missing_environment_cannot_be_inferred_from_one_methods_other_runs(tmp_path):
+    standard = dict(trial(0), method="vla", environment="libero")
+    pro = dict(trial(0), method="wam", environment="libero-pro")
+    missing = dict(trial(1), method="vla")
+    records = [episode(tmp_path, standard, True), episode(tmp_path, pro, False)]
+    with pytest.raises(ValueError, match="Specify environment"):
+        summarize([standard, pro, missing], records)
+    result = summarize(
+        [standard, pro, {**missing, "environment": "libero-pro"}], records
+    )
+    assert {
+        (row["method"], row["environment"]): row["native_sr_macro"]
+        for row in result["methods"]
+    } == {
+        ("vla", "libero"): 1.0,
+        ("wam", "libero-pro"): 0.0,
+        ("vla", "libero-pro"): None,
+    }
