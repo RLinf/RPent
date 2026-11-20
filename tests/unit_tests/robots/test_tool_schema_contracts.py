@@ -22,6 +22,7 @@ import pytest
 from robots.dual_franka.toolkit import DualFrankaToolkit
 from robots.franka import perception as franka_perception
 from robots.franka import tools as franka_tools
+from robots.lekiwi import tools as lekiwi_tools
 from robots.libero import tools as libero_tools
 from robots.libero.toolkit import LiberoToolkit
 from robots.robocasa import tools as robocasa_tools
@@ -43,6 +44,7 @@ TOOL_DECLARATIONS = {
         iter_tools(franka_tools.FrankaPrimitives, franka_tools, franka_perception)
     ),
     "dual_franka": DualFrankaToolkit.declared_tools(),
+    "lekiwi": list(iter_tools(lekiwi_tools.LeKiwiPrimitives, lekiwi_tools)),
     "yam": list(iter_tools(YamToolkit, yam_tools)),
     "libero": list(
         iter_tools(libero_tools, libero_tools.LiberoPrimitives, LiberoToolkit)
@@ -92,6 +94,19 @@ def test_tool_declarations_match_pre_refactor_contracts(group: str) -> None:
     }
     assert len(actual) == len(declarations)
     added = {"wam_act"} if group in {"libero", "robotwin"} else set()
+    if group == "lekiwi":
+        expected["stop"]["description"] = (
+            "Stop the base and cancel its current goal, keeping navigation running.\n\n"
+            "Wait for the navigation operation to leave running before another goal."
+        )
+        # The historical snapshot predates navigation; its tools stay unchanged.
+        added = {
+            "navigate_to",
+            "get_navigation_state",
+            "list_map_nodes",
+            "inspect_map_node",
+            "view_map",
+        }
     assert actual.keys() == expected.keys() | added
     for name in expected:
         assert actual[name] == expected[name], f"{group}/{name}"

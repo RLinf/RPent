@@ -34,6 +34,7 @@ EXPECTED_ROBOTS = (
     "dual_franka",
     "efe",
     "franka",
+    "lekiwi",
     "libero",
     "robocasa",
     "robodojo",
@@ -108,6 +109,12 @@ PROMPT_VARIABLES = {
         "success_criteria": "object follows the gripper",
         "constraints": "1. Keep translation at or below 0.02 m",
         "output_dir": Path("/output"),
+    },
+    "lekiwi": {
+        "task_name": "drive_smoke_test",
+        "instruction": "Exercise one conservative forward drive",
+        "success_criteria": "The camera view changes consistently",
+        "constraints": "1. Keep each drive at or below 0.1 m/s and 30 deg/s",
     },
     "dual_franka": {
         "task_id": 1,
