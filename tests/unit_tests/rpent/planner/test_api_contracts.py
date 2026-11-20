@@ -1329,13 +1329,18 @@ def test_api_executes_readonly_calls_concurrently(tmp_path):
                 "sense", {"label": "right"}, 1
             )
         else:
-            assert all(capture() is None for capture in captures)
+            assert current_tool_call.get() is None
+            assert [
+                call.status for call in toolkit.state.planner_records()[0].tool_calls
+            ] == ["completed", "completed"]
             yield finish()
 
     result, _, _ = solve(
         tmp_path, FunctionModel(stream_function=stream), toolkit, events
     )
     assert result.error is None
+    # Worker completion can precede context release; solve() joins the executor.
+    assert all(capture() is None for capture in captures)
     assert sorted(completed) == ["left", "right"]
     calls = toolkit.state.planner_records()[0].tool_calls
     assert [c.raw_result.data["data"]["label"] for c in calls] == ["left", "right"]

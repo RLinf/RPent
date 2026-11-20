@@ -35,6 +35,7 @@ from rpent.dashboard.events import DashboardEventSink, StepRecordEvent
 from rpent.session import Payload
 from rpent.session.env_capture import current_tool_call
 from rpent.tools.base import Tool, ToolResult, iter_tools
+from rpent.tools.common import CommonTools, _WriteAccessDenied
 from rpent.utils.logging import get_logger
 from rpent.utils.templates import substitute
 
@@ -179,8 +180,6 @@ class Toolkit:
             self.add_tool(tool)
 
     def _register_common_tools(self) -> None:
-        from rpent.tools.common import CommonTools
-
         common = CommonTools(memory=self._memory)
         self._memory.check_layout()
         for declaration in iter_tools(common):
@@ -247,17 +246,27 @@ class Toolkit:
         try:
             started = time.perf_counter()
             capture = current_tool_call.get()
+            handler_started = False
+            uncertain_on_error = (
+                not tool.readonly
+                if tool.uncertain_on_error is None
+                else tool.uncertain_on_error
+            )
             try:
                 self.raise_if_cancelled()
                 if capture is not None:
                     capture.start(action_source=tool.action_source)
+                handler_started = True
                 native = tool(**kwargs)
+            except _WriteAccessDenied as exc:
+                native = ToolResult(data={"error": str(exc)})
             except TypeError as exc:
                 native = ToolResult(
                     data={
                         "error": f"bad arguments for {name}: {exc}",
                         "got": input_dict,
-                    }
+                    },
+                    execution_uncertain=handler_started and uncertain_on_error,
                 )
             except ToolCancelled as exc:
                 native = ToolResult(
@@ -265,12 +274,14 @@ class Toolkit:
                         "error": str(exc),
                         "code": "tool_cancelled",
                         "interrupted": True,
-                    }
+                    },
+                    execution_uncertain=handler_started and uncertain_on_error,
                 )
             except Exception as exc:
                 logger.exception("Tool %s failed", name)
                 native = ToolResult(
-                    data={"error": str(exc), "traceback": traceback.format_exc()}
+                    data={"error": str(exc), "traceback": traceback.format_exc()},
+                    execution_uncertain=handler_started and uncertain_on_error,
                 )
 
             if capture is not None and capture.started:
@@ -283,7 +294,7 @@ class Toolkit:
                     )
                 )
 
-            if not tool.readonly:
+            if not tool.readonly and handler_started:
                 elapsed_s = round(time.perf_counter() - started, 2)
                 result_dict = native.to_dict()
                 command = {"action": name, **input_dict}
@@ -302,6 +313,7 @@ class Toolkit:
                             f"failed to capture state after {name}: {exc}"
                         )
                     native.data.setdefault("traceback", traceback.format_exc())
+                    native.execution_uncertain = True
                 else:
                     record = self._state.latest_record()
                     if native.is_error:
@@ -311,6 +323,9 @@ class Toolkit:
                     native = ToolResult(
                         data=observed.data,
                         images=native.images + observed.images,
+                        execution_uncertain=(
+                            native.execution_uncertain or observed.execution_uncertain
+                        ),
                     )
                 if record is not None:
                     self._publish_step(record)
@@ -319,8 +334,12 @@ class Toolkit:
                 json.dumps(native.to_dict(), allow_nan=False, default=str)
             except (TypeError, ValueError) as exc:
                 native = ToolResult(
-                    data={"error": f"Tool result serialization failed: {exc}"},
+                    data={
+                        "error": f"Tool result serialization failed: {exc}",
+                        "code": "tool_result_serialization_failed",
+                    },
                     images=native.images,
+                    execution_uncertain=native.execution_uncertain,
                 )
             if capture is not None:
                 capture.finish(
@@ -332,6 +351,35 @@ class Toolkit:
                     str(native.data.get("error", "")),
                 )
             return native
+        finally:
+            self._scheduler.release(operation)
+
+    def refresh_observation(self) -> ToolResult:
+        """Capture and publish a fresh observation without executing an action.
+
+        Capture is exclusive because it appends a state record. Paused or closed
+        toolkits reject it; only the caller owning cancellation may resume calls.
+        A completed record is published even if cancellation arrived during capture.
+
+        Returns:
+            The fresh native observation, including its images.
+        """
+        operation = self._scheduler.acquire(readonly=False)
+        try:
+            self.raise_if_cancelled()
+            previous = self.state.latest_record()
+            observed = self.get_env_state(
+                command={"action": "refresh_observation"},
+                result={},
+                elapsed_s=0,
+            )
+            record = self.state.latest_record()
+            if record is not None and (
+                previous is None or record.step_idx != previous.step_idx
+            ):
+                self._publish_step(record)
+            self.raise_if_cancelled()
+            return observed
         finally:
             self._scheduler.release(operation)
 
