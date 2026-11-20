@@ -248,8 +248,10 @@ The table uses LIBERO as an example. Files depend on the environment, recording,
 
    * - File or path
      - Purpose
-   * - ``transcript_*.json``
-     - Planner conversation, tool calls, and completion information.
+   * - ``run.json``
+     - Run manifest: robot, planner, model, task, and the installation that produced the run, then the closed run's artifact paths, verdict, agent error, and any artifact failure.
+   * - ``transcript.json``
+     - Planner conversation, tool calls, completion information, and the run verdict, written once when the run ends.
    * - ``trajectories/<task_id>/``
      - Task records and attachments saved by ``--record-trajectory``. Exploration records are under each ``sessions/session_*/`` directory. See :doc:`flywheel`.
    * - ``episode.mp4``
@@ -266,3 +268,32 @@ The table uses LIBERO as an example. Files depend on the environment, recording,
      - Example step artifact: the directory uses the logical artifact name and contains numbered steps such as ``00.npz`` and ``01.npz``.
 
 Run-level files live at the output root; step observations live in their own subdirectories. Use the native success criterion documented for each environment; a recipe, video, or planner summary does not replace it.
+
+One directory holds one run. ``run.json`` is written when the run starts and claims the directory; a run pointed at a directory that already records one stops before touching the robot, so give each run its own ``--output-dir``. The default path is already a fresh directory, and the Dashboard's numbered task directories work the same way.
+
+.. _run-exit-status:
+
+Exit Status and Verdict
+-----------------------
+
+A task run exits ``0`` when the run's verdict accepts the task, ``1`` when it fails or the verdict rejects it, and ``75`` when the run ended without a verdict, for example a real robot that nobody judged. Exploration runs report their session outcome instead: ``0`` when the session ended cleanly and ``1`` when it recorded an error.
+
+``run.json`` and, when the robot publishes one, its ``result.json`` record the same verdict:
+
+.. list-table::
+   :header-rows: 1
+
+   * - Field
+     - Meaning
+   * - ``accepted``
+     - ``true`` for an accepted success, ``false`` for a rejected run, ``null`` when the run produced no verdict.
+   * - ``retryable``
+     - Whether a re-run can still produce a verdict; true exactly when ``accepted`` is ``null``.
+   * - ``failure_category``
+     - ``agent_error``, ``task_failed``, ``no_verdict``, or ``null`` when accepted.
+   * - ``stop_reason``
+     - ``solved``, ``finished``, ``unfinished``, ``planner_error``, ``operator_finished``, or ``operator_aborted``.
+   * - ``truth_source``
+     - Who established the verdict: ``environment``, ``operator``, or ``null`` when there is none.
+
+The verdict and ``error`` describe the run itself. When the run cannot write its own artifacts — a result finalizer or the corpus publish raises — ``run.json`` records that failure in ``artifact_error`` instead, keeps the verdict it can justify, and the command still exits ``1``.

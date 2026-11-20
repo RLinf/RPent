@@ -15,9 +15,19 @@
 """Evaluation result finalization contracts."""
 
 from rpent.evaluation.result import (
+    TRUTH_SOURCES,
     RunFinalizationContext,
     RunFinalizer,
+    TruthSource,
+    verdict_fields,
     write_json_atomic,
 )
 
-__all__ = ["RunFinalizationContext", "RunFinalizer", "write_json_atomic"]
+__all__ = [
+    "TRUTH_SOURCES",
+    "RunFinalizationContext",
+    "RunFinalizer",
+    "TruthSource",
+    "verdict_fields",
+    "write_json_atomic",
+]
