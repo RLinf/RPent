@@ -1,0 +1,13 @@
+schema = 2
+name = "sim-robocasa"
+probe = "components.sim.robocasa"
+python = ">=3.10,<3.11"
+requires = ["infra-rlinf"]
+# RoboCasa installs its own robosuite fork; RoboTwin's runtime pins builds the
+# two cannot share.
+env_conflicts = ["sim-robotwin"]
+
+dependencies = [
+  "rpent-robocasa365 @ git+https://github.com/RLinf/robocasa.git@2692d8fc5fd86708a1b2028dcbce892ec418a9e7",
+  "robosuite @ git+https://github.com/RLinf/robosuite.git@97cfbde4b68d8ec43dad20cf4747297866a6ca2e",
+]

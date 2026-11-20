@@ -1,0 +1,128 @@
+name: Unit checks
+
+# Reusable verification jobs. Nothing here decides *which* paths matter; the
+# orchestrators pass a scope in, so a manual run equals a full run.
+on:
+  workflow_call:
+    inputs:
+      tests:
+        description: JSON array of test paths; empty runs the whole unit suite
+        required: false
+        type: string
+        default: ""
+      components:
+        description: Component whose environment supplies the test dependencies
+        required: false
+        type: string
+        default: "infra-unit_cpu"
+
+permissions:
+  contents: read
+
+jobs:
+  static:
+    name: Static structure checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+      - name: Check the component layout
+        run: ./tests/tooling/run.sh layout
+      - name: Check every component
+        run: ./rpent-install.sh check --all
+      - name: Check the runner partition
+        run: ./tests/tooling/run.sh matrix --check
+
+  unit:
+    name: Unit, contract and failure-path tests (${{ matrix.python }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        # The unit environment installs no component code; this matrix is what
+        # covers the core package's declared range, so each minor installs the
+        # same dependency set and runs the same suite.
+        python: ["3.10", "3.11", "3.12"]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+      - name: Pin the environment's Python
+        run: uv python install ${{ matrix.python }}
+      - name: Create the environment with the matrix Python
+        # The components name their supported interpreter ranges; creating the
+        # venv here makes the matrix leg the one that runs, without a second
+        # install path.
+        run: uv venv --python ${{ matrix.python }} .venv
+      - name: Install the test environment from its component
+        run: ./rpent-install.sh install "${{ inputs.components }}" --venv .venv
+      - name: Run the selected tests
+        shell: bash
+        env:
+          TESTS: ${{ inputs.tests }}
+        run: |
+          mapfile -t paths < <(
+            python3 -c 'import json, os; [print(path) for path in json.loads(os.environ["TESTS"] or "[]")]'
+          )
+          if [[ ${#paths[@]} -eq 0 ]]; then
+            paths=(tests/unit_tests)
+          fi
+          .venv/bin/python -m coverage run --source=rpent,robots \
+            -m pytest "${paths[@]}" -v --junitxml="$RUNNER_TEMP/junit.xml"
+          .venv/bin/python -m coverage report -m
+      - name: Report skipped tests
+        if: always()
+        shell: bash
+        env:
+          JUNIT: ${{ runner.temp }}/junit.xml
+        run: |
+          if [[ ! -f "$JUNIT" ]]; then
+            echo "::warning::pytest did not write a JUnit report; skipping counters"
+            exit 0
+          fi
+          python3 - <<'PY'
+          import os
+          import xml.etree.ElementTree as ET
+
+          suite = ET.parse(os.environ["JUNIT"]).getroot()
+          suites = [suite] if suite.tag == "testsuite" else list(suite.iter("testsuite"))
+          totals = {"tests": 0, "skipped": 0, "failures": 0, "errors": 0}
+          for item in suites:
+              for key in totals:
+                  totals[key] += int(item.attrib.get(key, 0))
+          line = (
+              f"tests={totals['tests']} skipped={totals['skipped']} "
+              f"failures={totals['failures']} errors={totals['errors']}"
+          )
+          print(line)
+          summary = os.environ.get("GITHUB_STEP_SUMMARY")
+          if summary:
+              with open(summary, "a", encoding="utf-8") as handle:
+                  handle.write(f"### Unit tests\n\n`{line}`\n")
+          PY
+
+  minimal-imports:
+    name: Minimal environment imports
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+      - name: Pin the environment's Python
+        run: uv python install 3.11
+      - name: Install the minimal environment
+        run: ./rpent-install.sh install infra-minimal --venv .venv-minimal
+      - name: Check CLI and robot discovery without robot dependencies
+        run: |
+          .venv-minimal/bin/python -c "
+          import rpent
+          from rpent.robots import enumerate_robots
+          robots = enumerate_robots()
+          assert robots, 'robot discovery returned no entries'
+          print(rpent.__version__, sorted(robots))
+          "
+          .venv-minimal/bin/rpent --help >/dev/null
+          .venv-minimal/bin/rpent-install list >/dev/null
+      - name: Doctor the minimal environment
+        run: ./rpent-install.sh doctor --venv .venv-minimal

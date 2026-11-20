@@ -24,7 +24,7 @@ from typing import Any
 import numpy as np
 
 from robots.franka.runtime_config import load_runtime_config
-from rpent.robots.components.env_facade_base import BaseEnvFacade
+from rpent.components.env.facade import BaseEnvFacade
 from rpent.utils.logging import get_logger
 from rpent.utils.serialization import to_numpy_tree
 

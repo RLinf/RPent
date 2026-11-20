@@ -22,9 +22,9 @@ from typing import TYPE_CHECKING, Any, Literal
 
 import numpy as np
 
+from components.sim.robotwin.contract import ROBOTWIN_CAMERA_NAMES
 from robots.robotwin import tools
 from robots.robotwin.primitives import RoboTwinPrimitives
-from robots.robotwin.robot_spec import ROBOTWIN_CAMERA_NAMES
 from rpent.dashboard.events import DashboardEventSink
 from rpent.session import EnvState
 from rpent.session.env_capture import CapturingEnvClient
@@ -320,7 +320,6 @@ class RoboTwinToolkit(Toolkit):
         return self._primitives.status().get("eval_success") is True
 
     def _step(self, name: str, **kwargs) -> ToolResult:
-
         self.raise_if_cancelled()
         return getattr(self._primitives, name)(**kwargs)
 

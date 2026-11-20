@@ -21,7 +21,6 @@ LIBERO primitives (``move_to``, ``pi0_pick``, ``release``, ...) on top.
 from __future__ import annotations
 
 from collections.abc import Callable
-from dataclasses import replace
 from functools import partial
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
@@ -39,11 +38,47 @@ from rpent.tools.toolkit import Toolkit
 from rpent.utils.logging import get_logger, get_output_dir
 
 if TYPE_CHECKING:
+    from components.tools.rgbd.geometry.local_point_agent import VisualGrounder
     from robots.libero.env_client import LiberoEnvClient
     from rpent.memory.manager import MemoryManager
-    from toolkits.geometry.local_point_agent import VisualGrounder
 
 logger = get_logger("libero_toolkit")
+
+#: Payload keys that carry the benchmark's task verdict.
+_VERDICT_KEYS = (
+    "success",
+    "task_success",
+    "terminated",
+    "truncated",
+    "libero_terminated",
+)
+
+
+def _without_verdict(result: ToolResult) -> ToolResult:
+    """Replace the benchmark verdict with the episode-boundary signal.
+
+    Evaluation must not learn how the benchmark grades it, so the observation
+    keeps ``episode_over`` — enough to stop acting — and drops the success and
+    truncation flags, including the copy nested in the step log. Run records
+    keep the verdict for the runner's own recipe and metrics.
+    """
+    data = dict(result.data)
+    episode_over = bool(data.get("terminated") or data.get("truncated"))
+    for key in _VERDICT_KEYS:
+        data.pop(key, None)
+    log = data.get("log")
+    logged = log.get("result") if isinstance(log, dict) else None
+    if isinstance(log, dict):
+        if isinstance(logged, dict):
+            logged = dict(logged)
+            episode_over = episode_over or bool(
+                logged.get("terminated") or logged.get("truncated")
+            )
+            for key in _VERDICT_KEYS:
+                logged.pop(key, None)
+        data["log"] = {**log, "result": logged}
+    data["episode_over"] = episode_over
+    return ToolResult(data=data, images=result.images)
 
 
 class LiberoToolkit(Toolkit):
@@ -85,11 +120,18 @@ class LiberoToolkit(Toolkit):
         self._session_attempt: int = 1
         self.init_primitives(runtime_kwargs=runtime_kwargs)
         self._register_libero_tools(generic_tools=generic_tools)
+        if self._mode == "evaluation":
+            # The benchmark's verdict is withheld from the planner; the
+            # observation channel exposes only whether the episode is over.
+            view = self._tools["view_env_state"]
+            self.add_tool(
+                view.with_handler(partial(self._state_view, view)), replace=True
+            )
         self._geometry = None
         if generic_tools:
+            from components.tools.rgbd.back_project import back_project
+            from components.tools.rgbd.segment import SegmentTool
             from robots.libero.observations import LiberoGeometryObservations
-            from toolkits.back_project import back_project
-            from toolkits.segment import SegmentTool
 
             observations = LiberoGeometryObservations(state)
             self.add_tool(
@@ -105,7 +147,7 @@ class LiberoToolkit(Toolkit):
                 ).segment
             )
             if geometry_grounder is not None:
-                from toolkits.geometry.geometry_tool import GeometryTool
+                from components.tools.rgbd.geometry.geometry_tool import GeometryTool
 
                 self._geometry = GeometryTool(
                     state=state,
@@ -115,16 +157,6 @@ class LiberoToolkit(Toolkit):
                     check_cancelled=self.raise_if_cancelled,
                 )
                 self.add_tool(self._geometry.geometry)
-        if policy_kind == "wam":
-            finish = self._tools["finish"]
-            self.add_tool(
-                replace(
-                    finish.with_handler(partial(self._wam_finish, finish)),
-                    description="End the episode with its observed outcome. "
-                    "Success requires native environment success.",
-                ),
-                replace=True,
-            )
         if enable_direct_action:
             self.add_tool(
                 direct_action_tool(
@@ -174,26 +206,15 @@ class LiberoToolkit(Toolkit):
     ) -> ToolResult:
         env = self._primitives.env
         if self._policy_kind == "wam" and (env.terminated or env.truncated):
-            status = "success" if env.terminated else "failure"
             raise ValueError(
                 "Episode already ended; no further motion is allowed. "
-                f"Call finish with status={status!r}."
+                "Call finish with your assessment of the outcome."
             )
         return handler(**kwargs)
 
-    def _wam_finish(self, inner: Any, **kwargs: Any) -> ToolResult:
-        """Require native task success before accepting a success claim."""
-        if kwargs.get("status") == "success" and not self.solved():
-            return ToolResult(
-                data={
-                    "error": "finish refused: success requires native terminated=true",
-                    "terminated": self._primitives.env.terminated,
-                    "truncated": self._primitives.env.truncated,
-                    "reason": "Inspect the current state. Continue if the episode is "
-                    "active; report failure if it was truncated.",
-                }
-            )
-        return inner(**kwargs)
+    def _state_view(self, inner: Any, **kwargs: Any) -> ToolResult:
+        """Return a recorded state without the benchmark's verdict."""
+        return _without_verdict(inner(**kwargs))
 
     def _guarded_finish(self, inner: Any, **kwargs: Any) -> ToolResult:
         """Refuse to end an unsolved session while attempts remain."""
@@ -269,15 +290,9 @@ class LiberoToolkit(Toolkit):
                 )
         out = libero_tools.view_env_state(record.step_idx, state=self._state)
         out.data["agent_elapsed_s"] = elapsed_s
-        if self._policy_kind == "wam" and (record.terminated or record.truncated):
-            status = "success" if record.terminated else "failure"
-            out.data["next_action"] = (
-                f"Episode ended. Call finish with status={status!r}; "
-                "further motion is invalid."
-            )
         if result.get("interrupted"):
             out.data.update(result)
-        return out
+        return _without_verdict(out) if self._mode == "evaluation" else out
 
     @property
     def primitives(self) -> "libero_tools.LiberoPrimitives":

@@ -55,7 +55,31 @@ HOSTED = (
 )
 
 #: Environments that resolve CUDA packages; they need the embodied GPU runner.
-GPU = (("infra-rlinf",),)
+GPU = (
+    ("infra-rlinf",),
+    ("model-apxinf",),
+    ("model-cosmos3",),
+    ("model-cosmos_policy",),
+    ("model-fast_wam",),
+    ("model-molmo",),
+    ("model-uniwam",),
+    # The adapter installs no package of its own; the XPolicyLab runtime comes
+    # from the deployment's resource root.
+    ("model-xpolicylab",),
+    ("robot-dual_franka",),
+    ("robot-efe",),
+    ("robot-franka",),
+    ("robot-libero",),
+    ("robot-robocasa",),
+    ("robot-robodojo",),
+    ("robot-robotwin",),
+    ("robot-yam",),
+    ("sim-libero",),
+    ("sim-libero_plus",),
+    ("sim-robocasa",),
+    ("sim-robodojo",),
+    ("sim-robotwin",),
+)
 
 MATRICES = {"hosted": HOSTED, "gpu": GPU}
 

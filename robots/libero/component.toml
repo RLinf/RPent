@@ -1,0 +1,19 @@
+schema = 2
+name = "robot-libero"
+probe = "robots.libero"
+planner = true
+python = ">=3.10,<3.13"
+# LIBERO measures task success inside robosuite; the Franka stack pins
+# numpy<2, and RoboTwin's runtime ships incompatible MuJoCo/Torch builds.
+# The exporter belongs to the evaluation environment, so a LIBERO install can
+# write trajectories without naming ``tool-flywheel`` on top.
+requires = [
+  "sim-libero",
+  "model-openpi",
+  "model-sam3",
+  "tool-flywheel",
+  "tool-rgbd",
+]
+env_conflicts = ["robot-franka", "robot-dual_franka", "robot-robotwin"]
+
+dependencies = []

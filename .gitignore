@@ -22,8 +22,10 @@ uv.lock
 docs/build/
 
 build/
+.coverage
 .claude/settings.json
 .venv/
+.rpent/
 /.codex-rpent-live/
 
 # Standalone calibration environment.

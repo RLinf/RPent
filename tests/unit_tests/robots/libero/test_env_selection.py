@@ -21,7 +21,7 @@ from unittest.mock import Mock
 
 import pytest
 
-from robots.libero.env_server import make_env
+from components.sim.libero.env_server import make_env
 
 
 @pytest.fixture

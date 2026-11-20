@@ -18,6 +18,8 @@ from functools import lru_cache
 
 import numpy as np
 
+from rpent.install import require
+
 
 @lru_cache(maxsize=6)
 def _rays(height: int, width: int, k: tuple, model: str, coeffs: tuple) -> np.ndarray:
@@ -38,13 +40,7 @@ def _rays(height: int, width: int, k: tuple, model: str, coeffs: tuple) -> np.nd
             axis=-1,
         )
     else:
-        try:
-            import pyrealsense2 as rs
-        except ImportError as exc:
-            raise RuntimeError(
-                "Install pyrealsense2 in the RPent Agent environment "
-                "for distorted-camera world projection"
-            ) from exc
+        rs = require("robot-yam", "pyrealsense2")
         if model == "modified_brown_conrady":
             raise ValueError(
                 "RealSense cannot deproject modified_brown_conrady color directly; rectify the stream first"

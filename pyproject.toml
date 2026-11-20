@@ -294,14 +294,21 @@ where = ["."]
 # shared RGB-D tools.
 # components/ holds the install units: each component owns its code and its
 # manifest, and the installer discovers them from the checkout or the sdist.
-include = ["rpent*", "robots", "robots.*", "toolkits", "toolkits.*", "components", "components.*"]
+# The RGB-D toolkit lives in components/tools/rgbd, so the top level keeps no
+# toolkits package.
+include = ["rpent*", "robots", "robots.*", "components", "components.*"]
 exclude = ["tests*", "docs*", "examples*", "docker*"]
 
 [tool.setuptools.package-data]
 # Component manifests are runtime data: discovery reads them from installed
 # packages, so a component that ships code must ship its component.toml.
 "*" = ["component.toml"]
+"robots.dual_franka" = ["config/*.yaml"]
+"robots.franka" = ["config/*.yaml"]
+"robots.libero" = ["guides/*.md"]
+"robots.robocasa" = ["eval/*.json"]
 "robots.robodojo" = ["guides/*.md"]
+"robots.robotwin" = ["eval/*.json", "guides/*.md"]
 "rpent.dashboard" = ["*.html", "static/*.css", "static/*.js"]
 "robots.yam" = ["config/*.yaml", "config/*.json", "guides/*.md"]
 

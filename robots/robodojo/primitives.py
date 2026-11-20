@@ -24,9 +24,9 @@ from typing import Annotated, Literal
 import numpy as np
 from pydantic import Field
 
-from robots.robodojo.access import public_episode_budget
+from components.sim.robodojo.access import public_episode_budget
+from components.sim.robodojo.tasks import validate_instruction
 from robots.robodojo.env_client import ActionRejected, ExecutionSyncError
-from robots.robodojo.tasks import validate_instruction
 from rpent.session.env_capture import CapturingEnvClient
 from rpent.tools import ToolResult, tool
 from rpent.tools.toolkit import ToolCancelled
@@ -280,7 +280,7 @@ class RoboDojoPrimitives:
         chunks: Annotated[int, Field(ge=1)] = 1,
     ) -> ToolResult:
         """Execute a natural-language subtask with VPP2. Each chunk predicts 32 native dual-arm EE targets and executes the first 24, then replans from real feedback. Completion means commands executed, not subtask success. Inspect fresh images afterward."""
-        from robots.robodojo.vpp2_client import REPLAN_STEPS
+        from components.models.vpp2.client import REPLAN_STEPS
 
         if not isinstance(instruction, str) or not instruction.strip():
             raise ValueError("instruction must be a nonempty subtask string")
@@ -304,7 +304,7 @@ class RoboDojoPrimitives:
         chunks: Annotated[int, Field(ge=1)] = 1,
     ) -> ToolResult:
         """Execute the official task instruction with Awomo05. Each chunk executes 8 native dual-arm joint targets with per-step feedback, then replans. Completion means commands executed, not task success. Inspect fresh images afterward."""
-        from robots.robodojo.awomo05_client import REPLAN_STEPS
+        from components.models.awomo05.client import REPLAN_STEPS
 
         if not self._uses_awomo05:
             raise RuntimeError("Awomo05 is not connected")

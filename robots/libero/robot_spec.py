@@ -24,18 +24,18 @@ from functools import partial
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from components.sim.libero.suites import LIBERO_SUITE_NAMES, resolve_libero_type
 from robots.libero.prompt_bundle import system_prompt, user_prompt
-from robots.libero.suites import LIBERO_SUITE_NAMES, resolve_libero_type
-from rpent.dashboard.events import DashboardEventSink
-from rpent.dashboard.spec import DashboardSpec
-from rpent.memory import MemoryManager
-from rpent.robots.components.am_runtime import (
+from rpent.components.models.backends import (
     WAM_BACKENDS,
     AMConfig,
     add_am_args,
     select_am,
     start_wam_service,
 )
+from rpent.dashboard.events import DashboardEventSink
+from rpent.dashboard.spec import DashboardSpec
+from rpent.memory import MemoryManager
 from rpent.robots.prompt_bundle import PromptBundle
 from rpent.robots.robot_spec import RobotSpec, RunConfig
 from rpent.robots.runtime import try_spawn_server, try_wait_server
@@ -465,7 +465,7 @@ def _spawn_vla_server(
     daemon = am.spawn_worker(
         [
             "-m",
-            "rpent.robots.components.pi05_vla_server",
+            "components.models.openpi.server",
             "--embodiment",
             "libero",
             "--transport",
@@ -487,7 +487,7 @@ def _spawn_vla_server(
 def _make_model_client(rpc: RpcClient, wam: AMConfig | None) -> Any:
     """Bind the platform client and validate the worker before executing actions."""
     if wam is not None:
-        from robots.libero.wam_client import LiberoWAMClient
+        from components.sim.libero.wam_client import LiberoWAMClient
 
         try:
             client = LiberoWAMClient(rpc)
@@ -496,7 +496,7 @@ def _make_model_client(rpc: RpcClient, wam: AMConfig | None) -> Any:
             rpc.close()
             raise
         return client
-    from rpent.robots.components.pi05_vla_client import Pi05VLAClient
+    from components.models.openpi.client import Pi05VLAClient
 
     return Pi05VLAClient(rpc, embodiment="libero")
 
@@ -514,7 +514,7 @@ def _spawn_env_server(
         name="env_server",
         cmd=[
             sys.executable,
-            str(get_repo_root() / "robots" / "libero" / "env_server.py"),
+            str(get_repo_root() / "components" / "sim" / "libero" / "env_server.py"),
             "--suite",
             args.suite,
             "--task",
@@ -555,7 +555,7 @@ def _spawn_sam3_server(
         name="sam3_server",
         cmd=[
             sys.executable,
-            str(get_repo_root() / "rpent" / "robots" / "components" / "sam3_server.py"),
+            str(get_repo_root() / "components" / "models" / "sam3" / "server.py"),
             "--transport",
             "http",
             "--host",
@@ -585,13 +585,13 @@ def _connect_molmo_server(
 
 
 def _molmo_clients(args: argparse.Namespace, rpc: RpcClient) -> dict[str, Any]:
-    from rpent.robots.components.molmo_client import MolmoClient
+    from components.models.molmo.client import MolmoClient
 
     clients = {}
     if getattr(args, "planner", None) == "flash":
         clients["molmo_client"] = MolmoClient(rpc)
     if getattr(args, "geometry", False):
-        from toolkits.geometry.local_point_agent import LocalPointAgent
+        from components.tools.rgbd.geometry.local_point_agent import LocalPointAgent
 
         clients["geometry_grounder"] = LocalPointAgent(
             MolmoClient(rpc, point_mode="native")
@@ -606,8 +606,8 @@ def _init_runtime(
     components: set[str] | None,
 ) -> tuple[list[ProcessDaemon], dict[str, Any]]:
     """Initialize every LIBERO component, or only ``components`` when given."""
+    from components.models.sam3.client import Sam3Client
     from robots.libero.env_client import LiberoEnvClient
-    from rpent.robots.components.sam3_client import Sam3Client
 
     am = select_am(args, "libero")
     wam = am if am.is_wam else None
