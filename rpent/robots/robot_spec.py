@@ -30,7 +30,7 @@ import argparse
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Protocol
 
 from rpent.dashboard.events import DashboardEventSink
 from rpent.dashboard.spec import DashboardSpec
@@ -38,6 +38,8 @@ from rpent.evaluation import RunFinalizer
 from rpent.robots.prompt_bundle import PromptBundle
 
 if TYPE_CHECKING:
+    from rpent.planner.base import Planner, PlannerResult
+    from rpent.tools.toolkit import Toolkit
     from rpent.utils.daemon import ProcessDaemon
 
 
@@ -50,6 +52,35 @@ class RunConfig:
     prompt_vars: dict[str, Any]
     task_desc: dict[str, Any]
     enable_direct_action: bool = False
+
+
+class EvaluationTrial(Protocol):
+    """Environment-owned lifecycle for one automatically measured TaskRun."""
+
+    started: bool
+    finished: bool
+
+    def start(self, runtime: dict[str, Any]) -> dict[str, Any]:
+        """Bind the reset episode and return runtime arguments for its toolkit."""
+        ...
+
+    def prepare_planner(self, planner: Planner) -> None:
+        """Attach per-episode accounting and apply remaining budgets."""
+        ...
+
+    def finalize(
+        self,
+        *,
+        toolkit: Toolkit | None = None,
+        drain: Callable[[], None] | None = None,
+        manual_intervention: Callable[[], bool] | None = None,
+        result: PlannerResult | None = None,
+        error: bool = False,
+        reason: str | None = None,
+        startup_error: BaseException | None = None,
+    ) -> None:
+        """Drain the executor and persist the attempt, including failure evidence."""
+        ...
 
 
 @dataclass(frozen=True)
@@ -106,3 +137,8 @@ class RobotSpec:
     #: Fields are ordered, with key paths relative to payload data. raw_dtype applies
     #: to native values; dtype_from selects an earlier field's dtype by index.
     flywheel: dict[str, Any] | None = None
+
+    #: Optional per-episode metrics adapter for unattended evaluation.
+    create_evaluation_trial: (
+        Callable[[argparse.Namespace, RunConfig], EvaluationTrial] | None
+    ) = None

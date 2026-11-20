@@ -225,6 +225,13 @@ def _run_dashboard_task(
     memory_manager = None
     environment_success = None
     environment_metrics: dict = {}
+    trial = (
+        robot_spec.create_evaluation_trial(task_args, run_config)
+        if getattr(robot_spec, "create_evaluation_trial", None)
+        and not task_args.explore
+        and not human_interactive_run
+        else None
+    )
     try:
         task_daemons, task_runtime_kwargs = robot_spec.init_runtime(
             task_args,
@@ -238,6 +245,8 @@ def _run_dashboard_task(
                 **shared_runtime_kwargs,
             }
             prompt_vars = {**run_config.prompt_vars, "output_dir": output_dir}
+            if trial is not None:
+                runtime_kwargs = trial.start(runtime_kwargs)
             # Refine the prompt with the connected task's own capabilities
             # before any render, so prompt and toolkit describe one tool set.
             if robot_spec.prepare_prompt_vars is not None:
@@ -353,13 +362,31 @@ def _run_dashboard_task(
                         dashboard_events=state,
                         no_images=args.no_images,
                     )
-                    result = planner.solve(
-                        system_prompt=system_prompt,
-                        user_message=session_message,
-                        toolkit=toolkit,
-                        max_turns=args.max_turns,
-                        dashboard_interaction=state,
-                    )
+                    try:
+                        if trial is not None:
+                            trial.prepare_planner(planner)
+                        result = planner.solve(
+                            system_prompt=system_prompt,
+                            user_message=session_message,
+                            toolkit=toolkit,
+                            max_turns=args.max_turns,
+                            dashboard_interaction=state,
+                        )
+                    finally:
+                        if trial is not None:
+                            cancelled = (
+                                state.task_replacement_requested
+                                or state.task_finalization_cancelled
+                            )
+                            trial.finalize(
+                                result=result,
+                                error=cancelled or sys.exc_info()[0] is not None,
+                                reason="operator_cancelled" if cancelled else None,
+                                drain=lambda: state.unbind_toolkit(toolkit),
+                                manual_intervention=lambda: (
+                                    state.manual_intervention or cancelled
+                                ),
+                            )
                     finish_result = result.finish_result
                     messages += result.messages
                     stats = result.stats
@@ -377,7 +404,8 @@ def _run_dashboard_task(
                             )
                 finally:
                     try:
-                        state.unbind_toolkit(toolkit)
+                        if trial is None or not trial.finished:
+                            state.unbind_toolkit(toolkit)
                         if robot_spec.finalize_run is not None:
                             toolkit.cancel_active_and_wait()
                             environment_success = bool(toolkit.solved())
@@ -427,7 +455,18 @@ def _run_dashboard_task(
     except Exception as exc:
         logger.error("EXCEPTION in Dashboard TaskRun %04d: %s", claimed.number, exc)
         agent_error = str(exc)
+        if trial is not None and not trial.started:
+            trial.finalize(error=True, startup_error=exc)
     finally:
+        if trial is not None and not trial.finished:
+            cancelled = (
+                state.task_replacement_requested or state.task_finalization_cancelled
+            )
+            trial.finalize(
+                error=True,
+                reason="operator_cancelled" if cancelled else None,
+                manual_intervention=lambda: state.manual_intervention or cancelled,
+            )
         if human_interactive_run and state.operator is not None:
             state.operator.close()
             state.operator = None

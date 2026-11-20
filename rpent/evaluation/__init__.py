@@ -19,5 +19,11 @@ from rpent.evaluation.result import (
     RunFinalizer,
     write_json_atomic,
 )
+from rpent.evaluation.trial import TrialRecorder
 
-__all__ = ["RunFinalizationContext", "RunFinalizer", "write_json_atomic"]
+__all__ = [
+    "RunFinalizationContext",
+    "RunFinalizer",
+    "TrialRecorder",
+    "write_json_atomic",
+]

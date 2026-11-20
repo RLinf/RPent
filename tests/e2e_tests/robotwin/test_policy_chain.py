@@ -25,7 +25,30 @@ from tests.e2e_tests.robotwin.scenario import RoboTwinScenario
 
 
 def test_policy_chain(robotwin_scenario: RoboTwinScenario) -> None:
-    publish_check("robotwin_policy_chain", robotwin_scenario.policy_chain)
+    chain = robotwin_scenario.policy_chain
+    publish_check("robotwin_policy_chain", chain)
+    run_dir = robotwin_scenario.output_dir / "policy-chain"
+    (metrics_path,) = (run_dir / "metrics").glob("*/episode_metrics.json")
+    metrics = json.loads(metrics_path.read_text())
+    transcript = json.loads((run_dir / chain["transcript"]).read_text())
+    assert metrics["native_verdict"] is transcript["environment_success"]
+    assert metrics["status"] == (
+        "success" if transcript["environment_success"] else "failure"
+    )
+    timing = metrics["timing"]
+    assert timing["run_s"] >= timing["stop_s"] >= 0
+    assert timing["tail_s"] == pytest.approx(timing["run_s"] - timing["stop_s"])
+    usage = metrics["token_ledger"]["entries"]
+    planner = [entry for entry in usage if entry["module"] == "planner"]
+    assert (
+        sum(entry["input_tokens"] for entry in planner)
+        == transcript["stats"]["total_input_tokens"]
+    )
+    assert (
+        sum(entry["output_tokens"] for entry in planner)
+        == transcript["stats"]["total_output_tokens"]
+    )
+    assert any(entry["module"] == "action_model" for entry in usage)
 
 
 @pytest.mark.timeout(1200)

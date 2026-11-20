@@ -500,27 +500,41 @@ def main() -> int:
     output_dir = init_output_dir(output_dir, verbose=args.verbose)
     logger.info("physical agent cmd: %s", shlex.join([sys.executable, *sys.argv]))
 
+    trial = (
+        robot_spec.create_evaluation_trial(args, run_config)
+        if getattr(robot_spec, "create_evaluation_trial", None)
+        and not args.explore
+        and not args.tui
+        else None
+    )
     prepare_run_memory(args, robot_spec, run_config)
 
     dashboard_events = NullDashboardEventSink()
 
-    planner = build_planner(
-        args.planner,
-        output_dir=output_dir,
-        recipe_tag=recipe_tag,
-        robot_name=robot_name,
-        memory_dir=prompt_vars.get("memory_dir"),
-        base_url=args.base_url,
-        model=args.model,
-        max_tokens=args.max_tokens,
-        planner_timeout_s=args.planner_timeout_s,
-        reasoning_effort=args.reasoning_effort,
-        codex_sandbox=args.codex_sandbox,
-        claude_code_max_budget_usd=args.claude_code_max_budget_usd,
-        dashboard_events=dashboard_events,
-        no_images=args.no_images,
-        interactive=args.tui,
-    )
+    try:
+        planner = build_planner(
+            args.planner,
+            output_dir=output_dir,
+            recipe_tag=recipe_tag,
+            robot_name=robot_name,
+            memory_dir=prompt_vars.get("memory_dir"),
+            base_url=args.base_url,
+            model=args.model,
+            max_tokens=args.max_tokens,
+            planner_timeout_s=args.planner_timeout_s,
+            reasoning_effort=args.reasoning_effort,
+            codex_sandbox=args.codex_sandbox,
+            claude_code_max_budget_usd=args.claude_code_max_budget_usd,
+            dashboard_events=dashboard_events,
+            no_images=args.no_images,
+            interactive=args.tui,
+        )
+    except Exception as exc:
+        if trial is not None:
+            trial.finalize(
+                error=True, startup_error=exc, reason="method_initialization_failed"
+            )
+        raise
     prompt_bundle = robot_spec.prompts
     prompt_vars = {**prompt_vars, "output_dir": output_dir}
     user_msg = prompt_bundle.render(
@@ -573,13 +587,20 @@ def main() -> int:
         await_first_prompt = start_first_prompt_resolver(input_queue)
 
     # --- initialise robot runtime --------------------------------------------
-    daemons, runtime_kwargs = robot_spec.init_runtime(
-        args,
-        output_dir,
-        dashboard_events,
-        None,
-    )
     try:
+        daemons, runtime_kwargs = robot_spec.init_runtime(
+            args,
+            output_dir,
+            dashboard_events,
+            None,
+        )
+    except Exception as exc:
+        if trial is not None:
+            trial.finalize(error=True, startup_error=exc)
+        raise
+    try:
+        if trial is not None:
+            runtime_kwargs = trial.start(runtime_kwargs)
         # Render the system prompt after the runtime so a robot can report the
         # capabilities of the connected task, not only the requested options.
         if robot_spec.prepare_prompt_vars is not None:
@@ -596,6 +617,8 @@ def main() -> int:
     except BaseException:
         # The agent-loop ``finally`` below stops the daemons. A prompt or hook
         # failure happens before it and must not leak the runtime.
+        if trial is not None:
+            trial.finalize(error=True)
         for daemon in daemons:
             daemon.stop()
         raise
@@ -695,6 +718,8 @@ def main() -> int:
                         instruction=session_msg,
                         config={"arguments": vars(args), "run": asdict(run_config)},
                     )
+                if trial is not None:
+                    trial.prepare_planner(planner)
                 result = planner.solve(
                     system_prompt=system_prompt,
                     user_message=session_msg,
@@ -702,6 +727,8 @@ def main() -> int:
                     max_turns=args.max_turns,
                     input_queue=input_queue,
                 )
+                if trial is not None:
+                    trial.finalize(toolkit=toolkit, result=result)
                 finish_result = result.finish_result
                 messages += result.messages
                 stats = result.stats
@@ -726,6 +753,12 @@ def main() -> int:
                 if operator_input is not None and input_queue is not None:
                     operator_input.bind_verdict(None)
                 try:
+                    if trial is not None:
+                        trial.finalize(
+                            toolkit=toolkit,
+                            result=result,
+                            error=sys.exc_info()[0] is not None,
+                        )
                     if robot_spec.finalize_run is not None:
                         toolkit.cancel_active_and_wait()
                         solved_fn = getattr(toolkit, "solved", None)
@@ -771,6 +804,8 @@ def main() -> int:
         agent_error = f"{type(exc).__name__}: {exc}"
         logger.error("EXCEPTION in agent loop: %s", agent_error)
     finally:
+        if trial is not None and not trial.finished:
+            trial.finalize(error=True)
         if operator_input is not None:
             operator_input.close()
         if recipe_path:

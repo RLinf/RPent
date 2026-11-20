@@ -54,13 +54,23 @@ from pydantic_ai import (
 )
 from pydantic_ai.agent import WrapperAgent
 from pydantic_ai.capabilities import AbstractCapability, Thinking, on_event
-from pydantic_ai.capabilities.abstract import AgentNode, NodeResult, WrapRunHandler
+from pydantic_ai.capabilities.abstract import (
+    AgentNode,
+    NodeResult,
+    WrapModelRequestHandler,
+    WrapRunHandler,
+)
 from pydantic_ai.exceptions import (
     UnexpectedModelBehavior,
     UsageLimitExceeded,
     UserError,
 )
-from pydantic_ai.messages import ModelMessage, UserContent, UserPromptPart
+from pydantic_ai.messages import (
+    ModelMessage,
+    ModelResponse,
+    UserContent,
+    UserPromptPart,
+)
 from pydantic_ai.models import Model, ModelRequestContext
 from pydantic_ai.run import AgentRun, AgentRunResult
 from pydantic_ai_harness.compaction import SlidingWindowCompaction
@@ -68,6 +78,7 @@ from pydantic_ai_harness.compaction import SlidingWindowCompaction
 from rpent.dashboard.events import DashboardEventSink, TranscriptEvent, UsageEvent
 from rpent.dashboard.interaction import DashboardInteractionPort, DashboardMessage
 from rpent.dashboard.planner_control import PlannerInteractionControl
+from rpent.evaluation.usage import TokenLedger
 from rpent.planner.base import (
     REASONING_EFFORTS,
     Planner,
@@ -75,6 +86,7 @@ from rpent.planner.base import (
     _wait_for_cleanup,
     cancel_and_wait,
     execute_tool,
+    remaining_planner_time,
 )
 from rpent.prompt.api import API_PLANNER_INSTRUCTIONS, render_environment_context
 from rpent.session.env_capture import current_tool_call
@@ -197,6 +209,11 @@ class ApiAgentLoop(Planner):
                     False if self.reasoning_effort == "none" else self.reasoning_effort
                 ),
                 session,
+                *(
+                    [_MeasureRequests(self.token_ledger)]
+                    if self.token_ledger is not None
+                    else []
+                ),
             ],
         )
         if interaction is not None:
@@ -212,7 +229,9 @@ class ApiAgentLoop(Planner):
         try:
             await asyncio.wait_for(
                 session.run(_ConversationAgent(agent), user_message),
-                timeout=None if self.interactive else self.timeout_s,
+                timeout=None
+                if self.interactive
+                else remaining_planner_time(self.timeout_s, self.trial_deadline),
             )
         except asyncio.TimeoutError:
             session.stop_reason = "timeout"
@@ -512,6 +531,55 @@ class _HarnessToolkit(FunctionToolset):
     @staticmethod
     def _text(result: ToolResult) -> str:
         return result.to_text()
+
+
+class _MeasureRequests(AbstractCapability):
+    """Read native usage once per SDK request, including interruptions and retries."""
+
+    def __init__(self, token_ledger: TokenLedger) -> None:
+        self.token_ledger = token_ledger
+
+    async def wrap_model_request(
+        self,
+        ctx: RunContext,
+        *,
+        request_context: ModelRequestContext,
+        handler: WrapModelRequestHandler,
+    ) -> ModelResponse:
+        response = None
+        try:
+            response = await handler(request_context)
+            return response
+        finally:
+            usage = response.usage if response is not None else None
+            # RequestUsage supplies zero defaults even where the provider
+            # omitted a field; the instance holds explicitly reported counters.
+            raw = (
+                {
+                    key: value
+                    for key, value in vars(usage).items()
+                    if "token" in key or (key == "details" and value)
+                }
+                if usage is not None
+                else {}
+            )
+            status = "failed"
+            if response is not None:
+                status = "completed" if response.state == "complete" else response.state
+            self.token_ledger.record_usage(
+                request_id=(response.provider_response_id if response else None)
+                or uuid4().hex,
+                model=(response.model_name if response else None)
+                or request_context.model.model_name,
+                provider=(response.provider_name if response else None)
+                or request_context.model.system,
+                module="planner",
+                stage="online_unattributed",
+                status=status,
+                input_tokens=raw.get("input_tokens"),
+                output_tokens=raw.get("output_tokens"),
+                raw_usage=raw,
+            )
 
 
 class _Session(AbstractCapability):

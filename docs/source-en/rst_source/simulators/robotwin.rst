@@ -421,3 +421,54 @@ Use ``--memory-repo owner/dataset@revision`` to select another dataset or revisi
 For offline evaluation, download the subtree first and use
 ``--memory-profile local --memory-dir <downloaded-corpus>`` without
 ``--memory-version``. The selected directory must retain the RoboTwin memory layout.
+
+Compare episode metrics
+-----------------------
+
+RoboTwin automatic evaluations save one versioned
+``metrics/<run_id>/episode_metrics.json`` under each run's output directory.
+Use the same task configuration, seed, instruction and physical and wall-clock
+budgets for each method. Set ``--trial-wall-s`` to cap online decision and
+execution time. Prepare the environment and model as described above.
+For a direct LingBot evaluation, run:
+
+.. code-block:: bash
+
+   python -m robots.robotwin.direct_eval --task-name beat_block_hammer \
+     --task-config demo_randomized --seed 100000 --max-episode-steps 240 \
+     --trial-wall-s 300 --output-dir runs/direct-vla
+
+Select the WAM with the same backend arguments as the planner CLI. The
+direct runner takes actions from the selected model. An agent evaluation
+uses the regular ``rpent --robot robotwin`` command.
+
+Declare the expected method and condition pairs in a JSON manifest before
+testing. For the command above, save the following as ``manifest.json``:
+
+.. code-block:: json
+
+   {"trials": [{"method": "direct_vla/lingbot", "task": "beat_block_hammer",
+     "scene": "demo_randomized", "seed": 100000,
+     "trial_id": "robotwin/demo_randomized/beat_block_hammer/100000",
+     "budget": {"max_episode_steps": 240, "wall_s": 300}}]}
+
+Run ``python -m rpent.evaluation.summary manifest.json runs summary.json``.
+Each task and scene reports native successes over valid trials. Method errors
+and timeouts count as failures. A documented infrastructure-invalid attempt
+can be replaced at the same seed. Missing or unresolved trials leave the
+method's overall score pending. To adjudicate an unresolved environment startup
+failure, add ``infrastructure_reviews`` to that manifest entry, mapping the
+original ``run_id`` to the verified infrastructure cause. Keep the original
+episode file alongside the replacement. The overall score weights scenes equally
+within each task, then weights tasks equally.
+
+``run_s`` measures elapsed monotonic time from the available instruction
+and initial observation until the executor confirms it has stopped. The
+summary gives the median and P90 with their sample counts. ``success_s``
+measures time to confirmed native success. When the environment is remote, the
+runner subtracts the server-reported age of the event from the local receipt
+time. This gives an upper bound that includes response transit. A missing stop confirmation leaves
+``run_s`` empty. Inspect the episode's ``token_ledger`` for model input and
+output, stage, source and coverage. Session totals retain their original
+granularity. The summary reports available subtotals from partially metered
+episodes separately. Continuous robot commands have no language token unit.

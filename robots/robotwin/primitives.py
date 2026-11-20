@@ -27,6 +27,7 @@ from robots.robotwin.env_client import RoboTwinEnvClient
 from robots.robotwin.robot_spec import MODEL_SPEC, ROBOTWIN_CAMERA_NAMES
 from robots.robotwin.vla_client import LingBotVLAClient
 from robots.robotwin.wam_client import RoboTwinWAMClient
+from rpent.evaluation.usage import TokenLedger
 from rpent.session.env_capture import CapturingEnvClient
 from rpent.tools import ToolResult, tool
 
@@ -58,6 +59,7 @@ class RoboTwinPrimitives:
         seed_mode: str = "exact",
         policy_kind: str = "vla",
         policy_backend: str = "lingbot",
+        token_ledger: TokenLedger | None = None,
     ):
         if seed_mode != "exact":
             raise ValueError("standard RoboTwin integration requires seed_mode='exact'")
@@ -65,6 +67,7 @@ class RoboTwinPrimitives:
         self.model = model
         self.policy_kind = policy_kind
         self.policy_backend = policy_backend
+        self.token_ledger = token_ledger
         self.seed = int(seed)
         self._check_cancelled = check_cancelled
         self.policy_actions = 0
@@ -314,11 +317,21 @@ class RoboTwinPrimitives:
                 else nullcontext()
             )
             with prediction:
-                actions = (
-                    self.model.predict(observation)
-                    if self.policy_kind == "wam"
-                    else self.model.infer(observation)
+                usage = (
+                    self.token_ledger.unmetered_call(
+                        model=self.policy_backend,
+                        module="action_model",
+                        stage="execution",
+                    )
+                    if self.token_ledger is not None
+                    else nullcontext()
                 )
+                with usage:
+                    actions = (
+                        self.model.predict(observation)
+                        if self.policy_kind == "wam"
+                        else self.model.infer(observation)
+                    )
                 if use_length is not None:
                     actions = actions[:use_length]
                 else:

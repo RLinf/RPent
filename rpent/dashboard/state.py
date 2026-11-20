@@ -234,6 +234,7 @@ class DashboardState:
         self._toolkit: Toolkit | None = None
         self._active_primitive_calls: dict[int, int] = {}
         self._manual_results: list[str] = []
+        self._manual_intervention = False
         self._explore_paused = False
         self._exploration_message: DashboardMessage | None = None
         self.operator: HumanInTheLoopInput | None = None
@@ -366,6 +367,7 @@ class DashboardState:
                 spec.get("input_schema"),
             )
             self._pause_exploration_locked()
+            self._manual_intervention = True
             toolkit_key = id(toolkit)
             self._active_primitive_calls[toolkit_key] = (
                 self._active_primitive_calls.get(toolkit_key, 0) + 1
@@ -419,6 +421,12 @@ class DashboardState:
     def session_state(self) -> str:
         with self._lock:
             return self._session_state
+
+    @property
+    def manual_intervention(self) -> bool:
+        """Whether operator input, interruption, or a manual primitive entered this task."""
+        with self._lock:
+            return self._manual_intervention
 
     @property
     def task_replacement_requested(self) -> bool:
@@ -726,6 +734,7 @@ class DashboardState:
         self._messages_by_id = {}
         self._next_pending_message_index = 0
         self._manual_results = []
+        self._manual_intervention = False
         self._explore_paused = False
         self._exploration_message = None
         self._last_interaction_error = None
@@ -864,6 +873,8 @@ class DashboardState:
                     + message.text
                 )
                 self._manual_results = []
+            if message is not self._exploration_message:
+                self._manual_intervention = True
             message.status = "sending"
             message.error = None
             self._interaction_changed_locked()
@@ -926,6 +937,7 @@ class DashboardState:
                 or self._task_state in TERMINAL_RUN_STATES
             ):
                 return "noop"
+            self._manual_intervention = True
             self._interrupt_requested = True
             self._interrupt_in_flight = False
             self._interaction_changed_locked()

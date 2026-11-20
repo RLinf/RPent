@@ -16,6 +16,7 @@
 
 from __future__ import annotations
 
+import time
 from copy import deepcopy
 from typing import Any, Literal
 
@@ -139,11 +140,21 @@ class RoboTwinAgentEnv(RoboTwinEnv):
         if actual_seed is None:
             actual_seed = getattr(sub_env, "env_seed", None)
         return {
-            "eval_success": bool(getattr(task, "eval_success", False)),
+            "eval_success": (
+                bool(task.eval_success)
+                if getattr(task, "eval_success", None) is not None
+                else None
+            ),
             "take_action_cnt": int(getattr(task, "take_action_cnt", 0)),
             "step_lim": int(step_limit) if step_limit is not None else None,
             "actual_seed": int(actual_seed),
         }
+
+    def episode_status(self, env_id: int = 0) -> dict[str, Any]:
+        """Read the native verdict after admitted actions have drained."""
+        sub_env = self._sub_env(env_id)
+        with sub_env.lock:
+            return self._episode_status(sub_env)
 
     def _snapshot_observation(self, sub_env: Any, native: dict) -> dict[str, Any]:
         """Snapshot native cameras and robot state while holding ``sub_env.lock``."""
@@ -162,6 +173,7 @@ class RoboTwinAgentEnv(RoboTwinEnv):
         action_type: RoboTwinActionType = "qpos",
         env_id: int = 0,
         return_all_frames: bool = False,
+        trial_deadline: float | None = None,
     ) -> tuple[list[Any], np.ndarray, np.ndarray, np.ndarray, list[dict[str, Any]]]:
         """Execute a chunk of native actions, returning a gym-style 5-tuple batched as ``[1, executed]``."""
         array = _validate_actions(actions, action_type=action_type)
@@ -172,6 +184,7 @@ class RoboTwinAgentEnv(RoboTwinEnv):
         per_step: list[dict[str, Any]] = []
         frames: list[dict[str, Any]] = []
         executed = 0
+        native_success_at = None
         with sub_env.lock:
             if return_all_frames:
                 before_observation = self._snapshot_observation(
@@ -179,7 +192,9 @@ class RoboTwinAgentEnv(RoboTwinEnv):
                 )
             for action in array:
                 status = self._episode_status(sub_env)
-                if _execution_should_stop(status):
+                if _execution_should_stop(status) or (
+                    trial_deadline is not None and time.monotonic() >= trial_deadline
+                ):
                     break
                 before = status["take_action_cnt"]
                 sub_env.task.take_action(action, action_type=action_type)
@@ -188,11 +203,13 @@ class RoboTwinAgentEnv(RoboTwinEnv):
                     break
                 executed += 1
                 step_status = self._episode_status(sub_env)
+                if step_status["eval_success"] is True and native_success_at is None:
+                    native_success_at = time.monotonic()
                 step_lim = step_status["step_lim"]
                 budget = (
                     step_lim is not None and step_status["take_action_cnt"] >= step_lim
                 )
-                rewards.append(float(step_status["eval_success"]))
+                rewards.append(float(bool(step_status["eval_success"])))
                 terminations.append(bool(step_status["eval_success"]))
                 truncations.append(bool(budget))
                 per_step.append(
@@ -221,6 +238,8 @@ class RoboTwinAgentEnv(RoboTwinEnv):
             "episode_status": episode_status,
             "per_step": per_step,
         }
+        if native_success_at is not None:
+            info["_native_success_at"] = native_success_at
         if return_all_frames:
             info["before_observation"] = before_observation
         return (
