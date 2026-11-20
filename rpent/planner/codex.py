@@ -59,6 +59,7 @@ from rpent.session.codex_capture import finalize_codex_capture
 from rpent.tools.toolkit import Toolkit
 from rpent.utils.config import get_repo_root
 from rpent.utils.logging import get_logger
+from rpent.utils.mcp_servers import ALL_TOOLS
 
 if TYPE_CHECKING:
     from rpent.utils.mcp_servers import McpServerSpec
@@ -810,8 +811,6 @@ def _codex_mcp_config_overrides(
                     "approve",
                 )
             )
-    from rpent.utils.mcp_servers import ALL_TOOLS
-
     for server in mcp_servers:
         if server.planner_tools is None:
             continue

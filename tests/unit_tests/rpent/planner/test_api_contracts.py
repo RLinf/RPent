@@ -50,8 +50,8 @@ from rpent.dashboard.events import RunStartedEvent, TranscriptEvent, UsageEvent
 from rpent.dashboard.state import DashboardState
 from rpent.planner.api_loop import (
     ApiAgentLoop,
-    _HarnessToolkit,
     _external_result_text,
+    _HarnessToolkit,
 )
 from rpent.prompt.api import API_PLANNER_INSTRUCTIONS, render_environment_context
 from rpent.session import EnvState, Payload

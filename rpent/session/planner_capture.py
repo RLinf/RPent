@@ -72,14 +72,21 @@ def task_config_snapshot(
     The payload is written to ``task.json`` and the Dashboard task record, so
     MCP header values are replaced with a placeholder: a site config resolves
     ``${oc.env:...}`` in ``headers`` at load time, and the result may be a
-    credential. Header names, URLs, and ``planner_tools`` are kept.
+    credential. Header names, URLs, and ``planner_tools`` are kept. Empty
+    server lists are omitted, so a run without external MCP servers keeps the
+    payload shape it had before the feature existed.
     """
     config = dict(arguments)
-    config["site_mcp_servers"] = [
-        public_spec(spec) for spec in config.get("site_mcp_servers", ())
-    ]
+    site_servers = [public_spec(spec) for spec in config.get("site_mcp_servers", ())]
+    if site_servers:
+        config["site_mcp_servers"] = site_servers
+    else:
+        config.pop("site_mcp_servers", None)
     run = asdict(run_config)
-    run["mcp_servers"] = [public_spec(spec) for spec in run_config.mcp_servers]
+    if run_config.mcp_servers:
+        run["mcp_servers"] = [public_spec(spec) for spec in run_config.mcp_servers]
+    else:
+        run.pop("mcp_servers", None)
     return {"arguments": config, "run": run}
 
 

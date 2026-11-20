@@ -34,6 +34,7 @@ from rpent.utils.config import (
     get_memory_dir,
     get_repo_root,
 )
+from rpent.utils.mcp_servers import ALL_TOOLS
 
 if TYPE_CHECKING:
     from pydantic_ai.models import Model
@@ -295,19 +296,12 @@ def check_planner_mcp_servers(
         declared tools, otherwise a message naming the first failure.
     """
     from rpent.tools.mcp_tools import list_remote_tools
-    from rpent.utils.mcp_servers import ALL_TOOLS
 
     for spec in mcp_servers:
         if spec.planner_tools is None:
             continue
         try:
             exposed = {tool.name for tool in list_remote_tools(spec)}
-        except ImportError as exc:
-            return (
-                "attaching external MCP servers requires the MCP client; "
-                'install it with `pip install "mcp"`: '
-                f"{exc}"
-            )
         except Exception as exc:  # noqa: BLE001 - reported, not raised
             return f"mcp_servers.{spec.name}: {type(exc).__name__}: {exc}"
         if spec.planner_tools != ALL_TOOLS:

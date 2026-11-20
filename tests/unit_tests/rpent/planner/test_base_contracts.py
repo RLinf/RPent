@@ -198,25 +198,6 @@ def test_check_planner_mcp_servers_resolves_env_headers(
     assert error is not None and "FACILITY_TOKEN" in error
 
 
-def test_check_planner_mcp_servers_reports_a_missing_client(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    from rpent.tools import mcp_tools
-    from rpent.utils.mcp_servers import McpServerSpec
-
-    def missing_client(spec):
-        raise ImportError("No module named 'mcp'")
-
-    monkeypatch.setattr(mcp_tools, "list_remote_tools", missing_client)
-
-    error = check_planner_mcp_servers(
-        (McpServerSpec(name="web", url="https://web.example/mcp", planner_tools="*"),)
-    )
-
-    # The install hint, not the bare ImportError, is what the run reports.
-    assert error is not None and 'pip install "mcp"' in error
-
-
 def test_check_planner_mcp_servers_requires_the_named_tools(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

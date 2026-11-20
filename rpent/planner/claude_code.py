@@ -63,6 +63,7 @@ from rpent.session.env_capture import ToolCallCapture
 from rpent.tools import Toolkit, ToolResult
 from rpent.utils.config import get_repo_root
 from rpent.utils.logging import get_logger, init_output_dir
+from rpent.utils.mcp_servers import ALL_TOOLS
 from rpent.utils.templates import substitute
 
 if TYPE_CHECKING:
@@ -680,8 +681,6 @@ def _external_mcp_config(
     Returns:
         ``(mcp_servers_entries, allowed_tool_names)``.
     """
-    from rpent.utils.mcp_servers import ALL_TOOLS
-
     servers: dict[str, Any] = {}
     allowed: list[str] = []
     for server in mcp_servers:

@@ -65,6 +65,10 @@ from pydantic_ai.models import Model, ModelRequestContext
 from pydantic_ai.run import AgentRun, AgentRunResult
 from pydantic_ai.tools import ToolDefinition
 from pydantic_ai.toolsets import AbstractToolset, ToolsetTool
+
+# Private pydantic-ai surface: the remote server validates arguments against
+# its own input schema, so this validator deliberately passes them through
+# instead of building a local model. Re-check it when pydantic-ai is upgraded.
 from pydantic_ai.toolsets.external import TOOL_SCHEMA_VALIDATOR
 from pydantic_ai_harness.compaction import SlidingWindowCompaction
 
@@ -91,6 +95,7 @@ from rpent.tools.mcp_tools import (
 )
 from rpent.tools.toolkit import Toolkit, ToolResult
 from rpent.utils.logging import get_logger
+from rpent.utils.mcp_servers import ALL_TOOLS
 from rpent.utils.templates import substitute
 
 if TYPE_CHECKING:
@@ -291,8 +296,6 @@ class ApiAgentLoop(Planner):
         same MCP client RPent uses for adoption, so every request keeps the
         ``MCP_CALL_TIMEOUT_S`` deadline.
         """
-        from rpent.utils.mcp_servers import ALL_TOOLS
-
         servers = [
             server for server in self.mcp_servers if server.planner_tools is not None
         ]

@@ -171,3 +171,24 @@ def test_task_config_snapshot_redacts_mcp_header_values(tmp_path) -> None:
         "X-Key": "FACILITY_KEY"
     }
     assert config["run"]["mcp_servers"][0]["planner_tools"] == ("read_power_meter",)
+
+
+def test_task_config_snapshot_omits_empty_mcp_lists(tmp_path) -> None:
+    from rpent.robots import RunConfig
+    from rpent.session.planner_capture import task_config_snapshot
+
+    run_config = RunConfig(
+        recipe_tag="run",
+        output_dir=tmp_path,
+        prompt_vars={},
+        task_desc={},
+    )
+
+    config = task_config_snapshot(
+        {"planner": "api", "site_mcp_servers": ()}, run_config
+    )
+
+    # A run without external MCP servers keeps the trajectory shape from before
+    # the feature existed.
+    assert "site_mcp_servers" not in config["arguments"]
+    assert "mcp_servers" not in config["run"]

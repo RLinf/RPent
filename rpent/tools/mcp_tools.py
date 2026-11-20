@@ -62,11 +62,6 @@ _JSON_TYPES: dict[str, Any] = {
     "boolean": bool,
 }
 
-_MCP_CLIENT_HINT = (
-    "adopting site MCP tools requires the MCP client; install it with "
-    '`pip install "mcp"`.'
-)
-
 
 def register_mcp_tools(
     toolkit: Toolkit,
@@ -90,15 +85,7 @@ def register_mcp_tools(
         ValueError: On an unknown server or tool name, a name that already
             belongs to the toolkit or another adopted server, or a tool the
             planner layer also attaches.
-        RuntimeError: If the MCP client dependency is missing.
     """
-    # Fail at toolkit construction with an install hint instead of on the
-    # first remote call.
-    try:
-        _mcp_client()
-    except ImportError as exc:
-        raise RuntimeError(_MCP_CLIENT_HINT) from exc
-
     by_name = {server.name: server for server in servers}
     unknown_servers = sorted(set(tools) - set(by_name))
     if unknown_servers:
@@ -295,12 +282,13 @@ def _call_remote_tool(spec: McpServerSpec, name: str, arguments: dict[str, Any])
 
 
 def _mcp_client() -> tuple[Any, Any]:
-    """Import the optional MCP client lazily.
+    """Import the MCP client lazily, so importing ``rpent`` stays light.
 
-    ``streamablehttp_client`` is the SDK's deprecated spelling; its
-    replacement, ``streamable_http_client``, takes headers only through a
-    pre-built ``httpx.AsyncClient`` and drops ``sse_read_timeout``, so the
-    idle-event-stream guard would need a hand-rolled client here.
+    ``mcp`` is a core dependency; this is an import-cost choice, not an
+    optional install. ``streamablehttp_client`` is the SDK's deprecated
+    spelling; its replacement, ``streamable_http_client``, takes headers only
+    through a pre-built ``httpx.AsyncClient`` and drops ``sse_read_timeout``,
+    so the idle-event-stream guard would need a hand-rolled client here.
     """
     from mcp import ClientSession
     from mcp.client.streamable_http import streamablehttp_client
