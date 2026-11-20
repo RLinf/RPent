@@ -48,6 +48,9 @@ These options control the planner, memory, output directory, and Dashboard.
    * - ``--planner-timeout-s``
      - ``—``
      - Defaults to ``CODEX_TIMEOUT_S`` (Codex) or ``GEMINI_CLI_TIMEOUT_S`` (Gemini CLI), then ``CELL_TIMEOUT_S``, then 1200 seconds; terminal interactive API/Claude sessions are exempt.
+   * - ``--codex-sandbox``
+     - ``full-access``
+     - Codex shell sandbox: ``read-only``, ``workspace-write``, or ``full-access``. Other planners ignore this flag.
    * - ``--base-url``
      - ``—``
      - ``api`` only: override the model endpoint. ``claude_code``, ``codex``, and ``gemini_cli`` use their existing backend configuration and reject this flag.
