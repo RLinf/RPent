@@ -46,6 +46,7 @@ from pydantic_core import to_jsonable_python
 from rpent.dashboard.events import RunStartedEvent, TranscriptEvent, UsageEvent
 from rpent.dashboard.state import DashboardState
 from rpent.planner.api_loop import ApiAgentLoop
+from rpent.planner.base import is_recoverable_planner_result
 from rpent.prompt.api import API_PLANNER_INSTRUCTIONS, render_environment_context
 from rpent.session import EnvState, Payload
 from rpent.tools import Toolkit, ToolResult, common
@@ -629,6 +630,7 @@ def test_token_limit_truncation_is_marked_for_recovery(
     assert requests == (2 if interactive else 1)
     assert result.error is not None
     assert result.error.startswith("planner response truncated (length): ")
+    assert is_recoverable_planner_result(result)
     assert (
         "Model token limit (8192) exceeded before any response was generated"
         in result.error
@@ -919,8 +921,20 @@ def test_task_replacement_cancels_and_drains_physical_work(
     assert result.finish_result is None
 
 
-def test_timeout_drains_physical_work_and_records_partial_history(tmp_path):
-    events = Events()
+@pytest.mark.parametrize("interactive", [False, True], ids=["cli", "dashboard"])
+@pytest.mark.parametrize("translate_cancel", [False, True], ids=["runtime", "sdk310"])
+def test_timeout_drains_physical_work_and_records_partial_history(
+    tmp_path, monkeypatch, interactive, translate_cancel
+):
+    if translate_cancel:
+        from pydantic_ai._cancel import RunCancellation
+
+        # Python 3.10 cannot distinguish token cancellation from a simultaneous
+        # external Task.cancel(), so the SDK translates both to RunCancelled.
+        monkeypatch.setattr(
+            RunCancellation, "resolve", lambda self: self.cancel_requested
+        )
+    events = dashboard(tmp_path) if interactive else Events()
     toolkit = capturing_toolkit(tmp_path, events)
     stopped = threading.Event()
 
@@ -938,10 +952,16 @@ def test_timeout_drains_physical_work_and_records_partial_history(tmp_path):
         yield tool("move")
 
     result, _, _ = solve(
-        tmp_path, FunctionModel(stream_function=stream), toolkit, events, timeout_s=0.15
+        tmp_path,
+        FunctionModel(stream_function=stream),
+        toolkit,
+        events,
+        timeout_s=0.15,
+        dashboard_interaction=events if interactive else None,
     )
     assert "timed out" in result.error
     assert result.stop_reason == "timeout"
+    assert is_recoverable_planner_result(result)
     call = toolkit.state.planner_records()[0].tool_calls[0]
     assert call.status == "cancelled" and call.ended_at is not None
     assert call.raw_result.data["data"]["code"] == "tool_cancelled"
@@ -950,6 +970,111 @@ def test_timeout_drains_physical_work_and_records_partial_history(tmp_path):
     assert result.messages[0] == {"role": "user", "content": "Do the task."}
     assert result.messages[1]["content"][0]["name"] == "move"
     json.dumps(result.messages)
+
+
+@pytest.mark.parametrize(
+    "failure",
+    [TimeoutError("provider TIMEOUT"), RuntimeError("fetch failed / TRANSPORT")],
+)
+def test_provider_failures_are_not_planner_deadlines(tmp_path, failure):
+    async def stream(messages, info):
+        raise failure
+        yield  # pragma: no cover
+
+    result, _, _ = solve(tmp_path, FunctionModel(stream_function=stream), timeout_s=10)
+    assert result.stop_reason == "planner_error"
+    assert not is_recoverable_planner_result(result)
+    assert str(failure) in result.error
+    assert "planner timed out" not in result.error
+
+
+def test_deadline_cleanup_failure_preserves_both_causes(tmp_path, monkeypatch):
+    toolkit = RobotToolkit(Events())
+
+    def fail_cleanup():
+        raise RuntimeError("toolkit cleanup failed")
+
+    monkeypatch.setattr(toolkit, "cancel_active_and_wait", fail_cleanup)
+
+    async def stream(messages, info):
+        await asyncio.Event().wait()
+        yield  # pragma: no cover
+
+    result, _, _ = solve(
+        tmp_path, FunctionModel(stream_function=stream), toolkit, timeout_s=0.05
+    )
+    assert result.stop_reason == "planner_error"
+    assert not is_recoverable_planner_result(result)
+    assert "planner timed out after 0.05s" in result.error
+    assert "toolkit cleanup failed" in result.error
+
+
+@pytest.mark.parametrize(
+    "drain_fails,consumer_fails", [(False, False), (False, True), (True, True)]
+)
+def test_dashboard_shutdown_joins_consumer_and_reports_failures(
+    tmp_path, monkeypatch, drain_fails, consumer_fails
+):
+    from rpent.dashboard.planner_control import PlannerInteractionControl
+    from rpent.planner.api_loop import _ConversationAgent
+
+    state = dashboard(tmp_path)
+    toolkit = RobotToolkit(state)
+    started = asyncio.Event()
+    consumers = []
+
+    async def consume(self, *args, **kwargs):
+        consumers.append(asyncio.current_task())
+        started.set()
+        try:
+            await asyncio.Event().wait()
+        except asyncio.CancelledError:
+            if consumer_fails:
+                raise RuntimeError("consumer shutdown failed") from None
+            raise
+
+    async def end_control(self, driver):
+        await started.wait()
+
+    def fail_drain():
+        raise RuntimeError("toolkit drain failed")
+
+    monkeypatch.setattr(_ConversationAgent, "run", consume)
+    monkeypatch.setattr(PlannerInteractionControl, "run", end_control)
+    if drain_fails:
+        monkeypatch.setattr(toolkit, "cancel_active_and_wait", fail_drain)
+
+    async def run():
+        planner = ApiAgentLoop(model=TestModel(), dashboard_events=state)
+        result = await planner._solve("system", "task", toolkit, 5, state)
+        assert len(consumers) == 1 and consumers[0].done()
+        return result
+
+    result = asyncio.run(run())
+    if not consumer_fails:
+        assert result.error is None
+        assert result.stop_reason == "stopped"
+        return
+    assert "consumer shutdown failed" in result.error
+    assert ("toolkit drain failed" in result.error) is drain_fails
+    assert result.stop_reason == "planner_error"
+    assert result.stop_info["cleanup_complete"] is False
+    assert not is_recoverable_planner_result(result)
+
+
+def test_provider_failure_during_deadline_keeps_timeout_diagnostic(tmp_path):
+    async def stream(messages, info):
+        try:
+            await asyncio.Event().wait()
+        except asyncio.CancelledError:
+            raise RuntimeError("provider shutdown failed") from None
+        yield  # pragma: no cover
+
+    result, _, _ = solve(tmp_path, FunctionModel(stream_function=stream), timeout_s=0.1)
+    assert result.stop_reason == "planner_error"
+    assert "planner timed out after 0.1s" in result.error
+    assert result.error.count("provider shutdown failed") == 1
+    assert not is_recoverable_planner_result(result)
 
 
 def test_native_terminal_preserves_completed_actions_after_model_failure(
@@ -1520,7 +1645,12 @@ def test_capture_non_streaming_model_request(tmp_path):
         ModelRequest(
             parts=[
                 UserPromptPart(
-                    ["hello", image, ImageUrl("https://example.com/image.png"), literal]
+                    [
+                        "hello",
+                        image,
+                        ImageUrl("https://example.com/image.png"),
+                        literal,
+                    ]
                 )
             ],
             metadata={"kind": "binary", "data": literal, "media_type": "image/png"},
@@ -1651,6 +1781,7 @@ def test_interrupted_tool_arguments_are_retained_without_execution(tmp_path):
         tmp_path, FunctionModel(stream_function=stream), toolkit, timeout_s=0.1
     )
     assert result.stop_reason == "timeout"
+    assert is_recoverable_planner_result(result)
     (record,) = toolkit.state.planner_records()
     assert record.status == "cancelled"
     (call,) = record.tool_calls

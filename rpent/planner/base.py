@@ -28,6 +28,8 @@ from urllib.parse import unquote, urlsplit, urlunsplit
 
 from rpent.dashboard.events import DashboardEventSink
 from rpent.dashboard.interaction import DashboardInteractionPort
+from rpent.planner.stop import STOP_CATEGORIES as STOP_CATEGORIES
+from rpent.planner.stop import normalize_stop_info as normalize_stop_info
 from rpent.tools.base import ToolResult
 from rpent.tools.toolkit import Toolkit
 from rpent.utils.config import (
@@ -133,7 +135,14 @@ class PlannerResult:
     planning without setting ``error``.
     """
 
-    __slots__ = ("finish_result", "messages", "stats", "error", "stop_reason")
+    __slots__ = (
+        "finish_result",
+        "messages",
+        "stats",
+        "error",
+        "stop_reason",
+        "stop_info",
+    )
 
     def __init__(
         self,
@@ -143,6 +152,7 @@ class PlannerResult:
         stats: dict | None = None,
         error: str | None = None,
         stop_reason: str | None = None,
+        stop_info: dict | None = None,
     ):
         """Initialize a serializable planner result."""
         self.finish_result = (
@@ -154,12 +164,29 @@ class PlannerResult:
         )  # {"total_input_tokens", "total_output_tokens", "turns_used", "tool_calls"}
         self.error = error  # str | None  — set when the planner raises
         self.stop_reason = stop_reason
+        self.stop_info = stop_info
 
 
 def is_recoverable_agent_error(agent_error: str | None) -> bool:
     """Whether the error allows a fresh exploration session."""
     lowered = (agent_error or "").lower()
     return "timed out" in lowered or "planner response truncated" in lowered
+
+
+def is_recoverable_planner_result(result: PlannerResult) -> bool:
+    """Require complete safety evidence when a backend supplies stop_info.
+
+    Older planners retain their existing text-based recovery contract.
+    """
+    stop_info = getattr(result, "stop_info", None)
+    if stop_info is not None:
+        return (
+            stop_info.get("execution_certain") is True
+            and stop_info.get("allow_new_session") is True
+            and stop_info.get("result_delivery_complete") is True
+            and stop_info.get("cleanup_complete") is True
+        )
+    return is_recoverable_agent_error(result.error)
 
 
 class Planner(ABC):

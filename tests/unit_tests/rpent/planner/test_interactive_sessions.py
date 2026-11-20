@@ -182,15 +182,22 @@ def test_queue_interrupt_and_continuation_share_one_session(
             events.append("agent_close")
 
         async def query(self, text):
-            await self.pending.put(Turn(text))
+            message = await anext(text)
+            turn = Turn(message["message"]["content"])
+            await self.pending.put((turn, message["uuid"]))
 
         async def receive_messages(self):
             while True:
-                turn = await self.pending.get()
+                turn, query_id = await self.pending.get()
                 status = await turn.result
                 yield {
                     "type": "ResultMessage",
+                    "subtype": "success",
                     "is_error": status == "interrupted",
+                    "terminal_reason": "aborted_tools"
+                    if status == "interrupted"
+                    else "completed",
+                    "user_message_uuid": query_id,
                 }
 
         async def interrupt(self):
@@ -335,7 +342,8 @@ def test_claude_confirmed_finish_does_not_send_pending_input(
             pass
 
         async def query(self, text):
-            queries.append(text)
+            message = await anext(text)
+            queries.append(message["message"]["content"])
 
         async def receive_messages(self):
             if channel == "terminal":
@@ -386,7 +394,10 @@ def test_claude_confirmed_finish_does_not_send_pending_input(
         ("startup_error", "RuntimeError: backend startup failed"),
         ("timeout", "test agent timed out after 0.05s"),
         ("cleanup_error", "Toolkit cleanup failed: <redacted>"),
-        ("both_errors", "RuntimeError: backend startup failed"),
+        (
+            "both_errors",
+            "RuntimeError: backend startup failed; Toolkit cleanup failed: <redacted>",
+        ),
         ("finish", None),
     ],
 )
@@ -410,6 +421,7 @@ def test_interactive_cleanup_and_finish_preserve_unsent_input(
 
     class Session:
         error = None
+        stop_reason = None
 
         def __init__(self, url, control, emit):
             self.control, self.emit = control, emit
@@ -448,7 +460,7 @@ def test_interactive_cleanup_and_finish_preserve_unsent_input(
         if outcome in {"cleanup_error", "both_errors"}:
             raise RuntimeError("private-key-value")
 
-    error = asyncio.run(
+    error, stop_reason = asyncio.run(
         interactive.run_agent(
             prompt="initial",
             toolkit=SimpleNamespace(
@@ -471,6 +483,9 @@ def test_interactive_cleanup_and_finish_preserve_unsent_input(
         expected_events.append("agent_close")
     assert events == [*expected_events, "mcp_stop"]
     assert error == expected_error
+    assert stop_reason == (
+        "timeout" if outcome == "timeout" else "planner_error" if error else "finish"
+    )
     assert dashboard.planner_activity == "ended"
     assert "private-key-value" not in caplog.text
     for path in (artifacts.output_path, artifacts.raw_stream_path):

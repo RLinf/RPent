@@ -29,6 +29,7 @@ from openai_codex import JsonRpcError, TransportClosedError
 import rpent.planner.codex as codex_module
 import rpent.planner.utils.agent_session as interactive_module
 from rpent.dashboard.events import TranscriptEvent, UsageEvent
+from rpent.planner.base import is_recoverable_planner_result
 from rpent.planner.codex import (
     PROVIDER_ENV_KEY,
     PROVIDER_ID,
@@ -204,6 +205,7 @@ def test_trace_root_is_scoped_to_each_captured_solve(
         return_value=SimpleNamespace(
             run=AsyncMock(return_value=None),
             close=AsyncMock(return_value=None),
+            stop_reason="completed",
             error=None,
         )
     )
@@ -309,11 +311,10 @@ def test_exit_closes_session_before_trace_import(
     else:
         result = planner.solve(**kwargs)
         assert result.error == (
-            "RuntimeError: backend failed"
-            if outcome == "error"
-            else "Codex SDK timed out after 1s"
+            "RuntimeError: backend failed" if outcome == "error" else "TimeoutError: "
         )
-        assert result.stop_reason == ("timeout" if outcome == "timeout" else None)
+        assert result.stop_reason == "planner_error"
+        assert not is_recoverable_planner_result(result)
         assert result.stats["codex_trace"]["bundles"] == 0
     importer.assert_called_once()
     assert cleanup == [(1, 1, True, "running")]
@@ -744,7 +745,12 @@ def test_cli_interrupts_once_at_tool_only_response_budget(tmp_path, monkeypatch)
                 yield event
         yield {
             "method": "turn/completed",
-            "payload": {"turn": {"status": "interrupted"}},
+            "payload": {
+                "turn": {
+                    "status": "interrupted",
+                    "error": {"message": "interrupted model"},
+                }
+            },
         }
 
     monkeypatch.setattr(FakeTurn, "stream", stream)
@@ -754,6 +760,8 @@ def test_cli_interrupts_once_at_tool_only_response_budget(tmp_path, monkeypatch)
         toolkit=FakeToolkit(),
         max_turns=2,
     )
+    assert result.stop_reason == "budget"
+    assert result.stats["interruption_diagnostics"] == ["interrupted model"]
     assert result.stats["turns_used"] == 2
     assert result.stats["tool_calls"] == 4
     assert result.stats["total_input_tokens"] == 20
@@ -761,6 +769,29 @@ def test_cli_interrupts_once_at_tool_only_response_budget(tmp_path, monkeypatch)
     assert FakeCodex.instances[0].closed
     assert FakeMcpServer.instances[0].stopped
     assert result.error is None
+
+
+@pytest.mark.parametrize(
+    "status,expected_reason",
+    [("interrupted", "planner_error"), ("completed", "completed")],
+)
+def test_codex_terminal_without_local_interrupt(
+    tmp_path, monkeypatch, status, expected_reason
+):
+    install_fake_backend(monkeypatch)
+    terminal = {"status": status}
+    if status == "interrupted":
+        terminal["error"] = {"message": "interrupted model"}
+    FakeCodex.events = [{"method": "turn/completed", "payload": {"turn": terminal}}]
+    result = make_planner(tmp_path, RecordingSink()).solve(
+        system_prompt="",
+        user_message="task",
+        toolkit=FakeToolkit(),
+        max_turns=2,
+    )
+    assert result.stop_reason == expected_reason
+    assert result.error == ("interrupted model" if status == "interrupted" else None)
+    assert "interruption_diagnostics" not in result.stats
 
 
 def test_cli_keeps_finish_at_the_response_budget(tmp_path, monkeypatch):
@@ -777,6 +808,7 @@ def test_cli_keeps_finish_at_the_response_budget(tmp_path, monkeypatch):
     )
     assert result.stats["turns_used"] == 1
     assert result.finish_result["status"] == "stuck"
+    assert result.stop_reason == "finish"
     assert FakeCodex.instances[0].thread.fake_turn.interrupt_calls == 0
     assert FakeCodex.instances[0].closed
     assert FakeMcpServer.instances[0].stopped
@@ -836,6 +868,7 @@ def test_cli_budget_interrupt_preserves_terminal_status(
         max_turns=1,
     )
     assert result.error == expected_error
+    assert result.stop_reason == ("planner_error" if expected_error else "budget")
     assert result.stats["turns_used"] == 1
     assert FakeCodex.instances[0].thread.fake_turn.interrupt_calls == 1
     assert FakeCodex.instances[0].closed
@@ -1095,10 +1128,11 @@ def test_fake_codex_backend_failure_stops_mcp_server(
     assert state.get_task().status == "running"
 
 
+@pytest.mark.parametrize("sdk_close_fails", [False, True])
 @pytest.mark.parametrize("interactive", [False, True])
 @pytest.mark.parametrize("initializing", [False, True])
 def test_timeout_interrupts_and_drains_turn_before_closing(
-    tmp_path, monkeypatch, interactive, initializing
+    tmp_path, monkeypatch, interactive, initializing, sdk_close_fails
 ):
     install_fake_backend(monkeypatch)
     stopped = asyncio.Event()
@@ -1120,6 +1154,8 @@ def test_timeout_interrupts_and_drains_turn_before_closing(
     async def close(self):
         events.append("close")
         self.closed = True
+        if sdk_close_fails:
+            raise RuntimeError("SDK close failed")
 
     async def thread_start(self, **options):
         await asyncio.Event().wait()
@@ -1149,8 +1185,11 @@ def test_timeout_interrupts_and_drains_turn_before_closing(
         max_turns=1,
         input_queue=queue.Queue() if interactive else None,
     )
-    assert result.error == "Codex SDK timed out after 0.05s"
-    assert result.stop_reason == "timeout"
+    assert result.error == "Codex SDK timed out after 0.05s" + (
+        "; Session cleanup failed: SDK close failed" if sdk_close_fails else ""
+    )
+    assert result.stop_reason == ("planner_error" if sdk_close_fails else "timeout")
+    assert is_recoverable_planner_result(result) is (not sdk_close_fails)
     assert events == (
         ["close", "import"]
         if initializing
@@ -1158,6 +1197,91 @@ def test_timeout_interrupts_and_drains_turn_before_closing(
     )
     assert FakeMcpServer.instances[0].stopped is True
     assert toolkit.cancel_calls == 1
+
+
+@pytest.mark.parametrize(
+    "failure",
+    [TimeoutError("provider TIMEOUT"), RuntimeError("fetch failed / TRANSPORT")],
+)
+def test_provider_failures_are_not_planner_deadlines(tmp_path, monkeypatch, failure):
+    install_fake_backend(monkeypatch)
+    monkeypatch.setattr(FakeCodex, "thread_start", AsyncMock(side_effect=failure))
+    result = make_planner(tmp_path, RecordingSink()).solve(
+        system_prompt="", user_message="task", toolkit=FakeToolkit(), max_turns=1
+    )
+    assert result.stop_reason == "planner_error"
+    assert not is_recoverable_planner_result(result)
+    assert result.error == f"{type(failure).__name__}: {failure}"
+    assert FakeCodex.instances[0].closed
+    assert FakeMcpServer.instances[0].stopped
+
+
+@pytest.mark.parametrize("stage", ["toolkit", "session", "mcp", "cancelled_task"])
+def test_deadline_cleanup_failure_preserves_both_causes(tmp_path, monkeypatch, stage):
+    install_fake_backend(monkeypatch)
+
+    async def run(prompt):
+        try:
+            await asyncio.Event().wait()
+        finally:
+            if stage == "cancelled_task":
+                raise RuntimeError("cleanup failed: drain failed")
+
+    session = SimpleNamespace(run=run, close=AsyncMock(), error=None)
+    monkeypatch.setattr(codex_module, "_CodexSession", Mock(return_value=session))
+    toolkit = FakeToolkit()
+    failure = RuntimeError("drain failed")
+    if stage == "toolkit":
+        monkeypatch.setattr(
+            toolkit, "cancel_active_and_wait", Mock(side_effect=failure)
+        )
+    elif stage == "session":
+        session.close.side_effect = failure
+    elif stage == "mcp":
+        monkeypatch.setattr(FakeMcpServer, "stop", Mock(side_effect=failure))
+    result = make_planner(tmp_path, RecordingSink(), timeout_s=0.01).solve(
+        system_prompt="", user_message="task", toolkit=toolkit, max_turns=1
+    )
+    assert result.stop_reason == "planner_error"
+    assert not is_recoverable_planner_result(result)
+    assert "Codex SDK timed out after 0.01s" in result.error
+    assert "cleanup failed: drain failed" in result.error
+    session.close.assert_awaited_once()
+
+
+def test_provider_error_before_deadline_is_not_lost(tmp_path, monkeypatch):
+    install_fake_backend(monkeypatch)
+    stopped = asyncio.Event()
+
+    async def stream(self):
+        yield {
+            "method": "error",
+            "payload": {"message": "TRANSPORT", "will_retry": False},
+        }
+        await stopped.wait()
+        yield {
+            "method": "turn/completed",
+            "payload": {
+                "turn": {
+                    "status": "interrupted",
+                    "error": {"message": "interrupted model"},
+                }
+            },
+        }
+
+    async def interrupt(self):
+        stopped.set()
+
+    monkeypatch.setattr(FakeTurn, "stream", stream)
+    monkeypatch.setattr(FakeTurn, "interrupt", interrupt)
+    result = make_planner(tmp_path, RecordingSink(), timeout_s=0.05).solve(
+        system_prompt="", user_message="task", toolkit=FakeToolkit(), max_turns=2
+    )
+    assert result.stop_reason == "planner_error"
+    assert not is_recoverable_planner_result(result)
+    assert result.stats["interruption_diagnostics"] == ["interrupted model"]
+    assert "TRANSPORT" in result.error
+    assert "Codex SDK timed out after 0.05s" in result.error
 
 
 def test_queue_and_dashboard_are_rejected_before_mcp_construction(

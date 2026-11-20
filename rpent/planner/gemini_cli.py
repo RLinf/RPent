@@ -162,7 +162,7 @@ class GeminiCliPlanner(Planner):
                     redact=redact,
                 )
 
-            error = await run_agent(
+            error, stop_reason = await run_agent(
                 prompt=prompt,
                 toolkit=toolkit,
                 artifacts=artifacts,
@@ -186,6 +186,7 @@ class GeminiCliPlanner(Planner):
             finish_result=recorder.finish_result,
             final_response=recorder.final_response,
             stats=recorder.stats(),
+            stop_reason=stop_reason,
             error=error,
             stderr_path=stderr_path,
         )
@@ -224,6 +225,7 @@ class _GeminiSession:
         self._stderr_task: asyncio.Task | None = None
         self._closing = False
         self.error: str | None = None
+        self.stop_reason: str | None = None
 
     async def run(self, prompt: str) -> None:
         from acp import PROTOCOL_VERSION, spawn_agent_process
@@ -258,6 +260,7 @@ class _GeminiSession:
         if not self._done.is_set():
             raise RuntimeError("Cannot submit while a Gemini prompt is active")
         self._done = asyncio.Event()
+        self.stop_reason = None
         self._emit({"type": "acp_prompt"})
         self._task = asyncio.create_task(self._consume_prompt(message.text, self._done))
         return 1
@@ -276,6 +279,11 @@ class _GeminiSession:
                     **jsonable(response, by_alias=True),
                 }
             )
+            self.stop_reason = {
+                "max_turn_requests": "budget",
+                "max_tokens": "budget",
+                "end_turn": "completed",
+            }.get(response.stop_reason, response.stop_reason)
             done.set()
             if self._closing or self._control is None:
                 return
@@ -327,8 +335,11 @@ class _GeminiSession:
         self._closing = True
         try:
             if self._task is not None:
-                with contextlib.suppress(Exception):
+                try:
                     await self.interrupt()
+                except Exception as exc:
+                    failure = self._redact(f"Prompt interruption failed: {exc}")
+                    self.error = f"{self.error}; {failure}" if self.error else failure
                 if not self._task.done():
                     self._task.cancel()
                 with contextlib.suppress(asyncio.CancelledError, Exception):

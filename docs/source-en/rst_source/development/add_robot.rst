@@ -446,14 +446,22 @@ Optional Run-result Finalizer
 -----------------------------
 
 ``RobotSpec.finalize_run`` is a universal, robot-agnostic end-of-run hook.
-RoboCasa is its current consumer and uses it to record per-cell evaluation
-results for later statistics and aggregation. Any robot that publishes
+It records per-cell evaluation results for later statistics and aggregation.
+Any robot that publishes
 machine-readable evaluation artifacts may register the hook. The default is
-``None`` and leaves the runner unchanged. When the hook is present, the normal
-terminal runner captures ``toolkit.solved()`` before closing the toolkit, then
-passes a structured ``RunFinalizationContext`` to the hook after runtime
+``None`` and leaves the runner unchanged. When the hook is present, terminal
+and Dashboard runners capture ``toolkit.solved()`` before closing the toolkit, then
+pass a structured ``RunFinalizationContext`` to the hook after runtime
 cleanup. The hook owns the artifact schema and filename; RPent only defines the
 lifecycle boundary.
+
+``RunFinalizationContext.stop_reason`` and ``stop_info`` carry the planner's
+optional reason and structured stop evidence separately from usage statistics.
+``cancelled_reason`` carries runner cancellation, such as replacing a Dashboard
+task. Result writers should preserve backend evidence and resolve the final
+category consistently with trajectory capture. LIBERO keeps native success,
+accepted finish, and operator verdict separate in ``result.json``; a planner's
+finish does not establish environment success.
 
 Use ``write_json_atomic`` when the artifact is JSON so an interrupted write
 cannot leave a partial result:
@@ -472,10 +480,9 @@ cannot leave a partial result:
            },
        )
 
-Register the callback as ``RobotSpec(..., finalize_run=_finalize_run)``. This
-hook is currently limited to normal terminal runs; the Dashboard does not call
-it. Keep benchmark manifests, robot-specific runtime fields, and aggregation
-logic in the robot package rather than the shared CLI.
+Register the callback as ``RobotSpec(..., finalize_run=_finalize_run)``. Keep
+benchmark manifests, robot-specific runtime fields, and aggregation logic in
+the robot package rather than the shared CLI.
 
 .. _add-robot-testing:
 

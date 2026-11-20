@@ -173,17 +173,20 @@ async def run_agent(
     redact: Callable[[str], str] = str,
     tool_event: Callable[[str, dict[str, Any], ToolResult], dict[str, Any]]
     | None = None,
-) -> str | None:
+) -> tuple[str | None, str | None]:
     """Own one agent session, optional input, artifacts, and MCP server.
 
     The factory receives the MCP URL, shared controller, and event callback.
     Without input, the controller is None and the session runs one turn.
-    Its session implements run, submit, interrupt, close, and an error field.
+    Its session exposes run, submit, interrupt, close, error, and stop_reason.
     Toolkit cancellation always precedes backend interruption and shutdown.
+    Returns the diagnostic and explicit termination reason, without treating
+    provider TimeoutError exceptions as the configured planner deadline.
     """
     terminal = TerminalInteraction(input_queue) if input_queue is not None else None
     port = terminal if terminal is not None else interaction
     error: str | None = None
+    stop_reason: str | None = None
     session = None
     reader = None
     session_task = None
@@ -256,40 +259,61 @@ async def run_agent(
                 return_when=asyncio.FIRST_COMPLETED,
             )
             if not done:
-                raise asyncio.TimeoutError
-            if session_task in done:
-                await session_task
-            error = session.error
-        except asyncio.TimeoutError:
-            error = f"{label} timed out after {timeout_s}s"
-            artifacts.stop_reason = "timeout"
+                stop_reason = "timeout"
+                error = f"{label} timed out after {timeout_s}s"
+            else:
+                if session_task in done:
+                    await session_task
+                error = session.error
+                if error:
+                    stop_reason = "planner_error"
+                elif recorder.finish_result is not None:
+                    stop_reason = "finish"
+                elif session_task in done:
+                    stop_reason = session.stop_reason
         except Exception as exc:
+            stop_reason = "planner_error"
             error = redact(f"{type(exc).__name__}: {exc}")
         finally:
             if control is not None:
                 control.end()
+            failures = []
             try:
                 await cancel_and_wait(toolkit.cancel_active_and_wait)
             except Exception as exc:
-                error = error or redact(f"Toolkit cleanup failed: {exc}")
+                failures.append(redact(f"Toolkit cleanup failed: {exc}"))
             try:
                 if session is not None:
                     await session.close()
-                    error = error or session.error
             except Exception as exc:
-                error = error or redact(f"Session cleanup failed: {exc}")
+                failures.append(redact(f"Session cleanup failed: {exc}"))
             finally:
                 tasks = [
                     task for task in (session_task, finish_waiter) if task is not None
                 ]
                 for task in tasks:
                     task.cancel()
-                await asyncio.gather(*tasks, return_exceptions=True)
-                await asyncio.to_thread(server.stop)
+                outcomes = await asyncio.gather(*tasks, return_exceptions=True)
+                failures.extend(
+                    redact(f"{type(outcome).__name__}: {outcome}")
+                    for outcome in outcomes
+                    if isinstance(outcome, Exception)
+                )
+                if session is not None and session.error:
+                    failures.append(session.error)
+                try:
+                    await asyncio.to_thread(server.stop)
+                except Exception as exc:
+                    failures.append(redact(f"MCP cleanup failed: {exc}"))
                 if reader is not None:
                     with contextlib.suppress(asyncio.CancelledError):
                         await reader
+                if failures:
+                    stop_reason = "planner_error"
+                    error = "; ".join(
+                        dict.fromkeys(item for item in [error, *failures] if item)
+                    )
         if error:
             output.write(f"\n[{artifacts.backend}] {error}\n")
             write_jsonl(raw, {"type": "error", "message": error})
-    return error
+    return error, stop_reason

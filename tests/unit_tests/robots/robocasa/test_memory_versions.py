@@ -196,7 +196,12 @@ def test_dashboard_uses_each_claimed_model(tmp_path, monkeypatch, hub):
     error = dashboard._run_dashboard_task(
         args=args,
         robot_spec=replace(spec, init_runtime=init_runtime),
-        state=SimpleNamespace(task_replacement_requested=False),
+        state=SimpleNamespace(
+            task_replacement_requested=False,
+            task_finalization_cancelled=False,
+            session_state="task_starting",
+            operator_verdict=None,
+        ),
         claimed=ClaimedTask(
             number=1,
             request={

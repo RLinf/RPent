@@ -30,6 +30,7 @@ from mcp.shared.memory import create_connected_server_and_client_session
 
 from rpent.dashboard.events import TranscriptEvent, UsageEvent
 from rpent.memory import MemoryManager
+from rpent.planner.base import is_recoverable_planner_result
 from rpent.planner.claude_code import (
     ClaudeCodePlanner,
     _build_rpent_server,
@@ -399,6 +400,9 @@ def test_fake_sdk_failure_and_timeout_are_returned(
 
     assert failure.error == "RuntimeError: sdk unavailable"
     assert timeout.error == "Claude Agent SDK timed out after 0.01s"
+    assert timeout.stop_reason == "timeout"
+    assert is_recoverable_planner_result(timeout)
+    assert failure.stop_reason == "planner_error"
     assert slow_stream_closed is True
 
 
@@ -437,6 +441,55 @@ def test_noninteractive_timeout_cancels_active_toolkit_work(
     assert toolkit.cancel_calls == 1
 
 
+@pytest.mark.parametrize(
+    "failure",
+    [TimeoutError("provider TIMEOUT"), RuntimeError("fetch failed / TRANSPORT")],
+)
+def test_provider_failures_are_not_planner_deadlines(tmp_path, monkeypatch, failure):
+    patch_sdk_surface(monkeypatch, FakeSdkTools())
+
+    async def stream(**kwargs):
+        raise failure
+        yield  # pragma: no cover
+
+    patch_client_stream(monkeypatch, stream)
+    result = make_planner(tmp_path, RecordingSink()).solve(
+        system_prompt="", user_message="task", toolkit=FakeToolkit(), max_turns=1
+    )
+    assert result.stop_reason == "planner_error"
+    assert not is_recoverable_planner_result(result)
+    assert result.error == f"{type(failure).__name__}: {failure}"
+
+
+@pytest.mark.parametrize("stage", ["toolkit", "stream"])
+def test_deadline_cleanup_failure_preserves_both_causes(tmp_path, monkeypatch, stage):
+    patch_sdk_surface(monkeypatch, FakeSdkTools())
+
+    async def stream(**kwargs):
+        try:
+            await asyncio.Event().wait()
+            yield  # pragma: no cover
+        finally:
+            if stage == "stream":
+                raise RuntimeError("stream cleanup failed: drain failed")
+
+    patch_client_stream(monkeypatch, stream)
+    toolkit = FakeToolkit()
+    if stage == "toolkit":
+        monkeypatch.setattr(
+            toolkit,
+            "cancel_active_and_wait",
+            Mock(side_effect=RuntimeError("drain failed")),
+        )
+    result = make_planner(tmp_path, RecordingSink(), timeout_s=0.01).solve(
+        system_prompt="", user_message="task", toolkit=toolkit, max_turns=1
+    )
+    assert result.stop_reason == "planner_error"
+    assert not is_recoverable_planner_result(result)
+    assert "Claude Agent SDK timed out after 0.01s" in result.error
+    assert "cleanup failed: drain failed" in result.error
+
+
 def test_stateful_sdk_driver_drains_tools_before_closing_tasks_and_client():
     events = []
 
@@ -451,7 +504,8 @@ def test_stateful_sdk_driver_drains_tools_before_closing_tasks_and_client():
             events.append("client-exit")
 
         async def query(self, text):
-            events.append(f"query:{text}")
+            message = await anext(text)
+            events.append(f"query:{message['message']['content']}")
 
         async def receive_messages(self):
             events.append("consumer-started")
@@ -784,7 +838,9 @@ def test_claude_interrupt_waits_for_old_results_before_next_query():
                 pass
 
             async def query(self, text):
-                queries.append(text)
+                message = await anext(text)
+                self.query_id = message["uuid"]
+                queries.append(message["message"]["content"])
 
             async def interrupt(self):
                 acknowledged.set()
@@ -815,11 +871,12 @@ def test_claude_interrupt_waits_for_old_results_before_next_query():
             def end(self):
                 pass
 
+        recorder = _Recorder(max_turns=3, dashboard_events=RecordingSink())
         driver = _ClaudeSessionDriver(
             sdk=Sdk(),
             options={},
-            recorder=_Recorder(max_turns=3, dashboard_events=RecordingSink()),
-            emit=lambda message: None,
+            recorder=recorder,
+            emit=recorder.observe,
             toolkit=FakeToolkit(),
             control=Control(),
         )
@@ -828,15 +885,55 @@ def test_claude_interrupt_waits_for_old_results_before_next_query():
             await asyncio.wait_for(acknowledged.wait(), timeout=2)
             assert not interrupted.is_set()
             assert queries == ["initial"]
-            await messages.put({"type": "ResultMessage"})
+            await messages.put(
+                {
+                    "type": "ResultMessage",
+                    "subtype": "success",
+                    "is_error": True,
+                    "terminal_reason": "aborted_streaming",
+                    "user_message_uuid": client.query_id,
+                    "result": "interrupted model",
+                }
+            )
             await asyncio.wait_for(running, timeout=2)
             assert interrupted.is_set()
+            assert recorder.error is None
+            assert recorder.stats()["interruption_diagnostics"] == ["aborted_streaming"]
             assert queries == ["initial", "follow-up"]
         finally:
             running.cancel()
             await asyncio.gather(running, return_exceptions=True)
 
     asyncio.run(scenario())
+
+
+@pytest.mark.parametrize(
+    "change",
+    [
+        {"terminal_reason": None},
+        {"api_error_status": 429},
+        {"errors": ["provider failed"]},
+        {"user_message_uuid": "previous-query"},
+        {"user_message_uuid": None, "origin": {"kind": "task-notification"}},
+        {"user_message_uuid": None},
+    ],
+)
+def test_interrupt_does_not_hide_unconfirmed_or_provider_errors(change):
+    recorder = _Recorder(max_turns=1, dashboard_events=RecordingSink())
+    recorder.query_id = "active"
+    recorder.interrupt_requested = True
+    recorder.observe(
+        {
+            "type": "ResultMessage",
+            "subtype": "error_during_execution",
+            "is_error": True,
+            "terminal_reason": "aborted_streaming",
+            "user_message_uuid": "active",
+            **change,
+        }
+    )
+    assert recorder.error
+    assert "interruption_diagnostics" not in recorder.stats()
 
 
 @pytest.mark.parametrize(
@@ -899,12 +996,34 @@ def test_finish_uses_actual_tool_verdict(tmp_path, monkeypatch, verdict):
     assert toolkit.cancel_calls == 1
 
 
-def test_noninteractive_client_stops_at_first_result(tmp_path, monkeypatch):
+@pytest.mark.parametrize(
+    "subtype,errors,expected_reason",
+    [
+        ("success", [], "completed"),
+        ("error_max_turns", ["Reached maximum number of turns (3)"], "budget"),
+        ("error_max_budget_usd", ["Reached maximum budget ($2.5)"], "budget"),
+        (
+            "error_max_turns",
+            ["Reached maximum number of turns (3)", "provider failed"],
+            "planner_error",
+        ),
+        ("error_max_budget_usd", ["Session cost is not a number"], "planner_error"),
+        ("error_during_execution", ["provider failed"], "planner_error"),
+    ],
+)
+def test_noninteractive_client_stops_at_first_result(
+    tmp_path, monkeypatch, subtype, errors, expected_reason
+):
     fake_sdk = FakeSdkTools()
     patch_sdk_surface(monkeypatch, fake_sdk)
 
     async def stream(**kwargs):
-        yield {"type": "ResultMessage", "subtype": "success"}
+        yield {
+            "type": "ResultMessage",
+            "subtype": subtype,
+            "is_error": subtype != "success",
+            "errors": errors,
+        }
         pytest.fail("A non-interactive task must not wait for another user turn")
 
     patch_client_stream(monkeypatch, stream)
@@ -914,7 +1033,8 @@ def test_noninteractive_client_stops_at_first_result(tmp_path, monkeypatch):
         toolkit=FakeToolkit(),
         max_turns=3,
     )
-    assert result.error is None
+    assert result.stop_reason == expected_reason
+    assert bool(result.error) is (expected_reason == "planner_error")
     assert result.finish_result is None
 
 
@@ -972,7 +1092,10 @@ def test_terminal_startup_failure_closes_input_and_drains_tools(
         if cleanup_error
         else None
     )
+    if stage and cleanup_error:
+        expected += "; Toolkit cleanup failed: toolkit boom with <ANTHROPIC_API_KEY>"
     assert result.error == expected
+    assert result.stop_reason == ("planner_error" if expected else "completed")
     assert toolkit.cancel_calls == 1
     assert closed == ([] if stage == "connect" else [True])
     assert secret not in caplog.text
