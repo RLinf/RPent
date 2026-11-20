@@ -272,9 +272,9 @@ def acp_backend(monkeypatch):
                 )
                 seen["events"].append("prompt_completed")
                 return SimpleNamespace(
-                    stop_reason="end_turn",
+                    stop_reason=seen.get("stop_reason", "end_turn"),
                     model_dump=lambda **kwargs: {
-                        "stopReason": "end_turn",
+                        "stopReason": seen.get("stop_reason", "end_turn"),
                         "usage": {"inputTokens": 8, "outputTokens": 2},
                     },
                 )
@@ -293,6 +293,31 @@ def acp_backend(monkeypatch):
 
     monkeypatch.setattr(acp, "spawn_agent_process", spawn)
     return seen
+
+
+@pytest.mark.parametrize(
+    "native,reason",
+    [
+        ("max_turn_requests", "budget"),
+        ("max_tokens", "budget"),
+        ("end_turn", "completed"),
+        ("refusal", "refusal"),
+        ("cancelled", "cancelled"),
+    ],
+)
+def test_acp_terminal_reason_reaches_planner_result(
+    tmp_path, acp_backend, native, reason
+):
+    acp_backend["finish"] = False
+    acp_backend["stop_reason"] = native
+    toolkit = Mock()
+    toolkit.list_tools.return_value = ()
+    result = make_planner(tmp_path).solve(
+        system_prompt="", user_message="task", toolkit=toolkit, max_turns=1
+    )
+    assert result.error is None
+    assert result.stop_reason == reason
+    assert result.finish_result is None
 
 
 @pytest.mark.parametrize("stage", ["startup_error", "prompt_error"])

@@ -17,6 +17,8 @@ from __future__ import annotations
 import asyncio
 from dataclasses import replace
 
+import pytest
+
 from rpent.dashboard.interaction import (
     DashboardInteractionError,
     DashboardMessage,
@@ -405,7 +407,8 @@ def test_replacement_cleanup_failure_is_reported_and_still_seals_input() -> None
 
     async def scenario() -> None:
         await control.start()
-        await control.run(driver)
+        with pytest.raises(RuntimeError, match="toolkit stuck"):
+            await control.run(driver)
 
     asyncio.run(scenario())
 

@@ -95,6 +95,31 @@ def test_operator_abort_and_planner_error_preserve_native_evidence(context):
     assert "private provider diagnostic" not in json.dumps(result)
 
 
+@pytest.mark.parametrize(
+    "reason,category",
+    [("completed", "completed"), ("model_output", "completed"), ("budget", "budget")],
+)
+@pytest.mark.parametrize("native", [True, False])
+def test_determinate_nonfinish_attempt_counts_with_its_native_outcome(
+    context, reason, category, native
+):
+    record = json.loads(
+        finalize_libero_result(
+            replace(
+                context,
+                environment_success=native,
+                finish_result=None,
+                stats={},
+                stop_reason=reason,
+            )
+        ).read_text()
+    )
+    assert record["valid"] is True
+    assert record["success"] is native
+    assert record["finish_accepted"] is False
+    assert record["termination_category"] == category
+
+
 def test_missing_finish_and_unconfirmed_operator_claim_remain_separate(context):
     result = json.loads(
         finalize_libero_result(

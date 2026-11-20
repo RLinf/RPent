@@ -262,6 +262,8 @@ class _CodexSession:
         self._turn_task: asyncio.Task[Any] | None = None
         self._closing = False
         self.error: str | None = None
+        self.stop_reason: str | None = None
+        self._interrupted_turn: Any | None = None
 
     async def run(self, prompt: str) -> None:
         self._codex = openai_codex.AsyncCodex(self._config)
@@ -283,6 +285,7 @@ class _CodexSession:
         if self._turn is not None:
             raise RuntimeError("Cannot submit while a Codex turn is active")
         self._turn = await self._thread.turn(text, **self._turn_options)
+        self.stop_reason = None
         self._turn_done = asyncio.Event()
         self._turn_task = asyncio.create_task(
             self._consume_turn(self._turn, self._turn_done)
@@ -294,6 +297,7 @@ class _CodexSession:
         done = self._turn_done
         if turn is None or done is None:
             return 0
+        self._interrupted_turn = turn
         await turn.interrupt()
         try:
             await asyncio.wait_for(done.wait(), timeout=15)
@@ -309,8 +313,14 @@ class _CodexSession:
         turn = self._turn
         done = self._turn_done
         if turn is not None and done is not None:
-            with contextlib.suppress(Exception):
+            self._interrupted_turn = turn
+            try:
                 await turn.interrupt()
+            except openai_codex.JsonRpcError as exc:
+                if exc.message != "no active turn to interrupt":
+                    self.error = f"Codex interrupt failed: {exc}"
+            except Exception as exc:
+                self.error = f"Codex interrupt failed: {exc}"
             try:
                 await asyncio.wait_for(done.wait(), timeout=15)
             except asyncio.TimeoutError:
@@ -335,12 +345,14 @@ class _CodexSession:
                 if (
                     method != "turn/completed"
                     and not limit_reached
+                    and self._interrupted_turn is not turn
                     and self._recorder.finish_result is None
                     and self._recorder.turns >= self._recorder.max_turns
                 ):
                     limit_reached = True
                     try:
                         await turn.interrupt()
+                        self._interrupted_turn = turn
                     except openai_codex.JsonRpcError as exc:
                         if exc.message != "no active turn to interrupt":
                             raise
@@ -348,14 +360,30 @@ class _CodexSession:
 
                 if method != "turn/completed":
                     continue
-                status = _status(get_field(payload, "turn"))
+                terminal = get_field(payload, "turn")
+                status = _status(terminal)
+                detail = get_field(terminal, "error")
+                expected_interrupt = (
+                    status == "interrupted" and self._interrupted_turn is turn
+                )
+                if detail:
+                    message = str(get_field(detail, "message", detail))
+                    if expected_interrupt:
+                        self._recorder.interruption_diagnostics.append(message)
+                    else:
+                        self.error = message
+                if status == "failed" and not self.error:
+                    self.error = self._recorder.error or "Codex turn failed"
+                if limit_reached and (expected_interrupt or status == "completed"):
+                    self.stop_reason = "budget"
+                else:
+                    self.stop_reason = status or None
+                self._interrupted_turn = None
                 self._turn = None
                 self._turn_done = None
                 done.set()
                 if self._closing:
                     return
-                if status == "failed":
-                    self.error = self._recorder.error or "Codex turn failed"
                 if self._control is None:
                     return
                 if (
@@ -403,6 +431,7 @@ class _Recorder:
     final_response: str | None = None
     finish_result: dict[str, Any] | None = None
     error: str | None = None
+    interruption_diagnostics: list[str] = field(default_factory=list)
 
     def stats(self) -> dict[str, object]:
         """Return counters with the zeroed ``usage`` distinguishable from None.
@@ -410,12 +439,15 @@ class _Recorder:
         ``usage_observed`` tells consumers whether the SDK reported any token
         totals. Without it, the zeroed ``usage`` values mean "unknown".
         """
-        return {
+        stats: dict[str, object] = {
             "turns_used": self.turns,
             "tool_calls": self.tool_calls,
             "usage_observed": self.usage_observed,
             **self.usage,
         }
+        if self.interruption_diagnostics:
+            stats["interruption_diagnostics"] = self.interruption_diagnostics
+        return stats
 
     def observe(self, event: Any) -> str:
         method = str(get_field(event, "method", ""))
@@ -511,8 +543,6 @@ class _Recorder:
             get_field(get_field(turn, "status"), "value", get_field(turn, "status", ""))
         )
         duration_ms = get_field(turn, "duration_ms")
-        if error := get_field(turn, "error"):
-            self.error = str(get_field(error, "message", str(error)))
 
         parts = ["[codex-result]", status]
         if duration_ms is not None:

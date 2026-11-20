@@ -41,7 +41,7 @@
 4. 识别 ``ToolResult.data.get("_finish")``，并按 ``max_turns`` 等限制终止循环。
 5. 返回包含结束状态、消息、统计信息，以及可选 ``error`` 和 ``stop_reason`` 字段的 ``PlannerResult``。
 
-规划器可通过 ``stop_info`` 提供原始 ``reason`` 和公共 ``category``：``finish``、``budget``、``timeout``、``cancelled``、``error`` 或 ``unknown``。``normalize_stop_info`` 保留后端原始原因，并为通用原因补充分组；未知原因仍归为 ``unknown``。结果产物与轨迹记录优先使用 ``stop_info.reason``，其次是 ``stop_reason``，最后兼容 ``stats`` 中的旧原因字段。运行器异常和清理失败优先于后端报告的完成状态，同时保留原始证据。``timeout`` 表示规划器配置的总时限耗尽，不用于 provider 请求错误。
+规划器可通过 ``stop_info`` 提供原始 ``reason`` 和公共 ``category``：``finish``、``completed``、``budget``、``timeout``、``cancelled``、``error`` 或 ``unknown``。``normalize_stop_info`` 保留后端原始原因，并为通用原因补充分组；未知原因仍归为 ``unknown``。结果产物与轨迹记录优先使用 ``stop_info.reason``，其次是 ``stop_reason``，最后兼容 ``stats`` 中的旧原因字段。运行器异常和清理失败优先于后端报告的完成状态，同时保留原始证据。``timeout`` 表示规划器配置的总时限耗尽，不用于 provider 请求错误。Claude 收到带错误标记的中断结果时，只有 SDK 能识别被中断的请求并确认取消，才将其记为预期取消。
 
 执行是否确定、结果是否交付、清理是否完成，以及是否允许开始新会话，应分别记录。开始新会话要求 ``execution_certain``、``result_delivery_complete``、``cleanup_complete`` 和 ``allow_new_session`` 均明确为 ``True``；缺少证据或仅凭分组不能允许继续执行。现有规划器可以不提供 ``stop_info``，保留原有恢复行为。
 

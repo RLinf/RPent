@@ -1009,6 +1009,74 @@ def test_deadline_cleanup_failure_preserves_both_causes(tmp_path, monkeypatch):
     assert "toolkit cleanup failed" in result.error
 
 
+@pytest.mark.parametrize(
+    "drain_fails,consumer_fails", [(False, False), (False, True), (True, True)]
+)
+def test_dashboard_shutdown_joins_consumer_and_reports_failures(
+    tmp_path, monkeypatch, drain_fails, consumer_fails
+):
+    from rpent.dashboard.planner_control import PlannerInteractionControl
+    from rpent.planner.api_loop import _ConversationAgent
+
+    state = dashboard(tmp_path)
+    toolkit = RobotToolkit(state)
+    started = asyncio.Event()
+    consumers = []
+
+    async def consume(self, *args, **kwargs):
+        consumers.append(asyncio.current_task())
+        started.set()
+        try:
+            await asyncio.Event().wait()
+        except asyncio.CancelledError:
+            if consumer_fails:
+                raise RuntimeError("consumer shutdown failed") from None
+            raise
+
+    async def end_control(self, driver):
+        await started.wait()
+
+    def fail_drain():
+        raise RuntimeError("toolkit drain failed")
+
+    monkeypatch.setattr(_ConversationAgent, "run", consume)
+    monkeypatch.setattr(PlannerInteractionControl, "run", end_control)
+    if drain_fails:
+        monkeypatch.setattr(toolkit, "cancel_active_and_wait", fail_drain)
+
+    async def run():
+        planner = ApiAgentLoop(model=TestModel(), dashboard_events=state)
+        result = await planner._solve("system", "task", toolkit, 5, state)
+        assert len(consumers) == 1 and consumers[0].done()
+        return result
+
+    result = asyncio.run(run())
+    if not consumer_fails:
+        assert result.error is None
+        assert result.stop_reason == "stopped"
+        return
+    assert "consumer shutdown failed" in result.error
+    assert ("toolkit drain failed" in result.error) is drain_fails
+    assert result.stop_reason == "planner_error"
+    assert result.stop_info["cleanup_complete"] is False
+    assert not is_recoverable_planner_result(result)
+
+
+def test_provider_failure_during_deadline_keeps_timeout_diagnostic(tmp_path):
+    async def stream(messages, info):
+        try:
+            await asyncio.Event().wait()
+        except asyncio.CancelledError:
+            raise RuntimeError("provider shutdown failed") from None
+        yield  # pragma: no cover
+
+    result, _, _ = solve(tmp_path, FunctionModel(stream_function=stream), timeout_s=0.1)
+    assert result.stop_reason == "planner_error"
+    assert "planner timed out after 0.1s" in result.error
+    assert result.error.count("provider shutdown failed") == 1
+    assert not is_recoverable_planner_result(result)
+
+
 def test_native_terminal_preserves_completed_actions_after_model_failure(
     tmp_path, monkeypatch
 ):

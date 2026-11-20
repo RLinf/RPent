@@ -34,6 +34,7 @@ class ScriptedState:
         self.failed_session: Exception | None = None
         self.completed: list[dict[str, Any]] = []
         self.task_replacement_requested = False
+        self.task_finalization_cancelled = False
 
     def shared_services_ready(self) -> None:
         self.ready_calls += 1
@@ -109,7 +110,9 @@ def test_dashboard_session_shared_start_failure_marks_session_fatal(
         ("success", "succeeded", None),
         ("returned-error", "failed", "task failed"),
         ("raised-error", "failed", RuntimeError),
-        ("replacement", "cancelled", "ignored after replacement"),
+        ("replacement", "cancelled", None),
+        ("shutdown", "cancelled", None),
+        ("shutdown-error", "failed", "cleanup failed"),
     ],
 )
 def test_dashboard_session_maps_task_outcomes(
@@ -131,7 +134,10 @@ def test_dashboard_session_maps_task_outcomes(
             raise RuntimeError("task exploded")
         if outcome == "replacement":
             state.task_replacement_requested = True
-            return "ignored after replacement"
+        if outcome.startswith("shutdown"):
+            state.task_finalization_cancelled = True
+            if outcome == "shutdown-error":
+                return "cleanup failed"
         return None
 
     controller = DashboardSessionController(

@@ -223,9 +223,10 @@ Inspect the final state with ``view_env_state(step=-1)``. Its top-level ``termin
 
 ``result.json`` records native ``environment_success``, ``finish_accepted``,
 ``operator_verdict``, and the termination reason and category. ``valid`` identifies
-an attempt eligible for evaluation, independently of task success. Normal planner
-deadlines and budget exhaustion can remain valid when the native outcome is
-known and execution, result delivery, and cleanup are certain. Provider errors,
+an attempt eligible for evaluation, independently of task success. A normal model
+completion without ``finish``, a planner deadline, or an exhausted budget can
+count when the native outcome is known and execution, result delivery, and
+cleanup are certain. Gemini's ``max_tokens`` denotes its output limit. Provider errors,
 cancellations, operator aborts, and uncertain outcomes are invalid.
 
 CLI and Dashboard runs write this file when they reach finalization; an early

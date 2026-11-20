@@ -205,6 +205,7 @@ def test_trace_root_is_scoped_to_each_captured_solve(
         return_value=SimpleNamespace(
             run=AsyncMock(return_value=None),
             close=AsyncMock(return_value=None),
+            stop_reason="completed",
             error=None,
         )
     )
@@ -744,7 +745,12 @@ def test_cli_interrupts_once_at_tool_only_response_budget(tmp_path, monkeypatch)
                 yield event
         yield {
             "method": "turn/completed",
-            "payload": {"turn": {"status": "interrupted"}},
+            "payload": {
+                "turn": {
+                    "status": "interrupted",
+                    "error": {"message": "interrupted model"},
+                }
+            },
         }
 
     monkeypatch.setattr(FakeTurn, "stream", stream)
@@ -754,6 +760,8 @@ def test_cli_interrupts_once_at_tool_only_response_budget(tmp_path, monkeypatch)
         toolkit=FakeToolkit(),
         max_turns=2,
     )
+    assert result.stop_reason == "budget"
+    assert result.stats["interruption_diagnostics"] == ["interrupted model"]
     assert result.stats["turns_used"] == 2
     assert result.stats["tool_calls"] == 4
     assert result.stats["total_input_tokens"] == 20
@@ -761,6 +769,29 @@ def test_cli_interrupts_once_at_tool_only_response_budget(tmp_path, monkeypatch)
     assert FakeCodex.instances[0].closed
     assert FakeMcpServer.instances[0].stopped
     assert result.error is None
+
+
+@pytest.mark.parametrize(
+    "status,expected_reason",
+    [("interrupted", "planner_error"), ("completed", "completed")],
+)
+def test_codex_terminal_without_local_interrupt(
+    tmp_path, monkeypatch, status, expected_reason
+):
+    install_fake_backend(monkeypatch)
+    terminal = {"status": status}
+    if status == "interrupted":
+        terminal["error"] = {"message": "interrupted model"}
+    FakeCodex.events = [{"method": "turn/completed", "payload": {"turn": terminal}}]
+    result = make_planner(tmp_path, RecordingSink()).solve(
+        system_prompt="",
+        user_message="task",
+        toolkit=FakeToolkit(),
+        max_turns=2,
+    )
+    assert result.stop_reason == expected_reason
+    assert result.error == ("interrupted model" if status == "interrupted" else None)
+    assert "interruption_diagnostics" not in result.stats
 
 
 def test_cli_keeps_finish_at_the_response_budget(tmp_path, monkeypatch):
@@ -777,6 +808,7 @@ def test_cli_keeps_finish_at_the_response_budget(tmp_path, monkeypatch):
     )
     assert result.stats["turns_used"] == 1
     assert result.finish_result["status"] == "stuck"
+    assert result.stop_reason == "finish"
     assert FakeCodex.instances[0].thread.fake_turn.interrupt_calls == 0
     assert FakeCodex.instances[0].closed
     assert FakeMcpServer.instances[0].stopped
@@ -836,6 +868,7 @@ def test_cli_budget_interrupt_preserves_terminal_status(
         max_turns=1,
     )
     assert result.error == expected_error
+    assert result.stop_reason == ("planner_error" if expected_error else "budget")
     assert result.stats["turns_used"] == 1
     assert FakeCodex.instances[0].thread.fake_turn.interrupt_calls == 1
     assert FakeCodex.instances[0].closed
@@ -1228,7 +1261,12 @@ def test_provider_error_before_deadline_is_not_lost(tmp_path, monkeypatch):
         await stopped.wait()
         yield {
             "method": "turn/completed",
-            "payload": {"turn": {"status": "interrupted"}},
+            "payload": {
+                "turn": {
+                    "status": "interrupted",
+                    "error": {"message": "interrupted model"},
+                }
+            },
         }
 
     async def interrupt(self):
@@ -1241,6 +1279,7 @@ def test_provider_error_before_deadline_is_not_lost(tmp_path, monkeypatch):
     )
     assert result.stop_reason == "planner_error"
     assert not is_recoverable_planner_result(result)
+    assert result.stats["interruption_diagnostics"] == ["interrupted model"]
     assert "TRANSPORT" in result.error
     assert "Codex SDK timed out after 0.05s" in result.error
 

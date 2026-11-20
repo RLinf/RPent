@@ -504,7 +504,8 @@ def test_stateful_sdk_driver_drains_tools_before_closing_tasks_and_client():
             events.append("client-exit")
 
         async def query(self, text):
-            events.append(f"query:{text}")
+            message = await anext(text)
+            events.append(f"query:{message['message']['content']}")
 
         async def receive_messages(self):
             events.append("consumer-started")
@@ -837,7 +838,9 @@ def test_claude_interrupt_waits_for_old_results_before_next_query():
                 pass
 
             async def query(self, text):
-                queries.append(text)
+                message = await anext(text)
+                self.query_id = message["uuid"]
+                queries.append(message["message"]["content"])
 
             async def interrupt(self):
                 acknowledged.set()
@@ -868,11 +871,12 @@ def test_claude_interrupt_waits_for_old_results_before_next_query():
             def end(self):
                 pass
 
+        recorder = _Recorder(max_turns=3, dashboard_events=RecordingSink())
         driver = _ClaudeSessionDriver(
             sdk=Sdk(),
             options={},
-            recorder=_Recorder(max_turns=3, dashboard_events=RecordingSink()),
-            emit=lambda message: None,
+            recorder=recorder,
+            emit=recorder.observe,
             toolkit=FakeToolkit(),
             control=Control(),
         )
@@ -881,15 +885,55 @@ def test_claude_interrupt_waits_for_old_results_before_next_query():
             await asyncio.wait_for(acknowledged.wait(), timeout=2)
             assert not interrupted.is_set()
             assert queries == ["initial"]
-            await messages.put({"type": "ResultMessage"})
+            await messages.put(
+                {
+                    "type": "ResultMessage",
+                    "subtype": "success",
+                    "is_error": True,
+                    "terminal_reason": "aborted_streaming",
+                    "user_message_uuid": client.query_id,
+                    "result": "interrupted model",
+                }
+            )
             await asyncio.wait_for(running, timeout=2)
             assert interrupted.is_set()
+            assert recorder.error is None
+            assert recorder.stats()["interruption_diagnostics"] == ["aborted_streaming"]
             assert queries == ["initial", "follow-up"]
         finally:
             running.cancel()
             await asyncio.gather(running, return_exceptions=True)
 
     asyncio.run(scenario())
+
+
+@pytest.mark.parametrize(
+    "change",
+    [
+        {"terminal_reason": None},
+        {"api_error_status": 429},
+        {"errors": ["provider failed"]},
+        {"user_message_uuid": "previous-query"},
+        {"user_message_uuid": None, "origin": {"kind": "task-notification"}},
+        {"user_message_uuid": None},
+    ],
+)
+def test_interrupt_does_not_hide_unconfirmed_or_provider_errors(change):
+    recorder = _Recorder(max_turns=1, dashboard_events=RecordingSink())
+    recorder.query_id = "active"
+    recorder.interrupt_requested = True
+    recorder.observe(
+        {
+            "type": "ResultMessage",
+            "subtype": "error_during_execution",
+            "is_error": True,
+            "terminal_reason": "aborted_streaming",
+            "user_message_uuid": "active",
+            **change,
+        }
+    )
+    assert recorder.error
+    assert "interruption_diagnostics" not in recorder.stats()
 
 
 @pytest.mark.parametrize(
@@ -952,12 +996,34 @@ def test_finish_uses_actual_tool_verdict(tmp_path, monkeypatch, verdict):
     assert toolkit.cancel_calls == 1
 
 
-def test_noninteractive_client_stops_at_first_result(tmp_path, monkeypatch):
+@pytest.mark.parametrize(
+    "subtype,errors,expected_reason",
+    [
+        ("success", [], "completed"),
+        ("error_max_turns", ["Reached maximum number of turns (3)"], "budget"),
+        ("error_max_budget_usd", ["Reached maximum budget ($2.5)"], "budget"),
+        (
+            "error_max_turns",
+            ["Reached maximum number of turns (3)", "provider failed"],
+            "planner_error",
+        ),
+        ("error_max_budget_usd", ["Session cost is not a number"], "planner_error"),
+        ("error_during_execution", ["provider failed"], "planner_error"),
+    ],
+)
+def test_noninteractive_client_stops_at_first_result(
+    tmp_path, monkeypatch, subtype, errors, expected_reason
+):
     fake_sdk = FakeSdkTools()
     patch_sdk_surface(monkeypatch, fake_sdk)
 
     async def stream(**kwargs):
-        yield {"type": "ResultMessage", "subtype": "success"}
+        yield {
+            "type": "ResultMessage",
+            "subtype": subtype,
+            "is_error": subtype != "success",
+            "errors": errors,
+        }
         pytest.fail("A non-interactive task must not wait for another user turn")
 
     patch_client_stream(monkeypatch, stream)
@@ -967,7 +1033,8 @@ def test_noninteractive_client_stops_at_first_result(tmp_path, monkeypatch):
         toolkit=FakeToolkit(),
         max_turns=3,
     )
-    assert result.error is None
+    assert result.stop_reason == expected_reason
+    assert bool(result.error) is (expected_reason == "planner_error")
     assert result.finish_result is None
 
 
@@ -1028,7 +1095,7 @@ def test_terminal_startup_failure_closes_input_and_drains_tools(
     if stage and cleanup_error:
         expected += "; Toolkit cleanup failed: toolkit boom with <ANTHROPIC_API_KEY>"
     assert result.error == expected
-    assert result.stop_reason == ("planner_error" if expected else None)
+    assert result.stop_reason == ("planner_error" if expected else "completed")
     assert toolkit.cancel_calls == 1
     assert closed == ([] if stage == "connect" else [True])
     assert secret not in caplog.text

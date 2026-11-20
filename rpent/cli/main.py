@@ -36,7 +36,6 @@
 from __future__ import annotations
 
 import argparse
-import copy
 import json
 import queue
 import shlex
@@ -59,6 +58,7 @@ from rpent.memory import MemoryManager
 from rpent.planner.base import (
     CODEX_SANDBOX_CHOICES,
     REASONING_EFFORTS,
+    PlannerResult,
     build_planner,
     is_recoverable_planner_result,
 )
@@ -833,10 +833,13 @@ def main() -> int:
             except Exception as exc:
                 record_failure(exc, cleanup=True)
 
-    capture_result = copy.copy(result)
-    if capture_result is not None:
-        capture_result.error = agent_error
-        capture_result.stop_info = stop_info
+    capture_result = (
+        PlannerResult(
+            error=agent_error, stop_info=stop_info, stop_reason=stop_reason, stats=stats
+        )
+        if result is not None or agent_error is not None
+        else None
+    )
     end_planner_task(
         task_state,
         capture_result,

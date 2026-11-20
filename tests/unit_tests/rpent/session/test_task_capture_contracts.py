@@ -85,12 +85,17 @@ def test_task_end_keeps_partial_records_and_actual_stop_cause(
         ("operator_aborted", "cancelled", "operator"),
     ],
 )
-def test_operator_verdict_is_separate_from_native_success(
-    tmp_path, verdict, status, reason
+@pytest.mark.parametrize("confirmed", [True, False])
+def test_operator_verdict_is_separate_from_planner_error(
+    tmp_path, verdict, status, reason, confirmed
 ):
     state = EnvState(tmp_path)
     state.start_task(instruction="Task", config=Payload("test", {}))
-    result = PlannerResult()
+    result = PlannerResult(
+        stop_reason="cancelled" if confirmed else "planner_error",
+        error=None if confirmed else "interrupted model",
+        stats={"interruption_diagnostics": ["interrupted model"]} if confirmed else {},
+    )
     end_planner_task(
         state,
         result,
@@ -99,8 +104,14 @@ def test_operator_verdict_is_separate_from_native_success(
         exception=None,
     )
     task = state.get_task()
+    if confirmed:
+        assert task.result.data["stats"]["interruption_diagnostics"] == [
+            "interrupted model"
+        ]
+    else:
+        status, reason = "failed", "planner_error"
     assert task.status == status and task.stop_reason == reason
-    assert task.result.data["error"] is None
+    assert task.result.data["error"] == result.error
     root = tmp_path / "trajectories" / task.task_id
     assert json.loads((root / "task.json").read_text())["task"]["status"] == status
 

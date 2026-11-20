@@ -89,7 +89,7 @@ def finalize_libero_result(context: RunFinalizationContext) -> Path:
     )
     valid = (
         isinstance(context.environment_success, bool)
-        and normalized["category"] in {"finish", "budget", "timeout"}
+        and normalized["category"] in {"finish", "completed", "budget", "timeout"}
         and verdict != "abort"
         and boundary_complete
     )

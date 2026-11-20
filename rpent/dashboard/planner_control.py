@@ -131,6 +131,7 @@ class PlannerInteractionControl:
                     self._interaction.complete_task_replacement(
                         error=f"planner interrupt failed: {_exception_text(exc)}"
                     )
+                    raise
                 else:
                     self._interaction.complete_task_replacement()
                 return

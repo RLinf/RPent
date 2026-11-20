@@ -178,7 +178,7 @@ async def run_agent(
 
     The factory receives the MCP URL, shared controller, and event callback.
     Without input, the controller is None and the session runs one turn.
-    Its session implements run, submit, interrupt, close, and an error field.
+    Its session exposes run, submit, interrupt, close, error, and stop_reason.
     Toolkit cancellation always precedes backend interruption and shutdown.
     Returns the diagnostic and explicit termination reason, without treating
     provider TimeoutError exceptions as the configured planner deadline.
@@ -267,6 +267,10 @@ async def run_agent(
                 error = session.error
                 if error:
                     stop_reason = "planner_error"
+                elif recorder.finish_result is not None:
+                    stop_reason = "finish"
+                elif session_task in done:
+                    stop_reason = session.stop_reason
         except Exception as exc:
             stop_reason = "planner_error"
             error = redact(f"{type(exc).__name__}: {exc}")

@@ -225,6 +225,7 @@ class _GeminiSession:
         self._stderr_task: asyncio.Task | None = None
         self._closing = False
         self.error: str | None = None
+        self.stop_reason: str | None = None
 
     async def run(self, prompt: str) -> None:
         from acp import PROTOCOL_VERSION, spawn_agent_process
@@ -259,6 +260,7 @@ class _GeminiSession:
         if not self._done.is_set():
             raise RuntimeError("Cannot submit while a Gemini prompt is active")
         self._done = asyncio.Event()
+        self.stop_reason = None
         self._emit({"type": "acp_prompt"})
         self._task = asyncio.create_task(self._consume_prompt(message.text, self._done))
         return 1
@@ -277,6 +279,11 @@ class _GeminiSession:
                     **jsonable(response, by_alias=True),
                 }
             )
+            self.stop_reason = {
+                "max_turn_requests": "budget",
+                "max_tokens": "budget",
+                "end_turn": "completed",
+            }.get(response.stop_reason, response.stop_reason)
             done.set()
             if self._closing or self._control is None:
                 return

@@ -20,7 +20,7 @@ from collections.abc import Mapping
 from typing import Any
 
 STOP_CATEGORIES = frozenset(
-    {"finish", "budget", "timeout", "cancelled", "error", "unknown"}
+    {"finish", "completed", "budget", "timeout", "cancelled", "error", "unknown"}
 )
 
 
@@ -60,6 +60,8 @@ def normalize_stop_info(
     if not isinstance(category, str) or category not in STOP_CATEGORIES:
         category = {
             "finish": "finish",
+            "completed": "completed",
+            "model_output": "completed",
             "budget": "budget",
             "request_limit": "budget",
             "timeout": "timeout",

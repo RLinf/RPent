@@ -36,7 +36,12 @@ from rpent.cli.main import (
 from rpent.dashboard.events import RunStartedEvent
 from rpent.evaluation import RunFinalizationContext
 from rpent.memory import MemoryManager
-from rpent.planner.base import build_planner, is_recoverable_planner_result
+from rpent.planner.base import (
+    PlannerResult,
+    build_planner,
+    is_recoverable_planner_result,
+)
+from rpent.planner.stop import resolve_stop_info
 from rpent.robots import get_toolkit
 from rpent.session.planner_capture import end_planner_task, start_planner_task
 from rpent.utils.config import get_memory_dir
@@ -185,7 +190,7 @@ def run_dashboard_session(
             threading.Event().wait()
     except KeyboardInterrupt:
         state.request_shutdown()
-    return 0
+    return int(state.session_state == "fatal")
 
 
 def _run_dashboard_task(
@@ -234,7 +239,7 @@ def _run_dashboard_task(
 
     def record_failure(exc: Exception, *, cleanup: bool = False) -> None:
         nonlocal agent_error, stop_info, task_exception
-        diagnostic = str(exc)
+        diagnostic = f"{type(exc).__name__}: {exc}"
         if not agent_error:
             agent_error = diagnostic
         elif diagnostic not in agent_error:
@@ -510,10 +515,13 @@ def _run_dashboard_task(
             cancelled_reason = "task_replaced"
         elif state.task_finalization_cancelled:
             cancelled_reason = "operator"
-    capture_result = copy.copy(result)
-    if capture_result is not None:
-        capture_result.error = agent_error
-        capture_result.stop_info = stop_info
+    capture_result = (
+        PlannerResult(
+            error=agent_error, stop_info=stop_info, stop_reason=stop_reason, stats=stats
+        )
+        if result is not None or agent_error is not None
+        else None
+    )
     end_planner_task(
         task_state,
         capture_result,
@@ -543,6 +551,21 @@ def _run_dashboard_task(
             logger.warning("%s", warning)
             state.report_task_warning(warning)
 
+    task_error = agent_error
+    if agent_error and (
+        cancelled_reason or (finish_result or {}).get("operator_finished")
+    ):
+        boundary = stop_info if stop_info is not None else stats.get("stop_info")
+        outcome = resolve_stop_info(
+            boundary if isinstance(boundary, Mapping) else None,
+            reason=stop_reason or stats.get("stop_reason"),
+            error=agent_error,
+            finish_result=finish_result,
+            cancelled_reason=cancelled_reason,
+        )
+        if outcome["category"] in ("cancelled", "finish"):
+            task_error = None
+
     if robot_spec.finalize_run is not None:
         try:
             robot_spec.finalize_run(
@@ -554,8 +577,8 @@ def _run_dashboard_task(
                     environment_metrics=environment_metrics,
                     agent_error=agent_error,
                     elapsed_s=time.time() - started,
-                    planner=args.planner,
-                    model=args.model,
+                    planner=task_args.planner,
+                    model=task_args.model,
                     reasoning_effort=args.reasoning_effort,
                     max_turns=args.max_turns,
                     planner_timeout_s=args.planner_timeout_s,
@@ -573,9 +596,9 @@ def _run_dashboard_task(
                 f"result finalization failed: {type(exc).__name__}: {exc}"
             )
             logger.warning("%s", finalization_error)
-            agent_error = (
+            task_error = (
                 f"{agent_error}; {finalization_error}"
                 if agent_error
                 else finalization_error
             )
-    return agent_error
+    return task_error
