@@ -26,10 +26,9 @@ classifiers = [
     "Programming Language :: Python :: 3",
 ]
 
-# The runtime layer: environment and model contracts, RPC, model clients,
-# the tool contracts, and the run records. It holds only what those modules
-# import at import time, so a simulator or model environment can install it
-# without the planner stack.
+# The runtime layer: environment and model contracts, RPC, model clients, and
+# the installer. It holds only what those modules import at import time, so a
+# simulator or model environment can install it without the planner stack.
 dependencies = [
     "numpy",
     # `NotRequired` in the model contracts.
@@ -39,19 +38,6 @@ dependencies = [
     # Frame encoding in the model clients, which the runtime layer ships.
     "imageio>=2.0",
 ]
-
-[project.scripts]
-rpent = "rpent.cli.main:main"
-rpent-memory = "rpent.cli.memory:main"
-rpent-check-llm = "rpent.cli.check_llm:main"
-rpent-install = "rpent.cli.install:main"
-rpent-flywheel = "rpent.cli.flywheel:main"
-
-[project.urls]
-Homepage = "https://github.com/RLinf/RPent"
-Repository = "https://github.com/RLinf/RPent"
-Documentation = "https://rpent.readthedocs.io/en/latest/"
-"Bug Report" = "https://github.com/RLinf/RPent/issues"
 
 [project.optional-dependencies]
 # `rpent[planner]` is the core's own dependency split, not a component: planner
@@ -82,6 +68,19 @@ planner = [
     "PyYAML>=6.0",
 ]
 
+[project.scripts]
+rpent = "rpent.cli.main:main"
+rpent-install = "rpent.cli.install:main"
+rpent-memory = "rpent.cli.memory:main"
+rpent-check-llm = "rpent.cli.check_llm:main"
+rpent-flywheel = "rpent.cli.flywheel:main"
+
+[project.urls]
+Homepage = "https://github.com/RLinf/RPent"
+Repository = "https://github.com/RLinf/RPent"
+Documentation = "https://rpent.readthedocs.io/en/latest/"
+"Bug Report" = "https://github.com/RLinf/RPent/issues"
+
 [tool.uv]
 prerelease = "allow"
 
@@ -92,23 +91,17 @@ nvidia-curobo = ["torch==2.8.0"]
 
 [tool.setuptools]
 include-package-data = true
-
-[tool.setuptools.packages.find]
-where = ["."]
-# robots is a top-level package; without it, non-editable installations
-# leave the CLI unable to import any backend. The globs also cover every
-# per-robot subpackage (robots.yam.*, robots.robodojo.*, ...), as well as the
-# shared RGB-D tools.
-# components/ holds the install units: each component owns its code and its
-# manifest, and the installer discovers them from the checkout or the sdist.
-# The RGB-D toolkit lives in components/tools/rgbd, so the top level keeps no
-# toolkits package.
-include = ["rpent*", "robots", "robots.*", "components", "components.*"]
-exclude = ["tests*", "docs*", "examples*", "docker*"]
+# Package discovery lives in setup.py because the published wheel and a
+# source install intentionally differ: the wheel contains only rpent/, while
+# editable and sdist builds also include robots/ and components/.
 
 [tool.setuptools.package-data]
 # Component manifests are runtime data: discovery reads them from installed
-# packages, so a component that ships code must ship its component.toml.
+# packages, so a component that ships code must ship its component.toml with it.
+# Components that only declare dependencies (`components/infra/*`,
+# `sim-libero_plus`) hold no package and exist only in a checkout. The other
+# entries are files the installed package opens by path: the dashboard
+# frontend, and robot defaults and evaluation manifests.
 "*" = ["component.toml"]
 "robots.dual_franka" = ["config/*.yaml"]
 "robots.franka" = ["config/*.yaml"]

@@ -16,25 +16,24 @@ Install
 
 Install RPent on both Linux control nodes with matching code, Python, Ray and
 RLinf versions. Nodes running VLA or SAM3 locally need an NVIDIA GPU.
-Use the same installation workflow as :doc:`../get_started/quickstart`:
+Install ``robot-dual_franka`` into its own environment; it includes both Franka
+arms, local SAM 3.0, and their dependencies:
 
 .. code-block:: bash
 
-   git clone https://github.com/RLinf/RPent.git
-   cd RPent
-   uv venv
-   source .venv/bin/activate
-   uv pip install -e ".[franka,sam3]"
+   ./rpent-install.sh install robot-dual_franka \
+     --venv .venv-dual-franka-real
+   source .venv-dual-franka-real/bin/activate
 
-If Python package downloads are slow, replace the installation command with the
-`Tsinghua PyPI mirror <https://mirrors.tuna.tsinghua.edu.cn/help/pypi/>`_:
+If Python package downloads are slow, set the
+`Tsinghua PyPI mirror <https://mirrors.tuna.tsinghua.edu.cn/help/pypi/>`_
+before running that install command:
 
 .. code-block:: bash
 
-   uv pip install -e ".[franka,sam3]" \
-     --index-url https://pypi.tuna.tsinghua.edu.cn/simple
+   export UV_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple
 
-This option changes only the Python package index; it does not proxy Git
+The mirror changes only the Python package index; it does not proxy Git
 repositories, direct download URLs or model weights.
 
 Check libfranka compatibility with the robot firmware before connecting.
@@ -42,7 +41,8 @@ The calibration state reader also needs libfranka development files; see the
 calibration steps below.
 
 Run subsequent commands from the repository root in this environment. In a new
-terminal, activate ``.venv`` and set the required model variables again.
+terminal, activate ``.venv-dual-franka-real`` and set the required model variables
+again.
 
 Download SAM3 weights on the environment node if local segmentation is needed:
 
@@ -54,14 +54,14 @@ Download SAM3 weights on the environment node if local segmentation is needed:
    export SAM3_CHECKPOINT_PATH="$PWD/checkpoints/sam3/sam3.pt"
 
 Without this variable or ``--sam3-endpoint``, segmentation is unavailable;
-installing the extra alone does not download weights. VLA checkpoints are
+installing the environment alone does not download weights. VLA checkpoints are
 configured in :ref:`dual-franka-vla`.
 
 Calibration
 -----------
 
 Both ``base_camera`` and ``d455_camera`` must be calibrated against the
-**right-arm base**. Use ``calibration_tools/`` or ROS
+**right-arm base**. Use ``robots/dual_franka/calibration/`` or ROS
 `easy_handeye <https://github.com/IFL-CAMP/easy_handeye>`_; both export YAML.
 Wrist cameras are observation-only in the default configuration. To use a
 wrist RGBD camera for projection, configure its calibration and projection view
@@ -80,7 +80,7 @@ To install calibration dependencies separately, create a dedicated environment:
 
    uv venv .venv-calibration
    source .venv-calibration/bin/activate
-   uv pip install -r calibration_tools/requirements.txt pyrealsense2
+   uv pip install -r robots/dual_franka/calibration/requirements.txt pyrealsense2
 
 On the right-arm control node, first follow the `official libfranka installation
 guide <https://frankarobotics.github.io/docs/doc/libfranka/README.html#quick-install>`_
@@ -89,11 +89,11 @@ configuration. Then compile the state reader:
 
 .. code-block:: bash
 
-   cmake -S calibration_tools -B calibration_tools/build \
+   cmake -S robots/dual_franka/calibration -B robots/dual_franka/calibration/build \
      -DCMAKE_PREFIX_PATH=/absolute/path/to/libfranka/install
-   cmake --build calibration_tools/build --parallel
+   cmake --build robots/dual_franka/calibration/build --parallel
 
-The build produces ``calibration_tools/build/read_franka_state``. Calibration
+The build produces ``robots/dual_franka/calibration/build/read_franka_state``. Calibration
 uses it to read robot state without moving the arm.
 
 * Local reader: omit ``--ssh-host`` when the reader and collector run on the same node.
@@ -108,7 +108,7 @@ Close programs using the cameras, then start the service:
 
 .. code-block:: bash
 
-   python calibration_tools/raw_camera_service.py \
+   python robots/dual_franka/calibration/raw_camera_service.py \
      --base-serial BASE_SERIAL --d455-serial D455_SERIAL
 
 Attach the ChArUco board rigidly to the right end effector and keep the camera
@@ -122,12 +122,12 @@ In another terminal on the same camera node, activate the chosen environment:
 
 .. code-block:: bash
 
-   python calibration_tools/base_handeye_collect.py \
+   python robots/dual_franka/calibration/base_handeye_collect.py \
      --arm right --camera-serial BASE_SERIAL \
      --camera-url http://127.0.0.1:8765/raw/base \
      --ssh-host robot-right \
      --reader /absolute/path/to/read_franka_state --robot-ip ROBOT_IP \
-     --output calibration_tools/sessions/base-to-right
+     --output robots/dual_franka/calibration/sessions/base-to-right
 
 Open ``http://127.0.0.1:8767`` and collect samples:
 
@@ -148,24 +148,24 @@ address above:
 
 For D455, reuse the collection command with serial ``D455_SERIAL``, URL
 ``http://127.0.0.1:8765/raw/d455``, and output directory
-``calibration_tools/sessions/d455-to-right``.
+``robots/dual_franka/calibration/sessions/d455-to-right``.
 
 **3. Fit and export**
 
 .. code-block:: bash
 
-   python calibration_tools/solve_base_handeye.py \
-     calibration_tools/sessions/base-to-right --arm right
-   python calibration_tools/export_dual_franka.py \
-     calibration_tools/sessions/base-to-right/base_camera_extrinsic_candidate.json \
-     --output calibration_tools/exports/base_to_right.yaml
+   python robots/dual_franka/calibration/solve_base_handeye.py \
+     robots/dual_franka/calibration/sessions/base-to-right --arm right
+   python robots/dual_franka/calibration/export_dual_franka.py \
+     robots/dual_franka/calibration/sessions/base-to-right/base_camera_extrinsic_candidate.json \
+     --output robots/dual_franka/calibration/exports/base_to_right.yaml
 
 For D455, use ``d455-to-right`` and ``d455_to_right.yaml`` instead. Inspect
 ``quality_report.json`` and validate the candidate against independent physical
 measurements. Successful fitting or YAML export does not establish accuracy.
 Export does not overwrite existing files.
 When exporting a recalculated result, choose a new output filename, such as
-``calibration_tools/exports/base_to_right_v2.yaml``. Validate it before updating
+``robots/dual_franka/calibration/exports/base_to_right_v2.yaml``. Validate it before updating
 ``perception.calibration`` to use the new file.
 
 **4. Configure RPent**
@@ -203,7 +203,7 @@ Robot Configuration
 -------------------
 
 If calibration used a separate Python environment, reactivate RPent's
-``.venv`` before running the following commands.
+``.venv-dual-franka-real`` before running the following commands.
 
 Review and edit the checked-in development defaults before enabling motion:
 
@@ -333,7 +333,7 @@ Before using Codex, configure separate runtime directories and log in by followi
 Start the Two-node Ray Cluster
 ------------------------------
 
-Activate the installed ``.venv`` on each node before starting Ray. The default
+Activate the installed ``.venv-dual-franka-real`` on each node before starting Ray. The default
 placement in ``robots/dual_franka/runtime_config.py`` is:
 
 * Node ``0`` is the Ray head: it runs RPent, the environment worker, the
@@ -484,7 +484,7 @@ View Results
 
 Use a new ``--output-dir`` for each run. Inspect:
 
-* ``transcript_*.json`` for planner messages, tool calls and the finish result.
+* ``transcript.json`` for planner messages, tool calls and the finish result.
 * ``run.log`` and component ``*_server.log`` files for runtime/startup errors.
 * ``states.json`` and its referenced image, depth and robot-state artifacts for
   the evidence after each step.

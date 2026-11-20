@@ -3,7 +3,7 @@
 通用 RGB-D 工具包
 =================
 
-机器人注册 ``toolkits`` 中的只读工具后，规划器可以利用已记录的 RGB-D 观测查询像素对应的三维位置、分割物体或测量指定部位。
+机器人注册 ``components.tools.rgbd`` 中的只读工具后，规划器可以利用已记录的 RGB-D 观测查询像素对应的三维位置、分割物体或测量指定部位。
 
 以杯子为例，选中杯壁上的一个像素后，``back_project`` 可返回对应表面点的三维坐标。规划器也可以把这个像素或“白色杯子”这样的描述传给 ``segment``，获取候选掩膜，并在叠加图上核对掩膜是否覆盖目标杯子的可见区域。观测充分时，``geometry`` 可拟合杯口，给出杯口中心和半径，也可根据杯口和杯底的位置估算杯高。结果中的 ``world_frame_id`` 标明杯壁表面点和杯口中心所在的世界坐标系。点的坐标分量、杯口半径和杯高都以米为单位。
 
@@ -60,7 +60,7 @@ LIBERO 的适配器按相机名（``agentview`` 或 ``wrist``）和步号读取 
 观测适配器与工具注册
 --------------------
 
-接入仿真器或真机时，由该平台的观测适配器实现 ``get_observation(camera=..., step=...)``，通过一个 ``toolkits.observation.GeometryObservation`` 对象返回指定相机在该步的 RGB 图像和对应的三维数据。适配器可以直接提供与图像对齐的世界坐标图，给出每个像素对应的三维坐标（单位为米），也可以提供与图像对齐的光轴深度图（单位为米），并附上相机内参和相机到世界坐标系的变换。
+接入仿真器或真机时，由该平台的观测适配器实现 ``get_observation(camera=..., step=...)``，通过一个 ``components.tools.rgbd.observation.GeometryObservation`` 对象返回指定相机在该步的 RGB 图像和对应的三维数据。适配器可以直接提供与图像对齐的世界坐标图，给出每个像素对应的三维坐标（单位为米），也可以提供与图像对齐的光轴深度图（单位为米），并附上相机内参和相机到世界坐标系的变换。
 
 用 ``back_project`` 按高度筛选采样点时，适配器还需提供世界坐标系的向上方向 ``up_direction``。用 ``geometry`` 测量 ``query`` 中描述的物体时，观测适配器需要同时提供 ``up_direction`` 和相机位姿 ``camera_to_world``。若有多台标定相机，可实现 ``additional_observations(primary)``，提供同一步、同一世界坐标系的其他视角。
 
@@ -72,8 +72,8 @@ LIBERO 的适配器按相机名（``agentview`` 或 ``wrist``）和步号读取 
 
    from functools import partial
 
-   from toolkits.back_project import back_project
-   from toolkits.segment import SegmentTool
+   from components.tools.rgbd.back_project import back_project
+   from components.tools.rgbd.segment import SegmentTool
 
    sample = back_project.with_handler(partial(back_project, observations=observations))
    toolkit.add_tool(sample)
@@ -81,7 +81,7 @@ LIBERO 的适配器按相机名（``agentview`` 或 ``wrist``）和步号读取 
    toolkit.add_tool(masks.segment)
 
    if grounder is not None:
-       from toolkits.geometry.geometry_tool import GeometryTool
+       from components.tools.rgbd.geometry.geometry_tool import GeometryTool
 
        geometry = GeometryTool(
            observations=observations, state=state, segmenter=segmenter,
