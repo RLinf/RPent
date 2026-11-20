@@ -19,7 +19,7 @@ from typing import Any
 
 import numpy as np
 
-from rpent.flywheel.reader import read_array
+from components.tools.flywheel.reader import read_array
 from rpent.robots import get_robot_spec
 
 

@@ -19,7 +19,7 @@ import threading
 import numpy as np
 import pytest
 
-from rpent.flywheel.export import export_dataset, load_dataset
+from components.tools.flywheel.export import export_dataset, load_dataset
 
 pytest.importorskip("lerobot")
 

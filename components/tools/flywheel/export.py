@@ -24,12 +24,12 @@ from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
-from rpent.flywheel.flywheel import (
+from components.tools.flywheel.flywheel import (
     read_frame,
     resolve_action_config,
     select_vla_segments,
 )
-from rpent.flywheel.reader import iter_trajectories
+from components.tools.flywheel.reader import iter_trajectories
 from rpent.robots import get_robot_spec
 
 if TYPE_CHECKING:

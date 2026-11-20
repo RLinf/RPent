@@ -15,7 +15,7 @@
 """The per-run manifest: what ran, in which environment, and what it wrote.
 
 ``<output_dir>/run.json`` is the entry point of a run directory. It names the
-run, keeps the installation identity that produced it, lists the artifacts
+run, keeps the installation fingerprint that produced it, lists the artifacts
 written beside it, and carries the run verdict. One directory holds one run, so
 a second start against a used directory is refused instead of silently mixing
 two transcripts.
@@ -25,13 +25,18 @@ from __future__ import annotations
 
 import json
 import platform
-import sys
 from collections.abc import Mapping
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
 from rpent.evaluation.result import write_json_atomic
+from rpent.install.fingerprint import (
+    current_venv,
+    fingerprint_sha256,
+    read_fingerprint,
+    runtime_platform,
+)
 
 RUN_MANIFEST_NAME = "run.json"
 RUN_MANIFEST_SCHEMA = 1
@@ -46,40 +51,33 @@ def _utc_now() -> str:
     )
 
 
-def _runtime_platform() -> str:
-    """Return this interpreter's platform in manifest notation."""
-    system = platform.system().lower()
-    machine = platform.machine().lower()
-    if system == "linux":
-        return "linux-" + ("aarch64" if machine in {"aarch64", "arm64"} else "x86_64")
-    if system == "darwin":
-        return "darwin-" + ("arm64" if machine in {"aarch64", "arm64"} else "x86_64")
-    return f"{system}-{machine}"
-
-
-def _current_venv() -> Path | None:
-    """Return the active virtual environment, or ``None``."""
-    prefix = Path(sys.prefix)
-    if (prefix / "pyvenv.cfg").is_file():
-        return prefix
-    return None
-
-
 def installation_snapshot(venv: Path | None = None) -> dict[str, Any]:
     """Return the current environment's installation identity.
 
-    A run started from a source checkout records the interpreter and host that
-    produced it; the components it holds are recorded once the installer writes
-    them, so an unmanaged environment reports none.
+    A source checkout that was not installed through ``rpent-install`` still gets a
+    snapshot, but ``targets`` and ``install_sha256`` are ``None`` so a run can
+    be traced to the environment that produced it.
     """
-    active = Path(venv).resolve() if venv is not None else _current_venv()
+    active = Path(venv).resolve() if venv is not None else current_venv()
+    fingerprint = read_fingerprint(active) if active is not None else None
+    if fingerprint is None:
+        return {
+            "targets": None,
+            "install_sha256": None,
+            "python": platform.python_version(),
+            "platform": runtime_platform(),
+            "venv": str(active) if active is not None else None,
+            "components": [],
+        }
     return {
-        "targets": None,
-        "install_sha256": None,
-        "python": platform.python_version(),
-        "platform": _runtime_platform(),
-        "venv": str(active) if active is not None else None,
-        "components": [],
+        "targets": fingerprint.get("targets"),
+        "install_sha256": fingerprint_sha256(fingerprint),
+        "python": fingerprint.get("python", platform.python_version()),
+        "platform": fingerprint.get("platform", runtime_platform()),
+        "venv": str(active),
+        "components": sorted(fingerprint.get("components", {})),
+        "source_commit": fingerprint.get("source_commit"),
+        "source_dirty": fingerprint.get("source_dirty", False),
     }
 
 

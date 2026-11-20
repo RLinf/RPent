@@ -12,12 +12,13 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""The run manifest records the run and the environment that produced it."""
+"""The run manifest records the run and the installation that produced it."""
 
 import json
 
 import pytest
 
+from rpent.install.fingerprint import fingerprint_sha256, write_fingerprint
 from rpent.install.snapshot import (
     finish_run_manifest,
     installation_snapshot,
@@ -25,7 +26,19 @@ from rpent.install.snapshot import (
 )
 
 
-def test_snapshot_names_the_interpreter_and_host(tmp_path):
+def _fingerprint():
+    return {
+        "schema": 6,
+        "targets": ["infra-minimal"],
+        "python": "3.11.14",
+        "platform": "linux-x86_64",
+        "components": {"infra-minimal": {"manifest_sha256": "digest"}},
+        "source_commit": "abc123",
+        "source_dirty": False,
+    }
+
+
+def test_snapshot_of_a_venv_without_a_fingerprint(tmp_path):
     venv = tmp_path / "venv"
     venv.mkdir()
 
@@ -37,24 +50,46 @@ def test_snapshot_names_the_interpreter_and_host(tmp_path):
     assert snapshot["components"] == []
 
 
+def test_snapshot_identifies_the_installed_targets(tmp_path):
+    venv = tmp_path / "venv"
+    venv.mkdir()
+    fingerprint = _fingerprint()
+    write_fingerprint(venv, fingerprint)
+
+    snapshot = installation_snapshot(venv)
+
+    assert snapshot["targets"] == ["infra-minimal"]
+    assert snapshot["install_sha256"] == fingerprint_sha256(fingerprint)
+    assert snapshot["components"] == ["infra-minimal"]
+    assert snapshot["source_commit"] == "abc123"
+
+
 def test_start_records_the_run_and_claims_the_directory(tmp_path):
+    venv = tmp_path / "venv"
+    venv.mkdir()
+    write_fingerprint(venv, _fingerprint())
+
     path = start_run_manifest(
         tmp_path,
         robot="libero",
         planner="api",
         model=None,
         task={"suite": "libero_10_task", "task": 0},
+        venv=venv,
     )
     record = json.loads(path.read_text(encoding="utf-8"))
 
     assert record["schema"] == 1
     assert record["robot"] == "libero"
     assert record["task"] == {"suite": "libero_10_task", "task": 0}
+    assert record["environment"]["targets"] == ["infra-minimal"]
     assert record["artifacts"] == {}
 
     # One directory holds one run: a second start must not overwrite it.
     with pytest.raises(FileExistsError, match="already records a run"):
-        start_run_manifest(tmp_path, robot="libero", planner="api", model=None, task={})
+        start_run_manifest(
+            tmp_path, robot="libero", planner="api", model=None, task={}, venv=venv
+        )
 
 
 def test_finish_records_artifacts_and_the_verdict(tmp_path):
