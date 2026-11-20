@@ -24,6 +24,7 @@ from rpent.planner.check import LlmCheckRequest, check_llm
 @pytest.mark.parametrize("probe", [False, True])
 def test_opencode_preserves_provider_and_scopes_tools(tmp_path, monkeypatch, probe):
     monkeypatch.setenv("OPENCODE_BIN", "/configured/opencode")
+    monkeypatch.setenv("OPENCODE_DISABLE_EXTERNAL_SKILLS", "0")
     original = json.dumps(
         {"provider": {"local": {"options": {"baseURL": "https://example.invalid"}}}}
     )
@@ -60,6 +61,7 @@ def test_opencode_preserves_provider_and_scopes_tools(tmp_path, monkeypatch, pro
     assert session._model == "local/exact-model"
     assert session._env["OPENCODE_DISABLE_PROJECT_CONFIG"] == "1"
     assert session._env["OPENCODE_DISABLE_CLAUDE_CODE"] == "1"
+    assert session._env["OPENCODE_DISABLE_EXTERNAL_SKILLS"] == "1"
     assert "127.0.0.1" in session._env["NO_PROXY"]
     assert not list(tmp_path.iterdir())
 

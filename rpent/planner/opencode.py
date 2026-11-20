@@ -50,6 +50,7 @@ class OpenCodePlanner(AcpPlanner):
         env = agent_environment()
         env["OPENCODE_DISABLE_PROJECT_CONFIG"] = "1"
         env["OPENCODE_DISABLE_CLAUDE_CODE"] = "1"
+        env["OPENCODE_DISABLE_EXTERNAL_SKILLS"] = "1"
         config = json.loads(env.get("OPENCODE_CONFIG_CONTENT") or "{}")
         config.update(
             default_agent=root.name,
