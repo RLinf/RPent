@@ -64,12 +64,23 @@ def _install_hint(component: str) -> str:
 def require(component: str, module: str) -> ModuleType:
     """Import ``module`` or raise an error naming ``component`` and its install.
 
+    Only a missing ``module`` or one of its parent packages becomes a
+    ``MissingComponentError``. A component whose own imports fail — a package
+    its manifest forgot, a broken native library — keeps its original
+    exception, so the message does not send the user to reinstall something
+    that is already there.
+
     Raises:
-        MissingComponentError: the module is unavailable in this environment.
+        MissingComponentError: ``module`` or a parent package is unimportable.
     """
     try:
         return importlib.import_module(module)
-    except ImportError as exc:
+    except ModuleNotFoundError as exc:
+        missing = exc.name
+        if missing is None or not (
+            missing == module or module.startswith(f"{missing}.")
+        ):
+            raise
         raise MissingComponentError(
             f"component {component!r} requires {module!r}, which is not "
             f"importable in this environment; {_install_hint(component)}"

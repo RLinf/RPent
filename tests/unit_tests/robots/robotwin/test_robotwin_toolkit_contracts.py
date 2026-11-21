@@ -29,14 +29,14 @@ from unittest.mock import Mock
 import numpy as np
 import pytest
 
+from components.tools.flywheel.flywheel import select_vla_segments
+from components.tools.flywheel.reader import iter_trajectories, read_array
 from robots.robotwin import toolkit
 from robots.robotwin.env_client import RoboTwinEnvClient
 from robots.robotwin.primitives import RoboTwinPrimitives
 from robots.robotwin.robot_spec import env_runtime_contract
 from robots.robotwin.toolkit import _capture_robotwin_call
 from rpent.dashboard.events import NullDashboardEventSink
-from rpent.flywheel.flywheel import select_vla_segments
-from rpent.flywheel.reader import iter_trajectories, read_array
 from rpent.memory import MemoryManager
 from rpent.session import EnvState, Payload
 from rpent.session.env_capture import CapturingEnvClient, ToolCallCapture

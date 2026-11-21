@@ -229,7 +229,9 @@ def _closure(components: dict[str, Component]) -> tuple[str, ...]:
     two command lines describe the same environment. The names typed on the
     command line name its directory and record how it was created. A manifest
     that changed its packages describes the same environment, so rerunning the
-    command repairs it; one that changed its ``requires`` describes another.
+    command installs what it now declares; a package it dropped stays installed
+    until ``--force`` rebuilds the environment. A manifest that changed its
+    ``requires`` describes another environment.
     """
     return tuple(sorted(components))
 
@@ -360,6 +362,11 @@ def install(
         )
 
     requirements_path = requirements_file(destination)
+    # Rendered requirements without a fingerprint mean the previous install
+    # stopped after writing package metadata. ``uv`` treats that metadata as an
+    # installed package even when its files are gone, so the repair reinstalls
+    # every requirement instead of accepting what the failed run left behind.
+    repairing = requirements_path.is_file() and read_fingerprint(destination) is None
     requirements_path.write_text(requirements, encoding="utf-8")
 
     install_command = [uv, "pip", "install", "--python", str(python)]
@@ -367,6 +374,8 @@ def install(
     for component in resolution.components.values():
         for override in component.overrides:
             install_command.extend(["--override", str(override)])
+    if repairing:
+        install_command.append("--reinstall")
     install_command.extend(["-r", str(requirements_path)])
     if verbose:
         print(f"$ {' '.join(install_command)}")

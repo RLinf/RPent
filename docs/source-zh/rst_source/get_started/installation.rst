@@ -85,11 +85,11 @@
    rpent-install install model-openpi --venv .venv-openpi
    rpent-install install sim-libero_plus model-openpi model-sam3 --venv .venv-libero-plus
 
-``rpent-install`` 需要在源码检出中运行。发布到 PyPI 的 wheel 只包含核心 ``rpent`` 包；``robots/`` 和 ``components/`` 及其 ``component.toml`` 只随源码检出和 sdist 发布。非可编辑的 ``pip install rpent`` 只提供 CLI；运行具体的机器人或模型服务请使用源码检出（或 sdist），因为 ``rpent-install`` 要在其中找到清单。
+``rpent-install`` 需要在源码检出中运行，它从 ``robots/`` 和 ``components/`` 下的 ``component.toml`` 读取清单。非可编辑的 ``pip install rpent`` 只提供 CLI；运行具体的机器人或模型服务请使用源码检出（或 sdist），因为清单在那里。
 
 环境只包含你写出的组件及其闭包。环境里有什么决定既有 venv 能否复用，所以点名一个通过 ``requires`` 带出另一个的组件，与把两者都点名，描述的是同一个环境；组件换了包也仍是同一个环境。持有另一组组件的 venv 会被拒绝；请为这个集合指定另一个 ``--venv``，或加 ``--force`` 替换它。``--force`` 只重建该路径上的环境，不会删除不是虚拟环境的目录。已经装有包、但没有 ``rpent-install`` 指纹的 venv 同样会被拒绝：其中的包属于先安装它们的人，只有空环境（刚创建的 ``uv venv``）才会被直接使用。安装失败留下的环境里还有生成的 requirements，重跑同一条命令会接管并补完它。生成的 requirements 和实际安装的包版本都写进环境自身，不会留在环境之外。不传 ``--venv`` 时，目标集合安装到源码目录下的 ``.rpent/venvs/<组件名以 + 连接>``；``.rpent/`` 是本地状态、已被 git 忽略，之后的 ``install`` 和 ``doctor`` 会复用同一个环境。
 
-重复执行会复用环境并修复过期安装。安装器根据清单生成 requirements，再由 ``uv pip install`` 解析安装。清单中的直接依赖版本约束和 Git revision 仍然生效；随着上游发布新版本，不同时间全新安装的传递依赖版本可能不同。``--dry-run`` 只打印生成的 requirements，不执行安装。
+重复执行会复用环境并安装清单现在声明的包；较早清单装上的包会保留，直到 ``--force`` 重建环境。安装器根据清单生成 requirements，再由 ``uv pip install`` 解析安装。清单中的直接依赖版本约束和 Git revision 仍然生效；随着上游发布新版本，不同时间全新安装的传递依赖版本可能不同。``--dry-run`` 只打印生成的 requirements，不执行安装。
 
 任意数量的组件都可以贡献依赖包。索引设置（``index-url``、``extra-index-urls``、``index-strategy``）在整个闭包上合并；两个组件对它们的要求不一致时，该环境判定为无效，而不是悄悄选择其中一个。
 

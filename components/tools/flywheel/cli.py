@@ -94,8 +94,8 @@ def main() -> int:
         if exc.name != "lerobot":
             raise
         logger.error(
-            "LeRobot is required for trajectory export. Install it with a "
-            "profile that selects the flywheel variant; see the flywheel guide."
+            "LeRobot is required for trajectory export. Install the component "
+            "with `rpent-install install tool-flywheel`; see the flywheel guide."
         )
         return 1
     except (OSError, ValueError) as exc:

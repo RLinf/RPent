@@ -135,12 +135,10 @@ over its client:
    rpent-install install model-openpi --venv .venv-openpi
    rpent-install install sim-libero_plus model-openpi model-sam3 --venv .venv-libero-plus
 
-``rpent-install`` runs from a checkout. The wheel published to PyPI contains
-only the core ``rpent`` package; ``robots/`` and ``components/`` with their
-``component.toml`` manifests ship only with the source checkout and sdist. A
-non-editable ``pip install rpent`` provides the CLI; run a specific robot or
-model service from a source checkout, where ``rpent-install`` can find the
-manifests.
+``rpent-install`` runs from a checkout, where it reads the ``component.toml``
+manifests under ``robots/`` and ``components/``. A non-editable ``pip install
+rpent`` provides the CLI; run a specific robot or model service from a source
+checkout, where the manifests live.
 
 An environment contains exactly the components you named and their closure.
 What it contains decides whether an existing venv can be reused, so naming a
@@ -160,9 +158,10 @@ they never outlive it. Without ``--venv``, a target set installs into
 ``.rpent/`` is local state and is ignored by git, so later ``install`` and
 ``doctor`` runs find the same environment.
 
-Re-running the command reuses the environment and repairs a stale install. The
-installer generates requirements from the manifests, then lets
-``uv pip install`` resolve them. Direct version constraints and Git revisions
+Re-running the command reuses the environment and installs what the manifests
+now declare; a package an earlier manifest added stays installed until
+``--force`` rebuilds the environment. The installer generates requirements from
+the manifests, then lets ``uv pip install`` resolve them. Direct version constraints and Git revisions
 remain in the manifests; transitive versions may differ between fresh installs
 as upstream packages change. ``--dry-run`` prints the generated requirements
 without installing.

@@ -30,6 +30,9 @@ optional export dependencies:
 
    uv pip install -e ".[libero-pro,flywheel]"
 
+An environment created with ``rpent-install`` installs the same packages with
+``rpent-install install tool-flywheel``.
+
 Record a Trajectory
 -------------------
 

@@ -541,6 +541,27 @@ def test_install_repairs_an_environment_left_by_a_failed_install(
     assert fingerprint["targets"] == ["robot-alpha"]
 
 
+def test_repairing_a_failed_install_reinstalls_every_requirement(
+    repo, tmp_path, monkeypatch
+):
+    # uv treats package metadata as an installed package even when its files
+    # are gone, so a repair that reused the leftovers would record a
+    # fingerprint for an environment that does not work.
+    _, install_arguments = _fake_uv(tmp_path, monkeypatch)
+    fresh = tmp_path / "fresh"
+
+    install(["robot-alpha"], root=repo, venv=fresh, verbose=False)
+
+    assert "--reinstall" not in install_arguments()[0]
+
+    venv = _plain_venv(tmp_path, "pip")
+    requirements_file(venv).write_text("numpy>=2\n", encoding="utf-8")
+
+    install(["robot-alpha"], root=repo, venv=venv, verbose=False)
+
+    assert "--reinstall" in install_arguments()[2]
+
+
 def test_install_reports_an_interpreter_it_cannot_run(repo, tmp_path, monkeypatch):
     _fake_uv(tmp_path, monkeypatch)
     venv = tmp_path / "venv"

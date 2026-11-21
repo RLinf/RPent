@@ -87,6 +87,31 @@ def test_component_outside_the_environment_gets_its_own_install(monkeypatch):
     assert "`rpent-install install robot-libero model-molmo`" in message
 
 
+def test_missing_parent_package_names_the_component(monkeypatch):
+    monkeypatch.setattr(components, "current_venv", lambda: None)
+
+    with pytest.raises(components.MissingComponentError) as error:
+        components.require("model-sam3", f"{MISSING}.backend")
+
+    assert f"requires '{MISSING}.backend'" in str(error.value)
+
+
+def test_failure_inside_the_module_keeps_its_original_exception(monkeypatch):
+    # The component and its package are installed; something it imports is
+    # not. Reinstalling the component cannot fix that, so the guard stays out
+    # of the way and the original traceback reaches the user.
+    def broken_import(module):
+        raise ModuleNotFoundError("No module named 'torch'", name="torch")
+
+    monkeypatch.setattr(components.importlib, "import_module", broken_import)
+
+    with pytest.raises(ModuleNotFoundError) as error:
+        components.require("model-sam3", "components.models.sam3.backend")
+
+    assert not isinstance(error.value, components.MissingComponentError)
+    assert error.value.name == "torch"
+
+
 def test_fingerprint_without_targets_names_no_empty_command(monkeypatch):
     # `doctor` rejects such a fingerprint, but the hint must not print an empty
     # `rpent-install install` command while it is still in use.
