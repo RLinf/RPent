@@ -407,7 +407,7 @@ Server fields
        when a request is made and sent verbatim.
    * - ``planner_tools``
      - No
-     - Which tools reach the planner: ``"*"``, a list of names, or omitted.
+     - Which tools the planner may call: ``"*"``, a list of names, or omitted.
 
 .. warning::
 
@@ -426,9 +426,11 @@ Server fields
 ``planner_tools`` has three forms:
 
 - ``"*"`` exposes every tool the server provides.
-- A list exposes only those tools.
-- Omitting it keeps the server out of the planner, so a run continues when the
-  server is down; the robot can still register its tools on the Toolkit.
+- A list limits the planner to those tools.
+- Omitting it keeps the server out of the planner, so an unavailable server
+  does not block startup; the robot can still register its tools on the
+  Toolkit. Registration lists the server's tools at startup, so a server a
+  robot registers must be reachable then.
 
 ``claude_code`` mounts the whole server, so the list only marks which tools are
 auto-approved. Tools outside the list stay visible to the model, but a call in a
@@ -461,7 +463,8 @@ with a planner error rather than continuing without the server:
 MCP requests inside the RPent process have a 60-second deadline by default,
 including registered Toolkit tools, this check, and the ``api`` planner's
 connections. Set ``MCP_CALL_TIMEOUT_S`` (in seconds) to change it. The deadline
-also bounds how long cancellation waits for a registered call in flight.
+also bounds how long cancellation waits for a registered call in flight;
+closing a timed-out session does not wait for the remote tool to finish.
 
 ``claude_code`` and ``codex`` connect to planner servers from their own CLI
 processes, so those calls follow the CLIs' timeouts. The check above runs before

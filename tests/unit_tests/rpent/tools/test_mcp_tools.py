@@ -18,6 +18,7 @@ import asyncio
 import base64
 import json
 import time
+from contextlib import asynccontextmanager
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -441,19 +442,29 @@ def test_additional_properties_follow_the_remote_schema() -> None:
 
 
 def test_reserved_property_names_survive_a_strict_schema() -> None:
+    # ``model_dump`` repeats a BaseModel member, ``schema`` shadows a deprecated
+    # one, and ``_id``/``model_config`` cannot be fields at all. All of them are
+    # legal arguments for the remote server, so none may abort registration.
     schema = {
         "type": "object",
         "properties": {
             "_id": {"type": "string"},
             "model_config": {"type": "string"},
+            "schema": {"type": "string"},
+            "model_dump": {"type": "string"},
         },
         "required": ["_id"],
         "additionalProperties": False,
     }
     args = mcp_tools._args_model("lookup", schema)
+    arguments = {
+        "_id": "abc",
+        "model_config": "x",
+        "schema": "public",
+        "model_dump": "payload",
+    }
 
-    parsed = args.model_validate({"_id": "abc", "model_config": "x"}, strict=True)
-    assert parsed.model_dump() == {"_id": "abc", "model_config": "x"}
+    assert args.model_validate(arguments, strict=True).model_dump() == arguments
     with pytest.raises(ValueError, match="undeclared argument"):
         args.model_validate({"_id": "abc", "bogus": 1}, strict=True)
 
@@ -574,6 +585,42 @@ def _toolkit(root: Path) -> Toolkit:
         state=state,
         memory=MemoryManager(root / "memory"),
     )
+
+
+def test_closing_a_session_does_not_terminate_it_on_the_server(
+    monkeypatch: pytest.MonkeyPatch, spec: McpServerSpec
+) -> None:
+    opened: list[dict[str, Any]] = []
+
+    class FakeSession:
+        def __init__(self, read: Any, write: Any, read_timeout_seconds: Any = None):
+            self.read = read
+            self.write = write
+            self.read_timeout_seconds = read_timeout_seconds
+
+        async def __aenter__(self) -> FakeSession:
+            return self
+
+        async def __aexit__(self, *exc_info: Any) -> bool:
+            return False
+
+        async def initialize(self) -> None:
+            return None
+
+    @asynccontextmanager
+    async def fake_client(url: str, headers: Any = None, **kwargs: Any):
+        opened.append({"url": url, "headers": headers, **kwargs})
+        yield object(), object(), None
+
+    monkeypatch.setattr(mcp_tools, "_mcp_client", lambda: (FakeSession, fake_client))
+
+    async def action(session: Any) -> str:
+        return "done"
+
+    assert asyncio.run(mcp_tools.run_remote(spec, action)) == "done"
+    # The transport's DELETE waits for the server to finish the in-flight call,
+    # so a timed-out call would otherwise keep running for the tool's runtime.
+    assert opened[0]["terminate_on_close"] is False
 
 
 def test_registered_tool_deadline_ends_a_slow_call(

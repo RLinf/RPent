@@ -160,12 +160,11 @@ def _args_model(name: str, schema: dict[str, Any]) -> type[BaseModel]:
     properties keep every type the schema allows, and nested shapes stay
     permissive.
 
-    Properties pydantic reserves cannot become model fields: names starting
-    with an underscore and ``model_config`` are dropped by ``create_model``.
-    They are accepted as extras and forwarded unchanged, leaving their type
-    and required checks to the server. Undeclared arguments are therefore
-    rejected by a validator rather than ``extra="forbid"``, which would reject
-    those properties too.
+    Properties pydantic reserves cannot become model fields; see
+    :func:`_can_be_a_field`. They are accepted as extras and forwarded
+    unchanged, leaving their type and required checks to the server.
+    Undeclared arguments are therefore rejected by a validator rather than
+    ``extra="forbid"``, which would reject those properties too.
     """
     required = set(schema.get("required") or ())
     properties = schema.get("properties") or {}
@@ -175,6 +174,7 @@ def _args_model(name: str, schema: dict[str, Any]) -> type[BaseModel]:
             ... if prop in required else _OMITTED,
         )
         for prop, prop_schema in properties.items()
+        if _can_be_a_field(prop)
     }
     declared = frozenset(properties)
 
@@ -196,6 +196,18 @@ def _args_model(name: str, schema: dict[str, Any]) -> type[BaseModel]:
         },
         **fields,
     )
+
+
+def _can_be_a_field(name: str) -> bool:
+    """Whether ``create_model`` can declare ``name`` as a field.
+
+    Pydantic refuses names that repeat a ``BaseModel`` member (``model_dump``,
+    ``model_validate``) and drops names starting with an underscore or naming
+    the config slot; other base attributes, such as ``schema`` and ``copy``,
+    only warn. All of these are still valid arguments for the remote server,
+    so they are accepted as extras instead of declared fields.
+    """
+    return not name.startswith("_") and not hasattr(BaseModel, name)
 
 
 def _argument_annotation(schema: Any) -> Any:
@@ -385,6 +397,13 @@ async def run_remote(
     the bound on how long ``Toolkit.cancel_active_and_wait`` waits for an
     registered tool.
 
+    The session is closed without terminating it on the server. The transport's
+    ``DELETE`` handshake waits for the server to finish the in-flight request,
+    so a server that streams a tool's response for its whole runtime would hold
+    a timed-out call for that runtime — the deadline would bound the error
+    message but not the call. RPent never reuses a session, and servers expire
+    idle ones on their own.
+
     The transports close a failed session inside an anyio task group, which
     reports the real error as a nested ``ExceptionGroup``; it is unwrapped here
     so callers see the timeout or refused connection instead of the group.
@@ -393,7 +412,9 @@ async def run_remote(
     headers = request_headers(spec) or None
     timeout = timedelta(seconds=call_timeout_s())
     try:
-        async with streamablehttp_client(spec.url, headers=headers) as (
+        async with streamablehttp_client(
+            spec.url, headers=headers, terminate_on_close=False
+        ) as (
             read,
             write,
             _,
