@@ -21,7 +21,7 @@ import os
 from pathlib import Path
 from typing import Any
 
-from rpent.evaluation import RunFinalizationContext, write_json_atomic
+from rpent.evaluation import RunFinalizationContext, verdict_fields, write_json_atomic
 
 RESULT_SCHEMA_VERSION = "1.1"
 TARGET50_MANIFEST = Path(__file__).with_name("target50.json")
@@ -159,4 +159,5 @@ def finalize_cell_result(context: RunFinalizationContext) -> Path:
         cell_timeout_seconds=context.planner_timeout_s,
         memory=memory,
     )
+    record.update(verdict_fields(context))
     return write_json_atomic(context.output_dir / "result.json", record)

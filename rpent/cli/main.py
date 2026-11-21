@@ -121,15 +121,6 @@ def _read_solved(toolkit) -> bool | None:
     return solved_fn() if callable(solved_fn) else None
 
 
-def _truth_source(args, robot_spec) -> str:
-    """Return who establishes this run's verdict."""
-    # Flash replay applies the operator's confirmation, so the verdict is not
-    # the environment's own.
-    if args.planner == "flash":
-        return "operator"
-    return robot_spec.truth_source
-
-
 def _exit_code(accepted: bool | None) -> int:
     """Map a run verdict to the exit status: 0 accepted, 1 rejected, 75 none."""
     if accepted is None:
@@ -862,7 +853,13 @@ def main() -> int:
         planner_timeout_s=args.planner_timeout_s,
         finish_result=dict(finish_result) if finish_result is not None else None,
         stats=dict(stats),
-        truth_source=_truth_source(args, robot_spec) if collects_verdict else None,
+        # The provenance exists only when a verdict exists; a run nobody judged
+        # (including a crashed planner) records no truth source.
+        truth_source=(
+            robot_spec.truth_source
+            if collects_verdict and environment_success is not None
+            else None
+        ),
     )
 
     transcript_path = Path(output_dir) / "transcript.json"
@@ -967,6 +964,10 @@ def main() -> int:
         # but a run whose artifacts failed is still a failed command.
         return 1 if agent_error or command_failed else 0
     if command_failed:
+        return 1
+    # A planner failure without a verdict is a failed run, not an unjudged one:
+    # reserve 75 for a run that ended cleanly but has no judge.
+    if agent_error is not None and context.accepted is None:
         return 1
     return _exit_code(context.accepted)
 

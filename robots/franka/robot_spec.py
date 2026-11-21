@@ -87,6 +87,7 @@ def get_robot_spec() -> RobotSpec:
         init_runtime=_init_runtime,
         resolve_dashboard=lambda args: FRANKA_DASHBOARD_SPEC,
         is_real_robot=True,
+        truth_source="operator",
         supports_exploration=False,
     )
 

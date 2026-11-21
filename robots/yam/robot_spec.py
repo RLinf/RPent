@@ -85,6 +85,7 @@ def get_robot_spec() -> RobotSpec:
         resolve_dashboard=lambda args: YAM_DASHBOARD_SPEC,
         supports_exploration=True,
         is_real_robot=True,
+        truth_source="operator",
         finalize_run=finalize_run,
         prompts=PromptBundle(system=system_prompt, user=user_prompt),
         add_cli_args=_add_cli_args,

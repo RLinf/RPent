@@ -31,7 +31,6 @@ from rpent.cli.main import (
     _handoff_message,
     _read_solved,
     _serialize_messages,
-    _truth_source,
 )
 from rpent.dashboard.events import RunStartedEvent
 from rpent.evaluation import (
@@ -488,7 +487,9 @@ def _run_dashboard_task(
             finish_result=dict(finish_result) if finish_result is not None else None,
             stats=dict(stats),
             truth_source=(
-                _truth_source(task_args, robot_spec) if collects_verdict else None
+                robot_spec.truth_source
+                if collects_verdict and environment_success is not None
+                else None
             ),
         )
         transcript_path = output_dir / "transcript.json"
@@ -502,6 +503,7 @@ def _run_dashboard_task(
                     "model": task_args.model,
                     "elapsed_s": round(elapsed_s, 1),
                     "finish": finish_result,
+                    "error": agent_error,
                     "environment_success": environment_success,
                     **verdict_fields(context),
                     "stats": stats,

@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from rpent.evaluation import RunFinalizationContext, write_json_atomic
+from rpent.evaluation import RunFinalizationContext, verdict_fields, write_json_atomic
 
 
 def finalize_run(context: RunFinalizationContext) -> Path:
@@ -35,5 +35,6 @@ def finalize_run(context: RunFinalizationContext) -> Path:
             "planner": context.planner,
             "model": context.model,
             "stats": dict(context.stats),
+            **verdict_fields(context),
         },
     )

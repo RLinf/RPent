@@ -41,6 +41,9 @@ dependencies = [
     # The tool contracts declare their input schemas with pydantic. The
     # planner-side ``pydantic_ai`` schema builder is imported lazily.
     "pydantic>=2",
+    # The memory manager parses layered prompt files, and robot specs import it
+    # when the runtime layer loads a robot without the planner stack.
+    "PyYAML>=6.0",
 ]
 
 [project.scripts]
@@ -82,9 +85,10 @@ planner = [
     "huggingface_hub>=0.24",
     "prompt-toolkit>=3.0.48",
     "scipy",
-    "PyYAML>=6.0",
 ]
 test = [
+    # Transitional: `infra-dev` and `infra-unit_cpu` own these packages once
+    # the environment workflow switches to component installs.
     "rpent[planner]",
     "coverage",
     "pytest",
