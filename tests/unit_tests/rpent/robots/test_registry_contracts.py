@@ -35,6 +35,7 @@ EXPECTED_ROBOTS = (
     "efe",
     "franka",
     "libero",
+    "rl",
     "robocasa",
     "robodojo",
     "robotwin",
@@ -43,6 +44,8 @@ EXPECTED_ROBOTS = (
 
 # EFE drives one external episode and offers no task switch or reset.
 ROBOTS_WITHOUT_DASHBOARD = ("efe",)
+# rl runs fixed non-interactive rollouts without Dashboard control.
+DASHBOARD_ROBOTS = tuple(name for name in EXPECTED_ROBOTS if name != "rl")
 
 PROMPT_VARIABLES = {
     "yam": {
@@ -67,6 +70,7 @@ PROMPT_VARIABLES = {
         "session_max": 1,
         "output_dir": Path("/output"),
     },
+    "rl": {"observation_mode": "adaptive", "output_dir": Path("/output")},
     "robocasa": {
         "task_name": "OpenDrawer",
         "split": "target",
@@ -212,7 +216,7 @@ def test_libero_prompts_observe_task_before_reading_memory(
     )
 
 
-@pytest.mark.parametrize("robot_name", EXPECTED_ROBOTS)
+@pytest.mark.parametrize("robot_name", DASHBOARD_ROBOTS)
 def test_dashboard_metadata_has_consistent_fields_and_runtime_components(
     robot_name: str,
 ) -> None:

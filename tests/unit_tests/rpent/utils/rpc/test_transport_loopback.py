@@ -22,6 +22,7 @@ import threading
 import time
 import urllib.request
 from collections.abc import Iterator
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
 from dataclasses import dataclass
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -41,7 +42,12 @@ from rpent.utils.rpc import (
     make_rpc_client,
     wait_for_ready,
 )
-from rpent.utils.rpc.http_rpc import HttpRpcClient, _is_direct_url
+from rpent.utils.rpc.http_rpc import (
+    EncodedRpcResponse,
+    HttpRpcClient,
+    HttpRpcServer,
+    _is_direct_url,
+)
 from rpent.utils.rpc.socket_rpc import _write_frame
 
 Transport = Literal["http", "socket"]
@@ -375,3 +381,45 @@ def test_captured_step_caches_the_observation_inside_the_receipt(
         receipt = env.step(1, capture=True)
         assert env.last_obs is receipt["result"][0]
         assert env.last_obs == {"position": 1}
+
+
+def test_http_accepts_simultaneous_independent_episode_requests() -> None:
+    count = 100
+    barrier = threading.Barrier(count)
+    with _running_facade("http") as running:
+
+        def request(index):
+            client = HttpRpcClient(f"http://127.0.0.1:{running.port}")
+            barrier.wait(timeout=10)
+            return client.call(
+                "combine",
+                args=(np.asarray([index], dtype=np.int64),),
+                kwargs={"scale": 2, "metadata": {"episode": index}},
+                timeout_s=5,
+            )
+
+        with ThreadPoolExecutor(max_workers=count) as pool:
+            responses = list(pool.map(request, range(count)))
+        assert [x["metadata"]["episode"] for x in responses] == list(range(count))
+        for index, response in enumerate(responses):
+            np.testing.assert_array_equal(response["values"], [index * 2])
+
+
+def test_http_encoded_envelope_passes_through_without_reencoding():
+    body = b'{ "ok" : true, "result" : {"value": [1,2,3], "message": "a\\\\b"} }'
+    server = HttpRpcServer(("127.0.0.1", 0), lambda *_: EncodedRpcResponse(body))
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    client = HttpRpcClient(f"http://127.0.0.1:{server.server_address[1]}")
+    try:
+        assert client.forward("anything", timeout_s=1).body == body
+        assert client.call("anything", timeout_s=1) == {
+            "value": [1, 2, 3],
+            "message": "a\\b",
+        }
+    finally:
+        client.close()
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=3)
+        assert not thread.is_alive()

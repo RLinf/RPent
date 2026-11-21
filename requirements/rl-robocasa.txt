@@ -1,0 +1,8 @@
+# Isolated simulator process; Python 3.11, no VLA weights or policy dependencies.
+-e .
+rpent-robocasa365==1.0.1
+# RoboCasa365 needs load_model_on_init, absent from the 1.5.2 release.
+robosuite @ git+https://github.com/ARISE-Initiative/robosuite.git@5ce6643f3092639d08f7b0f90ed1c6a84f50552c
+mujoco==3.3.0
+numpy==1.26.4
+scipy==1.15.3

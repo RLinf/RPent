@@ -1,0 +1,16 @@
+# Python 3.12 / Linux x86_64. The unified offline package supplies these dependencies.
+# Install only the simulator and SAM3: the shared rl workflow does not use OpenPi/Pi0.5.
+-e .[sam3]
+rlinf @ git+https://github.com/zhexuanxu/RLinf.git@rpent-ppo
+rpent-libero @ git+https://github.com/RLinf/LIBERO.git@rpent
+rpent-liberopro @ git+https://github.com/RLinf/LIBERO-PRO.git@rpent
+mujoco==3.3.0
+robosuite==1.5.2
+numpy==1.26.4
+torch==2.11.0
+torchvision==0.26.0
+transformers>=5.8.1,<5.9
+opencv-python==4.11.0.86
+pyarrow==25.0.0
+gymnasium==1.4.0
+imageio[ffmpeg]>=2.0

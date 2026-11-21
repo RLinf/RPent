@@ -28,6 +28,7 @@ import json
 import urllib.error
 import urllib.parse
 import urllib.request
+from dataclasses import dataclass
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any, Callable
 
@@ -70,6 +71,13 @@ def _from_json(obj: Any) -> Any:
     return obj
 
 
+@dataclass(frozen=True)
+class EncodedRpcResponse:
+    """An HTTP JSON-RPC envelope owned by the upstream server, forwarded unchanged."""
+
+    body: bytes
+
+
 class HttpRpcClient(RpcClient):
     """RPC client that talks to an RPC server via HTTP POST.
 
@@ -105,6 +113,36 @@ class HttpRpcClient(RpcClient):
         timeout_s: float | None = None,
     ) -> Any:
         """Invoke a remote method via HTTP POST and return the result."""
+        raw = self._request(method, args, kwargs, timeout_s=timeout_s)
+
+        try:
+            response = _from_json(json.loads(raw))
+        except json.JSONDecodeError as exc:
+            raise RpcError(method, f"invalid JSON response: {exc}") from exc
+
+        return check_response(response, method)
+
+    def forward(
+        self,
+        method: str,
+        args: tuple = (),
+        kwargs: dict | None = None,
+        *,
+        timeout_s: float | None = None,
+    ) -> EncodedRpcResponse:
+        """Read one upstream envelope without decoding its potentially large payload."""
+        return EncodedRpcResponse(
+            self._request(method, args, kwargs, timeout_s=timeout_s)
+        )
+
+    def _request(
+        self,
+        method: str,
+        args: tuple,
+        kwargs: dict | None,
+        *,
+        timeout_s: float | None,
+    ) -> bytes:
         payload = {
             "method": method,
             "args": list(args),
@@ -132,12 +170,7 @@ class HttpRpcClient(RpcClient):
         except OSError as exc:
             raise RpcError(method, f"HTTP request failed: {exc}") from exc
 
-        try:
-            response = _from_json(json.loads(raw))
-        except json.JSONDecodeError as exc:
-            raise RpcError(method, f"invalid JSON response: {exc}") from exc
-
-        return check_response(response, method)
+        return raw
 
 
 # ---------------------------------------------------------------------------
@@ -189,7 +222,11 @@ class _HttpRpcHandler(BaseHTTPRequestHandler):
                 result = self.server.dispatch(  # type: ignore[attr-defined]
                     method, args, kwargs, session_id=session_id
                 )
-            response: dict = {"ok": True, "result": result}
+            response = (
+                result
+                if isinstance(result, EncodedRpcResponse)
+                else {"ok": True, "result": result}
+            )
         except Exception as exc:
             response = make_error_response(exc)
 
@@ -198,7 +235,12 @@ class _HttpRpcHandler(BaseHTTPRequestHandler):
         self.send_header("Content-Type", "application/json")
         self.end_headers()
         try:
-            self.wfile.write(json.dumps(response, cls=_NumpyEncoder).encode("utf-8"))
+            body = (
+                response.body
+                if isinstance(response, EncodedRpcResponse)
+                else json.dumps(response, cls=_NumpyEncoder).encode("utf-8")
+            )
+            self.wfile.write(body)
         except (BrokenPipeError, ConnectionResetError) as exc:
             # Client went away mid-response — log for visibility and move on.
             logger.debug("rpc http write failed: %s", exc)
@@ -214,6 +256,9 @@ class HttpRpcServer(ThreadingHTTPServer):
 
     allow_reuse_address = True
     daemon_threads = True
+    # Episode workers can connect together after a shared pause or startup.
+    # The stdlib backlog of five can reset their sockets before dispatch.
+    request_queue_size = 256
 
     def __init__(
         self,

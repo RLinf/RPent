@@ -228,3 +228,13 @@ Other Environments
 - :doc:`../simulators/robocasa` and :doc:`../simulators/robotwin` support exploration; see their pages for task arguments, resets, and memory scope.
 - :doc:`../real_world_robots/dual_franka` exploration requires an operator to reset the scene and judge results. Automatic merging is disabled by default. Complete deployment and motion checks first.
 - :doc:`../real_world_robots/franka` does not currently support exploration.
+
+Evaluation without memory
+-------------------------
+
+For LIBERO with ``--planner api``, use ``--memory-profile none`` to evaluate
+without loading historical task solutions. The normal perception and action
+tools and current-episode conversation remain available. File tools can access
+only ``<output-dir>/files/``; use observation tools for state and images. This
+mode cannot be combined with exploration, ``--memory-dir``, or ``--memory-repo``.
+Other memory profiles are unchanged.

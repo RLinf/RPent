@@ -1,0 +1,3 @@
+# Compatibility entry: planner, simulator and training share the reason environment.
+# Install the validated offline package; this file preserves the old entry name.
+-r episode-ppo-env.txt

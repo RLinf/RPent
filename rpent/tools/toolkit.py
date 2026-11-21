@@ -141,6 +141,10 @@ class Toolkit:
     :meth:`close` to release robot-side primitives / servers at the end of the run.
     """
 
+    #: Whether planners may add their own tools, such as Claude Code built-ins
+    #: and the API image reader, beside the registered declarations.
+    planner_builtin_tools = True
+
     def __init__(
         self,
         *,
@@ -221,22 +225,30 @@ class Toolkit:
         if tool is None:
             return ToolResult(data={"error": f"unknown tool: {name}"})
         try:
-            parameters = tool.args_schema.model_validate(input_dict, strict=True)
-        except ValidationError as exc:
+            parameters = tool.validate_arguments(input_dict)
+        except ValueError as exc:
             return ToolResult(
+                model_text=f"Invalid {name} arguments: {exc}. No tool executed; correct the arguments and try again.",
                 data={
                     "error": f"bad arguments for {name}",
                     "errors": exc.errors(
-                        include_url=False,
-                        include_context=False,
-                        include_input=False,
-                    ),
-                }
+                        include_url=False, include_context=False, include_input=False
+                    )
+                    if isinstance(exc, ValidationError)
+                    else [{"message": str(exc)}],
+                },
             )
         kwargs = {
             field: getattr(parameters, field) for field in type(parameters).model_fields
         }
 
+        return self._execute_validated(tool, input_dict, kwargs)
+
+    def _execute_validated(
+        self, tool: Tool, input_dict: dict[str, Any], kwargs: dict[str, Any]
+    ) -> ToolResult:
+        """Execute already-validated inputs, allowing a facade's coordinate conversion."""
+        name = tool.name
         try:
             operation = self._scheduler.acquire(readonly=tool.readonly)
         except ToolCancelled as exc:
@@ -311,6 +323,7 @@ class Toolkit:
                     native = ToolResult(
                         data=observed.data,
                         images=native.images + observed.images,
+                        model_text=native.model_text,
                     )
                 if record is not None:
                     self._publish_step(record)
@@ -354,6 +367,10 @@ class Toolkit:
         """Capture and return the observation produced by a stateful tool."""
         raise NotImplementedError
 
+    def initial_observation(self) -> ToolResult | None:
+        """Return an observation planners append to the opening user message."""
+        return None
+
     # ------------------------------------------------------------------
     # Server lifecycle hooks (overridden by robot toolkits)
     # ------------------------------------------------------------------
@@ -379,6 +396,10 @@ class Toolkit:
 
     def exploration_continuation(self, *, explicit: bool = False) -> str | None:
         """Return a rule-checked continuation at an idle planner boundary."""
+        return None
+
+    def completion_result(self) -> dict[str, Any] | None:
+        """Return a native terminal result, or None to keep requesting actions."""
         return None
 
     def solved(self) -> bool:

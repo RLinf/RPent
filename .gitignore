@@ -28,3 +28,13 @@ build/
 
 # Standalone calibration environment.
 .venv-calibration/
+
+# Local serving environment and offline dependency bundles.
+/.venv-sglang/
+/wheelhouse-rpent/
+/wheelhouse-sglang/
+
+# Local shared-workflow configuration and isolated simulator environments.
+/.rl-env.sh
+/.venv-robocasa/
+/.venv-robotwin/

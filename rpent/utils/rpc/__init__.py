@@ -17,6 +17,7 @@
 from rpent.utils.rpc.client_utils import (
     make_rpc_client,
     parse_endpoint,
+    wait_for_endpoint,
     wait_for_ready,
 )
 from rpent.utils.rpc.rpc_client import (
@@ -36,5 +37,6 @@ __all__ = [
     "SocketRpcServer",
     "make_rpc_client",
     "parse_endpoint",
+    "wait_for_endpoint",
     "wait_for_ready",
 ]

@@ -1,0 +1,62 @@
+[
+  {
+    "environment": "libero",
+    "suite": "libero_spatial",
+    "task": 0,
+    "seed": 1
+  },
+  {
+    "environment": "libero",
+    "suite": "libero_spatial",
+    "task": 3,
+    "seed": 1
+  },
+  {
+    "environment": "libero",
+    "suite": "libero_spatial",
+    "task": 6,
+    "seed": 1
+  },
+  {
+    "environment": "libero",
+    "suite": "libero_object",
+    "task": 0,
+    "seed": 1
+  },
+  {
+    "environment": "libero",
+    "suite": "libero_object",
+    "task": 3,
+    "seed": 1
+  },
+  {
+    "environment": "libero",
+    "suite": "libero_object",
+    "task": 6,
+    "seed": 1
+  },
+  {
+    "environment": "libero",
+    "suite": "libero_goal",
+    "task": 1,
+    "seed": 1
+  },
+  {
+    "environment": "libero",
+    "suite": "libero_goal",
+    "task": 5,
+    "seed": 1
+  },
+  {
+    "environment": "libero",
+    "suite": "libero_10",
+    "task": 0,
+    "seed": 1
+  },
+  {
+    "environment": "libero",
+    "suite": "libero_10",
+    "task": 5,
+    "seed": 1
+  }
+]

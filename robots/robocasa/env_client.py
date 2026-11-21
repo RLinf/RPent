@@ -104,14 +104,26 @@ class RoboCasaEnvClient(BaseEnvClient):
         )
 
     # ---- rendering / perception ----
-    def render_camera(self, camera_name, height=None, width=None, depth=False):
-        """Agent-facing: vertically flip to top-down so the rgb reads naturally and
-        is pixel-aligned with world_map()."""
+    def render_camera(
+        self,
+        camera_name,
+        height=None,
+        width=None,
+        depth=False,
+        *,
+        mask_invalid_depth=False,
+    ):
+        """Return top-down RGB aligned with depth. Set mask_invalid_depth to
+        preserve invalid and clipped samples as NaN for point-cloud queries.
+        """
         cam = self._resolve_cam(camera_name)
         h = height or self.camera_h
         w = width or self.camera_w
         if depth:
-            rgb, real = super().render_camera(cam, height=h, width=w, depth=True)
+            options = {"mask_invalid_depth": True} if mask_invalid_depth else {}
+            rgb, real = super().render_camera(
+                cam, height=h, width=w, depth=True, **options
+            )
             return rgb[::-1], real[::-1]
         return super().render_camera(cam, height=h, width=w, depth=False)[::-1]
 

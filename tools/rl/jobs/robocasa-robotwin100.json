@@ -1,0 +1,702 @@
+[
+  {
+    "environment": "robocasa",
+    "task_name": "CloseBlenderLid",
+    "seed": 1,
+    "split": "target",
+    "gpu": 0
+  },
+  {
+    "environment": "robocasa",
+    "task_name": "CloseFridge",
+    "seed": 1,
+    "split": "target",
+    "gpu": 1
+  },
+  {
+    "environment": "robocasa",
+    "task_name": "CloseToasterOvenDoor",
+    "seed": 1,
+    "split": "target",
+    "gpu": 0
+  },
+  {
+    "environment": "robocasa",
+    "task_name": "CoffeeSetupMug",
+    "seed": 1,
+    "split": "target",
+    "gpu": 1
+  },
+  {
+    "environment": "robocasa",
+    "task_name": "NavigateKitchen",
+    "seed": 1,
+    "split": "target",
+    "gpu": 0
+  },
+  {
+    "environment": "robocasa",
+    "task_name": "OpenCabinet",
+    "seed": 1,
+    "split": "target",
+    "gpu": 1
+  },
+  {
+    "environment": "robocasa",
+    "task_name": "OpenDrawer",
+    "seed": 1,
+    "split": "target",
+    "gpu": 0
+  },
+  {
+    "environment": "robocasa",
+    "task_name": "OpenStandMixerHead",
+    "seed": 1,
+    "split": "target",
+    "gpu": 1
+  },
+  {
+    "environment": "robocasa",
+    "task_name": "PickPlaceCounterToCabinet",
+    "seed": 1,
+    "split": "target",
+    "gpu": 0
+  },
+  {
+    "environment": "robocasa",
+    "task_name": "PickPlaceCounterToStove",
+    "seed": 1,
+    "split": "target",
+    "gpu": 1
+  },
+  {
+    "environment": "robocasa",
+    "task_name": "PickPlaceDrawerToCounter",
+    "seed": 1,
+    "split": "target",
+    "gpu": 0
+  },
+  {
+    "environment": "robocasa",
+    "task_name": "PickPlaceSinkToCounter",
+    "seed": 1,
+    "split": "target",
+    "gpu": 1
+  },
+  {
+    "environment": "robocasa",
+    "task_name": "PickPlaceToasterToCounter",
+    "seed": 1,
+    "split": "target",
+    "gpu": 0
+  },
+  {
+    "environment": "robocasa",
+    "task_name": "SlideDishwasherRack",
+    "seed": 1,
+    "split": "target",
+    "gpu": 1
+  },
+  {
+    "environment": "robocasa",
+    "task_name": "TurnOffStove",
+    "seed": 1,
+    "split": "target",
+    "gpu": 0
+  },
+  {
+    "environment": "robocasa",
+    "task_name": "TurnOnElectricKettle",
+    "seed": 1,
+    "split": "target",
+    "gpu": 1
+  },
+  {
+    "environment": "robocasa",
+    "task_name": "TurnOnMicrowave",
+    "seed": 1,
+    "split": "target",
+    "gpu": 0
+  },
+  {
+    "environment": "robocasa",
+    "task_name": "TurnOnSinkFaucet",
+    "seed": 1,
+    "split": "target",
+    "gpu": 1
+  },
+  {
+    "environment": "robocasa",
+    "task_name": "ScrubCuttingBoard",
+    "seed": 1,
+    "split": "target",
+    "gpu": 0
+  },
+  {
+    "environment": "robocasa",
+    "task_name": "StackBowlsCabinet",
+    "seed": 1,
+    "split": "target",
+    "gpu": 1
+  },
+  {
+    "environment": "robocasa",
+    "task_name": "WashLettuce",
+    "seed": 1,
+    "split": "target",
+    "gpu": 0
+  },
+  {
+    "environment": "robocasa",
+    "task_name": "RinseSinkBasin",
+    "seed": 1,
+    "split": "target",
+    "gpu": 1
+  },
+  {
+    "environment": "robocasa",
+    "task_name": "PreSoakPan",
+    "seed": 1,
+    "split": "target",
+    "gpu": 0
+  },
+  {
+    "environment": "robocasa",
+    "task_name": "StirVegetables",
+    "seed": 1,
+    "split": "target",
+    "gpu": 1
+  },
+  {
+    "environment": "robocasa",
+    "task_name": "LoadDishwasher",
+    "seed": 1,
+    "split": "target",
+    "gpu": 0
+  },
+  {
+    "environment": "robocasa",
+    "task_name": "SteamInMicrowave",
+    "seed": 1,
+    "split": "target",
+    "gpu": 1
+  },
+  {
+    "environment": "robocasa",
+    "task_name": "SetUpCuttingStation",
+    "seed": 1,
+    "split": "target",
+    "gpu": 0
+  },
+  {
+    "environment": "robocasa",
+    "task_name": "GetToastedBread",
+    "seed": 1,
+    "split": "target",
+    "gpu": 1
+  },
+  {
+    "environment": "robocasa",
+    "task_name": "DeliverStraw",
+    "seed": 1,
+    "split": "target",
+    "gpu": 0
+  },
+  {
+    "environment": "robocasa",
+    "task_name": "KettleBoiling",
+    "seed": 1,
+    "split": "target",
+    "gpu": 1
+  },
+  {
+    "environment": "robocasa",
+    "task_name": "PrepareCoffee",
+    "seed": 1,
+    "split": "target",
+    "gpu": 0
+  },
+  {
+    "environment": "robocasa",
+    "task_name": "StoreLeftoversInBowl",
+    "seed": 1,
+    "split": "target",
+    "gpu": 1
+  },
+  {
+    "environment": "robocasa",
+    "task_name": "SearingMeat",
+    "seed": 1,
+    "split": "target",
+    "gpu": 0
+  },
+  {
+    "environment": "robocasa",
+    "task_name": "PackIdenticalLunches",
+    "seed": 1,
+    "split": "target",
+    "gpu": 1
+  },
+  {
+    "environment": "robocasa",
+    "task_name": "ArrangeBreadBasket",
+    "seed": 1,
+    "split": "target",
+    "gpu": 0
+  },
+  {
+    "environment": "robocasa",
+    "task_name": "ArrangeTea",
+    "seed": 1,
+    "split": "target",
+    "gpu": 1
+  },
+  {
+    "environment": "robocasa",
+    "task_name": "BreadSelection",
+    "seed": 1,
+    "split": "target",
+    "gpu": 0
+  },
+  {
+    "environment": "robocasa",
+    "task_name": "CategorizeCondiments",
+    "seed": 1,
+    "split": "target",
+    "gpu": 1
+  },
+  {
+    "environment": "robocasa",
+    "task_name": "CuttingToolSelection",
+    "seed": 1,
+    "split": "target",
+    "gpu": 0
+  },
+  {
+    "environment": "robocasa",
+    "task_name": "GarnishPancake",
+    "seed": 1,
+    "split": "target",
+    "gpu": 1
+  },
+  {
+    "environment": "robocasa",
+    "task_name": "GatherTableware",
+    "seed": 1,
+    "split": "target",
+    "gpu": 0
+  },
+  {
+    "environment": "robocasa",
+    "task_name": "HeatKebabSandwich",
+    "seed": 1,
+    "split": "target",
+    "gpu": 1
+  },
+  {
+    "environment": "robocasa",
+    "task_name": "MakeIceLemonade",
+    "seed": 1,
+    "split": "target",
+    "gpu": 0
+  },
+  {
+    "environment": "robocasa",
+    "task_name": "PanTransfer",
+    "seed": 1,
+    "split": "target",
+    "gpu": 1
+  },
+  {
+    "environment": "robocasa",
+    "task_name": "PortionHotDogs",
+    "seed": 1,
+    "split": "target",
+    "gpu": 0
+  },
+  {
+    "environment": "robocasa",
+    "task_name": "RecycleBottlesByType",
+    "seed": 1,
+    "split": "target",
+    "gpu": 1
+  },
+  {
+    "environment": "robocasa",
+    "task_name": "SeparateFreezerRack",
+    "seed": 1,
+    "split": "target",
+    "gpu": 0
+  },
+  {
+    "environment": "robocasa",
+    "task_name": "WaffleReheat",
+    "seed": 1,
+    "split": "target",
+    "gpu": 1
+  },
+  {
+    "environment": "robocasa",
+    "task_name": "WashFruitColander",
+    "seed": 1,
+    "split": "target",
+    "gpu": 0
+  },
+  {
+    "environment": "robocasa",
+    "task_name": "WeighIngredients",
+    "seed": 1,
+    "split": "target",
+    "gpu": 1
+  },
+  {
+    "environment": "robotwin",
+    "task_name": "adjust_bottle",
+    "seed": 100000,
+    "task_config": "demo_randomized",
+    "gpu": 0
+  },
+  {
+    "environment": "robotwin",
+    "task_name": "beat_block_hammer",
+    "seed": 100000,
+    "task_config": "demo_randomized",
+    "gpu": 1
+  },
+  {
+    "environment": "robotwin",
+    "task_name": "blocks_ranking_rgb",
+    "seed": 100000,
+    "task_config": "demo_randomized",
+    "gpu": 0
+  },
+  {
+    "environment": "robotwin",
+    "task_name": "blocks_ranking_size",
+    "seed": 100000,
+    "task_config": "demo_randomized",
+    "gpu": 1
+  },
+  {
+    "environment": "robotwin",
+    "task_name": "click_alarmclock",
+    "seed": 100000,
+    "task_config": "demo_randomized",
+    "gpu": 0
+  },
+  {
+    "environment": "robotwin",
+    "task_name": "click_bell",
+    "seed": 100000,
+    "task_config": "demo_randomized",
+    "gpu": 1
+  },
+  {
+    "environment": "robotwin",
+    "task_name": "dump_bin_bigbin",
+    "seed": 100003,
+    "task_config": "demo_randomized",
+    "gpu": 0
+  },
+  {
+    "environment": "robotwin",
+    "task_name": "grab_roller",
+    "seed": 100000,
+    "task_config": "demo_randomized",
+    "gpu": 1
+  },
+  {
+    "environment": "robotwin",
+    "task_name": "handover_block",
+    "seed": 100001,
+    "task_config": "demo_randomized",
+    "gpu": 0
+  },
+  {
+    "environment": "robotwin",
+    "task_name": "handover_mic",
+    "seed": 100000,
+    "task_config": "demo_randomized",
+    "gpu": 1
+  },
+  {
+    "environment": "robotwin",
+    "task_name": "hanging_mug",
+    "seed": 100002,
+    "task_config": "demo_randomized",
+    "gpu": 0
+  },
+  {
+    "environment": "robotwin",
+    "task_name": "lift_pot",
+    "seed": 100001,
+    "task_config": "demo_randomized",
+    "gpu": 1
+  },
+  {
+    "environment": "robotwin",
+    "task_name": "move_can_pot",
+    "seed": 100000,
+    "task_config": "demo_randomized",
+    "gpu": 0
+  },
+  {
+    "environment": "robotwin",
+    "task_name": "move_pillbottle_pad",
+    "seed": 100000,
+    "task_config": "demo_randomized",
+    "gpu": 1
+  },
+  {
+    "environment": "robotwin",
+    "task_name": "move_playingcard_away",
+    "seed": 100000,
+    "task_config": "demo_randomized",
+    "gpu": 0
+  },
+  {
+    "environment": "robotwin",
+    "task_name": "move_stapler_pad",
+    "seed": 100000,
+    "task_config": "demo_randomized",
+    "gpu": 1
+  },
+  {
+    "environment": "robotwin",
+    "task_name": "open_laptop",
+    "seed": 100000,
+    "task_config": "demo_randomized",
+    "gpu": 0
+  },
+  {
+    "environment": "robotwin",
+    "task_name": "open_microwave",
+    "seed": 100000,
+    "task_config": "demo_randomized",
+    "gpu": 1
+  },
+  {
+    "environment": "robotwin",
+    "task_name": "pick_diverse_bottles",
+    "seed": 100001,
+    "task_config": "demo_randomized",
+    "gpu": 0
+  },
+  {
+    "environment": "robotwin",
+    "task_name": "pick_dual_bottles",
+    "seed": 100000,
+    "task_config": "demo_randomized",
+    "gpu": 1
+  },
+  {
+    "environment": "robotwin",
+    "task_name": "place_a2b_left",
+    "seed": 100004,
+    "task_config": "demo_randomized",
+    "gpu": 0
+  },
+  {
+    "environment": "robotwin",
+    "task_name": "place_a2b_right",
+    "seed": 100000,
+    "task_config": "demo_randomized",
+    "gpu": 1
+  },
+  {
+    "environment": "robotwin",
+    "task_name": "place_bread_basket",
+    "seed": 100000,
+    "task_config": "demo_randomized",
+    "gpu": 0
+  },
+  {
+    "environment": "robotwin",
+    "task_name": "place_bread_skillet",
+    "seed": 100001,
+    "task_config": "demo_randomized",
+    "gpu": 1
+  },
+  {
+    "environment": "robotwin",
+    "task_name": "place_burger_fries",
+    "seed": 100000,
+    "task_config": "demo_randomized",
+    "gpu": 0
+  },
+  {
+    "environment": "robotwin",
+    "task_name": "place_can_basket",
+    "seed": 100001,
+    "task_config": "demo_randomized",
+    "gpu": 1
+  },
+  {
+    "environment": "robotwin",
+    "task_name": "place_cans_plasticbox",
+    "seed": 100000,
+    "task_config": "demo_randomized",
+    "gpu": 0
+  },
+  {
+    "environment": "robotwin",
+    "task_name": "place_container_plate",
+    "seed": 100000,
+    "task_config": "demo_randomized",
+    "gpu": 1
+  },
+  {
+    "environment": "robotwin",
+    "task_name": "place_dual_shoes",
+    "seed": 100000,
+    "task_config": "demo_randomized",
+    "gpu": 0
+  },
+  {
+    "environment": "robotwin",
+    "task_name": "place_empty_cup",
+    "seed": 100000,
+    "task_config": "demo_randomized",
+    "gpu": 1
+  },
+  {
+    "environment": "robotwin",
+    "task_name": "place_fan",
+    "seed": 100002,
+    "task_config": "demo_randomized",
+    "gpu": 0
+  },
+  {
+    "environment": "robotwin",
+    "task_name": "place_mouse_pad",
+    "seed": 100000,
+    "task_config": "demo_randomized",
+    "gpu": 1
+  },
+  {
+    "environment": "robotwin",
+    "task_name": "place_object_basket",
+    "seed": 100000,
+    "task_config": "demo_randomized",
+    "gpu": 0
+  },
+  {
+    "environment": "robotwin",
+    "task_name": "place_object_scale",
+    "seed": 100000,
+    "task_config": "demo_randomized",
+    "gpu": 1
+  },
+  {
+    "environment": "robotwin",
+    "task_name": "place_object_stand",
+    "seed": 100001,
+    "task_config": "demo_randomized",
+    "gpu": 0
+  },
+  {
+    "environment": "robotwin",
+    "task_name": "place_phone_stand",
+    "seed": 100000,
+    "task_config": "demo_randomized",
+    "gpu": 1
+  },
+  {
+    "environment": "robotwin",
+    "task_name": "place_shoe",
+    "seed": 100001,
+    "task_config": "demo_randomized",
+    "gpu": 0
+  },
+  {
+    "environment": "robotwin",
+    "task_name": "press_stapler",
+    "seed": 100000,
+    "task_config": "demo_randomized",
+    "gpu": 1
+  },
+  {
+    "environment": "robotwin",
+    "task_name": "put_bottles_dustbin",
+    "seed": 100005,
+    "task_config": "demo_randomized",
+    "gpu": 0
+  },
+  {
+    "environment": "robotwin",
+    "task_name": "put_object_cabinet",
+    "seed": 100032,
+    "task_config": "demo_randomized",
+    "gpu": 1
+  },
+  {
+    "environment": "robotwin",
+    "task_name": "rotate_qrcode",
+    "seed": 100000,
+    "task_config": "demo_randomized",
+    "gpu": 0
+  },
+  {
+    "environment": "robotwin",
+    "task_name": "scan_object",
+    "seed": 100007,
+    "task_config": "demo_randomized",
+    "gpu": 1
+  },
+  {
+    "environment": "robotwin",
+    "task_name": "shake_bottle",
+    "seed": 100001,
+    "task_config": "demo_randomized",
+    "gpu": 0
+  },
+  {
+    "environment": "robotwin",
+    "task_name": "shake_bottle_horizontally",
+    "seed": 100001,
+    "task_config": "demo_randomized",
+    "gpu": 1
+  },
+  {
+    "environment": "robotwin",
+    "task_name": "stack_blocks_three",
+    "seed": 100000,
+    "task_config": "demo_randomized",
+    "gpu": 0
+  },
+  {
+    "environment": "robotwin",
+    "task_name": "stack_blocks_two",
+    "seed": 100000,
+    "task_config": "demo_randomized",
+    "gpu": 1
+  },
+  {
+    "environment": "robotwin",
+    "task_name": "stack_bowls_three",
+    "seed": 100000,
+    "task_config": "demo_randomized",
+    "gpu": 0
+  },
+  {
+    "environment": "robotwin",
+    "task_name": "stack_bowls_two",
+    "seed": 100000,
+    "task_config": "demo_randomized",
+    "gpu": 1
+  },
+  {
+    "environment": "robotwin",
+    "task_name": "stamp_seal",
+    "seed": 100003,
+    "task_config": "demo_randomized",
+    "gpu": 0
+  },
+  {
+    "environment": "robotwin",
+    "task_name": "turn_switch",
+    "seed": 100001,
+    "task_config": "demo_randomized",
+    "gpu": 1
+  }
+]
