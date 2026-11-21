@@ -21,7 +21,10 @@ task that declares a reset budget exposes a limited reset; the model can call
 graded. ``robots.efe.harbor_agent`` runs this integration inside a Harbor trial.
 """
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from robots.efe.robot_spec import get_robot_spec, get_toolkit
 
 __all__ = ["get_robot_spec", "get_toolkit"]
 
