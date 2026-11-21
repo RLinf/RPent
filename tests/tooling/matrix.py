@@ -52,6 +52,9 @@ HOSTED = (
     ("infra-dev",),
     ("infra-minimal",),
     ("infra-unit_cpu",),
+    # EFE reuses the network services the benchmark provides, so its
+    # environment needs no CUDA packages.
+    ("robot-efe",),
 )
 
 #: Environments that resolve CUDA packages; they need the embodied GPU runner.
@@ -67,7 +70,6 @@ GPU = (
     # from the deployment's resource root.
     ("model-xpolicylab",),
     ("robot-dual_franka",),
-    ("robot-efe",),
     ("robot-franka",),
     ("robot-libero",),
     ("robot-robocasa",),
