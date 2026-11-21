@@ -457,9 +457,10 @@ def result_images(result: Any) -> list[bytes]:
     """Decode PNG image blocks into RPent's image payload.
 
     RPent's planners advertise ``ToolResult.images`` as PNG, so only
-    ``image/png`` blocks are forwarded as native images. A block whose payload
-    is not valid base64 is dropped instead of failing the whole call, so the
-    text of the same result still reaches the model.
+    ``image/png`` blocks are forwarded as native images. Line breaks are
+    removed before decoding; a payload that is still not valid base64 is
+    dropped instead of failing the whole call, so the text of the same result
+    still reaches the model.
     """
     images: list[bytes] = []
     for block in result.content or []:
@@ -469,7 +470,8 @@ def result_images(result: Any) -> list[bytes]:
         ):
             continue
         try:
-            images.append(base64.b64decode(block.data))
+            encoded = "".join(block.data.split())
+            images.append(base64.b64decode(encoded, validate=True))
         except ValueError as exc:
             logger.warning("MCP tool returned image/png with invalid base64: %s", exc)
     return images

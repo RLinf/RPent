@@ -216,8 +216,9 @@ def _build_argparser() -> argparse.ArgumentParser:
         "--mcp-config",
         default=None,
         help="Path to a shared MCP config YAML. Its mcp_servers section is "
-        "merged into every run; a server's planner_tools decides whether its "
-        "tools reach the planner or stay available to the robot's Toolkit.",
+        "merged into every run; servers that set planner_tools are attached "
+        "to the planner, and the rest are left for the robot's toolkit to "
+        "register with Toolkit.add_mcp_tools.",
     )
 
     # other config

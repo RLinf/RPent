@@ -250,8 +250,9 @@ def test_multiple_png_blocks_all_become_images(
     assert result.data == {}
 
 
+@pytest.mark.parametrize("payload", ["abc", "AAAA@@@@"])
 def test_invalid_base64_image_keeps_the_text_result(
-    monkeypatch: pytest.MonkeyPatch, spec: McpServerSpec
+    monkeypatch: pytest.MonkeyPatch, spec: McpServerSpec, payload: str
 ) -> None:
     monkeypatch.setattr(
         mcp_tools, "list_remote_tools", lambda server: [_remote_tool("snapshot")]
@@ -262,7 +263,7 @@ def test_invalid_base64_image_keeps_the_text_result(
         lambda server, name, arguments: SimpleNamespace(
             content=[
                 SimpleNamespace(type="text", text="captured"),
-                SimpleNamespace(type="image", mimeType="image/png", data="abc"),
+                SimpleNamespace(type="image", mimeType="image/png", data=payload),
             ],
             structuredContent=None,
             isError=False,
