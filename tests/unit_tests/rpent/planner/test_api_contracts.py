@@ -1776,6 +1776,9 @@ def test_external_toolset_returns_text_and_png_images(
 
     assert content[0] == "ok"
     assert isinstance(content[1], BinaryContent) and content[1].data == b"png"
+    # The Harness sizes a tool result from the image's repr; an external PNG
+    # must be referenced like a local one, not measured at its byte size.
+    assert estimate_text_tokens(str(content[1])) <= 5
 
 
 def test_external_text_results_are_capped_like_local_tools(
@@ -1811,6 +1814,13 @@ def test_external_text_results_are_capped_like_local_tools(
     assert len(content[0]) == MAX_TOOL_TEXT_BYTES
     assert content[0].endswith("\n[truncated]")
     assert len(_external_result_text(long_text)) == MAX_TOOL_TEXT_BYTES
+
+    # The bound is UTF-8 bytes, not code points: CJK text must not get three
+    # times the local budget.
+    cjk = "测" * MAX_TOOL_TEXT_BYTES
+    capped = _external_result_text(cjk)
+    assert MAX_TOOL_TEXT_BYTES - 3 <= len(capped.encode("utf-8")) <= MAX_TOOL_TEXT_BYTES
+    assert capped.endswith("\n[truncated]")
 
 
 def test_external_toolset_turns_a_remote_error_into_a_retry(

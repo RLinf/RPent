@@ -147,7 +147,11 @@ def _registered_tool(spec: McpServerSpec, tool: Any) -> Tool:
         args_schema=_args_model(tool.name, schema),
         handler=_make_handler(spec, tool.name),
         _input_schema=schema,
-        readonly=_is_read_only(tool),
+        # Coordinated tools run exclusively and capture an observation after
+        # the call. The server's ``readOnlyHint`` is advisory; a third-party
+        # server that marks a side-effecting device tool read-only must not be
+        # able to bypass the ordering this registration exists to provide.
+        readonly=False,
     )
 
 
@@ -240,17 +244,6 @@ def _kind_annotation(kind: Any, schema: dict[str, Any]) -> Any:
     if kind == "object":
         return dict[str, Any]
     return _JSON_TYPES.get(kind, Any)
-
-
-def _is_read_only(tool: Any) -> bool:
-    """Whether the server declared this tool as read-only.
-
-    MCP's ``readOnlyHint`` maps onto RPent's :func:`readonly` marker, so read
-    tools do not capture a fresh observation after every call while
-    side-effecting tools do.
-    """
-    annotations = getattr(tool, "annotations", None)
-    return bool(annotations is not None and annotations.readOnlyHint)
 
 
 def _make_handler(spec: McpServerSpec, name: str) -> Callable[..., ToolResult]:

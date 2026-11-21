@@ -308,7 +308,7 @@ CLI 会把这份配置合并进每次运行，所有 robot 无需改代码就能
 
 .. warning::
 
-   凭据请放进 ``env_http_headers``。``headers`` 的字面值会出现在 ``claude_code`` 和 ``codex`` 子进程的命令行上，同机其他用户可读取。
+   凭据请放进 ``env_http_headers``。``headers`` 的字面值会出现在 ``claude_code`` 和 ``codex`` 子进程的命令行上，同机其他用户可读取。``url`` 会原样写入任务记录，不要在其中嵌入凭据。
 
 .. note::
 

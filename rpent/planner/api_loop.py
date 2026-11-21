@@ -348,15 +348,19 @@ def _build_model_settings(
 def _cap_external_text(text: str) -> str:
     """Bound one external text part the way local tools bound their payloads.
 
-    Local results reach the model through ``ToolResult.to_text``, which stops
-    at :data:`MAX_TOOL_TEXT_BYTES`. External results bypass it, so the same cap
-    applies here; otherwise one verbose server can exceed the model context and
-    make the transcript and Dashboard payloads unbounded.
+    Local results reach the model through ``ToolResult.to_text``, which encodes
+    ASCII-only, so its limit is both characters and bytes. External text is not
+    encoded, so the cap applies to the UTF-8 bytes; otherwise non-ASCII text
+    could grow several times larger than the local bound. Without the cap one
+    verbose server can exceed the model context and leave the transcript and
+    Dashboard payloads unbounded.
     """
-    if len(text) <= MAX_TOOL_TEXT_BYTES:
+    encoded = text.encode("utf-8")
+    if len(encoded) <= MAX_TOOL_TEXT_BYTES:
         return text
     suffix = "\n[truncated]"
-    return text[: MAX_TOOL_TEXT_BYTES - len(suffix)] + suffix
+    budget = MAX_TOOL_TEXT_BYTES - len(suffix.encode("utf-8"))
+    return encoded[:budget].decode("utf-8", errors="ignore") + suffix
 
 
 def _external_result_text(result: Any) -> str:
@@ -459,7 +463,7 @@ class _RemoteMCPToolset(AbstractToolset[Any]):
         if "text" in payload:
             content.append(_cap_external_text(payload["text"]))
         content.extend(
-            BinaryContent(data=data, media_type="image/png")
+            _ToolReturnImage(data=data, media_type="image/png")
             for data in result_images(result)
         )
         if "content" in payload:

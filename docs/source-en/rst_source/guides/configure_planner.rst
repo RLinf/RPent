@@ -413,7 +413,8 @@ Server fields
 
    Keep credentials in ``env_http_headers``. Literal ``headers`` values are
    passed on the command line of the ``claude_code`` and ``codex`` child
-   processes, where other local users can read them.
+   processes, where other local users can read them. ``url`` is written to task
+   records verbatim, so do not embed credentials in it.
 
 .. note::
 

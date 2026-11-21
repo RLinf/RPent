@@ -96,9 +96,12 @@ def test_registers_named_tools_with_remote_schemas(
     assert "unused" not in toolkit.tools
 
 
-def test_read_only_hint_maps_to_the_readonly_marker(
+def test_coordinated_tools_ignore_the_server_read_only_hint(
     monkeypatch: pytest.MonkeyPatch, spec: McpServerSpec
 ) -> None:
+    # A third-party server that annotates a side-effecting tool as read-only
+    # must not let it bypass the exclusive admission and observation capture
+    # that coordinated registration exists to guarantee.
     monkeypatch.setattr(
         mcp_tools,
         "list_remote_tools",
@@ -113,7 +116,7 @@ def test_read_only_hint_maps_to_the_readonly_marker(
         toolkit, (spec,), tools={"facility": ["get_battery", "dock"]}
     )
 
-    assert toolkit.tools["get_battery"].readonly is True
+    assert toolkit.tools["get_battery"].readonly is False
     assert toolkit.tools["dock"].readonly is False
 
 

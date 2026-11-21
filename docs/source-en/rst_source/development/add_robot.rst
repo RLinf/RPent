@@ -365,9 +365,11 @@ shared and robot servers:
 
 Registration checks tool names against the server's tool list when the toolkit
 is built, so a name the server does not provide raises ``ValueError`` at startup
-rather than on the first call. Remote input schemas are kept as they are, and a
-tool is marked ``readonly`` when the server sets ``readOnlyHint``. Registered
-tools take part in observation capture like local tools. ``claude_code`` and
+rather than on the first call. Remote input schemas keep their shape, but their
+text goes through the same ``{{...}}`` substitution as locally declared tools.
+Registered tools run exclusively and take part in observation capture like local
+tools; the server's ``readOnlyHint`` is not trusted for this, because ordering
+the tool with robot actions is the reason to register it. ``claude_code`` and
 ``codex`` show them as ``mcp__rpent__<name>``; ``api`` uses their own names.
 Tools that need no coordination belong under ``planner_tools``; see
 :ref:`external-mcp-servers`.
@@ -375,7 +377,11 @@ Tools that need no coordination belong under ``planner_tools``; see
 One server can supply both the planner and the Toolkit: list the independent
 tools under ``planner_tools`` and register the coordinated ones here. A tool can
 be attached in only one place; registering a name that ``planner_tools`` also
-attaches raises ``ValueError``.
+attaches raises ``ValueError``. ``claude_code`` is the exception at runtime: it
+mounts every planner-attached server whole, so the server's other tools stay
+visible to the model and an interactive run can approve them directly. When a
+run may use ``claude_code``, keep servers that carry coordinated tools out of
+``planner_tools`` entirely.
 
 The MCP client behind Toolkit registration adds two limits:
 
