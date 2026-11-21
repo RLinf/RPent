@@ -440,9 +440,9 @@ along permission boundaries when this matters.
 The server name becomes the tool namespace: ``claude_code`` and ``codex`` show
 ``mcp__<server>__<tool>`` and ``api`` shows ``<server>_<tool>``. A name must
 start with a letter or digit and may otherwise contain letters, digits, ``_``,
-or ``-``. It must not contain ``__`` and must not be ``rpent``, which RPent
-reserves for its own Toolkit server. The ``api`` planner uses RPent's MCP
-client, so no extra package is needed.
+or ``-``. It must not contain ``__`` or end with ``_``, and must not be
+``rpent``, which RPent reserves for its own Toolkit server. The ``api`` planner
+uses RPent's MCP client, so no extra package is needed.
 
 Run behavior and deadlines
 ~~~~~~~~~~~~~~~~~~~~~~~~~~

@@ -57,6 +57,7 @@ from rpent.prompt.api import API_PLANNER_INSTRUCTIONS, render_environment_contex
 from rpent.session import EnvState, Payload
 from rpent.tools import Toolkit, ToolResult, common
 from rpent.tools import tool as declare_tool
+from rpent.tools.base import MAX_TOOL_TEXT_BYTES
 from rpent.utils.mcp_servers import McpServerSpec
 
 FINISH_ARGS = {"status": "success", "summary": "done"}
@@ -1775,6 +1776,41 @@ def test_external_toolset_returns_text_and_png_images(
 
     assert content[0] == "ok"
     assert isinstance(content[1], BinaryContent) and content[1].data == b"png"
+
+
+def test_external_text_results_are_capped_like_local_tools(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from rpent.planner import api_loop
+
+    long_text = "x" * (MAX_TOOL_TEXT_BYTES * 2)
+
+    async def call(spec: McpServerSpec, name: str, arguments: dict[str, Any]) -> Any:
+        return SimpleNamespace(
+            content=[SimpleNamespace(type="text", text=long_text)],
+            structuredContent=None,
+            isError=False,
+        )
+
+    monkeypatch.setattr(api_loop, "call_remote_tool_async", call)
+    events = Events()
+    planner = ApiAgentLoop(
+        model=TestModel(),
+        dashboard_events=events,
+        mcp_servers=(
+            McpServerSpec(name="web", url="https://mcp.example/mcp", planner_tools="*"),
+        ),
+    )
+    adapter = _HarnessToolkit(
+        RobotToolkit(events), dashboard_events=events, no_images=True
+    )
+    (prefixed,) = planner._external_toolsets(adapter)
+
+    content = asyncio.run(prefixed.wrapped.direct_call_tool("search", {"q": "x"}))
+
+    assert len(content[0]) == MAX_TOOL_TEXT_BYTES
+    assert content[0].endswith("\n[truncated]")
+    assert len(_external_result_text(long_text)) == MAX_TOOL_TEXT_BYTES
 
 
 def test_external_toolset_turns_a_remote_error_into_a_retry(

@@ -240,10 +240,11 @@ def public_spec(spec: McpServerSpec) -> dict[str, Any]:
 def _parse_one(name: str, value: Any) -> McpServerSpec:
     """Validate one ``mcp_servers.<name>`` entry."""
     where = f"mcp_servers.{name}"
-    if not _NAME_PATTERN.match(name) or "__" in name:
+    if not _NAME_PATTERN.match(name) or "__" in name or name.endswith("_"):
         raise ValueError(
             f"{where}: server name must match {_NAME_PATTERN.pattern} without "
-            "'__' (it becomes the mcp__<server>__<tool> namespace)"
+            "'__' or a trailing '_' (it becomes the mcp__<server>__<tool> "
+            "namespace, and a trailing '_' makes that name ambiguous)"
         )
     if name == RESERVED_SERVER_NAME:
         raise ValueError(

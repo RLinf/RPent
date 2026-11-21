@@ -104,6 +104,13 @@ def test_rejects_double_underscore_in_name() -> None:
         parse_mcp_servers({"a__b": {"url": "https://example/mcp"}})
 
 
+def test_rejects_trailing_underscore_in_name() -> None:
+    # ``power_`` plus the separator makes ``mcp__power___set``, which
+    # display_tool_name splits at the first ``__`` into ``power:_set``.
+    with pytest.raises(ValueError, match="trailing"):
+        parse_mcp_servers({"power_": {"url": "https://example/mcp"}})
+
+
 def test_rejects_unknown_keys() -> None:
     with pytest.raises(ValueError, match="unknown key"):
         parse_mcp_servers({"web": {"url": "https://example/mcp", "command": "x"}})

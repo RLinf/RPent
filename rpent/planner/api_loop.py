@@ -87,6 +87,7 @@ from rpent.planner.base import (
 from rpent.prompt.api import API_PLANNER_INSTRUCTIONS, render_environment_context
 from rpent.session.env_capture import current_tool_call
 from rpent.session.planner_capture import CapturingModel, sdk_payload
+from rpent.tools.base import MAX_TOOL_TEXT_BYTES
 from rpent.tools.mcp_tools import (
     call_remote_tool_async,
     list_remote_tools_async,
@@ -344,22 +345,39 @@ def _build_model_settings(
     return ModelSettings(max_tokens=max_tokens, parallel_tool_calls=True)
 
 
+def _cap_external_text(text: str) -> str:
+    """Bound one external text part the way local tools bound their payloads.
+
+    Local results reach the model through ``ToolResult.to_text``, which stops
+    at :data:`MAX_TOOL_TEXT_BYTES`. External results bypass it, so the same cap
+    applies here; otherwise one verbose server can exceed the model context and
+    make the transcript and Dashboard payloads unbounded.
+    """
+    if len(text) <= MAX_TOOL_TEXT_BYTES:
+        return text
+    suffix = "\n[truncated]"
+    return text[: MAX_TOOL_TEXT_BYTES - len(suffix)] + suffix
+
+
 def _external_result_text(result: Any) -> str:
     """Render an external MCP tool result as transcript text.
 
     Image content is recorded by media type and size: transcript events and
     message logs must never carry the raw bytes, which would defeat
-    ``--no-images`` and make the Dashboard replay large payloads.
+    ``--no-images`` and make the Dashboard replay large payloads. Text is
+    capped like a local tool result.
     """
     if isinstance(result, str):
-        return result
+        return _cap_external_text(result)
     if isinstance(result, BinaryContent):
         return f"[image: {result.media_type}, {len(result.data)} bytes]"
     if isinstance(result, dict):
-        return json.dumps(result)
+        return _cap_external_text(json.dumps(result))
     if isinstance(result, Sequence):
-        return "\n".join(_external_result_text(item) for item in result)
-    return str(result)
+        return _cap_external_text(
+            "\n".join(_external_result_text(item) for item in result)
+        )
+    return _cap_external_text(str(result))
 
 
 def _omit_external_images(result: Any) -> Any:
@@ -439,15 +457,17 @@ class _RemoteMCPToolset(AbstractToolset[Any]):
             raise ModelRetry(payload["error"])
         content: list[Any] = []
         if "text" in payload:
-            content.append(payload["text"])
+            content.append(_cap_external_text(payload["text"]))
         content.extend(
             BinaryContent(data=data, media_type="image/png")
             for data in result_images(result)
         )
         if "content" in payload:
-            content.append(json.dumps(payload["content"]))
+            content.append(_cap_external_text(json.dumps(payload["content"])))
         if "structured_content" in payload:
-            content.append(json.dumps(payload["structured_content"]))
+            content.append(
+                _cap_external_text(json.dumps(payload["structured_content"]))
+            )
         return content
 
 
