@@ -281,7 +281,7 @@ RPent 可以调用外部 MCP 服务提供的工具，与自身工具一起交给
    rpent --robot libero --mcp-config /path/to/mcp.yaml \
      --suite libero_goal_task --task 1 --seed 0 --planner claude_code
 
-CLI 会把这份配置合并进每次运行，所有 robot 无需改代码就能使用。robot 也可以从自己的 config YAML 的 ``mcp_servers`` 段声明服务，但当前发布的 robot 都没有使用这条路径。两个来源的服务名必须唯一。
+CLI 会把这份配置合并进每次运行，所有 robot 无需改代码就能使用。robot 也可以从自己的 config YAML 的 ``mcp_servers`` 段声明服务，但当前发布的 robot 都没有使用这条路径。两个来源的服务名必须唯一。只读取 ``mcp_servers`` 段，因此文件里可以放其他设置；这些段落中未设置的 ``${oc.env:...}`` 不影响启动。
 
 服务字段
 ~~~~~~~~
@@ -312,7 +312,7 @@ CLI 会把这份配置合并进每次运行，所有 robot 无需改代码就能
 
 .. note::
 
-   ``env_http_headers`` 把变量的值原样作为请求头发送。发送 bearer token 时，变量本身要包含完整值，例如 ``export POWER_TOKEN="Bearer <token>"``。``claude_code`` 只把变量引用交给 CLI，密钥不会出现在命令行里。
+   ``env_http_headers`` 把变量的值原样作为请求头发送。发送 bearer token 时，变量本身要包含完整值，例如 ``export POWER_TOKEN="Bearer <token>"``。``claude_code`` 只把变量引用交给 CLI，密钥不会出现在命令行里。同一个请求头不能同时出现在两个字段中。
 
 ``planner_tools`` 有三种写法：
 

@@ -1976,7 +1976,7 @@ def test_unreachable_planner_server_ends_the_run_before_the_model() -> None:
 
     assert result.stop_reason == "planner_error"
     assert result.error is not None and "mcp_servers.facility" in result.error
-    # The episode must not run without the tools the site declared.
+    # The run must not continue without the external tools it declared.
     assert requests == 0
 
 

@@ -153,12 +153,12 @@ def test_request_headers_resolves_environment_references(
     spec = McpServerSpec(
         name="web",
         url="https://example/mcp",
-        headers={"X-Site": "lab"},
+        headers={"X-Client": "robot"},
         env_http_headers={"Authorization": "WEB_TOKEN"},
     )
 
     assert request_headers(spec) == {
-        "X-Site": "lab",
+        "X-Client": "robot",
         "Authorization": "Bearer resolved",
     }
 

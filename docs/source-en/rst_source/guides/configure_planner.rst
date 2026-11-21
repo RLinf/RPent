@@ -379,7 +379,9 @@ ones your servers provide; the command below uses LIBERO:
 The CLI merges this file into every run, so every robot gets these servers
 without code changes. A robot can also declare servers in its config YAML's
 ``mcp_servers`` section, but no shipped robot does. Server names must be unique
-across both sources.
+across both sources. Only the ``mcp_servers`` section is read, so the file may
+hold other settings; an unset ``${oc.env:...}`` outside that section does not
+block startup.
 
 Server fields
 ~~~~~~~~~~~~~
@@ -417,7 +419,8 @@ Server fields
    ``env_http_headers`` sends the variable's value verbatim. To send a bearer
    token, include the scheme in the variable, for example
    ``export POWER_TOKEN="Bearer <token>"``. ``claude_code`` passes only the
-   variable reference to its CLI, so the secret stays off the command line.
+   variable reference to its CLI, so the secret stays off the command line. A
+   header name can appear in only one of the two fields.
 
 ``planner_tools`` has three forms:
 
