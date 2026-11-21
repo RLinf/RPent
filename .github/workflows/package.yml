@@ -28,8 +28,11 @@ jobs:
           uv pip install --python .venv-wheel/bin/python dist/*.whl
       - name: Check the wheel install
         run: |
-          .venv-wheel/bin/rpent --help >/dev/null
-          .venv-wheel/bin/python - <<'PY'
+          # `python -` puts the working directory on `sys.path`, so this has to
+          # run outside the checkout; otherwise it imports the source tree.
+          cd "$RUNNER_TEMP"
+          "$GITHUB_WORKSPACE/.venv-wheel/bin/rpent" --help >/dev/null
+          "$GITHUB_WORKSPACE/.venv-wheel/bin/python" - <<'PY'
           from pathlib import Path
 
           import rpent
@@ -46,16 +49,21 @@ jobs:
         run: |
           uv venv --python 3.11 .venv-sdist
           uv pip install --python .venv-sdist/bin/python dist/*.tar.gz
-          .venv-sdist/bin/rpent --help >/dev/null
-          .venv-sdist/bin/python - <<'PY'
+          # As above: check the installed distribution from outside the
+          # checkout, or `robots` and `components` resolve to the source tree.
+          cd "$RUNNER_TEMP"
+          venv="$GITHUB_WORKSPACE/.venv-sdist"
+          "$venv/bin/rpent" --help >/dev/null
+          "$venv/bin/python" - <<'PY'
           import components
           import robots
 
           print(robots.__name__, components.__name__)
           PY
-          uv pip install --python .venv-sdist/bin/python --reinstall dist/*.whl
-          .venv-sdist/bin/rpent --help >/dev/null
-          .venv-sdist/bin/python -c "import rpent; print(rpent.__version__)"
+          uv pip install --python "$venv/bin/python" --reinstall \
+            "$GITHUB_WORKSPACE"/dist/*.whl
+          "$venv/bin/rpent" --help >/dev/null
+          "$venv/bin/python" -c "import rpent; print(rpent.__version__)"
       - name: Check source installs outside the checkout
         run: |
           # `uv pip install .` builds the source-scope wheel, so the component
