@@ -30,8 +30,8 @@ optional export dependencies:
 
    uv pip install -e ".[libero-pro,flywheel]"
 
-An environment created with ``rpent-install`` installs the same packages with
-``rpent-install install tool-flywheel``.
+``rpent-install install tool-flywheel`` creates an environment with only the
+exporter; it does not add the simulator.
 
 Record a Trajectory
 -------------------

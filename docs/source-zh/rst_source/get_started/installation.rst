@@ -40,7 +40,7 @@
 
 每个组件都是一个目录，目录里放着它的 ``component.toml``。为不属于自己的代码安装依赖包的组件只贡献这份清单：``infra-`` 组件全部属于这种形态，``sim-libero_plus`` 则是为 ``sim-libero`` 自带的 env server 安装 LIBERO-plus 包。
 
-核心包分两层安装。``rpent`` 是运行时层：组件与模型契约、RPC、模型 client 和安装器，仿真器或模型环境可以只装它而不带 planner 依赖栈。``rpent[planner]`` 在此之上加入 planner 适配器、执行会话、工具、提示词和 Dashboard。导入 planner 的组件在 ``component.toml`` 中声明 ``planner = true``，包含该组件的环境会一并安装 planner 层；没有这个标记的环境只装运行时层。若组件设置了该标记而源码目录的 ``pyproject.toml`` 中没有 ``planner`` extra，``install`` 会报错并列出相关组件。
+核心包分两层安装。``rpent`` 是运行时层：组件与模型契约、RPC、模型 client 和安装器，仿真器或模型环境可以只装它而不带 planner 依赖栈。``rpent[planner]`` 在此之上加入 planner 适配器、执行会话、提示词和 Dashboard；工具契约与 toolkit 属于运行时层。导入 planner 的组件在 ``component.toml`` 中声明 ``planner = true``，包含该组件的环境会一并安装 planner 层；没有这个标记的环境只装运行时层。若组件设置了该标记而源码目录的 ``pyproject.toml`` 中没有 ``planner`` extra，``install`` 会报错并列出相关组件。
 
 依赖方向是 ``rpent`` ← ``components/sim`` ← ``components/models`` ← ``robots``；``components/tools`` 只依赖 ``rpent``，其中的能力库还可以读取模型 client 的结果类型。因此机器人环境会自动带上它的仿真器、模型服务和工具：
 
@@ -127,5 +127,3 @@
 ``doctor`` 描述的是 ``rpent-install`` 按清单创建的环境。部分真机和仿真器文档会在该环境上继续追加包，例如可编辑安装的 RLinf 检出、SDK 或适配器包。这些追加会改变实际安装的包集合，因此 ``doctor`` 会把环境报告为已漂移，重跑 ``install`` 会记录新的包集合。需要指纹只对应组件闭包时，请在按清单装出的环境上运行 ``doctor``。
 
 执行 ``check --resolve`` 时，``linux-x86_64`` 默认以 ``manylinux_2_31`` 为目标（glibc 2.31，即 Ubuntu 20.04 或更新版本）：当前 GPU wheel 发布在更新的基线上，2.17 的目标解析不到它们。若某组件的依赖包只发布了更新的基线，可在它的清单里写 ``manylinux = "2_35"``，把整个闭包的目标基线提高；``sim-robodojo`` 因 Isaac Sim 就这样声明。对包含 cuRobo 构建的配置使用 ``--resolve`` 需要设置了 ``CUDA_HOME`` 的 Linux 主机，因为 cuRobo 在解析期间构建元数据。某个组件解析失败时会报告错误并继续检查其余组件。
-
-发布工作流以 ``full: true`` 调用 Full CI，在发布前安装并诊断每个组件环境。

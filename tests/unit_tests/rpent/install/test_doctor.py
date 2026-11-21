@@ -140,6 +140,54 @@ def test_stale_fingerprint_fails_before_running_checks(repo, monkeypatch):
     )
 
 
+def test_a_changed_component_closure_repairs_with_force(repo, write_toml, monkeypatch):
+    write_toml(
+        "robots/beta/component.toml",
+        f"""
+        schema = {SCHEMA}
+        name = "robot-beta"
+        probe = "json"
+        python = ">=3.10,<3.13"
+        """,
+    )
+    venv = _venv(repo)
+    write_fingerprint(
+        venv,
+        _fingerprint(
+            repo,
+            targets=("robot-beta",),
+            components={"robot-alpha": {}},
+        ),
+    )
+    _missing_uv(monkeypatch)
+
+    checks = check_installation(venv, root=repo)
+
+    message = next(
+        check.message for check in checks if "different component set" in check.message
+    )
+    assert "rpent-install install robot-beta --force" in message
+
+
+def test_a_package_only_change_repairs_without_force(repo, monkeypatch):
+    venv = _venv(repo)
+    write_fingerprint(
+        venv,
+        _fingerprint(
+            repo,
+            components={"robot-alpha": {}},
+            requirements_sha256="stale",
+        ),
+    )
+    _missing_uv(monkeypatch)
+
+    checks = check_installation(venv, root=repo)
+
+    message = next(check.message for check in checks if "out of date" in check.message)
+    assert "rpent-install install robot-alpha" in message
+    assert "--force" not in message
+
+
 def test_fingerprint_from_an_older_input_mode_asks_for_a_reinstall(repo, monkeypatch):
     venv = _venv(repo)
     recorded = {
@@ -221,7 +269,10 @@ def test_a_venv_installed_for_another_platform_is_reported(repo, monkeypatch):
     checks = check_installation(venv, root=repo)
 
     assert any(
-        check.status == FAIL and "installed for linux-s390x" in check.message
+        check.status == FAIL
+        and "installed for linux-s390x" in check.message
+        # A venv another platform built cannot be repaired in place.
+        and "--force" in check.message
         for check in checks
     )
 

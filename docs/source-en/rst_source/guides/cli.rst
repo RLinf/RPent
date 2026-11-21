@@ -276,7 +276,7 @@ One directory holds one run. ``run.json`` is written when the run starts and cla
 Exit Status and Verdict
 -----------------------
 
-A task run exits ``0`` when the run's verdict accepts the task, ``1`` when it fails or the verdict rejects it, and ``75`` when the run ended without a verdict, for example a real robot that nobody judged. Exploration runs report their session outcome instead: ``0`` when the session ended cleanly and ``1`` when it recorded an error.
+A task run exits ``0`` when the run's verdict accepts the task, ``1`` when it fails or the verdict rejects it, and ``75`` when the run ended without a verdict and without a planner error, for example a real robot that nobody judged. Exploration runs report their session outcome instead: ``0`` when the session ended cleanly and ``1`` when it recorded an error.
 
 ``run.json`` and, when the robot publishes one, its result artifact
 (``result.json``, or ``efe-result.json`` for EFE) record the same verdict:

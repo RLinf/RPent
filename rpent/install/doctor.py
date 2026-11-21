@@ -32,8 +32,10 @@ from rpent.install.fingerprint import (
 )
 from rpent.install.installer import (
     DEFAULT_COMMAND_TIMEOUT,
+    closure,
     find_uv,
     probe_command,
+    recorded_closure,
     repair_command,
     resolve_targets,
     venv_python,
@@ -116,8 +118,23 @@ def check_installation(venv: Path, *, root: Path | None = None) -> list[Check]:
         core_dependencies=read_core_dependencies(repo_root),
         planner_dependencies=read_planner_dependencies(repo_root),
     )
+    recorded = recorded_closure(fingerprint)
+    # ``install`` reuses an environment only when its component closure
+    # matches; a changed closure needs ``--force``, a package-only change
+    # does not.
+    closure_changed = recorded is not None and recorded != closure(
+        resolution.components
+    )
     recorded_schema = fingerprint.get(FINGERPRINT_SCHEMA_FIELD)
-    if recorded_schema != FINGERPRINT_SCHEMA:
+    if closure_changed:
+        checks.append(
+            Check(
+                FAIL,
+                "environment holds a different component set; rerun "
+                f"`{repair_command(resolution, force=True)} --venv {venv}`",
+            )
+        )
+    elif recorded_schema != FINGERPRINT_SCHEMA:
         # `rpent-install` hashes a different set of inputs now, so the recorded
         # hash cannot be compared. Say so instead of reporting drifted inputs.
         interpreted = "unknown" if recorded_schema is None else recorded_schema
@@ -164,7 +181,7 @@ def check_installation(venv: Path, *, root: Path | None = None) -> list[Check]:
                 FAIL,
                 f"installed for {recorded_platform}, but this machine is "
                 f"{current_platform}; rerun "
-                f"`{repair_command(resolution)} --venv {venv}`",
+                f"`{repair_command(resolution, force=True)} --venv {venv}`",
             )
         )
     else:

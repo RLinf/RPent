@@ -222,7 +222,7 @@ def _reject_foreign_venv(destination: Path) -> None:
     )
 
 
-def _closure(components: dict[str, Component]) -> tuple[str, ...]:
+def closure(components: dict[str, Component]) -> tuple[str, ...]:
     """Return an environment's identity: the components in its closure.
 
     The closure decides what the environment contains, so it decides whether
@@ -236,7 +236,7 @@ def _closure(components: dict[str, Component]) -> tuple[str, ...]:
     return tuple(sorted(components))
 
 
-def _recorded_closure(fingerprint: dict[str, Any]) -> tuple[str, ...] | None:
+def recorded_closure(fingerprint: dict[str, Any]) -> tuple[str, ...] | None:
     """Return the identity a fingerprint records, or ``None`` without one."""
     recorded = fingerprint.get("components")
     if not isinstance(recorded, dict) or not recorded:
@@ -272,12 +272,12 @@ def _check_existing(destination: Path, resolution: Resolution, *, force: bool) -
     if existing is None:
         _reject_foreign_venv(destination)
         return
-    recorded = _recorded_closure(existing)
+    recorded = recorded_closure(existing)
     if recorded is None:
         # A fingerprint without a component table predates this identity or is
         # damaged; ``doctor`` reports which one. Rebuilding would mix inputs.
         return
-    wanted = _closure(resolution.components)
+    wanted = closure(resolution.components)
     if recorded == wanted:
         return
     details = [f"  adds {name}" for name in sorted(set(wanted) - set(recorded))]
@@ -529,9 +529,15 @@ def probe_command(
     return [str(python), "-I", "-c", probe_source(probe, kind, source=source)]
 
 
-def repair_command(resolution: Resolution) -> str:
-    """Return the command that rebuilds the same installation."""
-    return f"rpent-install install {' '.join(resolution.targets)}"
+def repair_command(resolution: Resolution, *, force: bool = False) -> str:
+    """Return the command that rebuilds the same installation.
+
+    ``force`` replaces the environment at the target path. ``install`` requires
+    it when the recorded component closure differs; ``doctor`` also asks for it
+    when the recorded platform does.
+    """
+    command = f"rpent-install install {' '.join(resolution.targets)}"
+    return f"{command} --force" if force else command
 
 
 def _probe_components(

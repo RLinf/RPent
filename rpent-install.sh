@@ -19,9 +19,8 @@ set -euo pipefail
 #
 # The ``rpent-install`` console script exists only after a component is
 # installed, so this launcher runs ``rpent.cli.install`` in a throwaway uv
-# environment that adds only the manifest parser dependency. CI, the pre-commit
-# hook, and the GPU suite call it, so the bootstrap interpreter and that
-# dependency are declared once; installer arguments pass straight through.
+# environment that adds only the manifest parser dependency. The environment
+# workflow calls it; installer arguments pass straight through.
 
 repo_root=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 
