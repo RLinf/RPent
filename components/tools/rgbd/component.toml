@@ -1,0 +1,12 @@
+schema = 2
+name = "tool-rgbd"
+probe = "components.tools.rgbd"
+python = ">=3.10,<3.13"
+# The capability imports pydantic and pydantic-ai with the geometry agent, so
+# the environment installs the planner layer on top of the runtime layer. It
+# reads images with Pillow, which neither layer installs. It reaches Molmo and
+# SAM 3 over RPC through their client modules, so neither model server belongs
+# in this environment.
+planner = true
+
+dependencies = ["pillow>=10"]

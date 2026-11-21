@@ -26,7 +26,39 @@ classifiers = [
     "Programming Language :: Python :: 3",
 ]
 
+# The runtime layer: environment and model contracts, RPC, model clients,
+# the tool contracts, and the run records. It holds only what those modules
+# import at import time, so a simulator or model environment can install it
+# without the planner stack.
 dependencies = [
+    "numpy",
+    # `NotRequired` in the model contracts.
+    "typing-extensions>=4",
+    "packaging",
+    "tomli>=2; python_version < '3.11'",
+    # Frame encoding in the model clients, which the runtime layer ships.
+    "imageio>=2.0",
+]
+
+[project.scripts]
+rpent = "rpent.cli.main:main"
+rpent-memory = "rpent.cli.memory:main"
+rpent-check-llm = "rpent.cli.check_llm:main"
+rpent-install = "rpent.cli.install:main"
+rpent-flywheel = "rpent.cli.flywheel:main"
+
+[project.urls]
+Homepage = "https://github.com/RLinf/RPent"
+Repository = "https://github.com/RLinf/RPent"
+Documentation = "https://rpent.readthedocs.io/en/latest/"
+"Bug Report" = "https://github.com/RLinf/RPent/issues"
+
+[project.optional-dependencies]
+# `rpent[planner]` is the core's own dependency split, not a component:
+# planner adapters, execution sessions, tools, prompts, and the Dashboard.
+# An extra that runs a session installs it, so the split changes nothing
+# for the environments that already existed.
+planner = [
     # Upgrade together after validating request budgets and failed-request accounting.
     "pydantic-ai-slim[anthropic,google,openai,cli]==2.53.0",
     "pydantic-ai-harness==0.53.0",
@@ -37,38 +69,21 @@ dependencies = [
     # https://github.com/pydantic/pydantic-ai/issues/10923
     "anthropic<2",
     "pydantic>=2",
-    "tomli>=2; python_version < '3.11'",
     "fastapi>=0.110",
     "uvicorn>=0.27",
     "httpx>=0.27",
     "jsonschema>=4.18",
     "claude-agent-sdk>=0.2.154",
-    "packaging",
     "openai-codex>=0.163.0",
     "agent-client-protocol>=0.12.1,<0.13",
     "mcp>=1.23.0,<2.0.0",
     "huggingface_hub>=0.24",
     "prompt-toolkit>=3.0.48",
-    "numpy",
     "scipy",
-    "imageio>=2.0",
     "PyYAML>=6.0",
 ]
-
-[project.scripts]
-rpent = "rpent.cli.main:main"
-rpent-memory = "rpent.cli.memory:main"
-rpent-check-llm = "rpent.cli.check_llm:main"
-rpent-flywheel = "rpent.flywheel.cli:main"
-
-[project.urls]
-Homepage = "https://github.com/RLinf/RPent"
-Repository = "https://github.com/RLinf/RPent"
-Documentation = "https://rpent.readthedocs.io/en/latest/"
-"Bug Report" = "https://github.com/RLinf/RPent/issues"
-
-[project.optional-dependencies]
 test = [
+    "rpent[planner]",
     "coverage",
     "pytest",
     "pytest-timeout",
@@ -76,6 +91,7 @@ test = [
     "gymnasium",
 ]
 rlinf = [
+    "rpent[planner]",
     "rlinf @ git+https://github.com/RLinf/RLinf.git@release/v0.4",
 ]
 sam3 = [
@@ -158,6 +174,7 @@ flywheel = [
     "pyarrow<26",
 ]
 yam = [
+    "rpent[planner]",
     # Install the fixed RLinf YAM revision and i2rt SDK from the YAM guide.
     # i2rt 1.1.2 requires click<8.2; huggingface-hub 2.x requires click>=8.4.
     "huggingface_hub>=0.24,<1",
@@ -178,6 +195,7 @@ robodojo = [
     "rpent-openpi @ git+https://github.com/RLinf/openpi.git@rpent",
 ]
 robodojo-sim = [
+    "rpent[planner]",
     # Supplies both the simulator adapter and the OpenPI policy configuration.
     "rlinf @ git+https://github.com/littleZ05/RLinf.git@rpent/robodojo",
     "rlinf-robodojo-runtime @ git+https://github.com/RLinf/RoboDojo.git@rpent",
@@ -274,11 +292,23 @@ where = ["."]
 # leave the CLI unable to import any backend. The globs also cover every
 # per-robot subpackage (robots.yam.*, robots.robodojo.*, ...), as well as the
 # shared RGB-D tools.
-include = ["rpent*", "robots", "robots.*", "toolkits", "toolkits.*"]
+# components/ holds the install units: each component owns its code and its
+# manifest, and the installer discovers them from the checkout or the sdist.
+# The RGB-D toolkit lives in components/tools/rgbd, so the top level keeps no
+# toolkits package.
+include = ["rpent*", "robots", "robots.*", "components", "components.*"]
 exclude = ["tests*", "docs*", "examples*", "docker*"]
 
 [tool.setuptools.package-data]
+# Component manifests are runtime data: discovery reads them from installed
+# packages, so a component that ships code must ship its component.toml.
+"*" = ["component.toml"]
+"robots.dual_franka" = ["config/*.yaml"]
+"robots.franka" = ["config/*.yaml"]
+"robots.libero" = ["guides/*.md"]
+"robots.robocasa" = ["eval/*.json"]
 "robots.robodojo" = ["guides/*.md"]
+"robots.robotwin" = ["eval/*.json", "guides/*.md"]
 "rpent.dashboard" = ["*.html", "static/*.css", "static/*.js"]
 "robots.yam" = ["config/*.yaml", "config/*.json", "guides/*.md"]
 

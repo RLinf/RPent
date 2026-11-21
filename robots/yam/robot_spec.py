@@ -24,10 +24,10 @@ from robots.yam.contracts import (
 from robots.yam.evaluation import finalize_run
 from robots.yam.prompt_bundle import system_prompt, user_prompt
 from robots.yam.tasks import TASK_INSTRUCTIONS, resolve_task_language
+from rpent.components.models.backends import add_am_args, select_am
 from rpent.dashboard.events import DashboardEventSink
 from rpent.dashboard.spec import DashboardSpec
 from rpent.memory import MemoryManager
-from rpent.robots.components.am_runtime import add_am_args, select_am
 from rpent.robots.prompt_bundle import PromptBundle
 from rpent.robots.robot_spec import RobotSpec, RunConfig
 from rpent.robots.runtime import try_wait_server
@@ -85,6 +85,8 @@ def get_robot_spec() -> RobotSpec:
         resolve_dashboard=lambda args: YAM_DASHBOARD_SPEC,
         supports_exploration=True,
         is_real_robot=True,
+        # `eval_success` is the operator's confirmation, not a sensor verdict.
+        truth_source="operator",
         finalize_run=finalize_run,
         prompts=PromptBundle(system=system_prompt, user=user_prompt),
         add_cli_args=_add_cli_args,
@@ -317,14 +319,14 @@ def _build_env_runtime_kwargs(args: argparse.Namespace, env_rpc: Any) -> dict[st
 
 
 def _build_vla_runtime_kwargs(vla_rpc: Any) -> dict[str, Any]:
-    from rpent.robots.components.pi05_vla_client import Pi05VLAClient
+    from components.models.openpi.client import Pi05VLAClient
 
     expected_meta = vla_runtime_contract()
-    actual_meta = vla_rpc.call("vla.get_model_meta", timeout_s=30.0)
-    if actual_meta != expected_meta:
+    model = Pi05VLAClient(vla_rpc, embodiment="yam")
+    if model.model_meta != expected_meta:
         raise RuntimeError(
             "YAM VLA metadata mismatch: "
-            f"expected={expected_meta!r} actual={actual_meta!r}. "
+            f"expected={expected_meta!r} actual={model.model_meta!r}. "
             "Connect to the Pi0.5 YAM qpos14 VLA server."
         )
-    return {"model": Pi05VLAClient(vla_rpc, embodiment="yam")}
+    return {"model": model}

@@ -1,0 +1,9 @@
+schema = 2
+name = "model-apxinf"
+probe = "components.models.apxinf"
+python = ">=3.10,<3.13"
+# The APXInf engine, APXInf-robo presets, and the apxinf_py binding are
+# built from source in the environment that runs the server, so they
+# are not pip dependencies of the adapter.
+
+dependencies = []

@@ -1,0 +1,9 @@
+schema = 2
+name = "robot-robocasa"
+probe = "robots.robocasa"
+planner = true
+python = ">=3.10,<3.11"
+requires = ["sim-robocasa", "model-rldx"]
+env_conflicts = ["robot-franka", "robot-dual_franka", "robot-robotwin"]
+
+dependencies = []

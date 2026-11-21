@@ -1,0 +1,8 @@
+schema = 2
+name = "model-openpi"
+probe = "openpi"
+python = ">=3.10,<3.13"
+
+dependencies = [
+  "rpent-openpi @ git+https://github.com/RLinf/openpi.git@a560f4dd8205b8423ecd4c8a0fabb5f54140b8a0",
+]

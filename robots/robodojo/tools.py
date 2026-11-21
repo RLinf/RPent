@@ -23,7 +23,7 @@ import numpy as np
 from pydantic import Field
 from pydantic.json_schema import SkipJsonSchema
 
-from robots.robodojo.access import CAMERAS, public_episode_budget
+from components.sim.robodojo.access import CAMERAS, public_episode_budget
 from rpent.session import EnvState
 from rpent.session.env_capture import CapturingEnvClient
 from rpent.tools import ToolResult, tool
@@ -73,7 +73,7 @@ def view_env_state(step: int = -1, *, state: Any) -> ToolResult:
 
 
 def _summarize_obs(obs: dict) -> dict:
-    from robots.robodojo.access import public_observation
+    from components.sim.robodojo.access import public_observation
 
     obs = public_observation(obs)
     vision = obs.get("vision", {})
@@ -328,7 +328,7 @@ def pi0_pick(
         max_chunks: Max policy chunks"""
     import numpy as np
 
-    from robots.robodojo.tasks import validate_instruction
+    from components.sim.robodojo.tasks import validate_instruction
 
     prompt = validate_instruction(
         primitives.env.get_task_language() if prompt is None else prompt

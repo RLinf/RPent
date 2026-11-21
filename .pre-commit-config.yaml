@@ -15,3 +15,15 @@ repos:
     hooks:
       - id: check-message
         stages: [commit-msg]
+
+  - repo: local
+    hooks:
+      # CI already runs this before the tests; catching it locally keeps a
+      # boundary violation from reaching a pull request.
+      - id: check-layout
+        name: check the repository layout
+        entry: ./tests/tooling/run.sh layout
+        language: system
+        pass_filenames: false
+        always_run: true
+        stages: [pre-commit]

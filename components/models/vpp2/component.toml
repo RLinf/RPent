@@ -1,0 +1,9 @@
+schema = 2
+name = "model-vpp2"
+probe = "components.models.vpp2"
+python = ">=3.11,<3.12"
+# The VPP2 runtime and weights come from the deployment's resource
+# root; the RPent worker owns only request translation.
+requires = ["sim-robodojo"]
+
+dependencies = []

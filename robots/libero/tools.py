@@ -27,17 +27,17 @@ from typing import TYPE_CHECKING, Annotated, Any, Literal
 import numpy as np
 from pydantic import Field
 
+from components.models.molmo.client import MolmoClient
+from components.models.sam3.client import Sam3Client
 from robots.libero.env_client import LiberoEnvClient
-from rpent.robots.components.molmo_client import MolmoClient
-from rpent.robots.components.sam3_client import Sam3Client
 from rpent.session import EnvState, StepRecord
 from rpent.session.env_capture import CapturingEnvClient
 from rpent.tools import Tool, ToolResult, tool
 from rpent.utils.logging import get_logger
 
 if TYPE_CHECKING:
-    from robots.libero.wam_client import LiberoWAMClient
-    from rpent.robots.components.am_client_base import BaseVLAClient
+    from components.sim.libero.wam_client import LiberoWAMClient
+    from rpent.components.models.client import BaseVLAClient
 
 logger = get_logger("libero_tools")
 
@@ -238,7 +238,7 @@ class LiberoPrimitives:
         min_grip = self._last_obs_gripper
         last_grip = min_grip
         descent_done = False
-        success = False
+        grasp_detected = False
         chunks_used = 0
 
         for c in range(max_chunks):
@@ -259,24 +259,21 @@ class LiberoPrimitives:
             ascended = (post_min_peak_z - min_z) >= lift_thresh
             closed = gripper_open_thresh <= grip < gripper_closed_thresh
             if descent_done and ascended and closed:
-                success = True
+                grasp_detected = True
                 break
             if self.env.terminated or self.env.truncated:
-                success = self.env.terminated
                 break
 
         return ToolResult(
             data={
                 "name": "pick",
                 "instruction": instr,
-                "success": success,
+                "grasp_detected": grasp_detected,
                 "chunks_used": chunks_used,
                 "max_chunks": max_chunks,
                 "peak_lift_m": post_min_peak_z - min_z,
                 "min_gripper_opening": min_grip,
                 "final_gripper_opening": last_grip,
-                "terminated": self.env.terminated,
-                "truncated": self.env.truncated,
                 "diagnostics": {
                     "start_eef_z": round(start_z, 4),
                     "peak_eef_z": round(peak_z, 4),
@@ -295,38 +292,28 @@ class LiberoPrimitives:
 
     @tool
     def pi0_doubled(self, prompt: str, *, max_chunks: int = 20) -> ToolResult:
-        """Pi0.5 closed-loop contact skill for non-pick interactions (e.g. stove/knob/button/short push). Returned success/task_success only mirrors official termination; for intermediate contact skills, success=false does not necessarily mean the contact interaction failed. Inspect image/state evidence. Do not use it as a general pick/place shortcut.
+        """Pi0.5 closed-loop contact skill for non-pick interactions (e.g. stove/knob/button/short push). It stops early when the episode ends. A contact interaction can succeed without ending the episode, so judge progress from image/state evidence rather than from any success flag. Do not use it as a general pick/place shortcut.
 
         Args:
             prompt: Contact-skill prompt, e.g. 'turn on the stove'.
             max_chunks: Action-chunk budget (default 20)
         """
         instr = prompt
-        task_success = False
         chunks_used = 0
 
         for c in range(max_chunks):
             self._vlm_chunk(instr)
             chunks_used = c + 1
             if self.env.terminated or self.env.truncated:
-                task_success = self.env.terminated
                 break
 
         return ToolResult(
             data={
                 "name": "pi0_doubled",
                 "instruction": instr,
-                "success": task_success,
-                "task_success": task_success,
                 "contact_skill_executed": chunks_used > 0,
                 "chunks_used": chunks_used,
                 "max_chunks": max_chunks,
-                "terminated": self.env.terminated,
-                "truncated": self.env.truncated,
-                "diagnostics": {
-                    "mode": "contact_skill_success_by_termination",
-                    "success_meaning": "`success` mirrors official LIBERO task termination only; for intermediate contact skills, inspect image/state evidence.",
-                },
             }
         )
 

@@ -18,7 +18,7 @@ import threading
 from robots.yam import runtime_config
 from robots.yam.contracts import env_runtime_contract
 from robots.yam.tasks import TASK_INSTRUCTIONS
-from rpent.robots.components.env_facade_base import BaseEnvFacade
+from rpent.components.env.facade import BaseEnvFacade
 
 
 class YamEnvFacade(BaseEnvFacade):

@@ -14,6 +14,7 @@
 
 from __future__ import annotations
 
+import sys
 from argparse import ArgumentParser
 from dataclasses import FrozenInstanceError
 from pathlib import Path
@@ -21,11 +22,10 @@ from string import Formatter
 
 import pytest
 
-from robots.robotwin.robot_spec import (
-    MODEL_SPEC,
+from components.models.lingbot.contract import MODEL_SPEC, vla_runtime_contract
+from components.sim.robotwin.contract import (
     ROBOTWIN_CAMERA_NAMES,
     env_runtime_contract,
-    vla_runtime_contract,
 )
 from rpent.robots import enumerate_robots, get_robot_spec
 from rpent.robots.robot_spec import RobotSpec, RunConfig
@@ -137,6 +137,14 @@ def _format_fields(template: str) -> set[str]:
         for _, field_name, _, _ in Formatter().parse(template)
         if field_name is not None
     }
+
+
+def test_robot_discovery_survives_a_core_only_wheel(monkeypatch) -> None:
+    # The published wheel ships the core package only. Building the CLI's
+    # argument parser must not fail just because ``robots`` is absent.
+    monkeypatch.setitem(sys.modules, "robots", None)
+
+    assert enumerate_robots() == ()
 
 
 def test_registry_discovers_exactly_the_source_checkout_robots() -> None:

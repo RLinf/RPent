@@ -21,6 +21,7 @@ through :meth:`Toolkit.list_tools` and dispatch through :meth:`Toolkit.execute_t
 
 from __future__ import annotations
 
+import inspect
 import json
 import threading
 import time
@@ -219,7 +220,11 @@ class Toolkit:
         """Validate one call, execute it, and capture state for advancing tools."""
         tool = self._tools.get(name)
         if tool is None:
-            return ToolResult(data={"error": f"unknown tool: {name}"})
+            return ToolResult(
+                data={"error": f"unknown tool: {name}"},
+                call_ok=False,
+                no_execution=True,
+            )
         try:
             parameters = tool.args_schema.model_validate(input_dict, strict=True)
         except ValidationError as exc:
@@ -231,7 +236,9 @@ class Toolkit:
                         include_context=False,
                         include_input=False,
                     ),
-                }
+                },
+                call_ok=False,
+                no_execution=True,
             )
         kwargs = {
             field: getattr(parameters, field) for field in type(parameters).model_fields
@@ -241,8 +248,33 @@ class Toolkit:
             operation = self._scheduler.acquire(readonly=tool.readonly)
         except ToolCancelled as exc:
             return ToolResult(
-                data={"error": str(exc), "code": "tool_cancelled", "interrupted": True}
+                data={"error": str(exc), "code": "tool_cancelled", "interrupted": True},
+                call_ok=False,
+                no_execution=True,
             )
+
+        # The schema validated the input, but the handler may have been swapped
+        # for one that no longer accepts these parameters. Only that binding
+        # failure means the tool never ran; a TypeError raised inside a handler
+        # is an ordinary handler error that may already have acted. A callable
+        # whose signature cannot be read keeps the handler's own TypeError,
+        # which never claims the environment is unchanged.
+        try:
+            signature = inspect.signature(tool.handler)
+        except (TypeError, ValueError):
+            signature = None
+        if signature is not None:
+            try:
+                signature.bind(**kwargs)
+            except TypeError as exc:
+                return ToolResult(
+                    data={
+                        "error": f"bad arguments for {name}: {exc}",
+                        "got": input_dict,
+                    },
+                    call_ok=False,
+                    no_execution=True,
+                )
 
         try:
             started = time.perf_counter()
@@ -252,25 +284,21 @@ class Toolkit:
                 if capture is not None:
                     capture.start(action_source=tool.action_source)
                 native = tool(**kwargs)
-            except TypeError as exc:
-                native = ToolResult(
-                    data={
-                        "error": f"bad arguments for {name}: {exc}",
-                        "got": input_dict,
-                    }
-                )
             except ToolCancelled as exc:
+                # The tool stopped at a safe boundary; it may have acted already.
                 native = ToolResult(
                     data={
                         "error": str(exc),
                         "code": "tool_cancelled",
                         "interrupted": True,
-                    }
+                    },
+                    call_ok=False,
                 )
             except Exception as exc:
                 logger.exception("Tool %s failed", name)
                 native = ToolResult(
-                    data={"error": str(exc), "traceback": traceback.format_exc()}
+                    data={"error": str(exc), "traceback": traceback.format_exc()},
+                    call_ok=False,
                 )
 
             if capture is not None and capture.started:
@@ -283,7 +311,8 @@ class Toolkit:
                     )
                 )
 
-            if not tool.readonly:
+            # A rejected call changed no environment state, so it is not a step.
+            if not tool.readonly and not native.no_execution:
                 elapsed_s = round(time.perf_counter() - started, 2)
                 result_dict = native.to_dict()
                 command = {"action": name, **input_dict}
@@ -311,6 +340,7 @@ class Toolkit:
                     native = ToolResult(
                         data=observed.data,
                         images=native.images + observed.images,
+                        call_ok=native.call_ok,
                     )
                 if record is not None:
                     self._publish_step(record)
@@ -321,6 +351,7 @@ class Toolkit:
                 native = ToolResult(
                     data={"error": f"Tool result serialization failed: {exc}"},
                     images=native.images,
+                    call_ok=False,
                 )
             if capture is not None:
                 capture.finish(

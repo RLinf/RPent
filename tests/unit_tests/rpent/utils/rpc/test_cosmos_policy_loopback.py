@@ -20,10 +20,10 @@ from unittest.mock import Mock
 import numpy as np
 import pytest
 
-from robots.libero.wam_client import LiberoWAMClient, libero_request
-from rpent.robots.components.am_facade_base import BaseWAMFacade
-from rpent.robots.components.cosmos_policy.adapter import make_adapter
-from rpent.robots.components.cosmos_policy.server import CosmosPolicyFacade
+from components.models.cosmos_policy.adapter import libero_model_meta
+from components.models.cosmos_policy.server import CosmosPolicyFacade
+from components.sim.libero.wam_client import LiberoWAMClient, libero_request
+from rpent.components.models.facade import BaseWAMFacade
 
 
 @pytest.fixture
@@ -45,8 +45,9 @@ def raw_obs():
 @pytest.fixture
 def facade():
     facade = CosmosPolicyFacade.__new__(CosmosPolicyFacade)
-    capabilities, adapter = make_adapter("libero", "test")
-    BaseWAMFacade.__init__(facade, capabilities, adapter=adapter)
+    BaseWAMFacade.__init__(
+        facade, libero_model_meta(checkpoint="test", predict_future=False)
+    )
     facade._cfg = SimpleNamespace(seed=1, num_denoising_steps_action=5)
     facade._model = facade._dataset_stats = None
     facade._predict_future = facade._cached_instructions_only = False
@@ -65,8 +66,8 @@ def facade():
 def test_cosmos_policy_roundtrip(
     transport, make_server_and_client, raw_obs, facade, predict_future
 ) -> None:
-    facade._model_meta, facade._adapter = make_adapter(
-        "libero", "test", predict_future=predict_future
+    facade._model_meta = libero_model_meta(
+        checkpoint="test", predict_future=predict_future
     )
     facade._predict_future = predict_future
     with make_server_and_client(facade, transport) as rpc:

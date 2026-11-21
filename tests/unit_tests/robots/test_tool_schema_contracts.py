@@ -81,6 +81,19 @@ def test_tool_declarations_match_pre_refactor_contracts(group: str) -> None:
             "type": "number",
             "description": "Positive finite yaw tolerance, rad (default 0.02)",
         }
+        # Contact skills no longer mirror the benchmark verdict.
+        expected["pi0_doubled"]["description"] = (
+            "Pi0.5 closed-loop contact skill for non-pick interactions (e.g. "
+            "stove/knob/button/short push). It stops early when the episode "
+            "ends. A contact interaction can succeed without ending the "
+            "episode, so judge progress from image/state evidence rather than "
+            "from any success flag. Do not use it as a general pick/place "
+            "shortcut."
+        )
+    # Dispatch rejects undeclared arguments, so every published schema states
+    # that at the root; the snapshots predate that entry.
+    for item in expected.values():
+        item["input_schema"]["additionalProperties"] = False
     declarations = TOOL_DECLARATIONS[group]
     actual = {
         item.name: {

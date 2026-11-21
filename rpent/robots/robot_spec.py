@@ -34,7 +34,7 @@ from typing import TYPE_CHECKING, Any
 
 from rpent.dashboard.events import DashboardEventSink
 from rpent.dashboard.spec import DashboardSpec
-from rpent.evaluation import RunFinalizer
+from rpent.evaluation import RunFinalizer, TruthSource
 from rpent.robots.prompt_bundle import PromptBundle
 
 if TYPE_CHECKING:
@@ -88,6 +88,11 @@ class RobotSpec:
     #: request_direct_verdict/finalize_direct_verdict/direct_verdict_requested.
     #: Operator success gates automatic memory publication for this capability.
     supports_human_interactive_exploration: bool = False
+    #: Who establishes the outcome the run is judged by. The runner reads the
+    #: toolkit verdict as ``environment_success``; a real robot's plain
+    #: evaluation has no harness verdict because the operator judges it outside
+    #: the run, so only Flash replay collects that operator confirmation.
+    truth_source: TruthSource = "environment"
     memory_repo_id: str = "RLinf/RPent-memory"
     #: Validate robot arguments without I/O before CLI or Dashboard services start.
     validate_args: Callable[[argparse.Namespace], None] | None = None

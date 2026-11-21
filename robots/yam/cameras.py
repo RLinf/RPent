@@ -26,6 +26,7 @@ import numpy as np
 
 from robots.yam.contracts import YAM_CAMERA_NAMES
 from robots.yam.geometry import YamCalibration, load_calibration
+from rpent.install import require
 
 
 @dataclass
@@ -111,13 +112,7 @@ class YamRgbdCameraRig:
     def open(self) -> None:
         if self._opened:
             return
-        try:
-            import pyrealsense2 as rs
-        except ModuleNotFoundError as error:
-            raise RuntimeError(
-                "missing dependency pyrealsense2 for YAM RGBD cameras; install "
-                "the RealSense runtime on the robot host"
-            ) from error
+        rs = require("robot-yam", "pyrealsense2")
         self._rs = rs
         try:
             for name in YAM_CAMERA_NAMES:

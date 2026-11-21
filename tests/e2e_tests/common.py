@@ -127,12 +127,10 @@ def run_scripted_policy_chain(
     if include_images and not planner_server.image_digests[-1]:
         raise RuntimeError("post-action planner request contained no images")
 
-    transcript_paths = list(output_dir.glob("transcript_*.json"))
-    if len(transcript_paths) != 1:
-        raise RuntimeError(
-            f"expected one planner transcript, found {len(transcript_paths)}"
-        )
-    transcript = json.loads(transcript_paths[0].read_text(encoding="utf-8"))
+    transcript_path = output_dir / "transcript.json"
+    if not transcript_path.is_file():
+        raise RuntimeError(f"expected one planner transcript at {transcript_path}")
+    transcript = json.loads(transcript_path.read_text(encoding="utf-8"))
     finish = transcript.get("finish")
     if not isinstance(finish, dict) or finish.get("_finish") is not True:
         raise RuntimeError(f"scripted {robot} session did not call finish")
@@ -170,7 +168,7 @@ def run_scripted_policy_chain(
         "simulator_action_count": action_count,
         "simulator_action_count_field": action_count_field,
         "finish_status": finish.get("status"),
-        "transcript": transcript_paths[0].name,
+        "transcript": transcript_path.name,
         "state_manifest": state_path.name,
         "planner_image_counts": [len(items) for items in planner_server.image_digests],
         "post_action_new_image_count": len(
@@ -198,10 +196,14 @@ def parse_runtime_args(spec: RobotSpec, argv: list[str]) -> Namespace:
     return parser.parse_args(argv)
 
 
-def installation_info(extra: str) -> dict[str, Any]:
-    """Record enough installation identity to diagnose a clean-extra run."""
+def installation_info(environment: str) -> dict[str, Any]:
+    """Record enough installation identity to diagnose a clean-environment run.
+
+    ``environment`` names what the suite installed: a profile where one covers
+    the slice, otherwise its compatibility extra.
+    """
     return {
-        "extra": extra,
+        "environment": environment,
         "python": platform.python_version(),
         "executable": sys.executable,
         "rpent": version("rpent"),
@@ -300,14 +302,14 @@ def synthetic_rgb() -> np.ndarray:
 
 
 def prepare_suite(
-    *, output_dir: Path, stack: str, extra: str, details: dict[str, Any]
+    *, output_dir: Path, stack: str, environment: str, details: dict[str, Any]
 ) -> Path:
     """Create one suite output directory and record its reproducible inputs."""
     output_dir = output_dir.expanduser().resolve()
     output_dir.mkdir(parents=True, exist_ok=False)
     manifest = {
         "stack": stack,
-        "installation": installation_info(extra),
+        "installation": installation_info(environment),
         **details,
     }
     (output_dir / "manifest.json").write_text(

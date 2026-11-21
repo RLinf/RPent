@@ -169,7 +169,7 @@ Each ``harbor run`` creates a timestamped job directory under ``--jobs-dir``:
        ├── agent/
        │   ├── setup/           # Container agent install log
        │   └── rpent/           # Mounted from /logs/agent/rpent/ in container
-       │       ├── transcript_*.json # CLI transcript and planner stats
+       │       ├── transcript.json   # CLI transcript and planner stats
        │       ├── efe-result.json   # EFE metrics and finalization data
        │       ├── codex_*.txt       # Planner transcript
        │       ├── codex-home/       # Isolated CODEX_HOME for this trial
@@ -180,7 +180,7 @@ Each ``harbor run`` creates a timestamped job directory under ``--jobs-dir``:
        ├── lock.json
        └── trial.log
 
-If a trial aborts before writing ``result.json`` or ``transcript_*.json``,
+If a trial aborts before writing ``result.json`` or ``transcript.json``,
 inspect ``trial.log`` and ``agent/rpent/run.log`` first.
 
 Success Criterion

@@ -13,6 +13,20 @@ from dataclasses import dataclass
 
 import numpy as np
 
+#: Identity a YAM Pi0.5 VLA server must report back to the control station.
+#: The capability-side copies in ``rpent/components/models/platforms.py`` state what
+#: each model server expects; keep them equal.
+YAM_VLA_CONTRACT = {
+    "runtime": "yam_vla",
+    "policy_name": "pi05_yam_joint",
+    "camera_order": ["top", "left", "right"],
+    "state_layout": "qpos14",
+    "action_layout": "qpos14",
+    "action_dim": 14,
+    "action_horizon": 30,
+    "use_length": 5,
+}
+
 YAM_CAMERA_NAMES = ("top", "left", "right")
 YAM_STATUS_KEYS = (
     "eval_success",
@@ -25,12 +39,20 @@ YAM_STATUS_KEYS = (
 
 @dataclass(frozen=True)
 class YamModelSpec:
-    policy_name: str = "pi05_yam_joint"
-    camera_order: tuple[str, ...] = YAM_CAMERA_NAMES
-    state_layout: str = "qpos14"
-    action_layout: str = "qpos14"
-    action_horizon: int = 30
-    use_length: int = 5
+    """Values the control station and the policy share.
+
+    Everything here that a model server also receives comes from
+    ``YAM_VLA_CONTRACT``, so the wire contract and the local defaults cannot
+    drift. ``control_hz`` is local: the policy contract does not carry a
+    frequency.
+    """
+
+    policy_name: str = YAM_VLA_CONTRACT["policy_name"]
+    camera_order: tuple[str, ...] = tuple(YAM_VLA_CONTRACT["camera_order"])
+    state_layout: str = YAM_VLA_CONTRACT["state_layout"]
+    action_layout: str = YAM_VLA_CONTRACT["action_layout"]
+    action_horizon: int = YAM_VLA_CONTRACT["action_horizon"]
+    use_length: int = YAM_VLA_CONTRACT["use_length"]
     control_hz: int = 30
 
 
@@ -57,7 +79,7 @@ def env_runtime_contract(
             "action_layouts": ["qpos14"],
             "chunk_step_all_frames": True,
             "step_limit": int(max_episode_steps),
-            "control_hz": 30,
+            "control_hz": MODEL_SPEC.control_hz,
         },
         "extensions": {
             "render_camera": {
@@ -82,16 +104,7 @@ def env_runtime_contract(
 
 def vla_runtime_contract() -> dict:
     """Return the identity required from a YAM Pi0.5 VLA server."""
-    return {
-        "runtime": "yam_vla",
-        "policy_name": MODEL_SPEC.policy_name,
-        "camera_order": list(MODEL_SPEC.camera_order),
-        "state_layout": MODEL_SPEC.state_layout,
-        "action_layout": MODEL_SPEC.action_layout,
-        "action_dim": 14,
-        "action_horizon": MODEL_SPEC.action_horizon,
-        "use_length": MODEL_SPEC.use_length,
-    }
+    return dict(YAM_VLA_CONTRACT)
 
 
 def validate_actions(actions, *, action_type="qpos") -> np.ndarray:

@@ -1,0 +1,12 @@
+schema = 2
+name = "robot-dual_franka"
+probe = "robots.dual_franka"
+planner = true
+python = ">=3.10,<3.13"
+# Dual Franka extends the single-arm integration instead of
+# duplicating its camera, gripper, and teleoperation stack.
+requires = ["robot-franka", "model-sam3"]
+imports = ["robot-franka"]
+env_conflicts = ["robot-libero", "robot-robocasa", "robot-robotwin", "robot-robodojo"]
+
+dependencies = []

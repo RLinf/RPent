@@ -168,17 +168,17 @@ After a pick, decide "did I grab the target?" from two coord-free signals:
   surface z jumps up by your lift distance). If needed, `back_project` wrist
   pixels to confirm the surface z jumped.
 
-`pi0_pick`'s returned `success` (an eef-lift + gripper-closure heuristic, pure
-proprioception) is a HINT, not proof — confirm with the wrist cam before
-carrying. The only authoritative TASK-success signal is
-top-level `terminated` (the benchmark predicate), which is name-independent.
+`pi0_pick`'s returned `grasp_detected` (an eef-lift + gripper-closure
+heuristic, pure proprioception) is a HINT, not proof — confirm with the wrist
+cam before carrying. The benchmark scores the episode itself; its verdict is
+withheld, and top-level `episode_over` only tells you the episode has ended.
 
 ## Rule 4 — NO TELEPORT primitives (physics-only)
 
 `set_object_pose`, `articulate_to`, `js_move_to`, `carry_object` are **deleted
 from the codebase**. They are not callable and are not in the tool list. If a
 goal is past OSC reach and no physical approach works, write an honest
-`terminated:false` audit — never warp.
+failure audit — never warp.
 
 ## Rule 0 — Use images for reasoning, not just JSON state
 
@@ -202,7 +202,7 @@ and do NOT restart the episode. You MAY recover *within* this one episode
 grasp; walk the next rung of the Pi0 prompt ladder in Rule 3; re-firm the grip;
 `rotate_pitch`/`move_pose`) — that is all one continuous attempt. But the
 instant you would want to start over, **STOP instead and write the audit**
-(success or an honest `terminated:false`), then call `finish`. Never
+(success or an honest failure audit), then call `finish`. Never
 warp; never reset.
 
 ## Rule 5 — Assume every task is physically solvable
@@ -270,7 +270,7 @@ sim) — do not start/stop it. You call MCP tools; begin by reading step 0 via
 
 | logical artifact or field | what's in it |
 |---|---|
-| `view_env_state` result | `step`, top-level `task_language`, `terminated`, `truncated`, `state.{robot0_eef_pos, robot0_eef_quat, robot0_gripper_qpos, object_names}`, `artifacts`, and nested `log.{command,result,elapsed_s}`. **No object coordinates.** Step `-1` selects latest. |
+| `view_env_state` result | `step`, top-level `task_language`, `episode_over`, `state.{robot0_eef_pos, robot0_eef_quat, robot0_gripper_qpos, object_names}`, `artifacts`, and nested `log.{command,result,elapsed_s}`. **No object coordinates.** Step `-1` selects latest. |
 | `agentview_policy.png` | RGB in Pi0 frame. *Do not pick pixels here for back-projection.* |
 | `agentview.png` | 256×256 agentview RGB in the calibration frame. Select pixels on this grid when using the standard image. |
 | `agentview_high.png` | 1024×1024 agentview RGB in the calibration frame. Prefer this image for identification and select pixels on its grid. |
@@ -328,10 +328,10 @@ pi0_pick({"prompt": "pick up the X", "max_chunks": 20,
           "lift_thresh": 0.05, "gripper_closed_thresh": 0.06})
 
 // Pi0.5 for a contact skill (knob turn, drawer/door open-close — rare here).
-// success mirrors terminated only; inspect image/state for intermediates.
+// Stops early when the episode ends; inspect image/state for intermediates.
 pi0_doubled({"prompt": "turn off the stove", "max_chunks": 20})
 
-// Open gripper to place. Triggers libero termination if the On/In predicate met.
+// Open gripper to place. The benchmark checks its On/In predicate here.
 release({"max_steps": 20})
 
 // Hold pose + drive gripper. Use to firm a grip mid-carry.
@@ -407,14 +407,14 @@ A typical bowl→plate cell using manual localization looks like:
 7. Localize the placement region (basket / plate / drawer slot) the same way.
 8. `move_to([place_x, place_y, carry_z])` to traverse at constant height.
 9. Optionally descend `move_to([place_x, place_y, place_z])`.
-10. `release` — predicate (`On`/`In`) checks → `terminated=True` if hit.
+10. `release` — the benchmark checks its `On`/`In` predicate here.
 11. Light retreat (`move_to` upward) so the next step's image is clean.
 
 > **Predicate fire timing.** Most LIBERO `On(X, Y)` predicates fire on
 > `release` if `X` is above `Y`'s region. `In(X, container)` needs `X` to
 > have actually entered the container's volume before release. If a release
-> fires `term=False` but the object is on top of the right region, descend
-> 1–2 cm more and re-`release`.
+> leaves the object hovering above rather than resting in or on the right
+> region, descend 1–2 cm more and re-`release`.
 
 ## Pi0 prompt ladder (Rule 3 — Pi0 IS the delivery service)
 
@@ -451,12 +451,12 @@ images —
 you do **not** need a separate read. When you need an older step, call
 `view_env_state({"step": NN})` (use `step: -1` for the latest):
 
-1. Check `log.result.success`, `log.result.final_dist_m`,
+1. Check `log.result.grasp_detected`, `log.result.final_dist_m`,
   `log.result.peak_lift_m`, etc.
 2. Inspect the embedded `agentview_high.png` image → visual confirmation; pick
    pixels for any new localization.
 3. Check `state.robot0_eef_pos`, `state.robot0_gripper_qpos`, and top-level
-  `terminated` in the returned view.
+  `episode_over` in the returned view.
 
 You **do not** open the depth maps yourself — feed a pixel to `back_project`.
 Don't call `view_env_state` immediately after a primitive that already
@@ -468,9 +468,8 @@ returned the new state.
   `lift_thresh`, `log.result.min_gripper_opening` ≈ 0. Re-pre-position 1–2 cm
   lower or shifted; retry
   Pi0 with next prompt-ladder rung.
-- **Object slipped mid-carry.** `release` returns top-level
-  `terminated=false` and the object
-  is no longer where you `release`d it. `release`, re-pre-pos above it,
+- **Object slipped mid-carry.** The object is no longer where you `release`d
+  it and the placement region is empty. `release`, re-pre-pos above it,
   `pi0_pick` again, traverse again.
 - **OSC stuck.** `move_to` returns `log.result.final_dist_m > 0.05` at
   `log.result.max_steps` and
@@ -495,7 +494,8 @@ allowed physics primitives (`move_to`, `pi0_pick`, `pi0_doubled`, `release`,
 
 ## Persisting successful runs as audit JSONs
 
-When top-level `terminated == true`:
+When top-level `episode_over == true` and your own evidence says the task is
+done:
 
 a. The working command recipe (`{output_dir}/{recipe_tag}_recipe.jsonl`) is
   **auto-exported by the runner** from non-error primitive commands in the
@@ -507,11 +507,11 @@ b. Write a minimal audit JSON with `write_text_file` to
    `regime: "strict_perception"`, `strategy_notes` (give the camera, step,
    localization method and measured coordinates), `pick_result` (the `result`
   from your `pi0_pick`), `final_state` (the latest returned `state` field),
-  `terminated: true`.
+  `outcome: "success"` (your assessment; the benchmark grades separately).
 c. Call `finish({"status":"success","summary":"…"})`.
 
 If unrecoverable after honest exploration in this one episode, write
-`{output_dir}/{recipe_tag}.json` with `terminated: false` +
+`{output_dir}/{recipe_tag}.json` with `outcome: "failure"` +
 `strategy_notes` describing what you tried, the measured coordinates you used, and
 which step failed. Then call `finish` (NO reset, NO second attempt).
 
@@ -525,9 +525,9 @@ which step failed. Then call `finish` (NO reset, NO second attempt).
   post-release. The visual disagreement is usually the bug (you picked the
   wrong pixel, or Pi0 grabbed the decoy). This is the lesson of
   `feedback_failure_forensics.md` — applies even more strongly here.
-- If a release reports `term=False` but the object is visibly on the target
-  region, descend 1–2 cm more and `release` again; predicate often needs
-  contact, not just hover.
+- If a release leaves the object hovering above the target region, descend
+  1–2 cm more and `release` again; the predicate often needs contact, not
+  just hover.
 - Once you use `back_project`, trust it: if a localization "feels off", it's
   because you picked the wrong pixel — not because the depth / calibration is
   wrong. (`back_project` inverts `K` before the extrinsic; the raw
@@ -544,8 +544,8 @@ which step failed. Then call `finish` (NO reset, NO second attempt).
 - **Pi0 only does the grasp.** You script every motion + release.
 - **Fully oracle-free, including the grasp.** There is no GT-lift oracle —
   `pi0_pick` reads NO GT object pose and takes no tracking argument. You judge
-  the grasp from gripper width + the wrist cam, and TASK success from
-  top-level `terminated` (the benchmark predicate).
+  the grasp from gripper width + the wrist cam; the benchmark's task verdict
+  stays withheld, and `episode_over` only marks the end of the episode.
 - **Single attempt.** One episode, no reset (Rule 2).
 - The expected audit `regime` is `strict_perception`.
 

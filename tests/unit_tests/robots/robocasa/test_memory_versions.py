@@ -118,6 +118,9 @@ def args_for(tmp_path, **overrides):
         "planner": "codex",
         "model": "gpt-6-astra",
         "explore": False,
+        "reasoning_effort": "high",
+        "max_turns": 10,
+        "planner_timeout_s": None,
     }
     return Namespace(**(values | overrides))
 
