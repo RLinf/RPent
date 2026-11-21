@@ -270,7 +270,7 @@ checking a run:
 - ``run.log`` contains the RPent process log.
 - ``robotwin_env_server.log`` and ``lingbot_vla_server.log`` contain simulator
   and model startup errors.
-- ``transcript_*.json`` contains the planner conversation and final response.
+- ``transcript.json`` contains the planner conversation and final response.
 
 RoboTwin's native ``TASK_ENV.eval_success`` value in the latest tool result is
 the task-success source. Calling ``finish`` ends the Planner loop; it does not

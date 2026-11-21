@@ -108,12 +108,12 @@ Linux 宿主机前置要求：
       export RPENT_ROOT=/absolute/path/to/RPent
       export EFE_ROOT=/absolute/path/to/embodied-first-exam
       uv sync --project "$EFE_ROOT" --python 3.12
-      uv pip install --python "$EFE_ROOT/.venv/bin/python" -e "$RPENT_ROOT"
+      uv pip install --python "$EFE_ROOT/.venv/bin/python" -e "$RPENT_ROOT[planner]"
       docker info
       uv run --project "$EFE_ROOT" harbor --version
       test -f "$RPENT_ROOT/robots/efe/harbor_agent.py"
 
-   - ``uv pip install ... -e "$RPENT_ROOT"`` 仅供宿主机手动调试（``rpent --robot efe``）使用；Harbor Trial 会在任务容器内自动打包并安装 RPent。
+   - ``uv pip install ... -e "$RPENT_ROOT[planner]"`` 仅供宿主机手动调试（``rpent --robot efe``）使用；Harbor Trial 会在任务容器内自动打包并安装 RPent，并带上 planner 额外依赖。
    - 确认 ``docker info`` 正常输出、``harbor --version`` 显示 ``0.23.0``，且 ``test -f`` 返回 ``0``。
 
 3. 选择 AutoBio 离心机示例任务并配置模型 API：

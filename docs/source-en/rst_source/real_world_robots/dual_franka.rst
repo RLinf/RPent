@@ -484,7 +484,7 @@ View Results
 
 Use a new ``--output-dir`` for each run. Inspect:
 
-* ``transcript_*.json`` for planner messages, tool calls and the finish result.
+* ``transcript.json`` for planner messages, tool calls and the finish result.
 * ``run.log`` and component ``*_server.log`` files for runtime/startup errors.
 * ``states.json`` and its referenced image, depth and robot-state artifacts for
   the evidence after each step.

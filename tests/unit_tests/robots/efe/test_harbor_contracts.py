@@ -250,7 +250,7 @@ def test_install_uploads_one_wheel_and_records_its_hash(tmp_path, monkeypatch):
     assert "python3 -m venv" in install
     assert "--no-cache-dir" in install
     assert "--disable-pip-version-check" in install
-    assert "/opt/rpent-efe/rpent-0.1.0-py3-none-any.whl" in install
+    assert "/opt/rpent-efe/rpent-0.1.0-py3-none-any.whl[planner]" in install
     assert "pip freeze --all" in commands[-1]
     assert (tmp_path / "logs/setup/pip-freeze.txt").read_text() == "rpent==0.1.0\n"
     wheel_record = json.loads((tmp_path / "logs/rpent-wheel.json").read_text())

@@ -401,6 +401,17 @@ def test_unbindable_handler_arguments_never_execute_or_capture_state(
     assert "bad arguments for move" in result.error
     assert toolkit.capture_calls == []
 
+    # The rejected call must not hold a scheduler operation, so the next call
+    # and the close still complete.
+    @tool
+    def halt() -> ToolResult:
+        """Stop the robot."""
+        return ToolResult(data={"stopped": True})
+
+    toolkit.add_tool(halt)
+    assert toolkit.execute_tool("halt", {}).call_ok
+    toolkit.close()
+
 
 def test_a_handler_that_raises_type_error_is_treated_as_an_executed_failure(
     tmp_path: Path,

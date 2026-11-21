@@ -70,9 +70,9 @@ def generate(
         raise ValueError("source replay did not succeed")
     if robot not in {"franka", "dual_franka"}:
         raise ValueError("unsupported robot")
-    transcript = list(Path(run_dir).glob("transcript_*.json"))
-    for path in transcript:
-        record = json.loads(path.read_text())
+    transcript_path = Path(run_dir) / "transcript.json"
+    if transcript_path.is_file():
+        record = json.loads(transcript_path.read_text())
         if (record.get("finish") or {}).get("status") in {"failure", "stuck"}:
             raise ValueError("agent reported failure; select a successful attempt")
     plan = []

@@ -31,6 +31,7 @@ from rpent.cli.main import (
     _handoff_message,
     _read_solved,
     _serialize_messages,
+    _truth_source,
 )
 from rpent.dashboard.events import RunStartedEvent
 from rpent.evaluation import (
@@ -217,13 +218,16 @@ def _run_dashboard_task(
 
     prepare_run_memory(task_args, robot_spec, run_config)
     output_dir = init_output_dir(run_config.output_dir, verbose=args.verbose)
-    start_run_manifest(
-        output_dir,
-        robot=robot_spec.name,
-        planner=task_args.planner,
-        model=task_args.model,
-        task=run_config.task_desc,
-    )
+    try:
+        start_run_manifest(
+            output_dir,
+            robot=robot_spec.name,
+            planner=task_args.planner,
+            model=task_args.model,
+            task=run_config.task_desc,
+        )
+    except FileExistsError as exc:
+        return str(exc)
 
     recipe_tag = run_config.recipe_tag
     finish_result = None
@@ -237,6 +241,7 @@ def _run_dashboard_task(
     memory_manager = None
     environment_success = None
     environment_metrics: dict = {}
+    artifact_error: str | None = None
     # Same verdict rule as the plain runner: a robot judged in this mode
     # reports it, and a plain real-robot evaluation does not.
     collects_verdict = (
@@ -482,9 +487,12 @@ def _run_dashboard_task(
             planner_timeout_s=task_args.planner_timeout_s,
             finish_result=dict(finish_result) if finish_result is not None else None,
             stats=dict(stats),
-            truth_source=robot_spec.truth_source if collects_verdict else None,
+            truth_source=(
+                _truth_source(task_args, robot_spec) if collects_verdict else None
+            ),
         )
         transcript_path = output_dir / "transcript.json"
+        transcript_written = True
         try:
             write_json_atomic(
                 transcript_path,
@@ -502,9 +510,12 @@ def _run_dashboard_task(
                 default=str,
             )
         except Exception as exc:
-            logger.warning(
-                "failed to write TaskRun transcript %s: %s", transcript_path, exc
+            transcript_written = False
+            message = f"transcript write failed: {type(exc).__name__}: {exc}"
+            artifact_error = (
+                f"{artifact_error}; {message}" if artifact_error else message
             )
+            logger.warning("%s", message)
         init_output_dir(session_root, verbose=args.verbose)
 
     if (
@@ -524,22 +535,27 @@ def _run_dashboard_task(
                 logger.info("run finalized: %s", merge_result)
         except Exception as exc:
             warning = f"memory finalization failed: {type(exc).__name__}: {exc}"
+            artifact_error = (
+                f"{artifact_error}; {warning}" if artifact_error else warning
+            )
             logger.warning("%s", warning)
             state.report_task_warning(warning)
 
     result_path = None
-    artifact_error: str | None = None
     if robot_spec.finalize_run is not None:
         try:
             result_path = robot_spec.finalize_run(context)
         except Exception as exc:
-            artifact_error = f"result finalization failed: {type(exc).__name__}: {exc}"
-            logger.warning("%s", artifact_error)
+            message = f"result finalization failed: {type(exc).__name__}: {exc}"
+            artifact_error = (
+                f"{artifact_error}; {message}" if artifact_error else message
+            )
+            logger.warning("%s", message)
     try:
         finish_run_manifest(
             output_dir,
             artifacts={
-                "transcript": transcript_path,
+                "transcript": transcript_path if transcript_written else None,
                 "result": result_path,
                 "recipe": recipe_path or None,
             },

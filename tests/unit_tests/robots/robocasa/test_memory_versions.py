@@ -118,6 +118,10 @@ def args_for(tmp_path, **overrides):
         "planner": "codex",
         "model": "gpt-6-astra",
         "explore": False,
+        # Set by the CLI before the Dashboard sees the namespace.
+        "reasoning_effort": "none",
+        "max_turns": 100,
+        "planner_timeout_s": None,
     }
     return Namespace(**(values | overrides))
 

@@ -38,6 +38,9 @@ dependencies = [
     "tomli>=2; python_version < '3.11'",
     # Frame encoding in the model clients, which the runtime layer ships.
     "imageio>=2.0",
+    # The tool contracts declare their input schemas with pydantic. The
+    # planner-side ``pydantic_ai`` schema builder is imported lazily.
+    "pydantic>=2",
 ]
 
 [project.scripts]
@@ -55,7 +58,7 @@ Documentation = "https://rpent.readthedocs.io/en/latest/"
 
 [project.optional-dependencies]
 # `rpent[planner]` is the core's own dependency split, not a component:
-# planner adapters, execution sessions, tools, prompts, and the Dashboard.
+# planner adapters, execution sessions, prompts, and the Dashboard.
 # An extra that runs a session installs it, so the split changes nothing
 # for the environments that already existed.
 planner = [
@@ -68,7 +71,6 @@ planner = [
     # Remove after upgrading Pydantic AI to a release fixing:
     # https://github.com/pydantic/pydantic-ai/issues/10923
     "anthropic<2",
-    "pydantic>=2",
     "fastapi>=0.110",
     "uvicorn>=0.27",
     "httpx>=0.27",
@@ -167,6 +169,8 @@ robocasa = [
     "robosuite @ git+https://github.com/RLinf/robosuite.git@rpent",
 ]
 flywheel = [
+    # Transitional: `tool-flywheel`'s manifest owns these pins. The extra
+    # remains until the extras install path is removed.
     "lerobot>=0.3.3,<0.4",
     # LeRobot 0.3.x expects Fraction frame rates; PyAV 19 returns AVRational.
     "av<19",

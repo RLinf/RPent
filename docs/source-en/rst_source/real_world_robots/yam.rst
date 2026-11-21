@@ -375,7 +375,7 @@ Run logs are saved in a new directory under ``logs/``. Use ``--output-dir`` to s
 another new directory. Check:
 
 * ``result.json``: environment success, planner finish requests and runtime errors.
-* ``transcript_*.json`` and ``run.log``: messages, tool calls and runtime logs.
+* ``transcript.json`` and ``run.log``: messages, tool calls and runtime logs.
 * ``states.json`` and its referenced RGB, depth, 3D coordinate and state files:
   observations and actions for each step.
 * ``episode_*.mp4``: saved episode videos. Per-session exploration states are under

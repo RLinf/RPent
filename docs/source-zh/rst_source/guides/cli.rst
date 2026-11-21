@@ -240,7 +240,7 @@ Claude Code 和 Codex 也可复用已有的 CLI 认证。Gemini CLI 使用自身
 
 任务运行在判定为成功时退出码为 ``0``，失败或判定为未成功时为 ``1``，运行结束但没有判定时为 ``75``，例如没有人评判的真机运行。探索模式改为报告会话结果：会话正常结束为 ``0``，记录了错误为 ``1``。
 
-``run.json`` 以及机器人发布的 ``result.json`` 记录同一份判定：
+``run.json`` 以及机器人发布的收尾结果（通常是 ``result.json``，EFE 为 ``efe-result.json``）记录同一份判定：
 
 .. list-table::
    :header-rows: 1
