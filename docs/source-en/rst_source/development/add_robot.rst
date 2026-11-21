@@ -374,6 +374,11 @@ the tool with robot actions is the reason to register it. ``claude_code`` and
 Tools that need no coordination belong under ``planner_tools``; see
 :ref:`external-mcp-servers`.
 
+As with local action tools, a successful call returns the captured observation
+rather than the remote payload. Surface anything the model must see through
+``get_env_state``; a failed call still merges the server's error into that
+observation.
+
 One server can supply both the planner and the Toolkit: list the independent
 tools under ``planner_tools`` and register the coordinated ones here. A tool can
 be attached in only one place; registering a name that ``planner_tools`` also

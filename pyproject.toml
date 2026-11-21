@@ -56,6 +56,8 @@ dependencies = [
     "scipy",
     "imageio>=2.0",
     "PyYAML>=6.0",
+    # `--mcp-config` is a core CLI flag and resolves `${oc.env:...}` with
+    # OmegaConf, so this is no longer only a robot/test extra.
     "omegaconf>=2.3,<3",
 ]
 

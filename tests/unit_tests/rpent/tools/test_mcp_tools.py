@@ -406,6 +406,18 @@ def test_rejects_name_already_registered_on_the_toolkit(
         mcp_tools.register_mcp_tools(toolkit, (spec,), tools={"facility": ["finish"]})
 
 
+def test_rejects_a_case_variant_of_a_toolkit_name(
+    monkeypatch: pytest.MonkeyPatch, spec: McpServerSpec
+) -> None:
+    monkeypatch.setattr(
+        mcp_tools, "list_remote_tools", lambda server: [_remote_tool("Finish")]
+    )
+    toolkit = FakeToolkit(existing=("finish",))
+
+    with pytest.raises(ValueError, match="already registered"):
+        mcp_tools.register_mcp_tools(toolkit, (spec,), tools={"facility": ["Finish"]})
+
+
 def test_rejects_the_same_name_from_two_servers(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

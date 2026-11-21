@@ -276,7 +276,14 @@ def _parse_one(name: str, value: Any) -> McpServerSpec:
     env_http_headers = _parse_env_http_headers(
         value.get("env_http_headers"), f"{where}.env_http_headers"
     )
-    overlap = sorted(set(headers) & set(env_http_headers))
+    # HTTP header names are case-insensitive, so ``Authorization`` in one map
+    # and ``authorization`` in the other describe the same header.
+    literal = {name.casefold(): name for name in headers}
+    overlap = sorted(
+        literal[name.casefold()]
+        for name in env_http_headers
+        if name.casefold() in literal
+    )
     if overlap:
         raise ValueError(
             f"{where}: header(s) {overlap} are set in both 'headers' and "

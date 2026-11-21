@@ -40,7 +40,7 @@ from typing import Any, Literal, Optional, Union
 
 from pydantic import BaseModel, ConfigDict, create_model, model_validator
 
-from rpent.tools.base import Tool, ToolResult
+from rpent.tools.base import MAX_TOOL_TEXT_BYTES, Tool, ToolResult
 from rpent.tools.toolkit import Toolkit
 from rpent.utils.logging import get_logger
 from rpent.utils.mcp_servers import ALL_TOOLS, McpServerSpec, request_headers
@@ -83,8 +83,9 @@ def register_mcp_tools(
 
     Raises:
         ValueError: On an unknown server or tool name, a name that already
-            belongs to the toolkit or another registered server, or a tool the
-            planner also attaches.
+            belongs to the toolkit or another registered server (compared
+            case-insensitively, so an external ``Finish`` cannot shadow the
+            toolkit's ``finish``), or a tool the planner also attaches.
     """
     by_name = {server.name: server for server in servers}
     unknown_servers = sorted(set(tools) - set(by_name))
@@ -96,7 +97,7 @@ def register_mcp_tools(
         )
 
     registered: list[str] = []
-    taken = {tool.name for tool in toolkit.list_tools()}
+    taken = {tool.name.casefold() for tool in toolkit.list_tools()}
     for server_name, names in tools.items():
         spec = by_name[server_name]
         # A coordinated tool must not also be callable directly: the planner
@@ -125,7 +126,7 @@ def register_mcp_tools(
                 f"available: {sorted(remote) or 'none'}"
             )
         for name in names:
-            if name in taken:
+            if name.casefold() in taken:
                 raise ValueError(
                     f"cannot register MCP tool {name!r} from {server_name!r}: the "
                     "tool name is already registered by the toolkit or another "
@@ -133,7 +134,7 @@ def register_mcp_tools(
                 )
             tool = remote[name]
             toolkit.add_tool(_registered_tool(spec, tool))
-            taken.add(name)
+            taken.add(name.casefold())
             registered.append(name)
     return tuple(registered)
 
@@ -477,6 +478,24 @@ def result_images(result: Any) -> list[bytes]:
     return images
 
 
+def cap_result_text(text: str) -> str:
+    """Bound one external text part the way local tools bound their payloads.
+
+    Local results reach the model through ``ToolResult.to_text``, which encodes
+    ASCII-only, so its limit is both characters and bytes. External text is not
+    encoded, so the cap applies to the UTF-8 bytes; otherwise non-ASCII text
+    could grow several times larger than the local bound. Without the cap one
+    verbose server can exceed the model context and leave the transcript and
+    Dashboard payloads unbounded.
+    """
+    encoded = text.encode("utf-8")
+    if len(encoded) <= MAX_TOOL_TEXT_BYTES:
+        return text
+    suffix = "\n[truncated]"
+    budget = MAX_TOOL_TEXT_BYTES - len(suffix.encode("utf-8"))
+    return encoded[:budget].decode("utf-8", errors="ignore") + suffix
+
+
 def _block_metadata(block: Any) -> dict[str, Any]:
     """Describe a result block RPent does not forward, without its payload."""
     metadata = block.model_dump(mode="json", exclude_none=True)
@@ -516,5 +535,9 @@ def result_payload(result: Any) -> dict[str, Any]:
     if result.structuredContent is not None:
         payload["structured_content"] = result.structuredContent
     if result.isError:
-        payload["error"] = payload.get("text") or "MCP tool reported an error"
+        # The planner raises this text as a retry and the transcript records
+        # it, so it needs the same bound as forwarded text.
+        payload["error"] = cap_result_text(
+            payload.get("text") or "MCP tool reported an error"
+        )
     return payload

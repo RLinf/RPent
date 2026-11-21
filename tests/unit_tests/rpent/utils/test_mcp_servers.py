@@ -153,6 +153,19 @@ def test_rejects_header_in_both_header_maps() -> None:
         )
 
 
+def test_rejects_case_variant_header_in_both_header_maps() -> None:
+    with pytest.raises(ValueError, match="both 'headers' and 'env_http_headers'"):
+        parse_mcp_servers(
+            {
+                "web": {
+                    "url": "https://example/mcp",
+                    "headers": {"Authorization": "Bearer literal"},
+                    "env_http_headers": {"authorization": "WEB_TOKEN"},
+                }
+            }
+        )
+
+
 def test_request_headers_resolves_environment_references(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

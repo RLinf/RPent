@@ -1853,6 +1853,42 @@ def test_external_toolset_turns_a_remote_error_into_a_retry(
         asyncio.run(prefixed.wrapped.direct_call_tool("search", {"q": "x"}))
 
 
+def test_external_error_text_is_capped_like_forwarded_text(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from rpent.planner import api_loop
+
+    long_text = "x" * (MAX_TOOL_TEXT_BYTES * 2)
+
+    async def call(spec: McpServerSpec, name: str, arguments: dict[str, Any]) -> Any:
+        return SimpleNamespace(
+            content=[SimpleNamespace(type="text", text=long_text)],
+            structuredContent=None,
+            isError=True,
+        )
+
+    monkeypatch.setattr(api_loop, "call_remote_tool_async", call)
+    events = Events()
+    planner = ApiAgentLoop(
+        model=TestModel(),
+        dashboard_events=events,
+        mcp_servers=(
+            McpServerSpec(name="web", url="https://mcp.example/mcp", planner_tools="*"),
+        ),
+    )
+    adapter = _HarnessToolkit(
+        RobotToolkit(events), dashboard_events=events, no_images=True
+    )
+    (prefixed,) = planner._external_toolsets(adapter)
+
+    with pytest.raises(ModelRetry) as excinfo:
+        asyncio.run(prefixed.wrapped.direct_call_tool("search", {"q": "x"}))
+
+    # The retry message reaches the model and the transcript record.
+    assert len(excinfo.value.message) == MAX_TOOL_TEXT_BYTES
+    assert excinfo.value.message.endswith("\n[truncated]")
+
+
 def test_external_toolsets_attach_only_the_planner_layer() -> None:
     events = Events()
     planner = ApiAgentLoop(

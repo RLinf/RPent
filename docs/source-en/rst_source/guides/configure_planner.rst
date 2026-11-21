@@ -472,6 +472,12 @@ processes, so those calls follow the CLIs' timeouts. The check above runs before
 ``--planner-timeout-s`` starts counting, so an unreachable server can add up to
 one request deadline first.
 
+A remote tool that reports an error reaches the model differently depending on
+where it is attached. The ``api`` planner follows pydantic-ai's MCP default and
+raises it as a retry; a tool registered on the Toolkit returns it as an ordinary
+result, like local tools. MCP does not distinguish argument errors from device
+faults, so put calls that are not safe to repeat on the Toolkit.
+
 Once the model receives its first request, every check has passed; external
 calls then appear in the transcript's tool-call records. A configuration error
 ends the run before that request and gives the reason in the planner result.
