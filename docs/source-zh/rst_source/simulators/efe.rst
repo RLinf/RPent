@@ -165,7 +165,7 @@ Linux 宿主机前置要求：
        ├── agent/
        │   ├── setup/           # 容器内 Agent 安装日志
        │   └── rpent/           # 对应容器内 /logs/agent/rpent/
-       │       ├── transcript_*.json # CLI 对话与规划器统计
+       │       ├── transcript.json   # CLI 对话与规划器统计
        │       ├── efe-result.json   # EFE 指标与收尾结果
        │       ├── codex_*.txt       # 规划器对话记录
        │       ├── codex-home/       # 本次 Trial 独立的 CODEX_HOME
@@ -176,7 +176,7 @@ Linux 宿主机前置要求：
        ├── lock.json
        └── trial.log
 
-若 Trial 中途失败导致缺少 ``result.json`` 或 ``transcript_*.json``，请先排查 \
+若 Trial 中途失败导致缺少 ``result.json`` 或 ``transcript.json``，请先排查 \
 ``trial.log`` 与 ``agent/rpent/run.log``。
 
 成功判定

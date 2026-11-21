@@ -368,7 +368,8 @@ def test_generic_cli_renders_the_tools_the_session_registers(
         ],
     )
 
-    assert cli.main() == 0
+    # The scripted spec never reports success, so the verdict is a rejection.
+    assert cli.main() == 1
 
     tools = captured["tools"]
     prompt = captured["system_prompt"]

@@ -297,6 +297,7 @@ def test_dashboard_exploration_finalizes_memory_and_reports_merge_failures(
         prepare_memory=None,
         prepare_prompt_vars=None,
         supports_exploration=True,
+        truth_source="environment",
         is_real_robot=False,
         parse_config=lambda args: run_config,
         init_runtime=lambda *args: ([], {}),

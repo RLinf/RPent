@@ -119,6 +119,6 @@ Chinese UI.
 Inspect Results and End the Session
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-After a task ends, review the action timeline and video; use the environment guide for its success criterion. The run output reports the artifact directory, including ``transcript_*.json``. Closing the browser does not stop backend services; press Ctrl+C in the launch terminal to end the session.
+After a task ends, review the action timeline and video; use the environment guide for its success criterion. The run output reports the artifact directory, including ``transcript.json``. Closing the browser does not stop backend services; press Ctrl+C in the launch terminal to end the session.
 
 The default bind address is ``127.0.0.1``. For remote access, use the SSH forwarding instructions in :doc:`advanced_deployment`.
