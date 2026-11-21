@@ -350,8 +350,9 @@ Prerequisites:
 - The server uses Streamable HTTP (``http://`` or ``https://``). RPent does not
   support stdio servers (``command``).
 - You know which tools to expose, or want to expose all of them.
-- The planner is ``api``, ``claude_code``, or ``codex``. ``gemini_cli`` does not
-  attach external servers and fails the run when one declares ``planner_tools``.
+- The planner is ``api``, ``claude_code``, or ``codex``. ``gemini_cli`` and
+  ``flash`` do not attach external servers and fail the run when one declares
+  ``planner_tools``.
 
 Declare servers
 ~~~~~~~~~~~~~~~

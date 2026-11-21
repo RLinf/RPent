@@ -438,5 +438,6 @@ def build_planner(
         return FlashPlanner(
             recipe_tag=recipe_tag,
             robot_name=robot_name,
+            mcp_servers=planner_servers,
         )
     raise ValueError(f"unknown planner_type: {planner_type}")

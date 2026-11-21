@@ -15,16 +15,20 @@
 from __future__ import annotations
 
 import asyncio
+from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import Mock
 
 import httpx
 import pytest
 from pydantic_ai import ModelRequest, UserPromptPart
 from pydantic_ai.models import ModelRequestParameters
 
+from rpent.dashboard.events import NullDashboardEventSink
 from rpent.planner.base import (
     add_mcp_prefix,
     build_api_model,
+    build_planner,
     check_planner_mcp_servers,
     display_tool_name,
 )
@@ -252,3 +256,28 @@ def test_check_planner_mcp_servers_accepts_exposed_names(
         )
         is None
     )
+
+
+def test_flash_ends_the_run_for_planner_attached_servers(tmp_path: Path) -> None:
+    from rpent.utils.mcp_servers import McpServerSpec
+
+    planner = build_planner(
+        "flash",
+        output_dir=tmp_path,
+        recipe_tag="libero_goal_task",
+        robot_name="libero",
+        dashboard_events=NullDashboardEventSink(),
+        mcp_servers=(
+            McpServerSpec(name="web", url="https://web.example/mcp", planner_tools="*"),
+        ),
+    )
+
+    result = planner.solve(
+        system_prompt="",
+        user_message="task",
+        toolkit=Mock(),
+        max_turns=1,
+    )
+
+    assert result.stop_reason == "planner_error"
+    assert result.error is not None and "web" in result.error

@@ -641,7 +641,7 @@ def build_codex_config(
         api_key: Key exported to the child as ``RPENT_CODEX_PROVIDER_KEY``.
         cwd: Working directory handed to the Codex child process.
         sandbox: Sandbox mode name; restricted modes need the MCP approval
-            override to reach RPent tools under ``deny_all``.
+            override to reach MCP tools under ``deny_all``.
         trace_root: Directory where Codex writes native rollout traces. If ``None``,
             the child inherits the parent's ``CODEX_ROLLOUT_TRACE_ROOT`` setting.
         mcp_servers: Streamable-HTTP MCP servers to attach to the planner
@@ -819,6 +819,15 @@ def _codex_mcp_config_overrides(
         # it, the thread must fail instead of silently running without the
         # tools the shared config declared.
         config.append((f"mcp_servers.{server.name}.required", True))
+        if sandbox != "full-access":
+            # Same rule as the RPent server above: the restricted sandbox
+            # prompts before every MCP call and deny_all rejects the prompt.
+            config.append(
+                (
+                    f"mcp_servers.{server.name}.default_tools_approval_mode",
+                    "approve",
+                )
+            )
         if server.headers:
             config.append((f"mcp_servers.{server.name}.http_headers", server.headers))
         if server.env_http_headers:

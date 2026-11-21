@@ -38,7 +38,7 @@ from collections.abc import Awaitable, Callable, Mapping, Sequence
 from datetime import timedelta
 from typing import Any, Literal, Optional, Union
 
-from pydantic import BaseModel, ConfigDict, create_model
+from pydantic import BaseModel, ConfigDict, create_model, model_validator
 
 from rpent.tools.base import Tool, ToolResult
 from rpent.tools.toolkit import Toolkit
@@ -159,19 +159,41 @@ def _args_model(name: str, schema: dict[str, Any]) -> type[BaseModel]:
     schema sets ``additionalProperties: false``, nullable and multi-type
     properties keep every type the schema allows, and nested shapes stay
     permissive.
+
+    Properties pydantic reserves cannot become model fields: names starting
+    with an underscore and ``model_config`` are dropped by ``create_model``.
+    They are accepted as extras and forwarded unchanged, leaving their type
+    and required checks to the server. Undeclared arguments are therefore
+    rejected by a validator rather than ``extra="forbid"``, which would reject
+    those properties too.
     """
     required = set(schema.get("required") or ())
+    properties = schema.get("properties") or {}
     fields = {
         prop: (
             _argument_annotation(prop_schema),
             ... if prop in required else _OMITTED,
         )
-        for prop, prop_schema in (schema.get("properties") or {}).items()
+        for prop, prop_schema in properties.items()
     }
-    extra = "forbid" if schema.get("additionalProperties") is False else "allow"
+    declared = frozenset(properties)
+
+    def _reject_undeclared(value: Any) -> Any:
+        if schema.get("additionalProperties") is False and isinstance(value, dict):
+            undeclared = sorted(set(value) - declared)
+            if undeclared:
+                raise ValueError(
+                    f"undeclared argument(s) {undeclared}: the remote schema "
+                    "sets additionalProperties: false"
+                )
+        return value
+
     return create_model(
         f"{name}Args",
-        __config__=ConfigDict(extra=extra, allow_inf_nan=False),
+        __config__=ConfigDict(extra="allow", allow_inf_nan=False),
+        __validators__={
+            "reject_undeclared": model_validator(mode="before")(_reject_undeclared)
+        },
         **fields,
     )
 

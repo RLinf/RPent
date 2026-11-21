@@ -440,6 +440,24 @@ def test_additional_properties_follow_the_remote_schema() -> None:
         strict.model_validate({"detail": "high", "bogus": 1}, strict=True)
 
 
+def test_reserved_property_names_survive_a_strict_schema() -> None:
+    schema = {
+        "type": "object",
+        "properties": {
+            "_id": {"type": "string"},
+            "model_config": {"type": "string"},
+        },
+        "required": ["_id"],
+        "additionalProperties": False,
+    }
+    args = mcp_tools._args_model("lookup", schema)
+
+    parsed = args.model_validate({"_id": "abc", "model_config": "x"}, strict=True)
+    assert parsed.model_dump() == {"_id": "abc", "model_config": "x"}
+    with pytest.raises(ValueError, match="undeclared argument"):
+        args.model_validate({"_id": "abc", "bogus": 1}, strict=True)
+
+
 @pytest.mark.parametrize(
     "property_schema, accepted, rejected",
     [

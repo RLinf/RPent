@@ -257,7 +257,7 @@ RPent 可以调用外部 MCP 服务提供的工具，与自身工具一起交给
 
 - 服务使用 Streamable HTTP（``http://`` 或 ``https://``）。RPent 不支持 stdio 服务（``command``）。
 - 你知道要暴露哪些工具，或者要暴露全部工具。
-- 规划器为 ``api``、``claude_code`` 或 ``codex``。``gemini_cli`` 不接入外部服务，遇到声明了 ``planner_tools`` 的服务会让运行失败。
+- 规划器为 ``api``、``claude_code`` 或 ``codex``。``gemini_cli`` 和 ``flash`` 不接入外部服务，遇到声明了 ``planner_tools`` 的服务会让运行失败。
 
 声明服务
 ~~~~~~~~
