@@ -149,6 +149,22 @@ def _capture_validated_args(
     return captured["robot_name"], captured["args"]
 
 
+def test_a_core_only_environment_reports_the_missing_planner_layer(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    cli = _cli_module()
+    monkeypatch.setattr(sys, "argv", ["rpent", "--robot", "libero"])
+    monkeypatch.setattr(
+        cli, "_MISSING_PLANNER_LAYER", ModuleNotFoundError("No module named 'yaml'")
+    )
+
+    assert cli.main() == 1
+
+    message = capsys.readouterr().err
+    assert "needs the planner layer" in message
+    assert 'pip install "rpent[planner]"' in message
+
+
 def test_public_cli_help_runs_from_source_checkout_without_a_robot_runtime() -> None:
     result = _run_cli_help("--help")
 
@@ -822,7 +838,7 @@ def test_full_cli_exploration_finalizes_memory_without_starting_gpu_runtime(
     assert calls["get_toolkit"][1]["runtime_kwargs"] == {"runtime": "simulated"}
     assert calls["get_toolkit"][1]["mode"] == "exploration"
     assert calls["get_toolkit"][1]["attempts_per_session"] == 2
-    transcript = json.loads((tmp_path / "transcript_libero_s0.json").read_text())
+    transcript = json.loads((tmp_path / "transcript.json").read_text())
     if outcome == "request_budget":
         assert calls["planner_count"] == 2
         assert len(toolkit.calls) == 8
@@ -833,6 +849,8 @@ def test_full_cli_exploration_finalizes_memory_without_starting_gpu_runtime(
             "solved": False,
         }
         assert transcript["finish"] is None
+        assert transcript["accepted"] is False
+        assert transcript["failure_category"] == "task_failed"
         assert transcript["stats"]["turns_used"] == 4
         assert len([m for m in transcript["messages"] if m["role"] == "tool"]) == 8
         return
@@ -844,6 +862,11 @@ def test_full_cli_exploration_finalizes_memory_without_starting_gpu_runtime(
         "solved": True,
     }
     assert transcript["error"] is None
+    assert transcript["accepted"] is True
+    assert transcript["retryable"] is False
+    assert transcript["failure_category"] is None
+    assert transcript["stop_reason"] == "solved"
+    assert transcript["truth_source"] == "environment"
     if outcome == "response_truncated":
         assert calls["planner_count"] == 2
         assert model_requests == 2
@@ -1035,9 +1058,28 @@ def test_full_cli_calls_robot_result_finalizer_without_robot_special_case(
         ],
     )
 
-    assert cli.main() == (1 if planner_error else 0)
-    transcript = json.loads((tmp_path / "transcript_OpenDrawer_s1.json").read_text())
+    # The environment rejected this cell, so the evaluation exits non-zero
+    # whether or not the planner also errored.
+    assert cli.main() == 1
+    transcript = json.loads((tmp_path / "transcript.json").read_text())
     assert transcript["error"] == planner_error
+    assert transcript["accepted"] is False
+    assert transcript["failure_category"] == (
+        "agent_error" if planner_error else "task_failed"
+    )
+    assert transcript["stop_reason"] == (
+        "planner_error" if planner_error else "finished"
+    )
+
+    # run.json names the same agent error the verdict was derived from, and a
+    # run whose artifacts were written has no artifact failure to report.
+    run = json.loads((tmp_path / "run.json").read_text())
+    assert run["error"] == planner_error
+    assert run["artifact_error"] is None
+    assert run["accepted"] is False
+    assert run["failure_category"] == (
+        "agent_error" if planner_error else "task_failed"
+    )
 
     assert len(captured) == 1
     context = captured[0]

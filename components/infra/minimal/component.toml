@@ -1,0 +1,7 @@
+schema = 2
+name = "infra-minimal"
+probe = "rpent"
+# The core environment: RPent and its own dependencies, with no
+# robot, simulator, or model packages.
+
+dependencies = []

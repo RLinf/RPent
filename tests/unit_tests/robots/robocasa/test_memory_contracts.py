@@ -47,6 +47,10 @@ def _args(
         memory_profile="local",
         planner="codex",
         model="offline",
+        # Set by the CLI before the Dashboard sees the namespace.
+        reasoning_effort="none",
+        max_turns=100,
+        planner_timeout_s=None,
     )
 
 

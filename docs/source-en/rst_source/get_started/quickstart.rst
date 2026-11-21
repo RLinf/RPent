@@ -91,7 +91,7 @@ The terminal shows environment, VLA, and SAM3 service startup, followed by plann
 ---------------------
 
 - ``episode.mp4``: replay the robot’s actions.
-- ``transcript_*.json``: inspect planner messages, tool calls, and the finish state.
+- ``transcript.json``: inspect planner messages, tool calls, and the finish state.
 - ``run.log``: inspect runtime messages and errors.
 
 For LIBERO, success is the top-level ``terminated`` value in the final environment state, available in the result of ``view_env_state(step=-1)``. The planner’s ``finish`` status alone does not establish environment success.

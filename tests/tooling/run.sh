@@ -1,0 +1,31 @@
+#!/usr/bin/env bash
+# Copyright 2026 The RPent Authors.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     https://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+#
+# Run one repository tool from a fresh checkout. The tools read the component
+# manifests, so they bootstrap with the same dependency the installer needs
+# instead of assuming an environment is already installed.
+set -euo pipefail
+cd "$(dirname "${BASH_SOURCE[0]}")/../.."
+
+case "${1:-}" in
+  matrix) module=tests.tooling.matrix ;;
+  *)
+    echo "usage: $0 matrix [args...]" >&2
+    exit 2
+    ;;
+esac
+shift
+
+exec uv run --no-project --python 3.11 --with packaging -- python -m "$module" "$@"

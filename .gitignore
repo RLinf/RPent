@@ -25,6 +25,8 @@ build/
 .claude/settings.json
 .venv/
 /.codex-rpent-live/
+# `rpent-install` state: environments it creates by default.
+/.rpent/
 
 # Standalone calibration environment.
 .venv-calibration/

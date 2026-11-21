@@ -186,7 +186,7 @@ RLDX-1 需要微调权重和基础模型的支持文件，两项都要下载。�
 查看结果
 ------------
 
-任务是否成功由环境的 ``_check_success()`` 判定，其布尔结果记录在 ``state.success`` 中。规划器调用 ``finish`` 会结束对话，但其中声明的状态不作为评测结果。查看输出目录中的 ``result.json``、``transcript_*.json`` 和 ``run.log``；服务启动问题分别记录在 ``env_server.log``、``vla_server.log``。
+任务是否成功由环境的 ``_check_success()`` 判定，其布尔结果记录在 ``state.success`` 中。规划器调用 ``finish`` 会结束对话，但其中声明的状态不作为评测结果。查看输出目录中的 ``result.json``、``transcript.json`` 和 ``run.log``；服务启动问题分别记录在 ``env_server.log``、``vla_server.log``。
 
 可使用 ``--dashboard`` 观察相机和规划器输出，通用操作见 :doc:`../guides/dashboard`。
 

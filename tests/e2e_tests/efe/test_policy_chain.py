@@ -138,7 +138,7 @@ def test_harbor_task_records_agent_session_and_verifier_result(
         dict,
     )
     efe_result_path = next(job_dir.glob("*/agent/**/efe-result.json"))
-    transcript_path = next(job_dir.glob("*/agent/**/transcript_*.json"))
+    transcript_path = next(job_dir.glob("*/agent/**/transcript.json"))
     efe_result = json.loads(efe_result_path.read_text())
     transcript = json.loads(transcript_path.read_text())
     # A trial that exhausts the planner's time budget is still graded, so the
@@ -149,5 +149,5 @@ def test_harbor_task_records_agent_session_and_verifier_result(
     assert transcript["error"] is None or is_budget_stop(transcript["error"])
     assert "reward" not in efe_result
     assert len(list(job_dir.glob("*/agent/**/efe-result.json"))) == 1
-    assert len(list(job_dir.glob("*/agent/**/transcript_*.json"))) == 1
+    assert len(list(job_dir.glob("*/agent/**/transcript.json"))) == 1
     assert len(list(job_dir.glob("*/agent/**/codex_*.txt.stream.jsonl"))) == 1

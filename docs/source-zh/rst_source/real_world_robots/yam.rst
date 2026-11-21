@@ -312,7 +312,7 @@ Codex 配置
 运行日志保存在 ``logs/`` 下本次新建的目录，也可通过 ``--output-dir`` 指定新目录。重点查看：
 
 * ``result.json``：环境成功判定、规划器结束请求和运行错误。
-* ``transcript_*.json``、``run.log``：消息、工具调用和运行日志。
+* ``transcript.json``、``run.log``：消息、工具调用和运行日志。
 * ``states.json`` 及其引用的 RGB、深度、三维坐标和状态文件：每一步的观测和动作记录。
 * ``episode_*.mp4``：保存的回合视频；探索时的逐会话状态位于 ``sessions/session_<NNN>/``。
 

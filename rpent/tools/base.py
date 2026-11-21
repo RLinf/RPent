@@ -28,7 +28,6 @@ from typing import Annotated, Any, Generic, Literal, ParamSpec, get_type_hints
 
 from pydantic import BaseModel, ConfigDict, Field, create_model
 from pydantic.json_schema import GenerateJsonSchema
-from pydantic_ai import Tool as PydanticTool
 from pydantic_core import core_schema
 
 ParamsT = ParamSpec("ParamsT")
@@ -37,18 +36,45 @@ MAX_TOOL_TEXT_BYTES = 60000
 
 @dataclass
 class ToolResult:
-    """Tool payload and PNG images; errors stay in the payload's ``error`` key."""
+    """One tool call's outcome: whether it ran, what it returned, and images.
+
+    A call can fail at two layers. ``call_ok`` is false when the framework never
+    delivered the call to the tool — an unknown tool, arguments the schema or
+    the handler's signature rejected, or a cancellation — and ``no_execution``
+    then says the tool never ran, so the environment did not change. A handler
+    that raised also returns ``call_ok`` false, but ``no_execution`` stays
+    false because it may have acted before raising. A tool that ran and
+    reported a problem of its own returns ``call_ok`` true with that problem in
+    the payload's ``error`` key. ``is_error`` reports any of these to the
+    planner.
+    """
 
     data: dict[str, Any] = field(default_factory=dict)
     images: list[bytes] = field(default_factory=list)
+    call_ok: bool = True
+    no_execution: bool = False
+
+    @property
+    def error(self) -> Any:
+        """The error payload, if the call or the tool produced one."""
+        return self.data.get("error")
 
     @property
     def is_error(self) -> bool:
-        return self.data.get("error") is not None
+        return not self.call_ok or self.error is not None
 
     def to_dict(self) -> dict[str, Any]:
-        """Return a shallow copy of the public JSON payload."""
-        return dict(self.data)
+        """Return a shallow copy of the public JSON payload.
+
+        The failure layers are recorded only when they apply, so an absent
+        marker means the call ran and only the payload speaks for its outcome.
+        """
+        record = dict(self.data)
+        if not self.call_ok:
+            record["call_ok"] = False
+        if self.no_execution:
+            record["no_execution"] = True
+        return record
 
     def to_text(self) -> str:
         """Encode the original tool payload without truncating internal state."""
@@ -246,6 +272,11 @@ def _declare_tool(
             for name, parameter in parameters.items()
         ]
     )
+    # Only planner environments build model-facing tool definitions, so the
+    # runtime layer imports the planner-side schema builder here instead of at
+    # module import time.
+    from pydantic_ai import Tool as PydanticTool
+
     definition = PydanticTool(
         schema_function,
         name=tool_name,

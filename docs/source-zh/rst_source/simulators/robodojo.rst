@@ -309,7 +309,7 @@ SAM3 用于物体分割。先在 `facebook/sam3 模型页面 <https://huggingfac
 - ``videos/``：头部、左腕和右腕相机的视频。
 - ``robodojo_env_server.log``、``sam3_server.log``、``robodojo_vpp2_server.log`` 或 ``robodojo_awomo05_server.log``：\
   本地启动服务的日志和报错信息。
-- ``run.log`` 和 ``transcript_*.json``：主进程日志、planner 对话和错误。
+- ``run.log`` 和 ``transcript.json``：主进程日志、planner 对话和错误。
 
 先检查 ``environment_result_available=true`` 和\
 ``agent_error_present=false``，再看 ``success`` 是否为 ``true``。该字段记录 RoboDojo 的原生任务判定，\
@@ -383,7 +383,7 @@ SAM3 用于物体分割。先在 `facebook/sam3 模型页面 <https://huggingfac
 工具
 ----
 
-规划器会自动选择工具，并在动作后检查新的观测。用户通过 ``--am-backend`` 选择动作模型，可在 ``transcript_*.json`` 中查看实际调用。
+规划器会自动选择工具，并在动作后检查新的观测。用户通过 ``--am-backend`` 选择动作模型，可在 ``transcript.json`` 中查看实际调用。
 
 .. list-table::
    :header-rows: 1

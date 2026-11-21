@@ -73,6 +73,8 @@ def test_franka_extensions_declare_real_robot():
     single = resolve_robot_spec("franka")
     dual = resolve_robot_spec("dual_franka")
     assert single.is_real_robot and dual.is_real_robot
+    # Both arms report the operator's confirmation, not an environment grade.
+    assert single.truth_source == dual.truth_source == "operator"
 
 
 def test_dual_franka_uses_rpent_owned_robot_config(

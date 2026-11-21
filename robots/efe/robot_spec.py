@@ -32,7 +32,11 @@ from typing import TYPE_CHECKING, Any
 from robots.efe import session_vars
 from robots.efe.prompt_bundle import system_prompt, user_prompt
 from rpent.dashboard.events import DashboardEventSink
-from rpent.evaluation import RunFinalizationContext, write_json_atomic
+from rpent.evaluation import (
+    RunFinalizationContext,
+    verdict_fields,
+    write_json_atomic,
+)
 from rpent.memory import MemoryManager
 from rpent.robots.prompt_bundle import PromptBundle
 from rpent.robots.robot_spec import RobotSpec, RunConfig
@@ -274,6 +278,8 @@ def _finalize_run(context: RunFinalizationContext) -> Path:
             ),
             "stats": dict(context.stats),
             "metrics": dict(context.environment_metrics),
+            # Keep the verdict in the robot's own result artifact too.
+            **verdict_fields(context),
         },
     )
 

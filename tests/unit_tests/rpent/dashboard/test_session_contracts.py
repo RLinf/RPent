@@ -297,6 +297,7 @@ def test_dashboard_exploration_finalizes_memory_and_reports_merge_failures(
         prepare_memory=None,
         prepare_prompt_vars=None,
         supports_exploration=True,
+        truth_source="environment",
         is_real_robot=False,
         parse_config=lambda args: run_config,
         init_runtime=lambda *args: ([], {}),
@@ -343,7 +344,13 @@ def test_dashboard_exploration_finalizes_memory_and_reports_merge_failures(
     if collect_metrics:
         assert len(finalized) == 1
         assert finalized[0].environment_metrics == {"score": 10 * sessions}
-    assert error is None
+    # A memory artifact the run could not write makes the task fail, the same
+    # way the plain runner reports it; the run itself still finishes.
+    if merge_fails:
+        assert error is not None
+        assert "memory finalization failed: RuntimeError: merge exploded" in error
+    else:
+        assert error is None
     assert state.toolkit_lifecycle == ["bound", "unbound"] * sessions
     assert len(stores) == sessions
     if record_trajectory:

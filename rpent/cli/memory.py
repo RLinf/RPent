@@ -18,10 +18,19 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 from pathlib import Path
 
-from rpent.memory import MemoryManager
 from rpent.utils.config import get_memory_dir
+
+try:
+    from rpent.memory import MemoryManager
+except ModuleNotFoundError as exc:
+    # The memory store is part of the planner layer, so a core-only environment
+    # still parses arguments and explains what to install.
+    _MISSING_PLANNER_LAYER: ModuleNotFoundError | None = exc
+else:
+    _MISSING_PLANNER_LAYER = None
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -30,7 +39,9 @@ def _parser() -> argparse.ArgumentParser:
         "--memory-dir",
         type=Path,
         default=get_memory_dir("libero"),
-        help="Local corpus root (default: memory/libero).",
+        help="Local corpus root (default: memory/libero). Point it at the "
+        "corpus of the robot or simulator you are maintaining, for example "
+        "memory/<robot>.",
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
 
@@ -49,6 +60,14 @@ def _parser() -> argparse.ArgumentParser:
 
 def main() -> int:
     args = _parser().parse_args()
+    if _MISSING_PLANNER_LAYER is not None:
+        print(
+            "rpent-memory needs the planner layer, which this environment does "
+            f"not provide ({_MISSING_PLANNER_LAYER}); install it with "
+            '`pip install "rpent[planner]"`',
+            file=sys.stderr,
+        )
+        return 1
     manager = MemoryManager(args.memory_dir)
     if args.command == "merge":
         result = manager.merge_memory(

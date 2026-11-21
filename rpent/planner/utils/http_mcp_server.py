@@ -119,7 +119,11 @@ def build_mcp_server(
         lookup = _strip_mcp_prefix(name)
         arguments = arguments or {}
         if finished:
-            tr = ToolResult(data={"error": "The agent session has already finished."})
+            tr = ToolResult(
+                data={"error": "The agent session has already finished."},
+                call_ok=False,
+                no_execution=True,
+            )
             result = types.CallToolResult(**mcp_result(tr))
         elif state is None or state.get_task() is None:
             tr = await execute_tool(toolkit, lookup, arguments)

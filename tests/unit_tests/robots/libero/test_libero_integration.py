@@ -22,12 +22,12 @@ import numpy as np
 import pytest
 from pydantic_ai.models.function import DeltaToolCall, FunctionModel
 
+from components.tools.flywheel.flywheel import select_vla_segments
+from components.tools.flywheel.reader import iter_trajectories
 from robots.libero import robot_spec
 from robots.libero import toolkit as libero_toolkit
 from robots.libero.tools import LiberoPrimitives
 from rpent.dashboard.events import NullDashboardEventSink
-from rpent.flywheel.flywheel import select_vla_segments
-from rpent.flywheel.reader import iter_trajectories
 from rpent.memory import MemoryManager
 from rpent.planner.api_loop import ApiAgentLoop
 from rpent.robots.components.action_spec import validate_action
@@ -653,9 +653,9 @@ class _LiberoBackend:
 def test_libero_client_facade_capture_and_raw_trajectory_roundtrip(
     make_server_and_client, tmp_path, all_frames, default_all_frames, record
 ):
+    from components.tools.flywheel.reader import read_array
     from robots.libero.env_client import LiberoEnvClient
     from robots.libero.env_server import LiberoEnvFacade
-    from rpent.flywheel.reader import read_array
 
     backend = _LiberoBackend()
     state = EnvState(tmp_path)

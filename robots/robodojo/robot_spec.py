@@ -29,7 +29,11 @@ from typing import TYPE_CHECKING, Any
 from robots.robodojo.prompt_bundle import system_prompt, user_prompt
 from rpent.dashboard.events import DashboardEventSink
 from rpent.dashboard.spec import DashboardSpec
-from rpent.evaluation import RunFinalizationContext, write_json_atomic
+from rpent.evaluation import (
+    RunFinalizationContext,
+    verdict_fields,
+    write_json_atomic,
+)
 from rpent.memory import MemoryManager
 from rpent.robots.components.am_runtime import (
     add_am_args,
@@ -223,6 +227,9 @@ def finalize_run(context: RunFinalizationContext) -> Path:
             "max_turns": context.max_turns,
         },
         "planner_timeout_s": context.planner_timeout_s,
+        # The same verdict the transcript and ``run.json`` carry, so a reader
+        # of ``result.json`` does not have to reconstruct it.
+        **verdict_fields(context),
     }
     if "score_error" in context.environment_metrics:
         record["score_error"] = context.environment_metrics["score_error"]

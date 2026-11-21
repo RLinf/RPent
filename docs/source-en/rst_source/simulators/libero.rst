@@ -217,7 +217,7 @@ that call only. Chunk budgets do not specify where to stop inside a chunk.
 View Results
 ------------
 
-The terminal shows server startup, planner conversation, and tool calls. After the run, inspect ``episode.mp4``, ``transcript_*.json``, and ``run.log`` in the output directory; see :ref:`run-output-files` for default paths and step artifacts.
+The terminal shows server startup, planner conversation, and tool calls. After the run, inspect ``episode.mp4``, ``transcript.json``, and ``run.log`` in the output directory; see :ref:`run-output-files` for default paths and step artifacts.
 
 Inspect the final state with ``view_env_state(step=-1)``. Its top-level ``terminated`` value is the native success result; ``finish`` ends planning. See :doc:`../guides/dashboard` for live monitoring.
 

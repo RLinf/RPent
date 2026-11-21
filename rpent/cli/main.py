@@ -24,7 +24,7 @@
 # in `pyproject.toml`):
 #
 # ```bash
-# rpent --robot libero --suite libero_object_task --task 0 --seed 0 [...]
+# rpent --robot <name> --suite <suite> --task 0 --seed 0 [...]
 # ```
 #
 # ## Note
@@ -36,7 +36,6 @@
 from __future__ import annotations
 
 import argparse
-import json
 import queue
 import shlex
 import sys
@@ -45,16 +44,16 @@ from collections.abc import Callable
 from dataclasses import asdict
 from pathlib import Path
 
-from rpent.cli.tui import (
-    start_first_prompt_resolver,
-    start_interactive_reader,
-)
 from rpent.dashboard.events import (
     NullDashboardEventSink,
     RunStartedEvent,
 )
-from rpent.evaluation import RunFinalizationContext
-from rpent.memory import MemoryManager
+from rpent.evaluation import (
+    RunFinalizationContext,
+    verdict_fields,
+    write_json_atomic,
+)
+from rpent.install.snapshot import finish_run_manifest, start_run_manifest
 from rpent.planner.base import (
     CODEX_SANDBOX_CHOICES,
     REASONING_EFFORTS,
@@ -63,8 +62,22 @@ from rpent.planner.base import (
 )
 from rpent.planner.check import EXTERNALLY_CONFIGURED_PLANNERS
 from rpent.robots import enumerate_robots, get_robot_spec, get_toolkit
-from rpent.session.planner_capture import end_planner_task, start_planner_task
 from rpent.utils.logging import get_logger, init_output_dir
+
+# The ``rpent`` console script ships with the core wheel, but a session needs
+# the planner layer. Import it here so ``--help`` and argument validation work
+# in an environment that holds only the runtime layer; ``main()`` reports the
+# missing layer before a run touches a robot.
+_MISSING_PLANNER_LAYER: ModuleNotFoundError | None = None
+try:
+    from rpent.cli.tui import (
+        start_first_prompt_resolver,
+        start_interactive_reader,
+    )
+    from rpent.memory import MemoryManager
+    from rpent.session.planner_capture import end_planner_task, start_planner_task
+except ModuleNotFoundError as exc:
+    _MISSING_PLANNER_LAYER = exc
 
 logger = get_logger("agent")
 
@@ -77,8 +90,8 @@ logger = get_logger("agent")
 def _strip_images(value):
     """Return a copy of ``value`` with inline image payloads omitted.
 
-    SDK objects are left untouched; ``json.dump(..., default=str)`` handles
-    them at write time. Only the bulky base64 image blocks are replaced.
+    SDK objects are left untouched; the transcript writer's ``default=str``
+    handles them at write time. Only the bulky base64 image blocks are replaced.
     """
     if isinstance(value, list):
         return [_strip_images(v) for v in value]
@@ -100,6 +113,19 @@ def _serialize_messages(messages: list[dict]) -> list[dict]:
         }
         for m in messages
     ]
+
+
+def _read_solved(toolkit) -> bool | None:
+    """Return the toolkit's environment verdict, or None when it has none."""
+    solved_fn = getattr(toolkit, "solved", None)
+    return solved_fn() if callable(solved_fn) else None
+
+
+def _exit_code(accepted: bool | None) -> int:
+    """Map a run verdict to the exit status: 0 accepted, 1 rejected, 75 none."""
+    if accepted is None:
+        return 75
+    return 0 if accepted else 1
 
 
 # ---------------------------------------------------------------------------
@@ -374,6 +400,19 @@ def main() -> int:
     # Two-phase argparse: first grab --robot / --env / --dashboard so we know
     # which robot's flags to add and whether to make its required flags optional.
     early, _ = parser.parse_known_args()
+    help_requested = "-h" in sys.argv or "--help" in sys.argv
+    # A robot's spec is part of the planner layer's client surface, so report
+    # the missing layer before loading it. ``--help`` stays available because
+    # it never needs a robot.
+    if _MISSING_PLANNER_LAYER is not None and not help_requested:
+        print(
+            "the rpent CLI needs the planner layer, which this environment does "
+            f"not provide ({_MISSING_PLANNER_LAYER}); install it with "
+            '`pip install "rpent[planner]"`, or run inside the environment '
+            "rpent-install created for the robot",
+            file=sys.stderr,
+        )
+        return 1
     parser.set_defaults(reasoning_effort="high" if early.planner == "api" else "none")
 
     # --env is a deprecated alias for --robot; resolve it before loading the spec.
@@ -383,7 +422,7 @@ def main() -> int:
         logger.warning("--env is deprecated and will be removed; use --robot instead")
         early.robot_name = early.env_name
     if early.robot_name is None:
-        if "-h" not in sys.argv and "--help" not in sys.argv:
+        if not help_requested:
             parser.error("--robot is required")
     else:
         robot_spec = get_robot_spec(early.robot_name)
@@ -498,6 +537,16 @@ def main() -> int:
 
     # mkdir + logging wiring (robot-side already picked the path).
     output_dir = init_output_dir(output_dir, verbose=args.verbose)
+    try:
+        start_run_manifest(
+            output_dir,
+            robot=robot_spec.name,
+            planner=args.planner,
+            model=args.model,
+            task=task_desc,
+        )
+    except FileExistsError as exc:
+        parser.error(str(exc))
     logger.info("physical agent cmd: %s", shlex.join([sys.executable, *sys.argv]))
 
     prepare_run_memory(args, robot_spec, run_config)
@@ -616,6 +665,15 @@ def main() -> int:
     sessions = max(1, int(getattr(args, "explore_sessions", 1) or 1))
     if not getattr(args, "explore", False):
         sessions = 1
+    # The toolkit reports an outcome when the robot judges runs in this mode: a
+    # simulator or operator verdict during exploration, a robot result finalizer
+    # that records the cell, or Flash replay's operator confirmation. A plain
+    # real-robot evaluation is judged outside the harness and has no verdict.
+    collects_verdict = (
+        robot_spec.supports_exploration
+        or robot_spec.finalize_run is not None
+        or args.planner == "flash"
+    )
     recipe_path = ""
     solved = False
     environment_success: bool | None = None
@@ -713,29 +771,27 @@ def main() -> int:
                             "Planner stopped after operator verdict: %s", agent_error
                         )
                         stats["planner_error_at_operator_verdict"] = agent_error
-                solved_fn = getattr(toolkit, "solved", None)
-                if getattr(robot_spec, "supports_exploration", False) and callable(
-                    solved_fn
-                ):
-                    solved = bool(solved_fn())
-                    environment_success = solved
-                    write_recipe = getattr(toolkit, "write_recipe", None)
-                    if solved and callable(write_recipe):
-                        recipe_path = write_recipe(recipe_tag) or recipe_path
             finally:
                 if operator_input is not None and input_queue is not None:
                     operator_input.bind_verdict(None)
                 try:
-                    if robot_spec.finalize_run is not None:
+                    if collects_verdict:
+                        # A tool may still be moving the robot; quiesce before
+                        # reading the verdict and collecting metrics.
                         toolkit.cancel_active_and_wait()
-                        solved_fn = getattr(toolkit, "solved", None)
-                        environment_success = (
-                            bool(solved_fn()) if callable(solved_fn) else None
-                        )
-                        solved = bool(environment_success)
-                        environment_metrics = toolkit.evaluation_metrics(
-                            success=environment_success
-                        )
+                        environment_success = _read_solved(toolkit)
+                        solved = environment_success is True
+                        write_recipe = getattr(toolkit, "write_recipe", None)
+                        if (
+                            robot_spec.supports_exploration
+                            and solved
+                            and callable(write_recipe)
+                        ):
+                            recipe_path = write_recipe(recipe_tag) or recipe_path
+                        if robot_spec.finalize_run is not None:
+                            environment_metrics = toolkit.evaluation_metrics(
+                                success=environment_success
+                            )
                 finally:
                     try:
                         toolkit.close()
@@ -782,19 +838,62 @@ def main() -> int:
 
     elapsed = time.time() - t0
 
-    transcript_path = Path(output_dir) / f"transcript_{recipe_tag}.json"
-    record = {
-        **task_desc,
-        "model": args.model,
-        "elapsed_s": round(elapsed, 1),
-        "finish": finish_result,
-        "error": agent_error,
-        "environment_success": environment_success,
-        "stats": stats,
-        "messages": _serialize_messages(messages),
-    }
-    with open(transcript_path, "a") as f:
-        json.dump(record, f, indent=2, default=str)
+    context = RunFinalizationContext(
+        output_dir=Path(output_dir),
+        robot_name=robot_name,
+        task_desc=dict(task_desc),
+        environment_success=environment_success,
+        environment_metrics=environment_metrics,
+        agent_error=agent_error,
+        elapsed_s=elapsed,
+        planner=args.planner,
+        model=args.model,
+        reasoning_effort=args.reasoning_effort,
+        max_turns=args.max_turns,
+        planner_timeout_s=args.planner_timeout_s,
+        finish_result=dict(finish_result) if finish_result is not None else None,
+        stats=dict(stats),
+        # The provenance exists only when a verdict exists; a run nobody judged
+        # (including a crashed planner) records no truth source.
+        truth_source=(
+            robot_spec.truth_source
+            if collects_verdict and environment_success is not None
+            else None
+        ),
+    )
+
+    transcript_path = Path(output_dir) / "transcript.json"
+    # Artifact failures leave the verdict unchanged but make the command fail:
+    # the run is not reproducible from what it wrote. They are recorded in
+    # ``artifact_error`` so ``error`` keeps naming the agent-side failure the
+    # verdict was derived from. The transcript is one of those artifacts, so
+    # its write failure must not skip the finalizers or the manifest.
+    command_failed = False
+    artifact_error: str | None = None
+    transcript_written = True
+    try:
+        write_json_atomic(
+            transcript_path,
+            {
+                "recipe_tag": recipe_tag,
+                **task_desc,
+                "model": args.model,
+                "elapsed_s": round(elapsed, 1),
+                "finish": finish_result,
+                "error": agent_error,
+                "environment_success": environment_success,
+                **verdict_fields(context),
+                "stats": stats,
+                "messages": _serialize_messages(messages),
+            },
+            default=str,
+        )
+    except Exception as exc:
+        message = f"transcript write failed: {type(exc).__name__}: {exc}"
+        artifact_error = message
+        command_failed = True
+        transcript_written = False
+        logger.error("%s", message)
 
     logger.info("elapsed: %.1fs", elapsed)
     logger.info(
@@ -803,35 +902,22 @@ def main() -> int:
         stats.get("total_output_tokens", "?"),
         stats.get("tool_calls", "?"),
     )
-    logger.info("transcript: %s", transcript_path)
+    if transcript_written:
+        logger.info("transcript: %s", transcript_path)
 
+    result_path: Path | str | None = None
     if robot_spec.finalize_run is not None:
         try:
-            result_path = robot_spec.finalize_run(
-                RunFinalizationContext(
-                    output_dir=Path(output_dir),
-                    robot_name=robot_name,
-                    task_desc=dict(task_desc),
-                    environment_success=environment_success,
-                    environment_metrics=environment_metrics,
-                    agent_error=agent_error,
-                    elapsed_s=elapsed,
-                    planner=args.planner,
-                    model=args.model,
-                    reasoning_effort=args.reasoning_effort,
-                    max_turns=args.max_turns,
-                    planner_timeout_s=args.planner_timeout_s,
-                    finish_result=(
-                        dict(finish_result) if finish_result is not None else None
-                    ),
-                    stats=dict(stats),
-                )
-            )
+            result_path = robot_spec.finalize_run(context)
             if result_path:
                 logger.info("run result: %s", result_path)
         except Exception as exc:
-            agent_error = f"result finalization failed: {type(exc).__name__}: {exc}"
-            logger.error("%s", agent_error)
+            message = f"result finalization failed: {type(exc).__name__}: {exc}"
+            artifact_error = (
+                f"{artifact_error}; {message}" if artifact_error else message
+            )
+            command_failed = True
+            logger.error("%s", message)
 
     # Publish exploration artifacts into the corpus after the session loop.
     if (
@@ -850,10 +936,40 @@ def main() -> int:
             if merge_result:
                 logger.info("memory merged: %s", merge_result)
         except Exception as exc:
-            agent_error = f"memory finalization failed: {type(exc).__name__}: {exc}"
-            logger.error("%s", agent_error)
+            message = f"memory finalization failed: {type(exc).__name__}: {exc}"
+            artifact_error = (
+                f"{artifact_error}; {message}" if artifact_error else message
+            )
+            command_failed = True
+            logger.error("%s", message)
 
-    return 1 if agent_error else 0
+    try:
+        finish_run_manifest(
+            output_dir,
+            artifacts={
+                "transcript": transcript_path if transcript_written else None,
+                "result": result_path,
+                "recipe": recipe_path,
+            },
+            verdict=verdict_fields(context),
+            error=agent_error,
+            artifact_error=artifact_error,
+        )
+    except Exception as exc:
+        command_failed = True
+        logger.error("run manifest update failed: %s", exc)
+
+    if getattr(args, "explore", False):
+        # Exploration publishes a corpus; its session outcome is not a verdict,
+        # but a run whose artifacts failed is still a failed command.
+        return 1 if agent_error or command_failed else 0
+    if command_failed:
+        return 1
+    # A planner failure without a verdict is a failed run, not an unjudged one:
+    # reserve 75 for a run that ended cleanly but has no judge.
+    if agent_error is not None and context.accepted is None:
+        return 1
+    return _exit_code(context.accepted)
 
 
 if __name__ == "__main__":

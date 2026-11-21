@@ -367,7 +367,7 @@ RLinf 按配置的节点创建相机句柄，不会跨节点搜索被移动的 U
 
 每次运行使用新的 ``--output-dir``。重点查看：
 
-* ``transcript_*.json``：规划器消息、工具调用与结束结果。
+* ``transcript.json``：规划器消息、工具调用与结束结果。
 * ``run.log`` 及各组件 ``*_server.log``：运行或启动错误。
 * ``states.json`` 及其引用的图像、深度和机器人状态文件：每步执行后的观测证据。
 * ``operator_events.json``：复位确认与人工判定。

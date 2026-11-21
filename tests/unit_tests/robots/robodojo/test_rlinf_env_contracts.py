@@ -20,6 +20,8 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
+from components.tools.flywheel.flywheel import read_frame, resolve_action_config
+from components.tools.flywheel.reader import iter_trajectories
 from robots.robodojo import env_server
 from robots.robodojo.awomo05_client import Awomo05Client
 from robots.robodojo.env_client import RoboDojoEnvClient
@@ -28,8 +30,6 @@ from robots.robodojo.robot_spec import FLYWHEEL_CONFIG
 from robots.robodojo.toolkit import RoboDojoToolkit, _capture_robodojo_call
 from robots.robodojo.vpp2_client import VPP2Client
 from rpent.dashboard.events import NullDashboardEventSink
-from rpent.flywheel.flywheel import read_frame, resolve_action_config
-from rpent.flywheel.reader import iter_trajectories
 from rpent.memory import MemoryManager
 from rpent.session import Payload
 from rpent.session.env_capture import ToolCallCapture

@@ -59,6 +59,7 @@ Choose an environment: :doc:`LIBERO <rst_source/simulators/libero>`, :doc:`RoboC
 
    Introduction to RPent <rst_source/get_started/overview>
    Quick Start <rst_source/get_started/quickstart>
+   Installation <rst_source/get_started/installation>
 
 .. toctree::
    :maxdepth: 2

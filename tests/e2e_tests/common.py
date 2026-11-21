@@ -119,7 +119,10 @@ def run_scripted_policy_chain(
             env=env,
             check=False,
         )
-    if completed.returncode != 0:
+    # The exit code carries the run verdict: 0 accepted, 1 rejected, 75 no
+    # verdict. A scripted session can legitimately end rejected, so only an
+    # unexpected status fails here; the transcript below is the evidence.
+    if completed.returncode not in (0, 1, 75):
         raise RuntimeError(
             f"scripted {robot} session failed with exit code {completed.returncode}"
         )
@@ -127,12 +130,10 @@ def run_scripted_policy_chain(
     if include_images and not planner_server.image_digests[-1]:
         raise RuntimeError("post-action planner request contained no images")
 
-    transcript_paths = list(output_dir.glob("transcript_*.json"))
-    if len(transcript_paths) != 1:
-        raise RuntimeError(
-            f"expected one planner transcript, found {len(transcript_paths)}"
-        )
-    transcript = json.loads(transcript_paths[0].read_text(encoding="utf-8"))
+    transcript_path = output_dir / "transcript.json"
+    if not transcript_path.is_file():
+        raise RuntimeError(f"expected the planner transcript at {transcript_path}")
+    transcript = json.loads(transcript_path.read_text(encoding="utf-8"))
     finish = transcript.get("finish")
     if not isinstance(finish, dict) or finish.get("_finish") is not True:
         raise RuntimeError(f"scripted {robot} session did not call finish")
@@ -170,7 +171,7 @@ def run_scripted_policy_chain(
         "simulator_action_count": action_count,
         "simulator_action_count_field": action_count_field,
         "finish_status": finish.get("status"),
-        "transcript": transcript_paths[0].name,
+        "transcript": transcript_path.name,
         "state_manifest": state_path.name,
         "planner_image_counts": [len(items) for items in planner_server.image_digests],
         "post_action_new_image_count": len(

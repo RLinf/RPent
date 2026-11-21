@@ -18,6 +18,8 @@ RPent 数据飞轮用于记录从任务规划到动作执行的轨迹，并从�
 
    uv pip install -e ".[libero-pro,flywheel]"
 
+``rpent-install install tool-flywheel`` 只创建带导出工具的环境，不会一并安装仿真器。
+
 采集轨迹
 --------
 

@@ -80,7 +80,7 @@ def main() -> int:
     """Export trajectories and display the resulting counts and paths."""
     args = _parser().parse_args()
     try:
-        from rpent.flywheel.export import export_dataset
+        from components.tools.flywheel.export import export_dataset
 
         report = export_dataset(
             args.input_root,
@@ -94,7 +94,8 @@ def main() -> int:
         if exc.name != "lerobot":
             raise
         logger.error(
-            'LeRobot is required. Install it with: uv pip install -e ".[flywheel]"'
+            "LeRobot is required for trajectory export. Install the component "
+            "with `rpent-install install tool-flywheel`; see the flywheel guide."
         )
         return 1
     except (OSError, ValueError) as exc:
