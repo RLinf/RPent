@@ -185,7 +185,7 @@ def test_transcript_budget_stop_detection_is_narrow(tmp_path):
     output_dir = tmp_path / "rpent"
     output_dir.mkdir()
     agent = RPentEfeAgent(logs_dir=tmp_path, model_name="openai/test-model")
-    transcript = output_dir / "transcript_task.json"
+    transcript = output_dir / "transcript.json"
     transcript.write_text(
         json.dumps({"error": "Codex SDK timed out after 12s"}), encoding="utf-8"
     )
@@ -268,7 +268,7 @@ def test_default_source_root_is_the_repository_root(tmp_path):
 def test_post_run_usage_keeps_cached_tokens_inside_input(tmp_path):
     agent = RPentEfeAgent(logs_dir=tmp_path, model_name="openai/test")
     (tmp_path / "rpent").mkdir()
-    (tmp_path / "rpent/transcript_task.json").write_text(
+    (tmp_path / "rpent/transcript.json").write_text(
         json.dumps(
             {
                 "stats": {
@@ -337,7 +337,7 @@ def test_malformed_usage_events_are_skipped(tmp_path):
     agent = RPentEfeAgent(logs_dir=tmp_path, model_name="openai/test")
     output_dir = tmp_path / "rpent"
     output_dir.mkdir()
-    (output_dir / "transcript_task.json").write_text(
+    (output_dir / "transcript.json").write_text(
         json.dumps({"stats": {"usage_observed": False}})
     )
     events = [
@@ -372,7 +372,7 @@ def test_zero_usage_trace_is_not_recovered_as_measured(tmp_path):
     agent = RPentEfeAgent(logs_dir=tmp_path, model_name="openai/test")
     output_dir = tmp_path / "rpent"
     output_dir.mkdir()
-    (output_dir / "transcript_task.json").write_text(
+    (output_dir / "transcript.json").write_text(
         json.dumps({"stats": {"usage_observed": False}})
     )
     event = {
@@ -430,7 +430,7 @@ def test_trial_codex_home_isolated_from_host_codex_home(tmp_path, monkeypatch):
 def test_failed_start_does_not_invent_usage(tmp_path):
     agent = RPentEfeAgent(logs_dir=tmp_path, model_name="openai/test")
     (tmp_path / "rpent").mkdir()
-    (tmp_path / "rpent/transcript_task.json").write_text(
+    (tmp_path / "rpent/transcript.json").write_text(
         '{"stats": {}, "error": "startup failed"}'
     )
     context = AgentContext()
@@ -446,7 +446,7 @@ def test_failed_start_does_not_invent_usage(tmp_path):
 def test_zeroed_stats_without_observed_usage_stay_unknown(tmp_path):
     agent = RPentEfeAgent(logs_dir=tmp_path, model_name="openai/test")
     (tmp_path / "rpent").mkdir()
-    (tmp_path / "rpent/transcript_task.json").write_text(
+    (tmp_path / "rpent/transcript.json").write_text(
         json.dumps(
             {
                 "stats": {
@@ -477,7 +477,7 @@ def test_hard_timeout_recovers_observed_usage_from_partial_stream(
     output_dir = tmp_path / "rpent"
     output_dir.mkdir()
     if partial_report is not None:
-        (output_dir / "transcript_task.json").write_text(partial_report)
+        (output_dir / "transcript.json").write_text(partial_report)
     event = {
         "method": "thread/tokenUsage/updated",
         "payload": {
@@ -602,7 +602,7 @@ def test_the_task_config_supplies_the_timeout_without_an_override(tmp_path):
 
 def test_a_transcript_without_a_stats_object_falls_back_to_recovery(tmp_path):
     agent = RPentEfeAgent(logs_dir=tmp_path, model_name="openai/test-model")
-    report = agent.logs_dir / "rpent" / "transcript_task.json"
+    report = agent.logs_dir / "rpent" / "transcript.json"
     report.parent.mkdir(parents=True)
     report.write_text(json.dumps({"error": None, "stats": []}), encoding="utf-8")
     stream = report.parent / "codex.txt.stream.jsonl"
