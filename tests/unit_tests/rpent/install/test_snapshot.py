@@ -54,9 +54,7 @@ def test_start_records_the_run_and_claims_the_directory(tmp_path):
 
     # One directory holds one run: a second start must not overwrite it.
     with pytest.raises(FileExistsError, match="already records a run"):
-        start_run_manifest(
-            tmp_path, robot="libero", planner="api", model=None, task={}
-        )
+        start_run_manifest(tmp_path, robot="libero", planner="api", model=None, task={})
 
 
 def test_finish_records_artifacts_and_the_verdict(tmp_path):

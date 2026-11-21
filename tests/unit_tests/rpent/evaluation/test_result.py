@@ -54,7 +54,12 @@ def _context(**overrides):
         (True, "RuntimeError: late failure", None, (True, False, None, "solved")),
         (False, None, None, (False, False, "task_failed", "unfinished")),
         (False, None, {"status": "failure"}, (False, False, "task_failed", "finished")),
-        (None, "Codex SDK timed out", None, (None, True, "agent_error", "planner_error")),
+        (
+            None,
+            "Codex SDK timed out",
+            None,
+            (None, True, "agent_error", "planner_error"),
+        ),
         (None, None, None, (None, True, "no_verdict", "unfinished")),
         (
             None,
