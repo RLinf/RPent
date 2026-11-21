@@ -10,7 +10,9 @@ probe = "torch"
 # The unit suite also exercises the exporter and the dual-arm calibration
 # helpers. Their tests skip themselves when the packages are missing, which
 # would turn a selected test into a green run that checked nothing, so this
-# environment installs what they import.
+# environment installs what they import. The calibration requirements pin
+# OpenCV 4.x, and OpenCV 5 changes the ChArUco drawing path the preview image
+# assertions rely on, so the pin is repeated here.
 requires = ["tool-flywheel"]
 planner = true
 extra-index-urls = ["https://download.pytorch.org/whl/cpu"]
@@ -22,6 +24,6 @@ dependencies = [
   "pytest-timeout",
   "omegaconf",
   "gymnasium",
-  "opencv-python-headless",
+  "opencv-python-headless==4.10.0.84",
   "torch==2.6.0+cpu",
 ]
