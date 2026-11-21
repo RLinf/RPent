@@ -35,7 +35,11 @@ from rpent.cli.main import (
 from rpent.dashboard.events import RunStartedEvent
 from rpent.evaluation import RunFinalizationContext
 from rpent.memory import MemoryManager
-from rpent.planner.base import build_planner, is_recoverable_agent_error
+from rpent.planner.base import (
+    build_planner,
+    check_planner_mcp_support,
+    is_recoverable_agent_error,
+)
 from rpent.robots import get_toolkit
 from rpent.session.planner_capture import (
     end_planner_task,
@@ -215,6 +219,9 @@ def _run_dashboard_task(
         robot_spec.parse_config(task_args),
         getattr(task_args, "shared_mcp_servers", ()),
     )
+    unsupported = check_planner_mcp_support(task_args.planner, run_config.mcp_servers)
+    if unsupported:
+        raise ValueError(unsupported)
     from rpent.memory.loading import prepare_run_memory
 
     prepare_run_memory(task_args, robot_spec, run_config)

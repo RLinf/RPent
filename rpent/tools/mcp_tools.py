@@ -100,9 +100,9 @@ def register_mcp_tools(
     taken = {tool.name.casefold() for tool in toolkit.list_tools()}
     for server_name, names in tools.items():
         spec = by_name[server_name]
-        # A coordinated tool must not also be callable directly: the planner
-        # would bypass the execution ordering and observation capture that
-        # are the reason to register it.
+        # A coordinated tool must not also be attached to the planner: the
+        # planner would bypass the execution ordering and observation capture
+        # that are the reason to register it.
         if spec.planner_tools == ALL_TOOLS:
             raise ValueError(
                 f"cannot register MCP tool(s) {sorted(names)} from {server_name!r}: "
@@ -478,7 +478,7 @@ def result_images(result: Any) -> list[bytes]:
     return images
 
 
-def cap_result_text(text: str) -> str:
+def cap_result_text(text: str, limit: int = MAX_TOOL_TEXT_BYTES) -> str:
     """Bound one external text part the way local tools bound their payloads.
 
     Local results reach the model through ``ToolResult.to_text``, which encodes
@@ -487,12 +487,21 @@ def cap_result_text(text: str) -> str:
     could grow several times larger than the local bound. Without the cap one
     verbose server can exceed the model context and leave the transcript and
     Dashboard payloads unbounded.
+
+    Args:
+        text: The text to bound.
+        limit: UTF-8 bytes this part may use. A caller forwarding several parts
+            of one result passes what the earlier parts left of the limit, so
+            the result is bounded as a whole; the transcript path caps each
+            part on its own.
     """
     encoded = text.encode("utf-8")
-    if len(encoded) <= MAX_TOOL_TEXT_BYTES:
+    if len(encoded) <= limit:
         return text
     suffix = "\n[truncated]"
-    budget = MAX_TOOL_TEXT_BYTES - len(suffix.encode("utf-8"))
+    budget = limit - len(suffix.encode("utf-8"))
+    if budget < 0:
+        return encoded[:limit].decode("utf-8", errors="ignore")
     return encoded[:budget].decode("utf-8", errors="ignore") + suffix
 
 

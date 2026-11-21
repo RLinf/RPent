@@ -34,7 +34,7 @@ from rpent.utils.config import (
     get_memory_dir,
     get_repo_root,
 )
-from rpent.utils.mcp_servers import ALL_TOOLS
+from rpent.utils.mcp_servers import ALL_TOOLS, RPENT_SERVER_NAME
 
 if TYPE_CHECKING:
     from pydantic_ai.models import Model
@@ -43,7 +43,7 @@ if TYPE_CHECKING:
 
 #: MCP namespace prefix for RPent tools (``mcp__<server>__<tool>``).
 #: Toolkits expose plain tool names; the MCP-based planners add this prefix.
-MCP_TOOL_PREFIX = "mcp__rpent__"
+MCP_TOOL_PREFIX = f"mcp__{RPENT_SERVER_NAME}__"
 REASONING_EFFORTS = ("none", "low", "medium", "high", "xhigh")
 CODEX_SANDBOX_CHOICES = ("read-only", "workspace-write", "full-access")
 
@@ -274,6 +274,32 @@ def build_api_model(model: str | None, base_url: str | None = None) -> "Model":
         return provider_cls(**kwargs)
 
     return infer_model(model, provider_factory=_provider_factory)
+
+
+def check_planner_mcp_support(
+    planner_type: str, mcp_servers: tuple["McpServerSpec", ...]
+) -> str | None:
+    """Return an error when ``planner_type`` cannot attach planner servers.
+
+    ``flash`` and ``gemini_cli`` reject planner-attached servers instead of
+    dropping them. The CLI reports that before starting the runtime, so a
+    guaranteed configuration error does not boot the environment first; the
+    backends repeat the check for callers that build them directly.
+
+    Args:
+        planner_type: The backend about to run.
+        mcp_servers: Servers available to this run.
+
+    Returns:
+        The error message, or ``None`` when the backend can attach them.
+    """
+    names = [server.name for server in mcp_servers if server.planner_tools is not None]
+    if not names or planner_type not in ("flash", "gemini_cli"):
+        return None
+    return (
+        f"{planner_type} cannot attach external MCP servers; remove "
+        f"planner_tools from mcp_servers {', '.join(names)} or use another planner"
+    )
 
 
 def check_planner_mcp_servers(

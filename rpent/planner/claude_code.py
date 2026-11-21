@@ -63,7 +63,7 @@ from rpent.session.env_capture import ToolCallCapture
 from rpent.tools import Toolkit, ToolResult
 from rpent.utils.config import get_repo_root
 from rpent.utils.logging import get_logger, init_output_dir
-from rpent.utils.mcp_servers import ALL_TOOLS
+from rpent.utils.mcp_servers import ALL_TOOLS, RPENT_SERVER_NAME
 from rpent.utils.templates import substitute
 
 if TYPE_CHECKING:
@@ -292,7 +292,7 @@ class ClaudeCodePlanner(Planner):
             tools=builtins or None,
             allowed_tools=list(dict.fromkeys(allowed)),
             mcp_servers={
-                "rpent": _build_rpent_server(
+                RPENT_SERVER_NAME: _build_rpent_server(
                     sdk,
                     toolkit=toolkit,
                     on_tool_result=on_tool_result,
@@ -742,7 +742,9 @@ def _build_rpent_server(
         run_tool.__name__ = f"rpent_{name}"
         sdk_tools.append(sdk.tool(name, description, input_schema)(run_tool))
 
-    server = sdk.create_sdk_mcp_server(name="rpent", version="0.1.0", tools=sdk_tools)
+    server = sdk.create_sdk_mcp_server(
+        name=RPENT_SERVER_NAME, version="0.1.0", tools=sdk_tools
+    )
     return server
 
 

@@ -30,6 +30,7 @@ from rpent.planner.base import (
     build_api_model,
     build_planner,
     check_planner_mcp_servers,
+    check_planner_mcp_support,
     display_tool_name,
 )
 
@@ -256,6 +257,22 @@ def test_check_planner_mcp_servers_accepts_exposed_names(
         )
         is None
     )
+
+
+def test_planner_mcp_support_names_the_backend_and_its_servers() -> None:
+    from rpent.utils.mcp_servers import McpServerSpec
+
+    attached = McpServerSpec(
+        name="web", url="https://web.example/mcp", planner_tools="*"
+    )
+    toolkit_only = McpServerSpec(name="power", url="https://power.example/mcp")
+
+    error = check_planner_mcp_support("flash", (attached, toolkit_only))
+
+    assert error is not None and "flash" in error and "web" in error
+    assert "power" not in error
+    assert check_planner_mcp_support("flash", (toolkit_only,)) is None
+    assert check_planner_mcp_support("api", (attached,)) is None
 
 
 def test_flash_ends_the_run_for_planner_attached_servers(tmp_path: Path) -> None:

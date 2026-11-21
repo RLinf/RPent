@@ -427,7 +427,8 @@ Server fields
 ``planner_tools`` has three forms:
 
 - ``"*"`` exposes every tool the server provides.
-- A list limits the planner to those tools.
+- A list limits the planner to those tools; under ``claude_code`` it only
+  controls auto-approval (see below).
 - Omitting it keeps the server out of the planner, so an unavailable server
   does not block startup; the robot can still register its tools on the
   Toolkit. Registration lists the server's tools at startup, so a server a

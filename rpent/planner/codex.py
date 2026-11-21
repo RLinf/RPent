@@ -59,7 +59,7 @@ from rpent.session.codex_capture import finalize_codex_capture
 from rpent.tools.toolkit import Toolkit
 from rpent.utils.config import get_repo_root
 from rpent.utils.logging import get_logger
-from rpent.utils.mcp_servers import ALL_TOOLS
+from rpent.utils.mcp_servers import ALL_TOOLS, RPENT_SERVER_NAME
 
 if TYPE_CHECKING:
     from rpent.utils.mcp_servers import McpServerSpec
@@ -77,12 +77,6 @@ _SANDBOX_MODES = {
     "workspace-write": openai_codex.Sandbox.workspace_write,
     "full-access": openai_codex.Sandbox.full_access,
 }
-
-#: MCP server name Codex uses for RPent's own toolkit (``mcp_servers.rpent``).
-#: MCP tool items name the server separately from the tool, so completion is
-#: detected by ``(server, tool)``; an external server may declare ``finish``.
-RPENT_MCP_SERVER = "rpent"
-
 
 # ---------------------------------------------------------------------------
 # Public backend
@@ -581,7 +575,7 @@ class _Recorder:
             return
         # An external MCP server may also expose a ``finish`` tool. Only
         # RPent's own server can complete the episode.
-        if server != RPENT_MCP_SERVER:
+        if server != RPENT_SERVER_NAME:
             return
         if name.lower() != "finish":
             return
@@ -799,7 +793,7 @@ def _codex_mcp_config_overrides(
 ) -> list[str]:
     config: list[tuple[str, Any]] = []
     if mcp_url:
-        config.append((f"mcp_servers.{RPENT_MCP_SERVER}.url", mcp_url))
+        config.append((f"mcp_servers.{RPENT_SERVER_NAME}.url", mcp_url))
         # A restricted sandbox asks for approval before every MCP call, and
         # RPent's policy denies all prompts. The server is the planner's own
         # tool boundary, so approve its tools explicitly. This does not grant
@@ -807,7 +801,7 @@ def _codex_mcp_config_overrides(
         if sandbox != "full-access":
             config.append(
                 (
-                    f"mcp_servers.{RPENT_MCP_SERVER}.default_tools_approval_mode",
+                    f"mcp_servers.{RPENT_SERVER_NAME}.default_tools_approval_mode",
                     "approve",
                 )
             )

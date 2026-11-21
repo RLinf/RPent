@@ -42,7 +42,7 @@ from rpent.dashboard.events import (
 )
 from rpent.dashboard.interaction import DashboardInteractionPort, DashboardMessage
 from rpent.dashboard.planner_control import PlannerInteractionControl
-from rpent.planner.base import Planner, PlannerResult
+from rpent.planner.base import Planner, PlannerResult, check_planner_mcp_support
 from rpent.planner.utils.agent_runtime import (
     AgentArtifacts,
     agent_environment,
@@ -121,16 +121,9 @@ class GeminiCliPlanner(Planner):
             raise ValueError(
                 "input_queue and dashboard_interaction cannot be used together"
             )
-        if self._mcp_servers:
-            names = ", ".join(server.name for server in self._mcp_servers)
-            return PlannerResult(
-                error=(
-                    "gemini_cli cannot attach external MCP servers; remove "
-                    f"planner_tools from mcp_servers {names} or use another "
-                    "planner"
-                ),
-                stop_reason="planner_error",
-            )
+        unsupported = check_planner_mcp_support("gemini_cli", self._mcp_servers)
+        if unsupported:
+            return PlannerResult(error=unsupported, stop_reason="planner_error")
         return asyncio.run(
             self._solve(
                 prompt=f"{system_prompt}\n\n{user_message}"

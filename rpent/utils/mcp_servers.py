@@ -54,10 +54,10 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Literal
 
-#: Server name RPent reserves for its own in-process toolkit server. An
-#: external server must not reuse it, or the two would collide in the
-#: ``mcp__<server>__<tool>`` namespace.
-RESERVED_SERVER_NAME = "rpent"
+#: Server name RPent uses for its own in-process toolkit server. An external
+#: server must not reuse it: the ``mcp__<server>__<tool>`` namespace and the
+#: per-backend server maps would otherwise collide.
+RPENT_SERVER_NAME = "rpent"
 
 #: The ``planner_tools`` value that admits every tool the server exposes.
 ALL_TOOLS = "*"
@@ -246,9 +246,9 @@ def _parse_one(name: str, value: Any) -> McpServerSpec:
             "'__' or a trailing '_' (it becomes the mcp__<server>__<tool> "
             "namespace, and a trailing '_' makes that name ambiguous)"
         )
-    if name == RESERVED_SERVER_NAME:
+    if name == RPENT_SERVER_NAME:
         raise ValueError(
-            f"{where}: server name {RESERVED_SERVER_NAME!r} is reserved for "
+            f"{where}: server name {RPENT_SERVER_NAME!r} is reserved for "
             "RPent's own toolkit server"
         )
     if not isinstance(value, Mapping):

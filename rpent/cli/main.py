@@ -59,6 +59,7 @@ from rpent.planner.base import (
     CODEX_SANDBOX_CHOICES,
     REASONING_EFFORTS,
     build_planner,
+    check_planner_mcp_support,
     is_recoverable_agent_error,
 )
 from rpent.planner.check import EXTERNALLY_CONFIGURED_PLANNERS
@@ -533,6 +534,12 @@ def main() -> int:
         )
     except (OSError, ValueError) as exc:
         parser.error(str(exc))
+    # Reject a backend that cannot attach these servers before the runtime
+    # starts; the planner would otherwise report it only after the environment
+    # and model services are up.
+    unsupported = check_planner_mcp_support(args.planner, run_config.mcp_servers)
+    if unsupported:
+        parser.error(unsupported)
     recipe_tag = run_config.recipe_tag
     output_dir = run_config.output_dir
     prompt_vars = run_config.prompt_vars

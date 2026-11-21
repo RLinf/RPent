@@ -30,7 +30,7 @@ from __future__ import annotations
 import time
 from typing import TYPE_CHECKING
 
-from rpent.planner.base import Planner, PlannerResult
+from rpent.planner.base import Planner, PlannerResult, check_planner_mcp_support
 from rpent.robots.base import get_robot_spec
 from rpent.tools.toolkit import Toolkit
 from rpent.utils.logging import get_logger
@@ -80,16 +80,9 @@ class FlashPlanner(Planner):
         conversation to hold and no turn to spend. The arguments are accepted to
         satisfy the planner interface.
         """
-        if self._mcp_servers:
-            names = ", ".join(server.name for server in self._mcp_servers)
-            return PlannerResult(
-                error=(
-                    "flash cannot attach external MCP servers; remove "
-                    f"planner_tools from mcp_servers {names} or use another "
-                    "planner"
-                ),
-                stop_reason="planner_error",
-            )
+        unsupported = check_planner_mcp_support("flash", self._mcp_servers)
+        if unsupported:
+            return PlannerResult(error=unsupported, stop_reason="planner_error")
         run_flash = get_robot_spec(self._robot_name).run_flash
         if run_flash is None:
             return PlannerResult(

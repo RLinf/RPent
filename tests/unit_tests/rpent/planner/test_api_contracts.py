@@ -1823,6 +1823,42 @@ def test_external_text_results_are_capped_like_local_tools(
     assert capped.endswith("\n[truncated]")
 
 
+def test_external_result_parts_share_one_text_budget(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from rpent.planner import api_loop
+
+    long_text = "x" * (MAX_TOOL_TEXT_BYTES * 2)
+
+    async def call(spec: McpServerSpec, name: str, arguments: dict[str, Any]) -> Any:
+        return SimpleNamespace(
+            content=[SimpleNamespace(type="text", text=long_text)],
+            structuredContent={"payload": long_text},
+            isError=False,
+        )
+
+    monkeypatch.setattr(api_loop, "call_remote_tool_async", call)
+    events = Events()
+    planner = ApiAgentLoop(
+        model=TestModel(),
+        dashboard_events=events,
+        mcp_servers=(
+            McpServerSpec(name="web", url="https://mcp.example/mcp", planner_tools="*"),
+        ),
+    )
+    adapter = _HarnessToolkit(
+        RobotToolkit(events), dashboard_events=events, no_images=True
+    )
+    (prefixed,) = planner._external_toolsets(adapter)
+
+    content = asyncio.run(prefixed.wrapped.direct_call_tool("search", {"q": "x"}))
+
+    # A server can return text and structured content; together they must stay
+    # within the local tool budget instead of allowing one bound per part.
+    assert sum(len(part.encode("utf-8")) for part in content) <= MAX_TOOL_TEXT_BYTES
+    assert content[0].endswith("\n[truncated]")
+
+
 def test_external_toolset_turns_a_remote_error_into_a_retry(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

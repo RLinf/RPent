@@ -87,6 +87,7 @@ from rpent.planner.base import (
 from rpent.prompt.api import API_PLANNER_INSTRUCTIONS, render_environment_context
 from rpent.session.env_capture import current_tool_call
 from rpent.session.planner_capture import CapturingModel, sdk_payload
+from rpent.tools.base import MAX_TOOL_TEXT_BYTES
 from rpent.tools.mcp_tools import (
     call_remote_tool_async,
     cap_result_text,
@@ -442,16 +443,24 @@ class _RemoteMCPToolset(AbstractToolset[Any]):
         if "error" in payload:
             raise ModelRetry(payload["error"])
         content: list[Any] = []
+        # A result can carry text, block metadata, and structured content. The
+        # parts share one budget, so the model receives no more text than a
+        # local tool result does.
+        remaining = MAX_TOOL_TEXT_BYTES
         if "text" in payload:
-            content.append(cap_result_text(payload["text"]))
+            text = cap_result_text(payload["text"], remaining)
+            remaining -= len(text.encode("utf-8"))
+            content.append(text)
         content.extend(
             _ToolReturnImage(data=data, media_type="image/png")
             for data in result_images(result)
         )
-        if "content" in payload:
-            content.append(cap_result_text(json.dumps(payload["content"])))
-        if "structured_content" in payload:
-            content.append(cap_result_text(json.dumps(payload["structured_content"])))
+        for key in ("content", "structured_content"):
+            if key in payload:
+                text = cap_result_text(json.dumps(payload[key]), remaining)
+                remaining -= len(text.encode("utf-8"))
+                if text:
+                    content.append(text)
         return content
 
 
