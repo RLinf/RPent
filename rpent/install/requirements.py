@@ -188,9 +188,7 @@ def _override_inputs(resolution: Resolution, root: Path) -> list[dict[str, str]]
     return entries
 
 
-def _planner_layer(
-    resolution: Resolution, dependencies: tuple[str, ...]
-) -> list[str]:
+def _planner_layer(resolution: Resolution, dependencies: tuple[str, ...]) -> list[str]:
     """Return the planner requirements the environment installs, sorted."""
     if not resolution.uses_planner:
         return []

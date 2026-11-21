@@ -55,9 +55,7 @@ HOSTED = (
 )
 
 #: Environments that resolve CUDA packages; they need the embodied GPU runner.
-GPU = (
-    ("infra-rlinf",),
-)
+GPU = (("infra-rlinf",),)
 
 MATRICES = {"hosted": HOSTED, "gpu": GPU}
 

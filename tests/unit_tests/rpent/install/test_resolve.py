@@ -223,8 +223,12 @@ def test_planner_dependencies_take_part_in_pin_checks(make_component, make_catal
         planner_dependencies=("pydantic==2.8.0",),
     )
 
-    assert any("conflicting pins for 'pydantic'" in error for error in resolution.errors)
-    assert any("rpent[planner]: pydantic ==2.8.0" in error for error in resolution.errors)
+    assert any(
+        "conflicting pins for 'pydantic'" in error for error in resolution.errors
+    )
+    assert any(
+        "rpent[planner]: pydantic ==2.8.0" in error for error in resolution.errors
+    )
 
 
 def test_planner_pins_do_not_constrain_a_runtime_only_environment(
