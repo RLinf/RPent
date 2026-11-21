@@ -42,7 +42,7 @@ import shlex
 import sys
 import time
 from collections.abc import Callable
-from dataclasses import asdict
+from dataclasses import replace
 from pathlib import Path
 
 from rpent.cli.tui import (
@@ -59,12 +59,22 @@ from rpent.planner.base import (
     CODEX_SANDBOX_CHOICES,
     REASONING_EFFORTS,
     build_planner,
+    check_planner_mcp_support,
     is_recoverable_agent_error,
 )
 from rpent.planner.check import EXTERNALLY_CONFIGURED_PLANNERS
-from rpent.robots import enumerate_robots, get_robot_spec, get_toolkit
-from rpent.session.planner_capture import end_planner_task, start_planner_task
+from rpent.robots import RunConfig, enumerate_robots, get_robot_spec, get_toolkit
+from rpent.session.planner_capture import (
+    end_planner_task,
+    start_planner_task,
+    task_config_snapshot,
+)
 from rpent.utils.logging import get_logger, init_output_dir
+from rpent.utils.mcp_servers import (
+    McpServerSpec,
+    load_mcp_config,
+    merge_mcp_servers,
+)
 
 logger = get_logger("agent")
 
@@ -203,6 +213,15 @@ def _build_argparser() -> argparse.ArgumentParser:
         "Defaults to MAX_BUDGET_USD env or 10.",
     )
 
+    ap.add_argument(
+        "--mcp-config",
+        default=None,
+        help="Path to a shared MCP config YAML. Its mcp_servers section is "
+        "merged into every run; servers that set planner_tools are attached "
+        "to the planner, and the rest are left for the robot's toolkit to "
+        "register with Toolkit.add_mcp_tools.",
+    )
+
     # other config
     ap.add_argument("--output-dir", default=None)
     ap.add_argument(
@@ -319,6 +338,24 @@ def _handoff_message(
     )
 
 
+def _with_shared_mcp_servers(
+    run_config: RunConfig,
+    shared_servers: tuple[McpServerSpec, ...],
+) -> RunConfig:
+    """Merge shared MCP servers into a robot's run config.
+
+    The shared config applies to every robot, so the CLI adds its servers
+    after the robot's own ``parse_config``. Duplicate names are rejected: a
+    robot must not silently shadow a server from the shared config.
+    """
+    if not shared_servers:
+        return run_config
+    return replace(
+        run_config,
+        mcp_servers=merge_mcp_servers(run_config.mcp_servers, shared_servers),
+    )
+
+
 def _start_continuation_session(
     args,
     *,
@@ -329,6 +366,7 @@ def _start_continuation_session(
     prompt_vars,
     session_number: int,
     session_max: int,
+    mcp_servers=(),
 ):
     """Build a fresh planner and prompts for an exploration handoff."""
     logger.info("=== handing off to agent %d/%d ===", session_number, session_max)
@@ -347,6 +385,7 @@ def _start_continuation_session(
         dashboard_events=dashboard_events,
         no_images=args.no_images,
         interactive=args.tui,
+        mcp_servers=mcp_servers,
     )
     system_prompt = prompt_bundle.render(
         "system",
@@ -399,6 +438,10 @@ def main() -> int:
     args.robot_name = early.robot_name
     if "--interactive" in sys.argv or "-i" in sys.argv:
         logger.warning("--interactive is deprecated; use --tui instead")
+    try:
+        args.shared_mcp_servers = load_mcp_config(args.mcp_config)
+    except (OSError, ValueError) as exc:
+        parser.error(str(exc))
     human_interactive_exploration = (
         args.explore and robot_spec.supports_human_interactive_exploration
     )
@@ -486,9 +529,17 @@ def main() -> int:
         return run_dashboard_session(args, robot_spec, parser=parser)
 
     try:
-        run_config = robot_spec.parse_config(args)
+        run_config = _with_shared_mcp_servers(
+            robot_spec.parse_config(args), args.shared_mcp_servers
+        )
     except (OSError, ValueError) as exc:
         parser.error(str(exc))
+    # Reject a backend that cannot attach these servers before the runtime
+    # starts; the planner would otherwise report it only after the environment
+    # and model services are up.
+    unsupported = check_planner_mcp_support(args.planner, run_config.mcp_servers)
+    if unsupported:
+        parser.error(unsupported)
     recipe_tag = run_config.recipe_tag
     output_dir = run_config.output_dir
     prompt_vars = run_config.prompt_vars
@@ -520,6 +571,7 @@ def main() -> int:
         dashboard_events=dashboard_events,
         no_images=args.no_images,
         interactive=args.tui,
+        mcp_servers=run_config.mcp_servers,
     )
     prompt_bundle = robot_spec.prompts
     prompt_vars = {**prompt_vars, "output_dir": output_dir}
@@ -639,6 +691,7 @@ def main() -> int:
                     prompt_vars=prompt_vars,
                     session_number=session_number,
                     session_max=sessions,
+                    mcp_servers=run_config.mcp_servers,
                 )
             state_output_dir = output_dir
             if getattr(args, "explore", False):
@@ -693,7 +746,7 @@ def main() -> int:
                     task_state = start_planner_task(
                         toolkit.state,
                         instruction=session_msg,
-                        config={"arguments": vars(args), "run": asdict(run_config)},
+                        config=task_config_snapshot(vars(args), run_config),
                     )
                 result = planner.solve(
                     system_prompt=system_prompt,

@@ -133,3 +133,62 @@ def test_save_failure_is_logged_without_replacing_execution_error(
     assert state.get_task().result.data["error"] == "RuntimeError: model failed"
     assert "Failed to save planner trajectory" in caplog.text
     assert "disk full" in caplog.text
+
+
+def test_task_config_snapshot_redacts_mcp_header_values(tmp_path) -> None:
+    from pydantic_core import to_jsonable_python
+
+    from rpent.robots import RunConfig
+    from rpent.session.planner_capture import task_config_snapshot
+    from rpent.utils.mcp_servers import McpServerSpec
+
+    spec = McpServerSpec(
+        name="facility",
+        url="https://facility.example/mcp",
+        headers={"Authorization": "Bearer secret"},
+        env_http_headers={"X-Key": "FACILITY_KEY"},
+        planner_tools=("read_power_meter",),
+    )
+    run_config = RunConfig(
+        recipe_tag="run",
+        output_dir=tmp_path,
+        prompt_vars={},
+        task_desc={},
+        mcp_servers=(spec,),
+    )
+
+    config = task_config_snapshot(
+        {"planner": "api", "shared_mcp_servers": (spec,)}, run_config
+    )
+
+    assert "Bearer secret" not in json.dumps(to_jsonable_python(config))
+    redacted = {"Authorization": "<redacted>"}
+    assert config["run"]["mcp_servers"][0]["headers"] == redacted
+    assert config["arguments"]["shared_mcp_servers"][0]["headers"] == redacted
+    # Names, URLs, and tool selection stay, so the record still describes the
+    # run; only the values that may be credentials are gone.
+    assert config["run"]["mcp_servers"][0]["env_http_headers"] == {
+        "X-Key": "FACILITY_KEY"
+    }
+    assert config["run"]["mcp_servers"][0]["planner_tools"] == ("read_power_meter",)
+
+
+def test_task_config_snapshot_omits_empty_mcp_lists(tmp_path) -> None:
+    from rpent.robots import RunConfig
+    from rpent.session.planner_capture import task_config_snapshot
+
+    run_config = RunConfig(
+        recipe_tag="run",
+        output_dir=tmp_path,
+        prompt_vars={},
+        task_desc={},
+    )
+
+    config = task_config_snapshot(
+        {"planner": "api", "shared_mcp_servers": ()}, run_config
+    )
+
+    # A run without external MCP servers keeps the trajectory shape from before
+    # the feature existed.
+    assert "shared_mcp_servers" not in config["arguments"]
+    assert "mcp_servers" not in config["run"]

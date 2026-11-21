@@ -32,7 +32,7 @@ import tempfile
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from rpent.dashboard.events import (
     DashboardEventSink,
@@ -42,7 +42,7 @@ from rpent.dashboard.events import (
 )
 from rpent.dashboard.interaction import DashboardInteractionPort, DashboardMessage
 from rpent.dashboard.planner_control import PlannerInteractionControl
-from rpent.planner.base import Planner, PlannerResult
+from rpent.planner.base import Planner, PlannerResult, check_planner_mcp_support
 from rpent.planner.utils.agent_runtime import (
     AgentArtifacts,
     agent_environment,
@@ -51,6 +51,9 @@ from rpent.planner.utils.agent_runtime import (
 from rpent.planner.utils.agent_session import run_agent
 from rpent.planner.utils.sdk import int_field, jsonable
 from rpent.tools.toolkit import Toolkit
+
+if TYPE_CHECKING:
+    from rpent.utils.mcp_servers import McpServerSpec
 
 _MCP_TOOL_PREFIX = "mcp_rpent_"
 _SECRET_ENV_NAMES = ("GOOGLE_API_KEY", "GEMINI_API_KEY")
@@ -75,6 +78,7 @@ class GeminiCliPlanner(Planner):
         output_path: str | Path | None = None,
         model: str | None = None,
         reasoning_effort: str = "none",
+        mcp_servers: tuple["McpServerSpec", ...] = (),
     ) -> None:
         """Initialize the Gemini CLI backend.
 
@@ -87,6 +91,9 @@ class GeminiCliPlanner(Planner):
                 Gemini CLI and its configured upstream choose the model.
             reasoning_effort: Must be ``none`` because Gemini CLI has no matching
                 stable command-line option.
+            mcp_servers: External servers attached to the planner. The backend does not
+                attach them yet, so :meth:`solve` reports an error instead of
+                running the episode without the declared tools.
         """
         if reasoning_effort != "none":
             raise ValueError(
@@ -97,6 +104,7 @@ class GeminiCliPlanner(Planner):
         self._output_path = Path(output_path) if output_path else None
         self._model = model
         self._dashboard_events = dashboard_events
+        self._mcp_servers = mcp_servers
 
     def solve(
         self,
@@ -113,6 +121,9 @@ class GeminiCliPlanner(Planner):
             raise ValueError(
                 "input_queue and dashboard_interaction cannot be used together"
             )
+        unsupported = check_planner_mcp_support("gemini_cli", self._mcp_servers)
+        if unsupported:
+            return PlannerResult(error=unsupported, stop_reason="planner_error")
         return asyncio.run(
             self._solve(
                 prompt=f"{system_prompt}\n\n{user_message}"

@@ -54,6 +54,9 @@ These options control the planner, memory, output directory, and Dashboard.
    * - ``--base-url``
      - ``—``
      - ``api`` only: override the model endpoint. ``claude_code``, ``codex``, and ``gemini_cli`` use their existing backend configuration and reject this flag.
+   * - ``--mcp-config``
+     - ``—``
+     - Path to a shared MCP config YAML. Its ``mcp_servers`` section is merged into every run; each server's ``planner_tools`` decides whether its tools reach the planner. See :ref:`external-mcp-servers`.
    * - ``--no-images``
      - ``false``
      - ``api`` only: omit images from model requests.
