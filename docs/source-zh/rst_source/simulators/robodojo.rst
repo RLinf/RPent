@@ -80,29 +80,28 @@ RoboDojo
 --------------
 
 NVIDIA 驱动版本建议参考 `Isaac Sim 5.1 官方系统要求 <https://docs.isaacsim.omniverse.nvidia.com/5.1.0/installation/requirements.html>`_。\
-宿主机还需具备构建 cuRobo 所需的 CUDA toolkit/NVCC 和编译工具链。从 RPent 根目录创建独立环境并安装依赖：
+宿主机还需具备构建 cuRobo 所需的 CUDA toolkit/NVCC 和编译工具链。安装 ``robot-robodojo``；它的清单声明了调和 Isaac Sim 固定版本与 agent 依赖栈的依赖覆盖文件：
 
 .. code-block:: bash
 
-   uv venv --python 3.11 .venv-robodojo
+   ./rpent-install.sh install robot-robodojo --venv .venv-robodojo
    source .venv-robodojo/bin/activate
-   uv pip install -e ".[robodojo-sim,sam3]" --extra-index-url https://pypi.nvidia.com \
-     --override requirements/robodojo-override.txt
+
+该组件闭包安装 RoboDojo 运行时、SAM 3.0 和 Pi0.5。
 
 .. dropdown:: Blackwell GPU 安装
 
-   使用 Blackwell GPU 时，请安装 PyTorch 2.7.0 的 CUDA 12.8 构建。首次安装或重新安装时，使用以下命令，\
-   通过 ``--torch-backend=cu128`` 选择 CUDA 12.8 构建：
+   Blackwell GPU 需要 CUDA 12.8 版 PyTorch。本项目固定的 PyTorch 2.7.0 也提供 CUDA 12.6 构建，\
+   但该构建不支持 Blackwell。使用这类 GPU 时，在首次安装及后续重新安装前都导出 ``UV_TORCH_BACKEND=cu128``，以选择 CUDA 12.8 构建。
+
+   如果环境中已安装 ``torch==2.7.0+cu126``，uv 会认为它满足版本要求，继续保留原有安装。\
+   此时需在环境中显式替换：
 
    .. code-block:: bash
 
-      uv pip install -e ".[robodojo-sim,sam3]" --extra-index-url https://pypi.nvidia.com \
-        --override requirements/robodojo-override.txt \
-        --torch-backend=cu128
-
-   如果环境中已安装 ``torch==2.7.0+cu126``，uv 会认为它满足版本要求，继续保留原有安装。\
-   此时需在上面的命令末尾再添加 ``--reinstall-package torch --reinstall-package torchvision``，\
-   强制替换为 CUDA 12.8 构建。
+      uv pip install --python .venv-robodojo/bin/python \
+        --reinstall-package torch --reinstall-package torchvision \
+        torch torchvision
 
 当前固定的 IsaacLab 版本需要 editable 安装，才能找到扩展配置。克隆到一个可写目录，并在同一环境中执行：
 
@@ -192,11 +191,11 @@ VPP2 配置
 
 .. dropdown:: 手动启动 VPP2 服务（可选）
 
-   需要自行管理模型服务时，在模型环境中安装策略依赖和 RPent 核心包，然后启动：
+   需要自行管理模型服务时，在模型环境中安装策略依赖和 RPent 核心包，然后在 RPent 源码检出中启动：
 
    .. code-block:: bash
 
-      python -m robots.robodojo.vpp2_server --model-path /path/to/vpp2 \
+      python -m components.models.vpp2.server --model-path /path/to/vpp2 \
         --host 127.0.0.1 --port 9201
 
    在 RPent／仿真环境的任务命令中添加 ``--am-endpoint socket://127.0.0.1:9201``。RPent 负责启动和关闭自己创建的模型进程；独立启动的服务由其启动者管理。远端部署见 :doc:`../guides/advanced_deployment`。
@@ -237,11 +236,11 @@ Awomo05 配置
 
 .. dropdown:: 手动启动 Awomo05 服务（可选）
 
-   需要自行管理模型服务时，在模型环境中安装策略依赖和 RPent 核心包，然后启动：
+   需要自行管理模型服务时，在模型环境中安装策略依赖和 RPent 核心包，然后在 RPent 源码检出中启动：
 
    .. code-block:: bash
 
-      python -m robots.robodojo.awomo05_server --model-path /path/to/awomo05 \
+      python -m components.models.awomo05.server --model-path /path/to/awomo05 \
         --host 127.0.0.1 --port 9205
 
    在 RPent／仿真环境的任务命令中添加 ``--am-endpoint socket://127.0.0.1:9205``。RPent 负责启动和关闭自己创建的模型进程；独立启动的服务由其启动者管理。远端部署见 :doc:`../guides/advanced_deployment`。
@@ -309,7 +308,7 @@ SAM3 用于物体分割。先在 `facebook/sam3 模型页面 <https://huggingfac
 - ``videos/``：头部、左腕和右腕相机的视频。
 - ``robodojo_env_server.log``、``sam3_server.log``、``robodojo_vpp2_server.log`` 或 ``robodojo_awomo05_server.log``：\
   本地启动服务的日志和报错信息。
-- ``run.log`` 和 ``transcript_*.json``：主进程日志、planner 对话和错误。
+- ``run.log`` 和 ``transcript.json``：主进程日志、planner 对话和错误。
 
 先检查 ``environment_result_available=true`` 和\
 ``agent_error_present=false``，再看 ``success`` 是否为 ``true``。该字段记录 RoboDojo 的原生任务判定，\
@@ -383,7 +382,7 @@ SAM3 用于物体分割。先在 `facebook/sam3 模型页面 <https://huggingfac
 工具
 ----
 
-规划器会自动选择工具，并在动作后检查新的观测。用户通过 ``--am-backend`` 选择动作模型，可在 ``transcript_*.json`` 中查看实际调用。
+规划器会自动选择工具，并在动作后检查新的观测。用户通过 ``--am-backend`` 选择动作模型，可在 ``transcript.json`` 中查看实际调用。
 
 .. list-table::
    :header-rows: 1

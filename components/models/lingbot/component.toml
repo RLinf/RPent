@@ -1,0 +1,11 @@
+schema = 2
+name = "model-lingbot"
+probe = "components.models.lingbot"
+python = ">=3.11,<3.12"
+# The LingBot runtime ships with the RoboTwin stack and speaks the
+# eef16 contract declared in components/models/lingbot/contract.py.
+requires = ["sim-robotwin"]
+
+dependencies = [
+  "rlinf-lingbotvla==0.1.3",
+]

@@ -22,8 +22,8 @@ from uuid import uuid4
 
 import numpy as np
 
+from components.tools.rgbd.observation import GeometryObservation
 from rpent.session import EnvState
-from toolkits.observation import GeometryObservation
 
 
 class LiberoGeometryObservations:

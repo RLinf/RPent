@@ -82,35 +82,33 @@ Installation and Resources
 --------------------------
 
 Use Linux, an NVIDIA GPU, working CUDA/EGL, ``git``, and
-`uv <https://docs.astral.sh/uv/getting-started/installation/>`_. Create a separate
-Python 3.10 environment. If you already have the repository, enter it and start
-at the third line:
+`uv <https://docs.astral.sh/uv/getting-started/installation/>`_. RoboCasa needs
+Python 3.10, which ``rpent-install`` selects from the component's declared
+range:
 
 .. code-block:: bash
 
-   git clone https://github.com/RLinf/RPent.git
-   cd RPent
-   uv venv --python 3.10 .venv-robocasa
+   ./rpent-install.sh install robot-robocasa --venv .venv-robocasa
    source .venv-robocasa/bin/activate
 
-First install a matching CUDA-enabled Torch and torchvision pair for your driver
-using the `PyTorch instructions <https://pytorch.org/get-started/locally/>`_
-(replace ``pip`` with ``uv pip``). RLDX requires Torch >= 2.7 and
-torchvision >= 0.22, with mutually compatible versions. Then install RoboCasa:
+The component closure installs a CUDA-enabled Torch and torchvision pair; RLDX requires
+Torch >= 2.7 and torchvision >= 0.22. If your driver needs a different build,
+reinstall the matching pair with ``uv pip install`` using the
+`PyTorch instructions <https://pytorch.org/get-started/locally/>`_.
 
 .. list-table::
    :header-rows: 1
 
    * - Environment
-     - Install
+     - Components
      - Assets
    * - RoboCasa365
-     - ``uv pip install -e ".[robocasa]"``
+     - ``robot-robocasa``, ``sim-robocasa``, ``model-rldx``
      - ``robocasa-download-assets`` (command below)
 
-Dependencies come from ``pyproject.toml``, including the ``rpent`` source branches
-of RoboCasa, RLDX and Robosuite. Do not also install ``rlinf-robocasa365``, which
-provides the same import package.
+The components install the ``rpent`` source branches of RoboCasa, RLDX and
+Robosuite. Do not also install ``rlinf-robocasa365``, which provides the same
+import package.
 
 Check dependencies, download the kitchen assets (~10 GB) outside the Python
 package directory, and set their path in the shell used to launch RPent:
@@ -205,7 +203,7 @@ You can also use ``--planner api``, ``--planner codex``, or ``--planner gemini_c
 View Results
 ------------
 
-Task success comes from the environment’s ``_check_success()`` result, exposed as ``state.success``. The planner’s ``finish`` status ends its conversation and is not an evaluation label. Inspect ``result.json``, ``transcript_*.json``, and ``run.log`` in the output directory; service startup errors are in ``env_server.log`` and ``vla_server.log``.
+Task success comes from the environment’s ``_check_success()`` result, exposed as ``state.success``. The planner’s ``finish`` status ends its conversation and is not an evaluation label. Inspect ``result.json``, ``transcript.json``, and ``run.log`` in the output directory; service startup errors are in ``env_server.log`` and ``vla_server.log``.
 
 Use ``--dashboard`` to watch cameras and planner output; see :doc:`../guides/dashboard` for the shared workflow.
 
@@ -573,8 +571,8 @@ VLA Inference Check
 ~~~~~~~~~~~~~~~~~~~
 
 Complete :ref:`VLA configuration <robocasa-vla-configuration>`, then select an
-available GPU and a fresh output directory. Install ``.[test]`` if you need the
-test dependencies:
+available GPU and a fresh output directory. If you need test dependencies,
+install them into the environment: ``uv pip install pytest pytest-timeout``.
 
 .. code-block:: bash
 
@@ -634,13 +632,15 @@ Downloads and Assets
 Startup and Inference
 ~~~~~~~~~~~~~~~~~~~~~
 
-- **Missing RLDX interfaces in an old environment:** reinstall ``.[robocasa]``
-  with ``--reinstall-package rlinf-rldx``. Older PyPI wheels can lack required
-  interfaces even with the same version number.
+- **Missing RLDX interfaces in an old environment:** rerun
+  ``rpent-install install robot-robocasa``, then reinstall ``rlinf-rldx`` in the
+  environment. Older PyPI wheels can lack required interfaces even with the same
+  version number.
 - **Missing navigation camera:** if the error names ``mobilebase0_navview``,
-  reinstall ``.[robocasa]`` to update Robosuite rather than patching XML.
-- **Directory permission errors:** use the source dependencies from
-  ``.[robocasa]``; XML conversion should write temporary files. Set
+  rerun ``rpent-install install robot-robocasa`` to update Robosuite rather than
+  patching XML.
+- **Directory permission errors:** use the source dependencies installed by
+  ``sim-robocasa``; XML conversion should write temporary files. Set
   ``NUMBA_CACHE_DIR`` to a writable directory without changing package permissions.
 - **CUDA/EGL unavailable:** select Torch/torchvision for your machine, then run
   the :ref:`environment checks <environment-smoke-tests>` to verify GPU operations

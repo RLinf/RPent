@@ -92,7 +92,7 @@ the transport thread over via a work queue:
 .. code-block:: python
 
    from rpent.utils.rpc.main_thread_serve import MainThreadServeMixin
-   from rpent.robots.components.env_facade_base import BaseEnvFacade
+   from rpent.components.env.facade import BaseEnvFacade
 
    class MyEnvFacade(MainThreadServeMixin, BaseEnvFacade):
        ...
@@ -104,7 +104,7 @@ The overridden ``serve`` keeps the same contract as
 ``healthz`` / ``shutdown``, parent-watch, and sessions (when constructed
 with ``enable_sessions=True``, ``serve`` still requires ``session_sweep_s``).
 Subclasses do **not** need to override ``serve`` to delegate — just inherit
-it (see ``RoboCasaEnvFacade`` in ``robots/robocasa/env_server.py``).
+it (see ``RoboCasaEnvFacade`` in ``components/sim/robocasa/env_server.py``).
 Backends that do not need EGL single-threading keep the plain inherited
 ``serve``.
 

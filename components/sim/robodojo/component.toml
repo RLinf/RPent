@@ -1,0 +1,24 @@
+schema = 2
+name = "sim-robodojo"
+probe = "components.sim.robodojo"
+python = ">=3.11,<3.12"
+# Isaac Sim 5.1 wheels are published for glibc 2.35 and newer, so resolution
+# has to target that baseline instead of the repository default.
+manylinux = "2_35"
+# RoboDojo runs on its own RLinf fork, which robot-robodojo installs,
+# so this component does not require infra-rlinf and cannot share an
+# environment with it. The Isaac Sim stack also cannot share one with the
+# MuJoCo-based simulators.
+env_conflicts = ["infra-rlinf", "sim-libero", "sim-robotwin"]
+# Isaac Sim and its Omniverse packages are published on NVIDIA's index,
+# not PyPI.
+extra-index-urls = ["https://pypi.nvidia.com"]
+
+dependencies = [
+  "rlinf-robodojo-runtime @ git+https://github.com/RLinf/RoboDojo.git@6d76a0c4a49a7a47bf5ee3924de2ccd7ecb8a8b7",
+  # The task recipes and the agent support read YAML and rotate with SciPy;
+  # both are imported inside the call, but this component's own code needs
+  # them, and the runtime layer does not install them.
+  "pyyaml",
+  "scipy",
+]

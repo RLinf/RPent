@@ -29,6 +29,7 @@ from typing import Any
 import numpy as np
 import pytest
 
+from components.models.sam3.client import Sam3Result
 from robots.libero import robot_spec, toolkit
 from robots.libero.observations import LiberoGeometryObservations
 from robots.libero.prompts import evaluate
@@ -36,7 +37,6 @@ from rpent.dashboard.events import NullDashboardEventSink
 from rpent.memory import MemoryManager
 from rpent.prompt.utils import Numbered
 from rpent.robots import RunConfig
-from rpent.robots.components.sam3_client import Sam3Result
 from rpent.session import EnvState
 from rpent.tools import Toolkit, ToolResult
 from rpent.tools.common import CommonTools
@@ -229,13 +229,21 @@ def test_generic_localization_is_registered_with_libero_observations(
             step=step,
         )
     expected_view = toolkit.libero_tools.view_env_state(step, state=tk.state)
-    assert tk.execute_tool("view_env_state", {"step": step}) == expected_view
+    withheld = {
+        key: value
+        for key, value in expected_view.data.items()
+        if key not in {"terminated", "truncated"}
+    }
+    view = tk.execute_tool("view_env_state", {"step": step})
+    assert view.images == expected_view.images
+    assert view.data.pop("episode_over") is False
+    assert view.data == withheld
     after_action = tk.get_env_state(
         command={"action": "release"}, result={}, elapsed_s=0.5
     )
-    assert after_action == ToolResult(
-        data={**expected_view.data, "agent_elapsed_s": 0.5}, images=expected_view.images
-    )
+    assert after_action.images == expected_view.images
+    assert after_action.data.pop("episode_over") is False
+    assert after_action.data == {**withheld, "agent_elapsed_s": 0.5}
 
     selected = tk.execute_tool(
         "back_project",
@@ -254,6 +262,38 @@ def test_generic_localization_is_registered_with_libero_observations(
         and segmented.data["evidence_status"] == "identity_unchecked"
     )
     assert tk.state.latest_step == step
+
+
+def test_evaluation_withholds_the_benchmark_verdict(
+    tmp_path, monkeypatch, fake_single_arm_primitives
+):
+    fake = fake_single_arm_primitives.for_robot(toolkit.libero_tools.LiberoPrimitives)
+    monkeypatch.setattr(toolkit.libero_tools, "LiberoPrimitives", fake)
+    monkeypatch.setattr(toolkit.libero_tools, "dump_state", lambda *a, **kw: _record())
+    monkeypatch.setattr(
+        templates, "default_variables", lambda: {"output_dir": str(tmp_path)}
+    )
+    tk = toolkit.LiberoToolkit(
+        runtime_kwargs={"env": object()},
+        dashboard_events=NullDashboardEventSink(),
+        memory=MemoryManager(tmp_path / "memory"),
+        state_output_dir=tmp_path / "state",
+    )
+    with tk.state.record_step(
+        state={},
+        terminated=True,
+        command={"action": "release"},
+        result={"success": True, "terminated": True, "truncated": False},
+    ) as step:
+        pass
+
+    view = tk.execute_tool("view_env_state", {"step": step}).data
+
+    assert view["episode_over"] is True
+    for payload in (view, view["log"]["result"]):
+        assert not {"success", "task_success", "terminated", "truncated"} & set(payload)
+    # The runner keeps the verdict for its own recipe and metrics.
+    assert tk.state.get(step).terminated is True
 
 
 def test_pinned_wrist_sample_uses_its_own_calibration(tmp_path):

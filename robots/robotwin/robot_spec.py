@@ -21,23 +21,26 @@ import os
 import socket
 import sys
 import time
-from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Literal
+from typing import TYPE_CHECKING, Any
 
+from components.models.lingbot.contract import MODEL_SPEC, vla_runtime_contract
+from components.sim.robotwin.contract import (
+    ROBOTWIN_TASK_CONFIGS,
+    env_runtime_contract,
+)
 from robots.robotwin.memory import prepare_memory, validate_options
-from robots.robotwin.observation import ROBOTWIN_CAMERAS
 from robots.robotwin.prompt_bundle import system_prompt, user_prompt
-from rpent.dashboard.events import DashboardEventSink, RuntimeStatusEvent
-from rpent.dashboard.spec import DashboardSpec
-from rpent.memory import MemoryManager
-from rpent.robots.components.am_runtime import (
+from rpent.components.models.backends import (
     WAM_BACKENDS,
     add_am_args,
     select_am,
     start_wam_service,
 )
+from rpent.dashboard.events import DashboardEventSink, RuntimeStatusEvent
+from rpent.dashboard.spec import DashboardSpec
+from rpent.memory import MemoryManager
 from rpent.robots.prompt_bundle import PromptBundle
 from rpent.robots.robot_spec import RobotSpec, RunConfig
 from rpent.robots.runtime import (
@@ -55,20 +58,6 @@ from rpent.utils.config import (
 if TYPE_CHECKING:
     from rpent.utils.daemon import ProcessDaemon
 
-# Native RoboTwin task YAMLs exposed to the dashboard, the CLI, and the env
-# server -- defined once so every consumer shows the same choices.
-ROBOTWIN_TASK_CONFIGS = (
-    "demo_clean",
-    "demo_randomized",
-)
-
-#: Env-side camera names exposed by the RoboTwin EnvServer, in fixed order.
-#: Shared across the env client, primitives, and toolkit.
-ROBOTWIN_CAMERA_NAMES = ROBOTWIN_CAMERAS
-
-#: Supported native action representations for the RoboTwin agent runtime.
-RoboTwinActionType = Literal["qpos", "ee"]
-
 #: Episode-status keys the RoboTwin env client requires in every status mapping.
 ROBOTWIN_STATUS_KEYS = (
     "eval_success",
@@ -82,85 +71,6 @@ ROBOTWIN_READ_TIMEOUT_S = 120.0
 
 #: Per-call RPC timeout (seconds) for env calls that mutate episode state.
 ROBOTWIN_STATE_CHANGE_TIMEOUT_S = 600.0
-
-
-@dataclass(frozen=True)
-class RoboTwinModelSpec:
-    """Values required by the LingBot EEF runtime."""
-
-    policy_name: str
-    robot_config_relpath: str
-    norm_stats: str
-    qwen_base: str
-    camera_order: tuple[str, ...]
-    state_layout: str
-    action_layout: str
-    use_length: int
-
-
-MODEL_SPEC = RoboTwinModelSpec(
-    policy_name="robotwin_eef",
-    robot_config_relpath="configs/robot_configs/robotwin_eef.yaml",
-    norm_stats="norm_stats/robotwin_eef.json",
-    qwen_base="qwen_base",
-    camera_order=("cam_high", "cam_left_wrist", "cam_right_wrist"),
-    state_layout="eef16",
-    action_layout="eef16",
-    use_length=50,
-)
-
-
-def env_runtime_contract(
-    *,
-    task_name: str,
-    task_config: str,
-    seed: int,
-    max_episode_steps: int = 10000,
-) -> dict[str, object]:
-    """Return the identity required from a RoboTwin EnvServer."""
-    return {
-        "runtime": "rlinf_robotwin_env",
-        "task_name": task_name,
-        "task_config": task_config,
-        "seed": int(seed),
-        "seed_mode": "exact",
-        "action_layouts": ["qpos14", MODEL_SPEC.action_layout],
-        "execution": {
-            "reset": True,
-            "step": True,
-            "chunk_step": True,
-            "action_layouts": ["qpos14", MODEL_SPEC.action_layout],
-            "chunk_step_all_frames": True,
-            "chunk_step_frame_format": "robotwin.observation",
-            "step_limit": int(max_episode_steps),
-        },
-        "extensions": {
-            "render_camera": {
-                "camera_names": list(ROBOTWIN_CAMERA_NAMES),
-                "metric_depth": True,
-            },
-            "get_camera_meta": True,
-            "get_task_language": True,
-            "plan_arm_path": True,
-        },
-    }
-
-
-def vla_runtime_contract() -> dict[str, object]:
-    """Return the identity required from a LingBot RoboTwin server.
-
-    Only the hard contract fields that break inference input/output when
-    mismatched are kept; descriptive behaviour fields live with the
-    implementation (facade/transport), not in the runtime-equality check.
-    """
-    return {
-        "runtime": "lingbotvla",
-        "policy_name": MODEL_SPEC.policy_name,
-        "camera_order": list(MODEL_SPEC.camera_order),
-        "state_layout": MODEL_SPEC.state_layout,
-        "action_layout": MODEL_SPEC.action_layout,
-        "use_length": MODEL_SPEC.use_length,
-    }
 
 
 FLYWHEEL_CONFIG = {
@@ -641,7 +551,7 @@ def _init_runtime(
         daemon, rpc = wam_pending
 
         def connect_wam():
-            from robots.robotwin.wam_client import RoboTwinWAMClient
+            from components.sim.robotwin.wam_client import RoboTwinWAMClient
 
             try:
                 client = RoboTwinWAMClient(rpc)
@@ -687,7 +597,13 @@ def _spawn_env_server(
             "robotwin_env_server",
             [
                 sys.executable,
-                str(get_repo_root() / "robots" / "robotwin" / "env_server.py"),
+                str(
+                    get_repo_root()
+                    / "components"
+                    / "sim"
+                    / "robotwin"
+                    / "env_server.py"
+                ),
                 "--task-name",
                 args.task_name,
                 "--task-config",
@@ -745,7 +661,7 @@ def _spawn_vla_server(
     qwen_path = model_path / MODEL_SPEC.qwen_base
     daemon = am.spawn_worker(
         [
-            str(get_repo_root() / "robots" / "robotwin" / "vla_server.py"),
+            str(get_repo_root() / "components" / "models" / "lingbot" / "server.py"),
             "--model-path",
             str(model_path),
             "--use-length",
@@ -791,7 +707,7 @@ def _build_env_runtime_kwargs(
 
 
 def _build_vla_runtime_kwargs(endpoint: tuple[str, int]) -> dict[str, Any]:
-    from robots.robotwin.vla_client import LingBotVLAClient
+    from components.models.lingbot.client import LingBotVLAClient
 
     host, port = endpoint
     model = LingBotVLAClient(host=host, port=port)

@@ -87,45 +87,45 @@ multi-pixel-median tip from the perception protocol.
 
 ## 2. Setup (do these once on a fresh checkout)
 
-Run the idempotent installer from the repo root:
+Install `robot-libero`; it pulls the LIBERO-PRO packages from the `rpent` branch
+and the perception stack (Pi0.5 and SAM 3.0) into one environment:
 
 ```bash
-bash scripts/install_libero_pro_plus.sh
+rpent-install install robot-libero --venv .venv-libero
 ```
 
-It does all four steps below: the liberopro editable install, applies the
-benchmark-registration patch, syncs the authoritative HF dataset snapshot, and
-verifies with the `get_benchmark(...).get_task(0).language` check. The perception
-observables (depth + both cameras + hi-res) are unconditional once the runner
-launches with `--libero-type pro`; there is nothing perception-specific to
-install beyond the PRO setup itself.
+The component covers the liberopro install and its benchmark registration. The
+remaining steps are the assets, the dataset snapshot, and the verification check
+described below. The perception observables (depth + both cameras + hi-res) are
+unconditional once the runner launches with `--libero-type pro`; there is
+nothing perception-specific to install beyond the PRO setup itself.
 
 ### 2.1. LIBERO-PRO repo
 
-Cloned at `${LIBERO_PRO_PATH:-/path/to/LIBERO-PRO}/` from
-`https://github.com/RLinf/LIBERO-PRO.git` and installed editable into the openpi
-venv:
+Installed into the environment from
+`https://github.com/RLinf/LIBERO-PRO.git` at the `rpent` branch. Confirm it from
+inside that environment:
 
 ```bash
-python -m pip show liberopro
-# Name: liberopro  Version: 0.1.0  Location: ${LIBERO_PRO_PATH:-/path/to/LIBERO-PRO}
+.venv-libero/bin/python -m pip show liberopro
+# Name: liberopro  Version: 0.1.0  Location: /path/to/site-packages/liberopro
 ```
 
-### 2.2. Apply the benchmark-registration patch
+### 2.2. Benchmark registration
 
-The upstream `__init__.py` does **not** expose the 16 perturbation suites through
-`get_benchmark()`. Our patch
-[`scripts/liberopro_register_perturbations.patch`](../../../../scripts/liberopro_register_perturbations.patch)
-adds them and overrides `Task.language` to read each BDDL's actual `:language`
-tag (so the perturbed instruction reaches Pi0 / hybrid).
+The 16 perturbation suites must be exposed through `get_benchmark()`, and
+`Task.language` must read each BDDL's actual `:language` tag so the perturbed
+instruction reaches Pi0 / hybrid. The `rpent` branch carries that registration;
+verify it in the installed environment:
 
 ```bash
-cd ${LIBERO_PRO_PATH:-/path/to/LIBERO-PRO}
-git apply <repo-root>/scripts/liberopro_register_perturbations.patch
+.venv-libero/bin/python -c \
+  "import liberopro.liberopro.benchmark as b; print(b.get_benchmark('libero_spatial_task')().get_task(0).language)"
 ```
 
-If already applied (likely), `git status -s` shows clean. If you reinstall
-liberopro, re-apply.
+If you repoint the component at another LIBERO-PRO revision, that revision must
+provide the same registration; otherwise the PRO suites resolve to the legacy
+tables and the perturbed instructions never reach the model.
 
 ### 2.3. Huggingface dataset (authoritative)
 
@@ -364,9 +364,9 @@ Pi0 never sees object coords in either mode, so there is no perception variant o
 the baseline. Expected behavior:
 
 - **P1 (task):** Pi0 "succeeds at the wrong task" — it picks the *base*-task
-  target object, places it on the plate, and `terminated=False` because the
-  goal predicate names a different object. This is exactly the gap the hybrid
-  closes.
+  target object, places it on the plate, and the benchmark scores it as a
+  failure because the goal predicate names a different object. This is exactly
+  the gap the hybrid closes.
 - **P2 (position):** Pi0 picks / places at the *base* (un-swapped) location.
 
 ### 4.4. Audit JSON — PRO + perception fields
@@ -387,15 +387,18 @@ add the PRO fields:
   "strategy_notes": "Camera, step, localization method and measured coordinates. For a swap, explain how you identified the relocated object or fixture.",
   "pick_result": { /* the pi0_pick step's result */ },
   "final_state": { /* latest view_env_state result's `state` field */ },
-  "terminated": true
+  "outcome": "success"
 }
 ```
+
+`outcome` is your own assessment of the episode; the benchmark grades it
+separately and its verdict is withheld from you.
 
 `strategy_notes` **must** describe the evidence used for localization. For
 manual samples, record the pixels and their world coordinates. For a geometry
 measurement, record the accepted quantity. For swap cells, describe the visual
 evidence that identified the relocated object or fixture. If unrecoverable after honest
-exploration, write `terminated: false` with what you tried and which step
+exploration, write `outcome: "failure"` with what you tried and which step
 failed — never warp (teleport primitives are deleted; see Rule 4 in the
 perception protocol). Write the audit with `write_text_file` to
 `{output_dir}/{recipe_tag}.json`, then call `finish`.
@@ -418,7 +421,7 @@ perception protocol). Write the audit with `write_text_file` to
   `finish`. `_swap` typically needs an in-episode retry — document it.
 - **Rule 4 (no teleport).** `set_object_pose`, `articulate_to`, `js_move_to`,
   `carry_object` are deleted. A goal past OSC reach with no physical approach →
-  honest `terminated:false`.
+  an honest failure audit.
 - **Rule 5 (assume solvable).** A localization that moves the gripper into thin
   air means you picked a wrong pixel (a reflection, a rim, a decoy object under
   the Object perturbation), not that the cell is unreachable. Re-look, re-pick,
@@ -431,8 +434,6 @@ robots/libero/guides/
 ├── pro_hybrid_guide.md                 <- this file
 ├── strict_hybrid_guide.md              <- perception protocol + Rules (source of truth)
 └── env_calibration.md                  <- OSC frame bounds + safe altitudes
-scripts/
-└── liberopro_register_perturbations.patch
 memory/libero/
 ├── MEMORY.md                  <- corpus index
 ├── global/                    <- feedback_* / project_* notes
@@ -498,6 +499,4 @@ Then, inside the run:
 
 When in doubt about *how to localize* or a primitive, the source of truth is
 [`strict_hybrid_guide.md`](./strict_hybrid_guide.md); about *PRO setup /
-perturbation semantics*, see
-[`scripts/install_libero_pro_plus.sh`](../../../../scripts/install_libero_pro_plus.sh)
-and §2.
+perturbation semantics*, see §2.

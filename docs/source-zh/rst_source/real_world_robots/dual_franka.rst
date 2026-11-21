@@ -13,28 +13,26 @@ RPent 通过 RLinf ``RealWorldEnv`` worker 控制双节点双臂 Franka 系统�
 安装
 ----
 
-在两台 Linux 控制节点分别安装 RPent，保持代码、Python、Ray 和 RLinf 版本一致。本地运行 VLA 或 SAM3 的节点需要 NVIDIA GPU。以下沿用 :doc:`../get_started/quickstart` 的安装方式：
+在两台 Linux 控制节点分别安装 RPent，保持代码、Python、Ray 和 RLinf 版本一致。本地运行 VLA 或 SAM3 的节点需要 NVIDIA GPU。把 ``robot-dual_franka`` 安装到 ``.venv-dual-franka-real``，其中包含双臂 Franka 和本地 SAM 3.0：
 
 .. code-block:: bash
 
-   git clone https://github.com/RLinf/RPent.git
-   cd RPent
-   uv venv
-   source .venv/bin/activate
-   uv pip install -e ".[franka,sam3]"
+   ./rpent-install.sh install robot-dual_franka \
+     --venv .venv-dual-franka-real
+   source .venv-dual-franka-real/bin/activate
 
-下载 Python 依赖较慢时，可使用 `清华 PyPI 镜像 <https://mirrors.tuna.tsinghua.edu.cn/help/pypi/>`_ 替换上面的安装命令：
+
+下载 Python 依赖较慢时，可在执行该安装命令前设置 `清华 PyPI 镜像 <https://mirrors.tuna.tsinghua.edu.cn/help/pypi/>`_：
 
 .. code-block:: bash
 
-   uv pip install -e ".[franka,sam3]" \
-     --index-url https://pypi.tuna.tsinghua.edu.cn/simple
+   export UV_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple
 
-该选项只替换 Python 包索引，不代理 Git 仓库、直接下载链接或模型权重。
+镜像只替换 Python 包索引，不代理 Git 仓库、直接下载链接或模型权重。
 
 连接机械臂前，请核对 libfranka 与机器人固件的兼容性。标定状态读取程序还需要 libfranka 开发库，见下文的标定步骤。
 
-后续命令在仓库根目录和该环境中执行。新开终端时，重新激活 ``.venv`` 并设置所需的模型环境变量。
+后续命令在仓库根目录和该环境中执行。新开终端时，重新激活 ``.venv-dual-franka-real`` 并设置所需的模型环境变量。
 
 需要本地分割时，在环境节点下载 SAM3 权重：
 
@@ -45,12 +43,12 @@ RPent 通过 RLinf ``RealWorldEnv`` worker 控制双节点双臂 Franka 系统�
      --local_dir ./checkpoints/sam3
    export SAM3_CHECKPOINT_PATH="$PWD/checkpoints/sam3/sam3.pt"
 
-未设置该变量或 ``--sam3-endpoint`` 时，分割功能不可用；仅安装 extra 不会下载权重。VLA checkpoint 配置见 :ref:`dual-franka-vla`。
+未设置该变量或 ``--sam3-endpoint`` 时，分割功能不可用；仅安装组件不会下载权重。VLA checkpoint 配置见 :ref:`dual-franka-vla`。
 
 标定
 ----
 
-``base_camera`` 和 ``d455_camera`` 都需要标定到 **右臂基座**。可使用 ``calibration_tools/`` 或 ROS `easy_handeye <https://github.com/IFL-CAMP/easy_handeye>`_，最终加载格式均为 YAML。腕部相机默认仅用于观测；若使用腕部 RGBD 相机进行投影，需要配置手眼标定和投影视图。
+``base_camera`` 和 ``d455_camera`` 都需要标定到 **右臂基座**。可使用 ``robots/dual_franka/calibration/`` 或 ROS `easy_handeye <https://github.com/IFL-CAMP/easy_handeye>`_，最终加载格式均为 YAML。腕部相机默认仅用于观测；若使用腕部 RGBD 相机进行投影，需要配置手眼标定和投影视图。
 
 采集器使用 RealSense RGB 图像，支持零畸变系数或非零的 ``distortion.brown_conrady`` 系数；其他非零畸变模型会拒绝采样。
 
@@ -62,17 +60,17 @@ RPent 通过 RLinf ``RealWorldEnv`` worker 控制双节点双臂 Franka 系统�
 
    uv venv .venv-calibration
    source .venv-calibration/bin/activate
-   uv pip install -r calibration_tools/requirements.txt pyrealsense2
+   uv pip install -r robots/dual_franka/calibration/requirements.txt pyrealsense2
 
 在右臂控制节点，先按 `libfranka 官方安装指南 <https://frankarobotics.github.io/docs/doc/libfranka/README.html#quick-install>`_ 安装与机器人固件兼容的开发库（含头文件和 CMake 配置），再编译状态读取程序：
 
 .. code-block:: bash
 
-   cmake -S calibration_tools -B calibration_tools/build \
+   cmake -S robots/dual_franka/calibration -B robots/dual_franka/calibration/build \
      -DCMAKE_PREFIX_PATH=/absolute/path/to/libfranka/install
-   cmake --build calibration_tools/build --parallel
+   cmake --build robots/dual_franka/calibration/build --parallel
 
-编译后得到 ``calibration_tools/build/read_franka_state``。标定时用它读取机械臂状态，不会移动机械臂。
+编译后得到 ``robots/dual_franka/calibration/build/read_franka_state``。标定时用它读取机械臂状态，不会移动机械臂。
 
 * 本机读取：读取程序与采集器在同一节点，不传 ``--ssh-host``。
 * 远程读取：用 ``--ssh-host`` 指定读取程序所在节点，并提前配置 SSH 免密登录。
@@ -85,7 +83,7 @@ RPent 通过 RLinf ``RealWorldEnv`` worker 控制双节点双臂 Franka 系统�
 
 .. code-block:: bash
 
-   python calibration_tools/raw_camera_service.py \
+   python robots/dual_franka/calibration/raw_camera_service.py \
      --base-serial BASE_SERIAL --d455-serial D455_SERIAL
 
 将 ChArUco 板固定在右臂末端，相机保持不动。默认板为 6×8 格、格边长 25 mm、
@@ -98,12 +96,12 @@ RPent 通过 RLinf ``RealWorldEnv`` worker 控制双节点双臂 Franka 系统�
 
 .. code-block:: bash
 
-   python calibration_tools/base_handeye_collect.py \
+   python robots/dual_franka/calibration/base_handeye_collect.py \
      --arm right --camera-serial BASE_SERIAL \
      --camera-url http://127.0.0.1:8765/raw/base \
      --ssh-host robot-right \
      --reader /absolute/path/to/read_franka_state --robot-ip ROBOT_IP \
-     --output calibration_tools/sessions/base-to-right
+     --output robots/dual_franka/calibration/sessions/base-to-right
 
 打开 ``http://127.0.0.1:8767``，按以下步骤采样：
 
@@ -118,22 +116,22 @@ RPent 通过 RLinf ``RealWorldEnv`` worker 控制双节点双臂 Franka 系统�
 
    ssh -L 8767:127.0.0.1:8767 CAMERA_HOST
 
-标定 D455 时复用采集命令，将序列号改为 ``D455_SERIAL``、URL 改为 ``http://127.0.0.1:8765/raw/d455``、输出目录改为 ``calibration_tools/sessions/d455-to-right``。
+标定 D455 时复用采集命令，将序列号改为 ``D455_SERIAL``、URL 改为 ``http://127.0.0.1:8765/raw/d455``、输出目录改为 ``robots/dual_franka/calibration/sessions/d455-to-right``。
 
 **3. 求解并导出**
 
 .. code-block:: bash
 
-   python calibration_tools/solve_base_handeye.py \
-     calibration_tools/sessions/base-to-right --arm right
-   python calibration_tools/export_dual_franka.py \
-     calibration_tools/sessions/base-to-right/base_camera_extrinsic_candidate.json \
-     --output calibration_tools/exports/base_to_right.yaml
+   python robots/dual_franka/calibration/solve_base_handeye.py \
+     robots/dual_franka/calibration/sessions/base-to-right --arm right
+   python robots/dual_franka/calibration/export_dual_franka.py \
+     robots/dual_franka/calibration/sessions/base-to-right/base_camera_extrinsic_candidate.json \
+     --output robots/dual_franka/calibration/exports/base_to_right.yaml
 
 D455 使用同样步骤，将会话目录和输出文件改为 ``d455-to-right`` 和
 ``d455_to_right.yaml``。检查会话中的 ``quality_report.json``，并通过独立实物
 测量验证候选外参；求解成功或导出 YAML 不代表精度已验证。导出不会覆盖已有文件。
-重新求解后，导出时使用新文件名，例如 ``calibration_tools/exports/base_to_right_v2.yaml``。
+重新求解后，导出时使用新文件名，例如 ``robots/dual_franka/calibration/exports/base_to_right_v2.yaml``。
 验证新结果后，再更新 ``perception.calibration`` 中的文件路径。
 
 **4. 配置 RPent**
@@ -166,7 +164,7 @@ RPent 将其与所选快照中的末端位姿组合；若位姿使用 ``left_bas
 机器人配置
 ----------
 
-若标定使用了独立 Python 环境，执行后续命令前请重新激活 RPent 的 ``.venv``。
+若标定使用了独立 Python 环境，执行后续命令前请重新激活 RPent 的 ``.venv-dual-franka-real``。
 
 启用机械臂运动前，请检查并修改仓库中的开发默认值：
 
@@ -258,7 +256,7 @@ Codex 配置
 启动双节点 Ray 集群
 --------------------
 
-启动 Ray 前，在两个节点分别激活安装好的 ``.venv``。``robots/dual_franka/runtime_config.py`` 的默认部署为：
+启动 Ray 前，在两个节点分别激活安装好的 ``.venv-dual-franka-real``。``robots/dual_franka/runtime_config.py`` 的默认部署为：
 
 * 节点 ``0`` 是 Ray head：运行 RPent、环境 worker、左臂及夹爪控制器、base 相机和左腕相机。额外的 D455 由 RPent 在此本地打开；按需启动的本地 VLA、SAM3 服务也运行在这里。
 * 节点 ``1`` 是 Ray worker：运行右臂及夹爪控制器和右腕相机，需要安装环境并启动 Ray，但不需要另起 RPent runner。
@@ -367,7 +365,7 @@ RLinf 按配置的节点创建相机句柄，不会跨节点搜索被移动的 U
 
 每次运行使用新的 ``--output-dir``。重点查看：
 
-* ``transcript_*.json``：规划器消息、工具调用与结束结果。
+* ``transcript.json``：规划器消息、工具调用与结束结果。
 * ``run.log`` 及各组件 ``*_server.log``：运行或启动错误。
 * ``states.json`` 及其引用的图像、深度和机器人状态文件：每步执行后的观测证据。
 * ``operator_events.json``：复位确认与人工判定。

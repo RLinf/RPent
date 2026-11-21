@@ -215,7 +215,7 @@ The ``codex`` Planner
 ``--planner codex`` uses the OpenAI Codex Python SDK. For each run,
 RPent starts a local Streamable HTTP MCP server on a background thread
 in the current process, and Codex calls the same toolkit through that
-server. You do not need to start ``scripts/codex_proxy/`` first.
+server. No separate proxy process needs to be started.
 
 RPent excludes repository ``AGENTS.md`` instructions and development skills
 in ``.agents/skills/`` from the Codex planner's automatic context loading.
@@ -250,14 +250,15 @@ Separate Codex Configuration and Login
 Use separate directories to avoid mixing RPent's configuration and session history
 with your everyday Codex development setup.
 
-In the terminal that runs RPent, activate ``.venv`` and set separate Codex
-configuration and session directories from the repository root. Repeat this setup
-in each new terminal used to run RPent:
+In the terminal that runs RPent, activate that profile's virtual environment
+(for example ``.venv-libero``) and set separate Codex configuration and
+session directories from the repository root. Repeat this setup in each new
+terminal used to run RPent:
 
 .. code-block:: bash
 
    cd /path/to/RPent
-   source .venv/bin/activate
+   source .venv-libero/bin/activate
    export CODEX_HOME="$PWD/.codex-rpent-live"
    export CODEX_SQLITE_HOME="$CODEX_HOME"
    export CODEX_SERVICE_TIER=fast

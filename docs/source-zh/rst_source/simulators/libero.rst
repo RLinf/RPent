@@ -86,36 +86,39 @@ LIBERO
    * - 动作
      - 规划器调用 Pi0.5 工具，或 ``move_to``、``set_gripper`` 等动作原语，由工具执行环境动作。
    * - 奖励与成功判定
-     - 任务成功以最终状态的顶层 ``terminated`` 为准。达到步数上限或规划器调用 ``finish`` 均不代表成功。
+     - 任务成功以最终状态的顶层 ``terminated`` 为准。评测模式下 runner 从自己的步骤记录读取该值，规划器的观测只暴露 ``episode_over``。达到步数上限或规划器调用 ``finish`` 均不代表成功。
    * - 任务指令
      - 任务指令来自所选套件、任务及当前环境。
+
+评测运行不会把 benchmark 的判定交给规划器。``view_env_state`` 和有状态的工具只暴露 ``episode_over``，用来说明本回合已经结束，同时去掉 ``terminated``、``truncated`` 以及任何成功标记，包括步骤日志中嵌套的那一份。``pi0_pick`` 报告的是 ``grasp_detected``，而不是成功标记。runner 在自己的步骤记录中保留被隐藏的判定，因此动作序列、指标和本次运行的判定都不受影响。探索模式仍在规划器视角中保留判定，因为搜寻过程需要知道哪些回合已经成功。
 
 安装与资源准备
 --------------
 
 首次使用 LIBERO-PRO，请先完成 :doc:`../get_started/quickstart` 的安装、资源下载和模型配置。本页用于选择更多任务与复现实验。
 
-其他 LIBERO 版本请在独立环境中安装对应 extra，再下载资源；每个 Python 环境只安装一种 LIBERO 版本：
+``robot-libero`` 同时安装 standard LIBERO 与 LIBERO-PRO，运行时用 ``--libero-type`` 选择版本，并下载对应资源：
 
 .. list-table::
    :header-rows: 1
 
-   * - 版本
-     - 安装命令
+   * - ``--libero-type``
      - 资源下载
    * - ``standard``
-     - ``uv pip install -e ".[libero]"``
      - ``libero-download-assets --skip-existing``
    * - ``pro``
-     - ``uv pip install -e ".[libero-pro]"``
      - ``liberopro-download-assets --skip-existing``
    * - ``plus``
-     - ``uv pip install -e ".[libero-plus]"``
-     - ``liberoplus-download-assets --skip-existing``
+     - ``liberoplus-download-assets --skip-existing``；模拟器包来自
+       ``sim-libero_plus``
 
-以上各组依赖均包含 Pi0.5（``rpent-openpi``）、SAM3 和 RLinf 运行时（``rpent-rlinf``）。模型权重需按下文单独下载。
+LIBERO-plus 要求 robosuite<1.5，不能和 standard、PRO 的包装进同一个环境。因此 ``sim-libero_plus`` 替代而不是叠加 ``sim-libero``，把 ``robot-libero`` 原本会带入的模型组件一起写上：
 
-运行时通过 ``--libero-type`` 选择与安装包一致的版本。
+.. code-block:: bash
+
+   rpent-install install sim-libero_plus model-openpi model-sam3 --venv .venv-libero-plus
+
+standard、PRO 环境包含 Pi0.5（``rpent-openpi``）、SAM3 和 RLinf 运行时（``infra-rlinf``），``sim-libero_plus`` 会带上后者。模型权重需按下文单独下载。
 
 VLA 配置
 --------
@@ -196,9 +199,9 @@ Fast-WAM 使用 ``--am-backend fast-wam`` 及其 worker 地址。LIBERO-Pro 需�
 查看结果
 ------------
 
-终端会显示服务器启动、规划器对话和工具调用。结束后查看输出目录中的 ``episode.mp4``、``transcript_*.json`` 和 ``run.log``；默认目录与逐步观测文件见 :ref:`run-output-files`。
+终端会显示服务器启动、规划器对话和工具调用。结束后查看输出目录中的 ``episode.mp4``、``transcript.json`` 和 ``run.log``；默认目录与逐步观测文件见 :ref:`run-output-files`。
 
-通过 ``view_env_state(step=-1)`` 查看最终状态，顶层 ``terminated`` 表示环境是否判定成功。规划器调用 ``finish`` 只表示结束规划。实时观察方法见 :doc:`../guides/dashboard`。
+通过 ``view_env_state(step=-1)`` 查看最终状态。评测模式下顶层 ``episode_over`` 告诉规划器本回合已结束，原生 ``terminated`` 判定保留在 runner 的步骤记录中。规划器调用 ``finish`` 只表示结束规划。实时观察方法见 :doc:`../guides/dashboard`。
 
 .. _libero-exploration:
 
@@ -248,9 +251,9 @@ Long 结果使用 `reproduce/libero <https://github.com/RLinf/RPent/tree/reprodu
 
 LIBERO 将仿真和模型推理分别放在独立服务器中运行，工具集通过对应客户端执行规划器的请求。
 
-- **env_server** （``robots/libero/env_server.py``）—— 负责运行 LIBERO 的 MuJoCo 环境并通过 EGL 渲染。它通过 RPC 传输（默认使用 HTTP；添加 ``--transport socket`` 后使用 pickle-framed socket）对外暴露 ``reset``、``step``、``chunk_step``、``render_camera``、 ``get_camera_meta`` 等接口。
-- **vla_server** （``rpent/robots/components/pi05_vla_server.py``）—— 持有 Pi0.5 权重，通过同一套 RPC 传输（HTTP 或 socket）暴露 ``predict``。
-- **sam3_server** （``rpent/robots/components/sam3_server.py``）—— 加载 SAM 3.0，根据文字描述或目标物体上的一个像素点，分割出目标区域。如果模型给出多个候选结果，只保留评分最高的一个，并通过同一套 RPC 传输（HTTP 或 socket）返回压缩 PNG 格式的分割掩码（mask）。
+- **env_server** （``components/sim/libero/env_server.py``）—— 负责运行 LIBERO 的 MuJoCo 环境并通过 EGL 渲染。它通过 RPC 传输（默认使用 HTTP；添加 ``--transport socket`` 后使用 pickle-framed socket）对外暴露 ``reset``、``step``、``chunk_step``、``render_camera``、 ``get_camera_meta`` 等接口。
+- **vla_server** （``components/models/openpi/server.py``）—— 持有 Pi0.5 权重，通过同一套 RPC 传输（HTTP 或 socket）暴露 ``predict``。
+- **sam3_server** （``components/models/sam3/server.py``）—— 加载 SAM 3.0，根据文字描述或目标物体上的一个像素点，分割出目标区域。如果模型给出多个候选结果，只保留评分最高的一个，并通过同一套 RPC 传输（HTTP 或 socket）返回压缩 PNG 格式的分割掩码（mask）。
 - **toolkit（工具集）** （``robots/libero/toolkit.py``）—— 定义 LLM 能调用的工具：``pi0_pick`` （交给 Pi0.5）、``move_to``、``rotate_wrist``、 ``back_project``、``view_env_state``、``finish``…
 
 规划器可调用的工具
@@ -291,7 +294,7 @@ Dashboard
 
 如果你有一个与 LIBERO 兼容、但并非 Pi0.5 的 VLA，可以在不修改机器人实现的情况下替换 model client：
 
-1. 写一个新的 ``vla_server.py``，暴露相同的 ``predict`` RPC 契约（HTTP 或 socket 均可）。
+1. 写一个新的模型服务（``components/models/<name>/server.py``），暴露相同的 ``predict`` RPC 契约（HTTP 或 socket 均可）。
 2. 用 ``--am-endpoint [protocol://]host:port`` 指向它。
 3. 如果可用工具需要调整（比如将 ``pi0_pick`` 改成 ``mymodel_pick``），相应更新 ``robots/libero/toolkit.py``。
 

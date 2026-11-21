@@ -23,8 +23,8 @@ from typing import Any
 
 import numpy as np
 
-from robots.robodojo.access import CAMERAS, validate_rgb
-from rpent.robots.components.env_client_base import BaseEnvClient
+from components.sim.robodojo.access import CAMERAS, validate_rgb
+from rpent.components.env.client import BaseEnvClient
 
 
 def _validate_receipt(feedback: dict, expected_step: int | None) -> None:

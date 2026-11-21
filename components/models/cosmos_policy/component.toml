@@ -1,0 +1,8 @@
+schema = 2
+name = "model-cosmos_policy"
+probe = "components.models.cosmos_policy"
+python = ">=3.10,<3.13"
+# The server loads the official checkpoint from its own interpreter;
+# RPent only maps observations and predictions at the RPC boundary.
+
+dependencies = []

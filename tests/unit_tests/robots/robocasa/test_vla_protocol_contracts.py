@@ -26,19 +26,19 @@ from typing import Any
 import numpy as np
 import pytest
 
+from components.models.rldx.server import _normalize_legacy_processor_geometry
+from components.sim.robocasa.env_server import DEFAULT_CAMS, RoboCasaEnvFacade
+from components.tools.flywheel.flywheel import select_vla_segments
+from components.tools.flywheel.reader import iter_trajectories, read_array
 from robots.robocasa.env_client import RoboCasaEnvClient
-from robots.robocasa.env_server import DEFAULT_CAMS, RoboCasaEnvFacade
 from robots.robocasa.primitives import RoboCasaPrimitives
 from robots.robocasa.prompt_bundle import system_prompt
 from robots.robocasa.toolkit import _capture_robocasa_call
-from robots.robocasa.vla_server import _normalize_legacy_processor_geometry
+from rpent.components.env.action_spec import box_action_spec
+from rpent.components.env.facade import BaseEnvFacade
 from rpent.dashboard.events import NullDashboardEventSink
-from rpent.flywheel.flywheel import select_vla_segments
-from rpent.flywheel.reader import iter_trajectories, read_array
 from rpent.memory import MemoryManager
 from rpent.prompt.utils import format_prompt
-from rpent.robots.components.action_spec import box_action_spec
-from rpent.robots.components.env_facade_base import BaseEnvFacade
 from rpent.session import EnvState, Payload
 from rpent.session.env_capture import CapturingEnvClient, ToolCallCapture
 from rpent.tools import Toolkit, ToolResult, iter_tools
@@ -253,7 +253,7 @@ def test_legacy_rldx_processor_null_geometry_uses_release_defaults(monkeypatch) 
         return "train-transform", "eval-transform"
 
     monkeypatch.setattr(
-        "robots.robocasa.vla_server._build_processor_image_transforms",
+        "components.models.rldx.server._build_processor_image_transforms",
         fake_build,
     )
 
@@ -272,7 +272,7 @@ def test_current_rldx_processor_geometry_is_not_rebuilt(monkeypatch) -> None:
         raise AssertionError(f"unexpected transform rebuild for {candidate!r}")
 
     monkeypatch.setattr(
-        "robots.robocasa.vla_server._build_processor_image_transforms",
+        "components.models.rldx.server._build_processor_image_transforms",
         unexpected_build,
     )
 

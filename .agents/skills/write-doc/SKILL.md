@@ -13,7 +13,7 @@ and [docs/STYLE_GUIDE.md](../../../docs/STYLE_GUIDE.md). Pair with
 
 1. **Lead with the task and prerequisites**
    - State in the first 1–2 sentences what task the reader will accomplish, then
-     list concrete prerequisites (OS, Python/extras, hardware, weights/assets)
+     list concrete prerequisites (OS, Python version, hardware, weights/assets)
      before the first command.
    - Cut throat-clearing, promotional claims, review history, and narration of
      replaced implementations. Keep negative statements only for real operational

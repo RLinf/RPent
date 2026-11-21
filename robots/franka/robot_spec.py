@@ -29,10 +29,10 @@ from robots.franka.runtime_config import (
     validate_calibration_sources,
 )
 from robots.franka.tasks import FRANKA_TASKS, get_franka_task
+from rpent.components.models.backends import add_am_args, select_am
 from rpent.dashboard.events import DashboardEventSink, RuntimeStatusEvent
 from rpent.dashboard.spec import DashboardSpec
 from rpent.memory import MemoryManager
-from rpent.robots.components.am_runtime import add_am_args, select_am
 from rpent.robots.prompt_bundle import PromptBundle
 from rpent.robots.robot_spec import RobotSpec, RunConfig
 from rpent.robots.runtime import try_spawn_server, try_wait_server
@@ -87,6 +87,9 @@ def get_robot_spec() -> RobotSpec:
         init_runtime=_init_runtime,
         resolve_dashboard=lambda args: FRANKA_DASHBOARD_SPEC,
         is_real_robot=True,
+        # Flash replay records the operator's confirmation; a plain evaluation
+        # run is judged by the operator outside the harness and has no verdict.
+        truth_source="operator",
         supports_exploration=False,
     )
 
@@ -226,8 +229,8 @@ def _init_runtime(
     provided.
     """
     select_am(args, "franka")
+    from components.models.openpi.client import Pi05VLAClient
     from robots.franka.env_client import FrankaEnvClient
-    from rpent.robots.components.pi05_vla_client import Pi05VLAClient
 
     available = {"env", "vla"}
     selected = available if components is None else components

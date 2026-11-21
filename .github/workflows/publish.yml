@@ -1,0 +1,57 @@
+name: Publish
+# Releasing is its own workflow because the publish job needs `id-token: write`
+# for Trusted Publishing, and a reusable workflow cannot request more
+# permission than its caller grants. Keeping it out of `full-ci.yml` also keeps
+# fork pull requests away from the publish environment.
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+jobs:
+  # A release must prove the exact commit it publishes: every environment
+  # installs from its declared components, and the full unit suite runs in the
+  # CPU test environment. `full-ci` no longer runs on tags,
+  # so this call is the single release gate and `build` cannot start without it.
+  verify:
+    name: Release verification
+    uses: ./.github/workflows/full-ci.yml
+    with:
+      full: true
+
+  build:
+    name: Build the distribution
+    needs: verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+      - name: Build sdist and wheel
+        env:
+          # PyPI gets the core package only; component code comes from a
+          # source checkout so generic top-level names stay off the index.
+          RPENT_WHEEL_SCOPE: core
+        run: uv build
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+  publish:
+    name: Publish to PyPI
+    needs: build
+    # Human approval comes from the `pypi` environment's protection rules.
+    environment: pypi
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+      - uses: pypa/gh-action-pypi-publish@release/v1

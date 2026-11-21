@@ -55,6 +55,33 @@ def test_payload_error_and_images_reach_planner_without_mutation(
     assert payload["error"] == error
 
 
+def test_tool_reported_error_stays_a_completed_call() -> None:
+    result = ToolResult(data={"error": "file not found: /missing"})
+
+    assert result.call_ok and not result.no_execution
+    assert result.error == "file not found: /missing"
+    assert result.to_dict() == {"error": "file not found: /missing"}
+    assert json.loads(result.to_text()) == {"error": "file not found: /missing"}
+
+
+@pytest.mark.parametrize(
+    "render,error_key", [(mcp_result, "isError"), (_tool_result_to_mcp, "is_error")]
+)
+def test_framework_rejection_is_marked_in_the_payload(render, error_key) -> None:
+    result = ToolResult(
+        data={"error": "unknown tool: missing"}, call_ok=False, no_execution=True
+    )
+
+    response = render(result)
+
+    assert response[error_key] is True
+    assert json.loads(response["content"][0]["text"]) == {
+        "error": "unknown tool: missing",
+        "call_ok": False,
+        "no_execution": True,
+    }
+
+
 @pytest.mark.parametrize("value", ["plain text", 17, ["one", "two"]])
 def test_tool_result_encodes_payload_values(value: Any) -> None:
     result = ToolResult(data={"value": value})

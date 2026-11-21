@@ -29,14 +29,14 @@ from unittest.mock import Mock
 import numpy as np
 import pytest
 
+from components.tools.flywheel.flywheel import select_vla_segments
+from components.tools.flywheel.reader import iter_trajectories, read_array
 from robots.robotwin import toolkit
 from robots.robotwin.env_client import RoboTwinEnvClient
 from robots.robotwin.primitives import RoboTwinPrimitives
 from robots.robotwin.robot_spec import env_runtime_contract
 from robots.robotwin.toolkit import _capture_robotwin_call
 from rpent.dashboard.events import NullDashboardEventSink
-from rpent.flywheel.flywheel import select_vla_segments
-from rpent.flywheel.reader import iter_trajectories, read_array
 from rpent.memory import MemoryManager
 from rpent.session import EnvState, Payload
 from rpent.session.env_capture import CapturingEnvClient, ToolCallCapture
@@ -336,9 +336,12 @@ def facade(monkeypatch):
             stub = ModuleType(name)
             stub.__dict__.update(attributes)
             monkeypatch.setitem(sys.modules, name, stub)
-    for name in ("robots.robotwin.rlinf_env", "robots.robotwin.env_server"):
+    for name in (
+        "components.sim.robotwin.rlinf_env",
+        "components.sim.robotwin.env_server",
+    ):
         monkeypatch.delitem(sys.modules, name, raising=False)
-    module = importlib.import_module("robots.robotwin.env_server")
+    module = importlib.import_module("components.sim.robotwin.env_server")
     task = _Task()
     env = object.__new__(module.RoboTwinAgentEnv)
     slot = SimpleNamespace(task=task, lock=task.lock)
@@ -372,8 +375,8 @@ def facade(monkeypatch):
     yield module.RoboTwinEnvFacade(
         env, metadata={"seed": 7, "execution": {"chunk_step_all_frames": True}}
     )
-    sys.modules.pop("robots.robotwin.env_server", None)
-    sys.modules.pop("robots.robotwin.rlinf_env", None)
+    sys.modules.pop("components.sim.robotwin.env_server", None)
+    sys.modules.pop("components.sim.robotwin.rlinf_env", None)
 
 
 @pytest.mark.parametrize(

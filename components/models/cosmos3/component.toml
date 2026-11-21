@@ -1,0 +1,9 @@
+schema = 2
+name = "model-cosmos3"
+probe = "components.models.cosmos3"
+python = ">=3.10,<3.13"
+# The RPC worker only reshapes observations and actions; Cosmos3
+# weights and SGLang run in the separately deployed service it
+# connects to.
+
+dependencies = []

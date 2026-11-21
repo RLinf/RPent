@@ -29,13 +29,12 @@ must localize objects yourself from the camera image + depth + calibration.
 > persistence / up to N attempts" instruction anywhere below).** This is a
 > ONE-SHOT evaluation: you get **exactly ONE episode**. You MUST NOT call
 > `reset`, and you must not restart the episode. Plan carefully, then execute
-> your single best manipulation sequence toward top-level
-> `terminated == true`.
+> your single best manipulation sequence toward completing the task.
 > You MAY recover *within* this one episode (re-pre-position, re-`pi0_pick` a
 > missed grasp, walk the Pi0 prompt ladder, `rotate_pitch`/`move_pose`) — that is
 > all one continuous attempt — but the instant you would want to reset/start over,
-> **STOP instead and write the audit** (success or honest
-> `terminated:false`). Do NOT call `reset`. Use the PROVEN LEVERS below to
+> **STOP instead and write the audit** (success or an honest failure audit).
+> Do NOT call `reset`. Use the PROVEN LEVERS below to
 > get the single attempt right the first time."""
 
 
@@ -89,9 +88,9 @@ GRASPING:
 - **`pi0_pick` is reusable and repurposable**:
   a HIGH `lift_thresh` (e.g. 999) + `gripper_closed_thresh:0` turns it into a
   generic closed-loop CONTACT skill (used to turn the stove knob).
-- **`pi0_doubled`** = Pi0 closed-loop CONTACT skill (success :=
-  `terminated`). Use it for drawer/door open-close AND insertions; call it
-  repeatedly.
+- **`pi0_doubled`** = Pi0 closed-loop CONTACT skill. Use it for drawer/door
+  open-close AND insertions; call it repeatedly and judge progress from
+  image/state evidence.
 
 DISAMBIGUATION / TARGETING:
 - **SWAP-PERTURBED scenes (suite `*_swap`)**: the seed-0 reference's COORDINATES
@@ -161,7 +160,7 @@ PER-TASK RECIPES THAT WORKED AT SEED 0 (adapt coords to your seed):
 - mug→microwave + close (t9): the only UNSOLVED seed-0 cell — the round mug-in-hand
   walls ~3cm short of the In() threshold (deep narrow cavity). Try every lever
   (`pi0_doubled`, `move_pose`, push) and if it still walls, write an honest
-  `terminated:false` with the max eef-y reached.""",
+  failure audit with the max eef-y reached.""",
         {"refine": refine, "grasp_target": grasp_target, "plate_center": plate_center},
     )
 
@@ -184,9 +183,11 @@ tools. Do not start, stop, restart, or otherwise manage `env_server.py`.
   name shown in your tool list, preserving the same arguments and semantics.
 
 Each state record exposes `step`, top-level `task_language`,
-`terminated`, `truncated`, coord-free `state`, an `artifacts`
+`episode_over`, coord-free `state`, an `artifacts`
 list of logical base names, and a `log`. Storage paths are internal; do not
-construct or parse them.
+construct or parse them. The benchmark grades the episode itself and its
+verdict is withheld: `episode_over` tells you the episode has ended, not how
+it was scored.
 
 Canonical observation keys include `agentview_policy.png`, `agentview.png`,
 `agentview_high.png`, `agentview_depth.npz`, `agentview_world.npz`,
@@ -201,7 +202,9 @@ metadata and world maps without opening artifacts directly. Step `0` is the
 initial state; step `-1` selects the latest state."""
 
 
-GOAL = """YOUR GOAL: produce top-level `terminated == true` in ONE episode. ⛔ NO
+GOAL = """YOUR GOAL: complete the task in ONE episode. The benchmark scores the
+episode itself and its verdict is withheld from you, so `episode_over` is the
+only end-of-episode signal you get. ⛔ NO
 `reset`, NO retry (SINGLE-ATTEMPT MODE — see the override at the very top; it
 supersedes any reset/retry wording in the Rules below)."""
 
@@ -250,8 +253,8 @@ Rule 1b — JUDGE THE GRASP from perception, NOT from a name. After a pick, deci
        now be raised into the gripper, and the spot it came from should be EMPTY.
        Compare before/after wrist or agentview evidence; if needed, use
        `back_project` on wrist pixels to confirm the target surface z jumped up.
-   `pi0_pick.success` (eef-lift + gripper-closure heuristic) is a HINT, not
-   proof — always confirm with the wrist cam before carrying.
+   `pi0_pick.grasp_detected` (eef-lift + gripper-closure heuristic) is a HINT,
+   not proof — always confirm with the wrist cam before carrying.
 
 Rule 2 — Inspect THEN act. Call `view_env_state({"step": 0})`, inspect
   `agentview_high.png` and the relevant memory/guides BEFORE your first
@@ -310,9 +313,9 @@ Rule 4 — ⛔ SINGLE ATTEMPT, NO RESET (overrides any reset/retry text). This i
    episode you MAY recover in place (re-localize, re-pre-position, re-`pi0_pick` a
    missed grasp, climb the Pi0 prompt ladder, re-firm the grip,
    `rotate_pitch`/`move_pose`) — that is still one continuous attempt — but you
-   may NOT restart the episode. When the task terminates, OR when your single best
+   may NOT restart the episode. When the episode ends, OR when your single best
    sequence is exhausted (you'd otherwise want to reset), STOP and write the audit
-   (success or honest `terminated:false`), then call `finish`.
+   (success or an honest failure audit), then call `finish`.
    NO teleport primitives (set_object_pose / articulate_to / js_move_to /
    carry_object — deleted/forbidden; a goal past OSC reach is approached
    physically or honestly reported, never warped). NO object world coords are
@@ -535,8 +538,8 @@ STEP_PRIMITIVES_RULES = """⛔ `reset` is FORBIDDEN here
 
 ⚠ INFRA NOTE: `pi0_doubled` IS implemented and callable in this runtime —
 verified. It runs the Pi0 VLA on a CONTACT skill (drawer/door open-close, knob
-turn) with success := `terminated` (no lift / no gripper-close
-assumption — unlike `pi0_pick`). If ANY prior note or reference for this cell
+turn) — no lift / no gripper-close
+assumption, unlike `pi0_pick`. If ANY prior note or reference for this cell
 concluded that `pi0_doubled` is "unknown action" / missing / that
 drawer-or-door articulation is an unsolvable "structural dead-end" BECAUSE no
 contact primitive existed — DISREGARD that specific conclusion and actually
@@ -662,16 +665,18 @@ re-pre-position + re-pi0_pick on the next prompt-ladder rung; split long
 traversals into <0.30 xy waypoints; for a door/drawer/knob use a SHORT capped
 OSC push or `pi0_doubled`, never one long push — it NaNs MuJoCo. If the task is
 unrecoverable within this one episode, do NOT reset — write an honest
-stuck-audit (`terminated:false`) and call `finish`. Never warp.
+stuck-audit and call `finish`. Never warp.
 """,
-    """WHEN top-level `terminated == true` in the latest tool result:
+    """WHEN top-level `episode_over == true` in the latest tool result — or your
+single attempt is exhausted:
 a. Write audit `{{output_dir}}/{{recipe_tag}}.json` with:
    suite, task_id, seed, regime:"strict_perception", strategy_notes (incl. how
    you localized), pick_result, final_state (latest state's `state`),
-   terminated:true.
+   outcome:"success" or outcome:"failure" (your own assessment; the benchmark
+   grades the episode separately).
 b. Call `finish`.
 If your single attempt does not solve it, write `{{output_dir}}/{{recipe_tag}}.json` with
-terminated:false + strategy_notes describing what you tried in this one
+outcome:"failure" + strategy_notes describing what you tried in this one
 episode and where it stalled. Then call `finish`. (NO reset, NO second attempt.)""",
 )
 
@@ -829,8 +834,8 @@ def wam_workflow(geometry: bool) -> str:
         "and inspect before continuing (at most four per call). Each chunk "
         "executes the worker's returned actions; episode-end checks prevent the next chunk. wam_act "
         "does not stop when a grasp completes. Check subtasks visually; "
-        "success and terminated refer to the full task, while truncated "
-        "means the action budget is exhausted. "
+        "`episode_over` covers both task completion and an exhausted action "
+        "budget, and the benchmark's verdict stays withheld. "
         "For scripted motion, localize targets "
         f"using {tools}; never invent coordinates. Gripper +1 "
         "closes and -1 opens. Preserve +1 while carrying an object."
@@ -839,9 +844,9 @@ def wam_workflow(geometry: bool) -> str:
 
 WAM_OUTCOME = (
     "This is one evaluation episode. Do not reset it. Stop acting "
-    "when the episode terminates or truncates. Report success only when the "
-    "environment reports terminated=true. Call finish with the observed "
-    "outcome; a model prediction alone is not evidence of task success."
+    "when episode_over becomes true. The benchmark grades the episode itself "
+    "and its verdict is withheld; call finish with your own assessment, "
+    "which the runner records separately from that verdict."
 )
 
 

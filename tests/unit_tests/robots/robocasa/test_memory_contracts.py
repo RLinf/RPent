@@ -47,6 +47,9 @@ def _args(
         memory_profile="local",
         planner="codex",
         model="offline",
+        reasoning_effort="high",
+        max_turns=10,
+        planner_timeout_s=None,
     )
 
 

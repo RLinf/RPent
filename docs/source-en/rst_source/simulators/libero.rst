@@ -87,9 +87,18 @@ The table distinguishes planner tools, model inputs, and the environment’s suc
    * - Action
      - The planner calls Pi0.5 tools or motion primitives such as ``move_to`` and ``set_gripper``; these execute environment actions.
    * - Reward / success
-     - Evaluate success using the final state’s top-level ``terminated`` value. A step limit or planner ``finish`` is not a success label.
+     - Evaluate success using the final state’s top-level ``terminated`` value. In evaluation the runner reads it from its own step record; the planner’s observation exposes only ``episode_over``. A step limit or planner ``finish`` is not a success label.
    * - Task prompt
      - The task language comes from the selected suite/task and the current environment.
+
+In an evaluation run the benchmark’s verdict is withheld from the planner.
+``view_env_state`` and every stateful tool expose ``episode_over``, which says
+the episode has ended, and omit ``terminated``, ``truncated``, and any success
+flag, including the copy nested in the step log. ``pi0_pick`` reports
+``grasp_detected`` instead of a success flag. The runner keeps the withheld
+verdict in its own step records, so recipes, metrics, and the run verdict are
+unchanged. Exploration runs keep the verdict in the planner’s view, because a
+hunting session needs to know which episodes it solved.
 
 .. _installation-and-variants:
 
@@ -98,26 +107,35 @@ Installation and Resources
 
 For a first LIBERO-PRO run, complete the installation, asset downloads, and model setup in :doc:`../get_started/quickstart`. Continue here to select tasks and reproduce experiments.
 
-For another variant, install the matching extra in an isolated environment and download its assets. Install only one LIBERO variant per Python environment:
+``robot-libero`` installs the standard LIBERO and LIBERO-PRO packages together;
+choose the variant at runtime with ``--libero-type`` and download the matching
+assets:
 
 .. list-table::
    :header-rows: 1
 
-   * - Variant
-     - Install
+   * - ``--libero-type``
      - Assets
    * - ``standard``
-     - ``uv pip install -e ".[libero]"``
      - ``libero-download-assets --skip-existing``
    * - ``pro``
-     - ``uv pip install -e ".[libero-pro]"``
      - ``liberopro-download-assets --skip-existing``
    * - ``plus``
-     - ``uv pip install -e ".[libero-plus]"``
-     - ``liberoplus-download-assets --skip-existing``
+     - ``liberoplus-download-assets --skip-existing``; the simulator package
+       comes from ``sim-libero_plus``
 
-Each extra includes Pi0.5 (``rpent-openpi``), SAM3, and the RLinf runtime
-(``rpent-rlinf``). Download model weights separately as described below.
+LIBERO-plus needs robosuite<1.5, so it cannot share an environment with the
+standard and PRO packages. ``sim-libero_plus`` therefore replaces
+``sim-libero`` instead of extending it; name it with the model components
+``robot-libero`` would have pulled in:
+
+.. code-block:: bash
+
+   rpent-install install sim-libero_plus model-openpi model-sam3 --venv .venv-libero-plus
+
+The standard and PRO environment includes Pi0.5 (``rpent-openpi``), SAM3, and
+the RLinf runtime (``infra-rlinf``), which ``sim-libero_plus`` requires.
+Download model weights separately as described below.
 
 At runtime, set ``--libero-type`` to match the installed variant.
 
@@ -217,9 +235,9 @@ that call only. Chunk budgets do not specify where to stop inside a chunk.
 View Results
 ------------
 
-The terminal shows server startup, planner conversation, and tool calls. After the run, inspect ``episode.mp4``, ``transcript_*.json``, and ``run.log`` in the output directory; see :ref:`run-output-files` for default paths and step artifacts.
+The terminal shows server startup, planner conversation, and tool calls. After the run, inspect ``episode.mp4``, ``transcript.json``, and ``run.log`` in the output directory; see :ref:`run-output-files` for default paths and step artifacts.
 
-Inspect the final state with ``view_env_state(step=-1)``. Its top-level ``terminated`` value is the native success result; ``finish`` ends planning. See :doc:`../guides/dashboard` for live monitoring.
+Inspect the final state with ``view_env_state(step=-1)``. In evaluation its top-level ``episode_over`` tells the planner the episode has ended while the native ``terminated`` result stays in the runner’s step record; ``finish`` ends planning. See :doc:`../guides/dashboard` for live monitoring.
 
 .. _libero-exploration:
 
@@ -286,14 +304,14 @@ What Runs Where
 LIBERO separates simulation and model inference into services. The toolkit
 uses their clients to execute the planner's requests.
 
-- **env_server** (``robots/libero/env_server.py``) — owns the LIBERO
+- **env_server** (``components/sim/libero/env_server.py``) — owns the LIBERO
   MuJoCo env and EGL rendering. Exposes ``reset``, ``step``,
   ``chunk_step``, ``render_camera``, ``get_camera_meta``, … over an RPC
   transport (HTTP by default; socket via ``--transport socket``).
-- **vla_server** (``rpent/robots/components/pi05_vla_server.py``) — owns the Pi0.5
+- **vla_server** (``components/models/openpi/server.py``) — owns the Pi0.5
   weights. Exposes ``predict`` over the same RPC transport (HTTP or
   socket).
-- **sam3_server** (``rpent/robots/components/sam3_server.py``) — loads SAM 3.0 and
+- **sam3_server** (``components/models/sam3/server.py``) — loads SAM 3.0 and
   segments a target region from a text description or one pixel on the target
   object. If the model produces multiple candidates, it selects the one with
   the highest model score and returns its mask as a compressed PNG through the
@@ -350,7 +368,8 @@ Bringing Your Own VLA
 If you have a LIBERO-compatible VLA that is not Pi0.5, swap the model
 client without touching the robot by:
 
-1. Writing a new ``vla_server.py`` that exposes the same ``predict``
+1. Writing a new model service
+   (``components/models/<name>/server.py``) that exposes the same ``predict``
    RPC contract (over HTTP or socket).
 2. Pointing at it with ``--am-endpoint [protocol://]host:port``.
 3. Optionally updating ``robots/libero/toolkit.py`` if the tool

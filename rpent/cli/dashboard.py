@@ -18,7 +18,6 @@ from __future__ import annotations
 
 import argparse
 import copy
-import json
 import shlex
 import sys
 import threading
@@ -30,10 +29,16 @@ from typing import TYPE_CHECKING, Any
 
 from rpent.cli.main import (
     _handoff_message,
+    _read_solved,
     _serialize_messages,
 )
 from rpent.dashboard.events import RunStartedEvent
-from rpent.evaluation import RunFinalizationContext
+from rpent.evaluation import (
+    RunFinalizationContext,
+    verdict_fields,
+    write_json_atomic,
+)
+from rpent.install.snapshot import finish_run_manifest, start_run_manifest
 from rpent.memory import MemoryManager
 from rpent.planner.base import build_planner, is_recoverable_agent_error
 from rpent.robots import get_toolkit
@@ -212,6 +217,13 @@ def _run_dashboard_task(
 
     prepare_run_memory(task_args, robot_spec, run_config)
     output_dir = init_output_dir(run_config.output_dir, verbose=args.verbose)
+    start_run_manifest(
+        output_dir,
+        robot=robot_spec.name,
+        planner=task_args.planner,
+        model=task_args.model,
+        task=run_config.task_desc,
+    )
 
     recipe_tag = run_config.recipe_tag
     finish_result = None
@@ -225,6 +237,13 @@ def _run_dashboard_task(
     memory_manager = None
     environment_success = None
     environment_metrics: dict = {}
+    # Same verdict rule as the plain runner: a robot judged in this mode
+    # reports it, and a plain real-robot evaluation does not.
+    collects_verdict = (
+        robot_spec.supports_exploration
+        or robot_spec.finalize_run is not None
+        or task_args.planner == "flash"
+    )
     try:
         task_daemons, task_runtime_kwargs = robot_spec.init_runtime(
             task_args,
@@ -368,23 +387,22 @@ def _run_dashboard_task(
                         finish_result = toolkit.finalize_direct_verdict()
                         if agent_error:
                             stats["planner_error_at_operator_verdict"] = agent_error
-                    if robot_spec.supports_exploration:
-                        solved = bool(toolkit.solved())
-                        environment_success = solved
-                        if solved:
-                            recipe_path = (
-                                toolkit.write_recipe(recipe_tag) or recipe_path
-                            )
                 finally:
                     try:
                         state.unbind_toolkit(toolkit)
-                        if robot_spec.finalize_run is not None:
+                        if collects_verdict:
+                            # Quiesce before reading the verdict and metrics.
                             toolkit.cancel_active_and_wait()
-                            environment_success = bool(toolkit.solved())
-                            solved = environment_success
-                            environment_metrics = toolkit.evaluation_metrics(
-                                success=environment_success
-                            )
+                            environment_success = _read_solved(toolkit)
+                            solved = environment_success is True
+                            if robot_spec.supports_exploration and solved:
+                                recipe_path = (
+                                    toolkit.write_recipe(recipe_tag) or recipe_path
+                                )
+                            if robot_spec.finalize_run is not None:
+                                environment_metrics = toolkit.evaluation_metrics(
+                                    success=environment_success
+                                )
                     finally:
                         try:
                             toolkit.close()
@@ -448,19 +466,41 @@ def _run_dashboard_task(
             else:
                 logger.warning("%s", cleanup_error)
 
-        transcript_path = output_dir / f"transcript_{run_config.recipe_tag}.json"
-        record = {
-            **run_config.task_desc,
-            "model": task_args.model,
-            "elapsed_s": round(time.time() - started, 1),
-            "finish": finish_result,
-            "environment_success": environment_success,
-            "stats": stats,
-            "messages": _serialize_messages(messages),
-        }
+        elapsed_s = time.time() - started
+        context = RunFinalizationContext(
+            output_dir=Path(output_dir),
+            robot_name=robot_spec.name,
+            task_desc=dict(run_config.task_desc),
+            environment_success=environment_success,
+            environment_metrics=environment_metrics,
+            agent_error=agent_error,
+            elapsed_s=elapsed_s,
+            planner=task_args.planner,
+            model=task_args.model,
+            reasoning_effort=task_args.reasoning_effort,
+            max_turns=task_args.max_turns,
+            planner_timeout_s=task_args.planner_timeout_s,
+            finish_result=dict(finish_result) if finish_result is not None else None,
+            stats=dict(stats),
+            truth_source=robot_spec.truth_source if collects_verdict else None,
+        )
+        transcript_path = output_dir / "transcript.json"
         try:
-            with open(transcript_path, "a") as transcript_file:
-                json.dump(record, transcript_file, indent=2, default=str)
+            write_json_atomic(
+                transcript_path,
+                {
+                    "recipe_tag": run_config.recipe_tag,
+                    **run_config.task_desc,
+                    "model": task_args.model,
+                    "elapsed_s": round(elapsed_s, 1),
+                    "finish": finish_result,
+                    "environment_success": environment_success,
+                    **verdict_fields(context),
+                    "stats": stats,
+                    "messages": _serialize_messages(messages),
+                },
+                default=str,
+            )
         except Exception as exc:
             logger.warning(
                 "failed to write TaskRun transcript %s: %s", transcript_path, exc
@@ -487,34 +527,32 @@ def _run_dashboard_task(
             logger.warning("%s", warning)
             state.report_task_warning(warning)
 
+    result_path = None
+    artifact_error: str | None = None
     if robot_spec.finalize_run is not None:
         try:
-            robot_spec.finalize_run(
-                RunFinalizationContext(
-                    output_dir=Path(output_dir),
-                    robot_name=robot_spec.name,
-                    task_desc=dict(run_config.task_desc),
-                    environment_success=environment_success,
-                    environment_metrics=environment_metrics,
-                    agent_error=agent_error,
-                    elapsed_s=time.time() - started,
-                    planner=args.planner,
-                    model=args.model,
-                    reasoning_effort=args.reasoning_effort,
-                    max_turns=args.max_turns,
-                    planner_timeout_s=args.planner_timeout_s,
-                    finish_result=dict(finish_result)
-                    if finish_result is not None
-                    else None,
-                    stats=dict(stats),
-                )
-            )
+            result_path = robot_spec.finalize_run(context)
         except Exception as exc:
-            finalization_error = (
-                f"result finalization failed: {type(exc).__name__}: {exc}"
-            )
-            if agent_error:
-                logger.warning("%s", finalization_error)
-            else:
-                agent_error = finalization_error
-    return agent_error
+            artifact_error = f"result finalization failed: {type(exc).__name__}: {exc}"
+            logger.warning("%s", artifact_error)
+    try:
+        finish_run_manifest(
+            output_dir,
+            artifacts={
+                "transcript": transcript_path,
+                "result": result_path,
+                "recipe": recipe_path or None,
+            },
+            verdict=verdict_fields(context),
+            error=agent_error,
+            artifact_error=artifact_error,
+        )
+    except Exception as exc:
+        manifest_error = f"run manifest update failed: {type(exc).__name__}: {exc}"
+        artifact_error = (
+            f"{artifact_error}; {manifest_error}" if artifact_error else manifest_error
+        )
+        logger.warning("%s", manifest_error)
+    # The verdict names the agent-side failure; a run whose artifacts failed is
+    # still a failed task, so the Dashboard reports it that way.
+    return agent_error or artifact_error

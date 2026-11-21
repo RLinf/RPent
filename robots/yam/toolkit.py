@@ -339,7 +339,7 @@ class YamToolkit(Toolkit):
             projection_error = None
             try:
                 world = _world_from_depth_cv(depth, camera_meta)
-            except (ValueError, RuntimeError) as error:
+            except (ImportError, ValueError, RuntimeError) as error:
                 world = np.full((*np.asarray(depth).shape, 3), np.nan, dtype=np.float32)
                 projection_error = str(error)
             views[camera_name] = {

@@ -16,25 +16,20 @@ Requirements
 1. Install RPent
 ----------------
 
-Create and activate an isolated Python environment:
+Create the LIBERO-PRO environment and activate it:
 
 .. code-block:: bash
 
    git clone https://github.com/RLinf/RPent.git
    cd RPent
-   uv venv --python 3.11
-   source .venv/bin/activate
+   ./rpent-install.sh install robot-libero --venv .venv-libero
+   source .venv-libero/bin/activate
 
-Install ``torch==2.7.1`` and ``torchvision==0.22.1`` as required by OpenPI.
-Choose a build compatible with your GPU and NVIDIA driver from the
-`PyTorch installation instructions <https://pytorch.org/get-started/previous-versions/>`_,
-replacing ``pip install`` with ``uv pip install``. Then install LIBERO-PRO:
+The components pin Python, the RLinf revision, Pi0.5, SAM 3.0, and the LIBERO
+packages together. See :doc:`installation` for every component, its install
+command, and diagnostics.
 
-.. code-block:: bash
-
-   uv pip install -e ".[libero-pro]"
-
-Run the remaining commands in this terminal from the RPent repository root. In a new terminal, activate ``.venv`` and set the checkpoint paths and API key again.
+Run the remaining commands in this terminal from the RPent repository root. In a new terminal, activate ``.venv-libero`` and set the checkpoint paths and API key again.
 
 2. Download Assets and Models
 -----------------------------
@@ -91,7 +86,7 @@ The terminal shows environment, VLA, and SAM3 service startup, followed by plann
 ---------------------
 
 - ``episode.mp4``: replay the robot’s actions.
-- ``transcript_*.json``: inspect planner messages, tool calls, and the finish state.
+- ``transcript.json``: inspect planner messages, tool calls, and the finish state.
 - ``run.log``: inspect runtime messages and errors.
 
 For LIBERO, success is the top-level ``terminated`` value in the final environment state, available in the result of ``view_env_state(step=-1)``. The planner’s ``finish`` status alone does not establish environment success.

@@ -1,0 +1,19 @@
+schema = 2
+name = "sim-robotwin"
+probe = "components.sim.robotwin"
+python = ">=3.11,<3.12"
+requires = ["infra-rlinf"]
+# The simulator is what cannot share an environment: its runtime pins its own
+# MuJoCo and Torch builds, and the other simulator stacks need different ones.
+env_conflicts = [
+    "sim-libero",
+    "sim-libero_plus",
+    "sim-robocasa",
+    "sim-robodojo",
+]
+
+dependencies = [
+  "rlinf-robotwin-runtime==0.1.3",
+  # v0.7.8; a tag names different code after it is moved, so record the commit.
+  "nvidia-curobo @ git+https://github.com/NVlabs/curobo.git@d64c4b005459db10c5dd867d8b30a87d5bda9bdb",
+]
