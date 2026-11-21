@@ -33,7 +33,7 @@ def session(monkeypatch, tmp_path):
         pytest.skip("Calibration requires OpenCV with the ChArUco detector")
     pytest.importorskip("scipy")
     monkeypatch.syspath_prepend(
-        str(Path(__file__).resolve().parents[3] / "robots/dual_franka/calibration")
+        str(Path(__file__).resolve().parents[4] / "robots/dual_franka/calibration")
     )
     collector_module = importlib.import_module("base_handeye_collect")
     config = collector_module.CaptureConfig(
