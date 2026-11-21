@@ -73,7 +73,7 @@ require loading every skill.
 
 | Task | Skill |
 | --- | --- |
-| Explain and review a PR, or review an explicitly selected local diff | [review-pr](.agents/skills/review-pr/SKILL.md) |
+| Review an RPent PR, re-review its revisions, or review a selected local diff | [review-pr](.agents/skills/review-pr/SKILL.md) |
 | Write or streamline documentation in concise task-first style | [write-doc](.agents/skills/write-doc/SKILL.md) |
 | Check documentation, comments, translations, or user/model-facing prose | [docs-check](.agents/skills/docs-check/SKILL.md) |
 | Select and run checks for a change, or prepare validation evidence | [verify-change](.agents/skills/verify-change/SKILL.md) |
@@ -86,4 +86,4 @@ integration evidence distinct from benchmark task success.
 Skill sources live in `.agents/skills/`. `.claude/skills` links to that whole
 directory, and `CLAUDE.md` links to this file. Edit the canonical files so both
 clients share the same instructions. Keep each skill self-contained in its
-`SKILL.md` and link to existing repository resources.
+directory under `.agents/skills/` and link to existing repository resources.
