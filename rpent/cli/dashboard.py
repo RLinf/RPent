@@ -23,7 +23,6 @@ import shlex
 import sys
 import threading
 import time
-from dataclasses import asdict
 from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -31,14 +30,22 @@ from typing import TYPE_CHECKING, Any
 from rpent.cli.main import (
     _handoff_message,
     _serialize_messages,
-    _with_site_mcp_servers,
+    _with_shared_mcp_servers,
 )
 from rpent.dashboard.events import RunStartedEvent
 from rpent.evaluation import RunFinalizationContext
 from rpent.memory import MemoryManager
-from rpent.planner.base import build_planner, is_recoverable_agent_error
+from rpent.planner.base import (
+    build_planner,
+    check_planner_mcp_support,
+    is_recoverable_agent_error,
+)
 from rpent.robots import get_toolkit
-from rpent.session.planner_capture import end_planner_task, start_planner_task
+from rpent.session.planner_capture import (
+    end_planner_task,
+    start_planner_task,
+    task_config_snapshot,
+)
 from rpent.utils.config import get_memory_dir
 from rpent.utils.logging import get_logger, init_output_dir
 
@@ -57,6 +64,13 @@ def run_dashboard_session(
     parser: argparse.ArgumentParser,
 ) -> int:
     """Run one long-lived Dashboard Session with sequential fresh TaskRuns."""
+    # A shared config is loaded once for the whole session, so reject a planner
+    # that cannot attach its servers here instead of failing every task.
+    unsupported = check_planner_mcp_support(
+        args.planner, getattr(args, "shared_mcp_servers", ())
+    )
+    if unsupported:
+        parser.error(unsupported)
     if robot_spec.resolve_dashboard is None:
         parser.error(f"robot {robot_spec.name!r} does not support Dashboard control")
     try:
@@ -208,10 +222,13 @@ def _run_dashboard_task(
     if task_args.explore and not robot_spec.supports_exploration:
         raise ValueError(f"--explore is not supported for robot {robot_spec.name!r}")
     task_args.output_dir = str(claimed.output_dir)
-    run_config = _with_site_mcp_servers(
+    run_config = _with_shared_mcp_servers(
         robot_spec.parse_config(task_args),
-        getattr(task_args, "site_mcp_servers", ()),
+        getattr(task_args, "shared_mcp_servers", ()),
     )
+    unsupported = check_planner_mcp_support(task_args.planner, run_config.mcp_servers)
+    if unsupported:
+        raise ValueError(unsupported)
     from rpent.memory.loading import prepare_run_memory
 
     prepare_run_memory(task_args, robot_spec, run_config)
@@ -336,10 +353,7 @@ def _run_dashboard_task(
                         task_state = start_planner_task(
                             toolkit.state,
                             instruction=session_message,
-                            config={
-                                "arguments": vars(task_args),
-                                "run": asdict(run_config),
-                            },
+                            config=task_config_snapshot(vars(task_args), run_config),
                         )
                     planner = build_planner(
                         task_args.planner,

@@ -14,36 +14,35 @@
 
 """External MCP servers RPent may consume.
 
-MCP is a transport, not a layer. Which RPent layer consumes a server's tools
-is decided by whether the control loop must coordinate with the device:
+MCP is only the transport. Where a server's tools appear depends on whether
+the control loop must coordinate with the device:
 
-* Tools that are independent of the robot's execution loop are exposed to the
-  planners directly: they are listed under ``planner_tools`` and attached by
-  ``api``, ``claude_code`` and ``codex``.
-* Tools that need coordination with the execution loop, a safety interlock,
-  or the observation stream are first-class robot/Env capabilities. They are
-  exposed through the robot's Toolkit with
-  :meth:`~rpent.tools.toolkit.Toolkit.add_mcp_tools` and therefore reach every
-  planner through RPent's own ``mcp__rpent__`` namespace. A robot must opt in;
-  a server is never promoted to the toolkit layer by configuration alone.
+* Tools the model can call at any time are attached to the planners. They are
+  listed under ``planner_tools``; ``api``, ``claude_code`` and ``codex``
+  consume that field.
+* Tools that must be ordered against robot actions, a safety interlock, or the
+  observation stream are registered on the robot's Toolkit with
+  :meth:`~rpent.tools.toolkit.Toolkit.add_mcp_tools`. Planner adapters then
+  expose them like any Toolkit tool: ``claude_code`` and ``codex`` add the
+  ``mcp__rpent__`` prefix, while ``api`` uses the tool's own name. A robot must
+  opt in; configuration alone never registers a tool on the Toolkit.
 
-A single server can mix both kinds of tools: list the independent ones under
-``planner_tools`` and adopt the rest in robot code.
+A server can supply both kinds: list the independent tools under
+``planner_tools`` and register the rest in robot code.
 
-Configuration has two axes:
+Configuration comes from two places:
 
-* Site config (``--site-config``) is deployment-level and shared by every
-  robot at that site. Facility devices (lighting, charging docks, power
-  outlets) belong here so robots do not each copy their endpoint.
+* A shared config (``--mcp-config``) is merged into every run, so several
+  robots can use one endpoint without copying it.
 * A robot's own config may declare ``mcp_servers`` for services that belong to
   that robot. Its ``parse_config`` runs :func:`parse_mcp_servers` and carries
   the result on :class:`~rpent.robots.robot_spec.RunConfig`; the CLI merges
-  those specs with the site config at run time.
+  both sources at run time.
 
 Only streamable-HTTP servers are supported: a spec carries a ``url`` and
-optional headers, no stdio ``command``. YAML interpolation (``${oc.env:...}``)
-is resolved by the loader, so this module is a pure validator with no network
-access.
+optional headers, no stdio ``command``. :func:`parse_mcp_servers` resolves YAML
+interpolation (``${oc.env:...}``) for either source, so this module is a pure
+validator with no network access.
 """
 
 from __future__ import annotations
@@ -54,11 +53,12 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Literal
+from urllib.parse import urlsplit, urlunsplit
 
-#: Server name RPent reserves for its own in-process toolkit server. An
-#: external server must not reuse it, or the two would collide in the
-#: ``mcp__<server>__<tool>`` namespace.
-RESERVED_SERVER_NAME = "rpent"
+#: Server name RPent uses for its own in-process toolkit server. An external
+#: server must not reuse it: the ``mcp__<server>__<tool>`` namespace and the
+#: per-backend server maps would otherwise collide.
+RPENT_SERVER_NAME = "rpent"
 
 #: The ``planner_tools`` value that admits every tool the server exposes.
 ALL_TOOLS = "*"
@@ -66,8 +66,8 @@ ALL_TOOLS = "*"
 #: Allowed server names: the token between ``mcp__`` and ``__<tool>``.
 _NAME_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]*$")
 
-#: Tool selection for the planner layer. ``None`` keeps the server out of the
-#: planner layer (the robot's Env/Toolkit layer may still adopt its tools).
+#: Tool selection for the planner. ``None`` keeps the server out of the
+#: planner; the robot's Toolkit may still register its tools.
 PlannerTools = tuple[str, ...] | Literal["*"] | None
 
 
@@ -77,14 +77,28 @@ class McpServerSpec:
 
     Attributes:
         name: Server name, also its namespace in ``mcp__<name>__<tool>``.
-        url: Streamable-HTTP endpoint (``http://`` or ``https://``).
-        headers: Optional literal request headers.
+        url: Streamable-HTTP endpoint (``http://`` or ``https://``), without
+            embedded credentials: a URL with a user name or password is
+            rejected, and task records drop its query and fragment, so
+            authentication belongs in ``headers`` or ``env_http_headers``.
+        headers: Optional literal request headers. The ``claude_code`` and
+            ``codex`` backends pass these through child-process arguments,
+            where other local users can read them; keep secrets in
+            ``env_http_headers`` instead.
         env_http_headers: Header name to environment-variable name. Values are
             read when the server is used, keeping secrets out of generated
-            config and, for Codex, out of the child process arguments.
+            config and out of the child process arguments.
         planner_tools: ``"*"`` attaches every tool to the planners; a tuple
             attaches only those names; ``None`` does not attach the server to
-            the planners at all. Only the planner layer consumes this field.
+            the planners at all. Only the planners consume this field.
+            ``api`` and ``codex`` expose exactly the named tools;
+            ``claude_code`` mounts the whole server and uses the tuple as its
+            auto-approved set, so the server's other tools stay visible to the
+            model.
+
+    Construction validates the name and URL, so every consumer receives a spec
+    whose ``mcp__<name>__<tool>`` namespace is usable and whose endpoint RPent
+    can reach.
     """
 
     name: str
@@ -93,14 +107,68 @@ class McpServerSpec:
     env_http_headers: dict[str, str] = field(default_factory=dict)
     planner_tools: PlannerTools = None
 
+    def __post_init__(self) -> None:
+        """Reject a spec no backend could use."""
+        where = f"mcp_servers.{self.name}"
+        if (
+            not isinstance(self.name, str)
+            or _NAME_PATTERN.fullmatch(self.name) is None
+            or "__" in self.name
+            or self.name.endswith("_")
+        ):
+            raise ValueError(
+                f"{where}: server name must match {_NAME_PATTERN.pattern} "
+                "without '__' or a trailing '_' (it becomes the "
+                "mcp__<server>__<tool> namespace, and a trailing '_' makes "
+                "that name ambiguous)"
+            )
+        if self.name == RPENT_SERVER_NAME:
+            raise ValueError(
+                f"{where}: server name {RPENT_SERVER_NAME!r} is reserved for "
+                "RPent's own toolkit server"
+            )
+        if not isinstance(self.url, str) or not self.url.startswith(
+            ("http://", "https://")
+        ):
+            raise ValueError(
+                f"{where}.url must be an http(s) URL; only streamable-HTTP MCP "
+                f"servers are supported (got {self.url!r})"
+            )
+        try:
+            userinfo = urlsplit(self.url).username
+        except ValueError as exc:
+            raise ValueError(f"{where}.url is not a valid URL: {exc}") from exc
+        if userinfo is not None:
+            raise ValueError(
+                f"{where}.url must not embed credentials; use headers or "
+                "env_http_headers"
+            )
+        # HTTP header names are case-insensitive, so ``Authorization`` in one
+        # map and ``authorization`` in the other describe the same header.
+        literal = {name.casefold(): name for name in self.headers}
+        overlap = sorted(
+            literal[name.casefold()]
+            for name in self.env_http_headers
+            if name.casefold() in literal
+        )
+        if overlap:
+            raise ValueError(
+                f"{where}: header(s) {overlap} are set in both 'headers' and "
+                "'env_http_headers'"
+            )
+
 
 def parse_mcp_servers(
     raw: Mapping[str, Any] | None,
 ) -> tuple[McpServerSpec, ...]:
     """Validate an ``mcp_servers`` section into specs.
 
+    YAML interpolation (``${oc.env:...}``) is resolved here, so a shared config
+    and a robot's own config behave the same: a header value written that way
+    holds the environment variable's value when the section is parsed.
+
     Args:
-        raw: The ``mcp_servers`` mapping from a site or robot config, or
+        raw: The ``mcp_servers`` mapping from a shared or robot config, or
             ``None`` when the config declares none.
 
     Returns:
@@ -116,23 +184,31 @@ def parse_mcp_servers(
     if not isinstance(raw, Mapping):
         raise ValueError("mcp_servers must be a mapping of server name to config")
 
+    from omegaconf import OmegaConf
+
+    try:
+        resolved = OmegaConf.to_container(OmegaConf.create(raw), resolve=True)
+    except Exception as exc:
+        raise ValueError(f"invalid mcp_servers section: {exc}") from exc
+
     specs: list[McpServerSpec] = []
-    for name, value in raw.items():
+    for name, value in resolved.items():
         specs.append(_parse_one(str(name), value))
     return tuple(specs)
 
 
-def load_site_mcp_servers(
+def load_mcp_config(
     path: str | Path | None,
 ) -> tuple[McpServerSpec, ...]:
-    """Load the ``mcp_servers`` section of a deployment-level site config.
+    """Load the ``mcp_servers`` section of a shared MCP config.
 
     The file is a YAML mapping; only its ``mcp_servers`` key is consumed, so
-    it can carry other site settings. OmegaConf resolves ``${oc.env:...}``
-    interpolation before validation.
+    it can carry unrelated settings. :func:`parse_mcp_servers` resolves
+    ``${oc.env:...}`` in that section; other sections may keep unresolved
+    references because RPent does not read them.
 
     Args:
-        path: Path to the site config, or ``None`` when ``--site-config`` was
+        path: Path to the shared config, or ``None`` when ``--mcp-config`` was
             not passed.
 
     Returns:
@@ -147,17 +223,20 @@ def load_site_mcp_servers(
         return ()
     config_path = Path(path).expanduser()
     if not config_path.is_file():
-        raise ValueError(f"site config not found: {config_path}")
+        raise ValueError(f"MCP config not found: {config_path}")
 
-    from omegaconf import OmegaConf
+    from omegaconf import DictConfig, OmegaConf
 
     try:
-        raw = OmegaConf.to_container(OmegaConf.load(config_path), resolve=True)
+        config = OmegaConf.load(config_path)
     except Exception as exc:
-        raise ValueError(f"invalid site config {config_path}: {exc}") from exc
-    if not isinstance(raw, Mapping):
-        raise ValueError(f"site config must be a mapping: {config_path}")
-    return parse_mcp_servers(raw.get("mcp_servers"))
+        raise ValueError(f"invalid MCP config {config_path}: {exc}") from exc
+    if not isinstance(config, DictConfig):
+        raise ValueError(f"MCP config must be a mapping: {config_path}")
+    try:
+        return parse_mcp_servers(config.get("mcp_servers"))
+    except ValueError as exc:
+        raise ValueError(f"invalid MCP config {config_path}: {exc}") from exc
 
 
 def merge_mcp_servers(
@@ -166,9 +245,9 @@ def merge_mcp_servers(
     """Concatenate spec groups, rejecting duplicate server names.
 
     Raises:
-        ValueError: If two groups declare the same server name. Site-level and
-            robot-level config must not silently shadow each other, and a
-            duplicate would collide in the MCP tool namespace.
+        ValueError: If two groups declare the same server name. The shared
+            config and a robot's config must not silently shadow each other,
+            and a duplicate would collide in the MCP tool namespace.
     """
     merged: list[McpServerSpec] = []
     seen: set[str] = set()
@@ -177,7 +256,8 @@ def merge_mcp_servers(
             if spec.name in seen:
                 raise ValueError(
                     f"duplicate MCP server name {spec.name!r}: it is declared "
-                    "both at site level and by the robot, or twice in one config"
+                    "both in the shared MCP config and by the robot, or twice "
+                    "in one config"
                 )
             seen.add(spec.name)
             merged.append(spec)
@@ -202,19 +282,46 @@ def request_headers(spec: McpServerSpec) -> dict[str, str]:
     return headers
 
 
+#: Placeholder for a credential in serialized run configuration.
+REDACTED_VALUE = "<redacted>"
+
+
+def public_spec(spec: McpServerSpec) -> dict[str, Any]:
+    """Return a serializable view of a spec that omits credentials.
+
+    Parsing resolves ``${oc.env:...}`` in ``headers``, so the values may be
+    credentials, and a URL query is another place servers accept a token. Task
+    records keep the run configuration, and that payload is written to
+    ``task.json`` and the Dashboard task record, so only header names, the
+    endpoint without its query and fragment, and the environment-variable
+    names are kept.
+    """
+    return {
+        "name": spec.name,
+        "url": _recorded_url(spec.url),
+        "headers": dict.fromkeys(spec.headers, REDACTED_VALUE),
+        "env_http_headers": dict(spec.env_http_headers),
+        "planner_tools": spec.planner_tools,
+    }
+
+
+def _recorded_url(url: str) -> str:
+    """Return a URL with its query and fragment replaced by a placeholder."""
+    parts = urlsplit(url)
+    recorded = urlunsplit((parts.scheme, parts.netloc, parts.path, "", ""))
+    if parts.query:
+        recorded += "?" + REDACTED_VALUE
+    if parts.fragment:
+        recorded += "#" + REDACTED_VALUE
+    return recorded
+
+
 def _parse_one(name: str, value: Any) -> McpServerSpec:
-    """Validate one ``mcp_servers.<name>`` entry."""
+    """Validate one ``mcp_servers.<name>`` entry.
+
+    The spec validates its own name, URL, and header overlap.
+    """
     where = f"mcp_servers.{name}"
-    if not _NAME_PATTERN.match(name) or "__" in name:
-        raise ValueError(
-            f"{where}: server name must match {_NAME_PATTERN.pattern} without "
-            "'__' (it becomes the mcp__<server>__<tool> namespace)"
-        )
-    if name == RESERVED_SERVER_NAME:
-        raise ValueError(
-            f"{where}: server name {RESERVED_SERVER_NAME!r} is reserved for "
-            "RPent's own toolkit server"
-        )
     if not isinstance(value, Mapping):
         raise ValueError(f"{where} must be a mapping with a 'url'")
 
@@ -227,31 +334,13 @@ def _parse_one(name: str, value: Any) -> McpServerSpec:
             "['env_http_headers', 'headers', 'planner_tools', 'url']."
         )
 
-    url = value.get("url")
-    if not isinstance(url, str) or not url:
-        raise ValueError(f"{where}.url must be a non-empty string")
-    if not url.startswith(("http://", "https://")):
-        raise ValueError(
-            f"{where}.url must be an http(s) URL; only streamable-HTTP MCP "
-            f"servers are supported (got {url!r})"
-        )
-
-    headers = _parse_headers(value.get("headers"), f"{where}.headers")
-    env_http_headers = _parse_env_http_headers(
-        value.get("env_http_headers"), f"{where}.env_http_headers"
-    )
-    overlap = sorted(set(headers) & set(env_http_headers))
-    if overlap:
-        raise ValueError(
-            f"{where}: header(s) {overlap} are set in both 'headers' and "
-            "'env_http_headers'"
-        )
-
     return McpServerSpec(
         name=name,
-        url=url,
-        headers=headers,
-        env_http_headers=env_http_headers,
+        url=value.get("url"),
+        headers=_parse_headers(value.get("headers"), f"{where}.headers"),
+        env_http_headers=_parse_env_http_headers(
+            value.get("env_http_headers"), f"{where}.env_http_headers"
+        ),
         planner_tools=_parse_planner_tools(value.get("planner_tools"), where),
     )
 
@@ -303,9 +392,14 @@ def _parse_planner_tools(raw: Any, where: str) -> PlannerTools:
     invalid = [item for item in raw if not isinstance(item, str) or not item]
     if invalid:
         raise ValueError(f"{where}.planner_tools entries must be non-empty strings")
+    if ALL_TOOLS in raw:
+        raise ValueError(
+            f"{where}.planner_tools: write {ALL_TOOLS!r} rather than a list "
+            "containing it; a list names individual tools"
+        )
     if not raw:
         raise ValueError(
             f"{where}.planner_tools must not be empty; omit it to keep the "
-            "server out of the planner layer"
+            "server out of the planner"
         )
     return tuple(dict.fromkeys(str(item) for item in raw))

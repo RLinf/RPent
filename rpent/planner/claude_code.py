@@ -48,6 +48,7 @@ from rpent.planner.base import (
     _wait_for_cleanup,
     add_mcp_prefix,
     cancel_and_wait,
+    check_planner_mcp_servers,
     display_tool_name,
     execute_tool,
 )
@@ -62,6 +63,7 @@ from rpent.session.env_capture import ToolCallCapture
 from rpent.tools import Toolkit, ToolResult
 from rpent.utils.config import get_repo_root
 from rpent.utils.logging import get_logger, init_output_dir
+from rpent.utils.mcp_servers import ALL_TOOLS, RPENT_SERVER_NAME
 from rpent.utils.templates import substitute
 
 if TYPE_CHECKING:
@@ -124,6 +126,8 @@ class ClaudeCodePlanner(Planner):
             raise ValueError(
                 "input_queue and dashboard_interaction cannot be used together"
             )
+        if error := check_planner_mcp_servers(self._mcp_servers):
+            return PlannerResult(error=error, stop_reason="planner_error")
         prompt = f"{system_prompt}\n\n{user_message}" if system_prompt else user_message
         return asyncio.run(
             self._solve_async(
@@ -288,7 +292,7 @@ class ClaudeCodePlanner(Planner):
             tools=builtins or None,
             allowed_tools=list(dict.fromkeys(allowed)),
             mcp_servers={
-                "rpent": _build_rpent_server(
+                RPENT_SERVER_NAME: _build_rpent_server(
                     sdk,
                     toolkit=toolkit,
                     on_tool_result=on_tool_result,
@@ -658,27 +662,34 @@ class _Recorder:
 def _external_mcp_config(
     mcp_servers: tuple["McpServerSpec", ...],
 ) -> tuple[dict[str, Any], list[str]]:
-    """Render planner-layer MCP servers for the SDK and its allowlist.
+    """Render MCP servers attached to the planner for the SDK and its allowlist.
 
     Each spec becomes an SDK streamable-HTTP entry. ``allowed_tools`` is an
     allowlist, so every tool the model may call must be named: a spec that
     lists ``planner_tools`` yields ``mcp__<server>__<tool>`` per name; a spec
     that admits all tools yields the server-level ``mcp__<server>`` rule. A
-    server with ``planner_tools`` unset belongs to the robot's Env/Toolkit
-    layer and is skipped here.
+    server with ``planner_tools`` unset is registered by the robot's Toolkit
+    and is skipped here. The SDK still mounts the whole server, so the
+    list controls auto-approval, not what the model can see; use one server
+    entry per permission boundary when that distinction matters.
+
+    The SDK serializes these entries onto the ``claude`` child process's
+    command line, where other local users can read them. Env-backed headers
+    therefore carry only ``${VAR}``: the CLI, which inherits RPent's
+    environment, expands the value after the command line is parsed.
 
     Returns:
         ``(mcp_servers_entries, allowed_tool_names)``.
     """
-    from rpent.utils.mcp_servers import ALL_TOOLS, request_headers
-
     servers: dict[str, Any] = {}
     allowed: list[str] = []
     for server in mcp_servers:
         if server.planner_tools is None:
             continue
         entry: dict[str, Any] = {"type": "http", "url": server.url}
-        headers = request_headers(server)
+        headers = dict(server.headers)
+        for name, env_name in server.env_http_headers.items():
+            headers[name] = f"${{{env_name}}}"
         if headers:
             entry["headers"] = headers
         servers[server.name] = entry
@@ -731,7 +742,9 @@ def _build_rpent_server(
         run_tool.__name__ = f"rpent_{name}"
         sdk_tools.append(sdk.tool(name, description, input_schema)(run_tool))
 
-    server = sdk.create_sdk_mcp_server(name="rpent", version="0.1.0", tools=sdk_tools)
+    server = sdk.create_sdk_mcp_server(
+        name=RPENT_SERVER_NAME, version="0.1.0", tools=sdk_tools
+    )
     return server
 
 

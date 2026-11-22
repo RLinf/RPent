@@ -338,24 +338,63 @@ filenames rather than maintaining a parallel observation index.
 the toolkit passes verbatim to your primitives' ``__init__`` — typically
 ``{"env": MyEnvClient(...), "model": VLAClient(...), ...}``.
 
-If the execution loop must coordinate with a device exposed by a site MCP
-server, adopt the selected tools as first-class Toolkit tools instead of
-attaching the server to a planner. ``get_toolkit`` receives the run's
-``config``, so the adopted tools include the site and robot servers:
+If the control loop must coordinate with a device exposed by an MCP server,
+register the selected tools on the Toolkit instead of attaching the server to a
+planner. Tools served through the planner bypass the Toolkit's execution
+ordering and observation capture, which a coordinated device needs.
+``get_toolkit`` receives the run's ``config``, so it can register tools from both
+shared and robot servers:
 
 .. code-block:: python
 
-   self.add_mcp_tools(
-       config.mcp_servers,
-       tools={"facility": ["set_charging_dock", "read_battery"]},
-   )
+   def get_toolkit(*, runtime_kwargs, dashboard_events, config):
+       toolkit = MyRobotToolkit(
+           runtime_kwargs=runtime_kwargs,
+           dashboard_events=dashboard_events,
+           memory=MemoryManager(
+               root=config.prompt_vars.get("memory_dir") or get_memory_dir("myrobot"),
+           ),
+       )
+       # power is declared in the shared MCP config and must provide these
+       # names, or toolkit construction raises ValueError.
+       toolkit.add_mcp_tools(
+           config.mcp_servers,
+           tools={"power": ["set_charging_dock", "read_battery"]},
+       )
+       return toolkit
 
-Adoption validates the names against the server's tool list when the toolkit is
-constructed, keeps the remote input schemas, and marks a tool ``readonly`` when
-the server sets ``readOnlyHint``. Adopted tools remain reachable by every
-planner through ``mcp__rpent__`` and take part in observation capture. Tools
-that need no coordination belong under ``planner_tools`` instead. See
+Registration checks tool names against the server's tool list when the toolkit
+is built, so a name the server does not provide raises ``ValueError`` at startup
+rather than on the first call. Remote input schemas keep their shape, but their
+text goes through the same ``{{...}}`` substitution as locally declared tools.
+Registered tools run exclusively and take part in observation capture like local
+tools; the server's ``readOnlyHint`` is not trusted for this, because ordering
+the tool with robot actions is the reason to register it. ``claude_code`` and
+``codex`` show them as ``mcp__rpent__<name>``; ``api`` uses their own names.
+Tools that need no coordination belong under ``planner_tools``; see
 :ref:`external-mcp-servers`.
+
+As with local action tools, a successful call returns the captured observation
+rather than the remote payload. Surface anything the model must see through
+``get_env_state``; a failed call still merges the server's error into that
+observation.
+
+One server can supply both the planner and the Toolkit: list the independent
+tools under ``planner_tools`` and register the coordinated ones here. A tool can
+be attached in only one place; registering a name that ``planner_tools`` also
+attaches raises ``ValueError``. ``claude_code`` is the exception at runtime: it
+mounts every planner-attached server whole, so the server's other tools stay
+visible to the model and an interactive run can approve them directly. When a
+run may use ``claude_code``, keep servers that carry coordinated tools out of
+``planner_tools`` entirely.
+
+The MCP client behind Toolkit registration adds two limits:
+
+- A registered call runs synchronously and cannot be cancelled mid-flight.
+  Cancelling a run waits for the call, bounded by the request deadline; see
+  :ref:`external-mcp-servers`.
+- Only ``image/png`` blocks become native images. Other block types arrive as
+  metadata without their payload.
 
 Conventions Worth Keeping
 -------------------------
@@ -405,10 +444,10 @@ validates those fields and returns a
   ``{"suite": ..., "task": ..., "seed": ...}``).
 - ``mcp_servers`` — optional tuple of MCP servers this robot contributes,
   parsed from the robot config's ``mcp_servers`` section with
-  :func:`~rpent.utils.mcp_servers.parse_mcp_servers`. The CLI merges in
-  deployment-level site servers, so leave it empty when the robot owns none.
-  Only specs with ``planner_tools`` reach a planner; the Env/Toolkit layer
-  adopts coordination-required tools through
+  :func:`~rpent.utils.mcp_servers.parse_mcp_servers`. The CLI merges in the
+  shared MCP config, so leave it empty when the robot owns none.
+  Only specs with ``planner_tools`` reach a planner; coordination-dependent
+  tools are registered through
   :meth:`~rpent.tools.toolkit.Toolkit.add_mcp_tools`. See
   :ref:`external-mcp-servers`.
 

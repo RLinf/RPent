@@ -185,17 +185,18 @@ class Toolkit:
         *,
         tools: Mapping[str, Sequence[str]],
     ) -> tuple[str, ...]:
-        """Expose selected site MCP tools as first-class tools.
+        """Expose selected external MCP tools as first-class tools.
 
         Use this for devices the control loop must coordinate with (charging
         docks, safety interlocks, lighting that affects observations). The
-        adopted tools become ordinary Toolkit tools, so every planner reaches
-        them through RPent's own ``mcp__rpent__`` namespace. Tools that are
-        independent of the control loop belong in ``planner_tools`` instead.
+        registered tools become ordinary Toolkit tools; ``claude_code`` and
+        ``codex`` expose them as ``mcp__rpent__<name>``, while ``api`` uses
+        their own names. Tools that are independent of the control loop belong
+        in ``planner_tools`` instead.
 
         Args:
             servers: Candidate specs, usually ``RunConfig.mcp_servers``.
-            tools: Server name to the remote tool names this robot adopts.
+            tools: Server name to the remote tool names this robot registers.
                 Servers not listed are ignored.
 
         Returns:
@@ -263,6 +264,10 @@ class Toolkit:
         kwargs = {
             field: getattr(parameters, field) for field in type(parameters).model_fields
         }
+        # A registered remote tool's schema may admit properties this model does
+        # not declare (``extra="allow"``); forward them so the call carries
+        # every argument the server accepted. Local schemas forbid extras.
+        kwargs.update(getattr(parameters, "model_extra", None) or {})
 
         try:
             operation = self._scheduler.acquire(readonly=tool.readonly)

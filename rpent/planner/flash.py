@@ -28,11 +28,15 @@ the cell and reports what came back.
 from __future__ import annotations
 
 import time
+from typing import TYPE_CHECKING
 
-from rpent.planner.base import Planner, PlannerResult
+from rpent.planner.base import Planner, PlannerResult, check_planner_mcp_support
 from rpent.robots.base import get_robot_spec
 from rpent.tools.toolkit import Toolkit
 from rpent.utils.logging import get_logger
+
+if TYPE_CHECKING:
+    from rpent.utils.mcp_servers import McpServerSpec
 
 logger = get_logger("flash")
 
@@ -45,10 +49,20 @@ class FlashPlanner(Planner):
         *,
         recipe_tag: str,
         robot_name: str,
+        mcp_servers: tuple["McpServerSpec", ...] = (),
     ) -> None:
-        """Note which cell this replays; the robot resolves it to a program."""
+        """Note which cell this replays; the robot resolves it to a program.
+
+        Args:
+            recipe_tag: Cell whose recorded program is replayed.
+            robot_name: Robot whose ``run_flash`` hook replays it.
+            mcp_servers: External servers attached to the planner. Flash has no
+                model loop, so :meth:`solve` reports an error instead of
+                replaying a program without the declared tools.
+        """
         self._recipe_tag = recipe_tag
         self._robot_name = robot_name
+        self._mcp_servers = mcp_servers
 
     def solve(
         self,
@@ -66,6 +80,9 @@ class FlashPlanner(Planner):
         conversation to hold and no turn to spend. The arguments are accepted to
         satisfy the planner interface.
         """
+        unsupported = check_planner_mcp_support("flash", self._mcp_servers)
+        if unsupported:
+            return PlannerResult(error=unsupported, stop_reason="planner_error")
         run_flash = get_robot_spec(self._robot_name).run_flash
         if run_flash is None:
             return PlannerResult(

@@ -45,7 +45,7 @@ from rpent.planner.base import (
     REASONING_EFFORTS,
     Planner,
     PlannerResult,
-    cancel_and_wait,
+    check_planner_mcp_servers,
     display_tool_name,
 )
 from rpent.planner.utils.agent_runtime import (
@@ -59,6 +59,7 @@ from rpent.session.codex_capture import finalize_codex_capture
 from rpent.tools.toolkit import Toolkit
 from rpent.utils.config import get_repo_root
 from rpent.utils.logging import get_logger
+from rpent.utils.mcp_servers import ALL_TOOLS, RPENT_SERVER_NAME
 
 if TYPE_CHECKING:
     from rpent.utils.mcp_servers import McpServerSpec
@@ -76,7 +77,6 @@ _SANDBOX_MODES = {
     "workspace-write": openai_codex.Sandbox.workspace_write,
     "full-access": openai_codex.Sandbox.full_access,
 }
-
 
 # ---------------------------------------------------------------------------
 # Public backend
@@ -145,6 +145,8 @@ class CodexPlanner(Planner):
             raise ValueError(
                 "input_queue and dashboard_interaction cannot be used together"
             )
+        if error := check_planner_mcp_servers(self._mcp_servers):
+            return PlannerResult(error=error, stop_reason="planner_error")
         try:
             capture_state = toolkit.state
         except RuntimeError:
@@ -483,9 +485,15 @@ class _Recorder:
 
         if _is_tool_item(item):
             self.tool_calls += 1
-            if item_type in {"mcpToolCall", "dynamicToolCall"}:
+            if item_type == "mcpToolCall":
+                server = str(get_field(item, "server", ""))
+                tool = str(get_field(item, "tool", item_type))
+                # The SDK separates the server from the bare tool name; rejoin
+                # them so an external server keeps its ``<server>:<tool>`` tag.
+                name = display_tool_name(f"mcp__{server}__{tool}")
+                self._maybe_capture_finish(name, item, server=server)
+            elif item_type == "dynamicToolCall":
                 name = display_tool_name(str(get_field(item, "tool", item_type)))
-                self._maybe_capture_finish(name, item)
             elif item_type == "commandExecution":
                 name = str(get_field(item, "command", item_type))
             else:
@@ -562,8 +570,12 @@ class _Recorder:
         )
         return True
 
-    def _maybe_capture_finish(self, name: str, item: Any) -> None:
+    def _maybe_capture_finish(self, name: str, item: Any, *, server: str) -> None:
         if self.finish_result is not None:
+            return
+        # An external MCP server may also expose a ``finish`` tool. Only
+        # RPent's own server can complete the episode.
+        if server != RPENT_SERVER_NAME:
             return
         if name.lower() != "finish":
             return
@@ -623,10 +635,10 @@ def build_codex_config(
         api_key: Key exported to the child as ``RPENT_CODEX_PROVIDER_KEY``.
         cwd: Working directory handed to the Codex child process.
         sandbox: Sandbox mode name; restricted modes need the MCP approval
-            override to reach RPent tools under ``deny_all``.
+            override to reach MCP tools under ``deny_all``.
         trace_root: Directory where Codex writes native rollout traces. If ``None``,
             the child inherits the parent's ``CODEX_ROLLOUT_TRACE_ROOT`` setting.
-        mcp_servers: Planner-layer streamable-HTTP MCP servers to attach
+        mcp_servers: Streamable-HTTP MCP servers to attach to the planner
             alongside RPent's own, each rendered as an ``mcp_servers.<name>``
             table. Specs without ``planner_tools`` are skipped.
 
@@ -781,19 +793,35 @@ def _codex_mcp_config_overrides(
 ) -> list[str]:
     config: list[tuple[str, Any]] = []
     if mcp_url:
-        config.append(("mcp_servers.rpent.url", mcp_url))
+        config.append((f"mcp_servers.{RPENT_SERVER_NAME}.url", mcp_url))
         # A restricted sandbox asks for approval before every MCP call, and
         # RPent's policy denies all prompts. The server is the planner's own
         # tool boundary, so approve its tools explicitly. This does not grant
         # shell permissions.
         if sandbox != "full-access":
-            config.append(("mcp_servers.rpent.default_tools_approval_mode", "approve"))
-    from rpent.utils.mcp_servers import ALL_TOOLS
-
+            config.append(
+                (
+                    f"mcp_servers.{RPENT_SERVER_NAME}.default_tools_approval_mode",
+                    "approve",
+                )
+            )
     for server in mcp_servers:
         if server.planner_tools is None:
             continue
         config.append((f"mcp_servers.{server.name}.url", server.url))
+        # A declared server is part of the run: when Codex cannot initialize
+        # it, the thread must fail instead of silently running without the
+        # tools the shared config declared.
+        config.append((f"mcp_servers.{server.name}.required", True))
+        if sandbox != "full-access":
+            # Same rule as the RPent server above: the restricted sandbox
+            # prompts before every MCP call and deny_all rejects the prompt.
+            config.append(
+                (
+                    f"mcp_servers.{server.name}.default_tools_approval_mode",
+                    "approve",
+                )
+            )
         if server.headers:
             config.append((f"mcp_servers.{server.name}.http_headers", server.headers))
         if server.env_http_headers:
@@ -835,10 +863,12 @@ def _toml_value(value: Any) -> str:
     """
     if isinstance(value, dict):
         inner = ", ".join(
-            f"{json.dumps(key)} = {json.dumps(val)}" for key, val in value.items()
+            f"{json.dumps(key, ensure_ascii=False)} = "
+            f"{json.dumps(val, ensure_ascii=False)}"
+            for key, val in value.items()
         )
         return "{" + inner + "}"
-    return json.dumps(value)
+    return json.dumps(value, ensure_ascii=False)
 
 
 # ---------------------------------------------------------------------------

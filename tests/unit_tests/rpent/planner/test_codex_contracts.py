@@ -322,6 +322,39 @@ def test_exit_closes_session_before_trace_import(
     assert cleanup == [(1, 1, True, "running")]
 
 
+def test_unreachable_planner_server_ends_the_run_before_the_backend_starts(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from rpent.tools import mcp_tools
+
+    install_fake_backend(monkeypatch)
+    monkeypatch.setattr(
+        mcp_tools,
+        "list_remote_tools",
+        Mock(side_effect=ConnectionError("connection refused")),
+    )
+    planner = CodexPlanner(
+        output_dir=str(tmp_path),
+        repo_root=tmp_path,
+        timeout_s=1,
+        extra_dirs=[],
+        output_path=tmp_path / "codex.out",
+        model="fake-codex",
+        dashboard_events=RecordingSink(),
+        mcp_servers=(
+            McpServerSpec(name="web", url="https://web.example/mcp", planner_tools="*"),
+        ),
+    )
+
+    result = planner.solve(
+        system_prompt="", user_message="task", toolkit=FakeToolkit(), max_turns=2
+    )
+
+    assert result.stop_reason == "planner_error"
+    assert result.error == "mcp_servers.web: ConnectionError: connection refused"
+    assert FakeCodex.instances == []
+
+
 def test_trace_import_failure_preserves_execution_result_and_unlinked_tools(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -448,7 +481,7 @@ def test_config_overrides_attach_external_mcp_servers(
                 name="kb",
                 url="https://kb.example/mcp",
                 headers={"Authorization": "Bearer token"},
-                env_http_headers={"X-Site-Token": "SITE_TOKEN"},
+                env_http_headers={"X-Shared-Token": "SHARED_TOKEN"},
                 planner_tools=("search", "fetch"),
             ),
             McpServerSpec(name="dock", url="https://dock.example/mcp"),
@@ -457,10 +490,62 @@ def test_config_overrides_attach_external_mcp_servers(
 
     assert overrides == [
         'mcp_servers.web.url="https://mcp.example/mcp"',
+        "mcp_servers.web.required=true",
         'mcp_servers.kb.url="https://kb.example/mcp"',
+        "mcp_servers.kb.required=true",
         'mcp_servers.kb.http_headers={"Authorization" = "Bearer token"}',
-        'mcp_servers.kb.env_http_headers={"X-Site-Token" = "SITE_TOKEN"}',
+        'mcp_servers.kb.env_http_headers={"X-Shared-Token" = "SHARED_TOKEN"}',
         'mcp_servers.kb.enabled_tools=["search", "fetch"]',
+    ]
+
+
+def test_restricted_sandboxes_approve_external_mcp_tools(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("CODEX_MODEL_CONTEXT_WINDOW", raising=False)
+    monkeypatch.delenv("CODEX_AUTO_COMPACT_TOKEN_LIMIT", raising=False)
+
+    assert _codex_mcp_config_overrides(
+        mcp_url=None,
+        base_url=None,
+        sandbox="read-only",
+        mcp_servers=(
+            McpServerSpec(
+                name="web",
+                url="https://mcp.example/mcp",
+                planner_tools="*",
+            ),
+        ),
+    ) == [
+        'mcp_servers.web.url="https://mcp.example/mcp"',
+        "mcp_servers.web.required=true",
+        'mcp_servers.web.default_tools_approval_mode="approve"',
+    ]
+
+
+def test_config_overrides_keep_non_bmp_values_verbatim(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("CODEX_MODEL_CONTEXT_WINDOW", raising=False)
+    monkeypatch.delenv("CODEX_AUTO_COMPACT_TOKEN_LIMIT", raising=False)
+
+    overrides = _codex_mcp_config_overrides(
+        mcp_url=None,
+        base_url=None,
+        mcp_servers=(
+            McpServerSpec(
+                name="web",
+                url="https://mcp.example/mcp",
+                headers={"X-Emoji": "😀"},
+                planner_tools="*",
+            ),
+        ),
+    )
+
+    assert overrides == [
+        'mcp_servers.web.url="https://mcp.example/mcp"',
+        "mcp_servers.web.required=true",
+        'mcp_servers.web.http_headers={"X-Emoji" = "😀"}',
     ]
 
 
@@ -676,7 +761,8 @@ def test_successful_fake_codex_lifecycle_uses_fake_mcp_and_accounts_events(
             "payload": {
                 "item": {
                     "type": "mcpToolCall",
-                    "tool": "mcp__rpent__finish",
+                    "server": "rpent",
+                    "tool": "finish",
                     "status": "completed",
                     "arguments": {"status": "success", "summary": "done"},
                     "result": "accepted",
@@ -750,6 +836,7 @@ def _model_response_events(index: int, *, text: bool = False, finish: bool = Fal
             "payload": {
                 "item": {
                     "type": "mcpToolCall",
+                    "server": "rpent",
                     "tool": tool,
                     "status": "completed",
                     "arguments": {"status": "stuck", "summary": "done"}
@@ -1035,6 +1122,34 @@ def test_stats_distinguish_unobserved_usage_from_zero_tokens():
     assert recorder.stats()["total_input_tokens"] == 10
 
 
+def test_external_server_finish_item_is_not_promoted() -> None:
+    from rpent.planner.codex import _Recorder
+
+    recorder = _Recorder(max_turns=2, dashboard_events=RecordingSink())
+
+    rendered = recorder.observe(
+        {
+            "method": "item/completed",
+            "payload": {
+                "item": {
+                    "type": "mcpToolCall",
+                    "server": "docs",
+                    "tool": "finish",
+                    "status": "completed",
+                    "arguments": {"status": "success", "summary": "external"},
+                    "result": "accepted",
+                }
+            },
+        }
+    )
+
+    assert recorder.finish_result is None
+    assert recorder.tool_calls == 1
+    # The SDK reports the server separately; the transcript keeps its tag so an
+    # external ``finish`` is not shown as RPent's own tool.
+    assert "docs:finish" in rendered
+
+
 def test_rejected_finish_item_is_not_promoted() -> None:
     from rpent.planner.codex import _Recorder
 
@@ -1046,7 +1161,8 @@ def test_rejected_finish_item_is_not_promoted() -> None:
             "payload": {
                 "item": {
                     "type": "mcpToolCall",
-                    "tool": "mcp__rpent__finish",
+                    "server": "rpent",
+                    "tool": "finish",
                     "status": "failed",
                     "arguments": {"status": "success", "summary": "too early"},
                     "error": "finish refused",
@@ -1089,7 +1205,8 @@ def test_finish_uses_accepted_tool_result_over_requested_success(
             "payload": {
                 "item": {
                     "type": "mcpToolCall",
-                    "tool": "mcp__rpent__finish",
+                    "server": "rpent",
+                    "tool": "finish",
                     "status": "failed" if is_error and not wrapped else "completed",
                     "arguments": {"status": "success"},
                     "result": result,

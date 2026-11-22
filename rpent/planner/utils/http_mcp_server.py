@@ -51,11 +51,10 @@ from rpent.session.env_capture import ToolCallCapture
 from rpent.tools import ToolResult
 from rpent.tools.toolkit import Toolkit
 from rpent.utils.logging import get_logger
+from rpent.utils.mcp_servers import RPENT_SERVER_NAME
 from rpent.utils.templates import substitute
 
 logger = get_logger("http_mcp_server")
-
-SERVER_NAME = "rpent"
 
 
 def mcp_result(result: ToolResult) -> dict[str, Any]:
@@ -78,7 +77,7 @@ def mcp_result(result: ToolResult) -> dict[str, Any]:
 
 def _strip_mcp_prefix(name: str) -> str:
     """``mcp__rpent__mcp_list_dir`` -> ``mcp_list_dir`` ; passthrough."""
-    prefix = f"mcp__{SERVER_NAME}__"
+    prefix = f"mcp__{RPENT_SERVER_NAME}__"
     if name.startswith(prefix):
         return name[len(prefix) :]
     return name
@@ -93,7 +92,7 @@ def build_mcp_server(
     The optional observer receives actual tool results on the server event loop;
     consumers must marshal updates to their own loop without blocking this one.
     """
-    mcp_app: Server = Server(SERVER_NAME, version="0.1.0")
+    mcp_app: Server = Server(RPENT_SERVER_NAME, version="0.1.0")
     finished = False
     try:
         state = toolkit.state
