@@ -65,13 +65,17 @@ All online planners use the registered declarations.
 Execution and Observation Contracts
 -----------------------------------
 
-``readonly`` controls scheduling and automatic state capture. It does not mean
-that a tool cannot write files. ``@tool(uncertain_on_error=True)`` declares that
-a failed handler may leave persistent side effects; the default is
-``not readonly``. For example, ``write_text_file`` is readonly but explicitly
-enables this flag because a failed write may have partially changed the file.
-Failures in pure observation or cache handlers do not imply uncertain execution.
-An exception during post-action state capture conservatively marks execution uncertain.
+Tools marked ``readonly=True`` can run alongside other readonly calls. Toolkit
+skips automatic state capture after these calls. A readonly tool with write
+permission can still write files. For example, ``write_text_file`` sets both
+``readonly=True`` and ``uncertain_on_error=True``. If a write fails midway,
+the file may be partially updated, so Toolkit marks the execution outcome as
+uncertain.
+
+By default, ``uncertain_on_error`` is ``not readonly``. Under this default, an
+exception in a readonly observation or cache handler does not by itself mark
+execution uncertain. If automatic state capture after an action raises an
+exception, Toolkit marks the execution outcome as uncertain.
 
 Return ``ToolResult(execution_uncertain=True, data={"error": ...})`` when native
 feedback cannot establish the execution outcome. Toolkit preserves this flag

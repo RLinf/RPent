@@ -55,7 +55,9 @@
 执行与观测契约
 --------------
 
-``readonly`` 控制调度和自动状态采集，不代表工具不能写入文件。``@tool(uncertain_on_error=True)`` 声明处理函数失败后可能留下持久副作用，默认值为 ``not readonly``。例如，``write_text_file`` 虽然是 readonly 工具，仍显式启用该标记，因为写入失败可能已部分修改文件。纯观测或缓存处理函数失败本身不表示执行结果不确定；动作后的状态采集抛出异常时，则保守地标记为执行结果不确定。
+标记为 ``readonly=True`` 的工具可以与其他只读调用并行执行，Toolkit 会跳过调用后的自动状态采集。具有写权限时，这类工具仍能写文件。例如，``write_text_file`` 同时设置了 ``readonly=True`` 和 ``uncertain_on_error=True``。如果写入中途失败，文件可能已经部分改变，因此 Toolkit 会将这次执行的结果标记为不确定。
+
+``uncertain_on_error`` 默认取 ``not readonly``。按此默认值，只读的观测或缓存处理函数抛出异常，本身不会使执行结果变得不确定。动作执行后，如果自动状态采集抛出异常，Toolkit 会将执行结果标记为不确定。
 
 当原生反馈无法确认执行结果时，返回 ``ToolResult(execution_uncertain=True, data={"error": ...})``。Toolkit 在采集观测后保留此标记；它属于内部元数据，不进入 ``to_dict()`` 或发送给模型的结果内容。参数校验失败、处理函数开始前的取消不会设置该标记。无效 JSON 结果另外携带 ``code="tool_result_serialization_failed"``，调用方应将其视为结果交付不完整，不与执行确定性混为一谈。
 
