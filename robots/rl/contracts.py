@@ -9,7 +9,7 @@ from dataclasses import replace
 
 from rpent.tools import Tool
 
-EPISODE_CONTRACT_VERSION = 2
+EPISODE_CONTRACT_VERSION = 3
 CAMERAS = {
     "libero": ("agentview", "wrist"),
     "robocasa": ("agentview", "agentview_right", "wrist"),
@@ -173,46 +173,37 @@ def validate_relations(name: str, arguments: dict) -> None:
         raise ValueError("z_range_m must be [low,high] with low <= high")
 
 
-def validate_options(
-    environment,
-    workflow,
-    action_mode,
-    max_actions,
-    reasoning,
-    images,
-    *,
-    world_cord="base",
-):
-    """Reject unsupported non-default options before allocating a simulator."""
-    if action_mode != "batch" or not 1 <= max_actions <= 3:
-        raise ValueError("episode requires batch actions with a limit of 1..3")
-    if reasoning < -1 or images < -1:
-        raise ValueError("history limits must be -1 or a nonnegative integer")
-    if workflow != "episode":
-        raise ValueError("only episode is supported")
+EPISODE_OPTIONS = {
+    "reasoning": True,
+    "image_size": 1024,
+    "max_actions_per_call": 3,
+    "reasoning_history": -1,
+    "image_history": -1,
+}
 
 
-def validate_image_size(environment: str, world_cord: str, image_size: int) -> None:
-    """Reject unsupported VLM image sizes before starting a simulator."""
+def validate_episode_options(environment: str, values: dict) -> dict:
+    """Resolve episode controls and validate them before starting a simulator."""
     from robots.rl.images import IMAGE_SIZES
 
-    if image_size not in IMAGE_SIZES:
-        raise ValueError(f"unsupported image size {image_size}")
-    if image_size != 1024 and not (
-        environment == "libero"
-        or (environment == "robocasa" and world_cord == "general")
+    if environment not in CAMERAS:
+        raise ValueError(f"Unsupported simulator {environment!r}")
+    options = {
+        name: values.get(name, default) for name, default in EPISODE_OPTIONS.items()
+    }
+    for name, default in EPISODE_OPTIONS.items():
+        if type(options[name]) is not type(default):
+            raise ValueError(f"Invalid episode option {name}")
+    size = options["image_size"]
+    if size not in IMAGE_SIZES or (
+        size != 1024 and environment not in {"libero", "robocasa"}
     ):
-        raise ValueError(
-            "--image_size currently supports LIBERO and RoboCasa general only"
-        )
-
-
-def validate_perception_options(workflow, mode="single", max_calls=8, concurrency=8):
-    """Keep graph perception opt-in and confined to episode workflows."""
-    if workflow != "episode" or mode != "single":
-        raise ValueError("episode exposes only view_env, segment and back_project")
-    if max_calls != 8 or concurrency != 8:
-        raise ValueError("batch perception options are no longer supported")
+        raise ValueError(f"Unsupported image size {size} for {environment}")
+    if not 1 <= options["max_actions_per_call"] <= 3:
+        raise ValueError("max_actions_per_call must be between 1 and 3")
+    if min(options["reasoning_history"], options["image_history"]) < -1:
+        raise ValueError("History limits must be -1 or a nonnegative integer")
+    return options
 
 
 def argument_hint(name: str, environment: str = "libero") -> str:
@@ -229,28 +220,12 @@ def argument_hint(name: str, environment: str = "libero") -> str:
         "move_to": "Supply xyz, orientation_rpy, or both as three finite numbers.",
         "move_base": "Supply bounded local velocities vx/vy/yaw_rate and duration_s within the declared limits.",
         "move_lift": "Supply delta_m within +/-0.25 and duration_s within 0.1..5.",
-        "observe": "Use calls with unique id/op; view_env has camera only; segment/back_project need an issued source or @view.camera/@segment. Fix the whole list before retrying.",
         "execute_actions": "Supply a non-empty actions list within K; each item must be move_to with a target or set_gripper with opening 0..1.",
     }.get(name, "Follow the declared required fields and value ranges.")
 
 
-def validate_coordinates(environment: str, world_cord: str) -> None:
-    """Reject unsupported frames before starting a simulator."""
-    if world_cord not in {"base", "general"}:
-        raise ValueError("world_cord must be base or general")
-    if world_cord == "general" and environment not in {
-        "libero",
-        "robotwin",
-        "robocasa",
-        "robodojo",
-    }:
-        raise ValueError("general coordinates require a supported simulator")
-
-
-def coordinate_definition(declaration, world_cord: str):
-    """Describe the selected coordinates without changing the tool wire schema."""
-    if world_cord == "base":
-        return declaration
+def coordinate_definition(declaration):
+    """Describe the robot mounting frame in tool declarations."""
     import re
     from dataclasses import replace
 
@@ -263,12 +238,9 @@ def coordinate_definition(declaration, world_cord: str):
             return re.sub(
                 r"\bworld(?:-frame)?\b",
                 "general frame",
-                value.replace(
-                    " In episode_image only the final two-camera observation is returned.",
-                    "",
-                )
-                .replace("grip_site", "native grasp TCP")
-                .replace("grip-site", "native grasp TCP"),
+                value.replace("grip_site", "native grasp TCP").replace(
+                    "grip-site", "native grasp TCP"
+                ),
             )
         return value
 

@@ -111,8 +111,6 @@ def make_env(
     suite_name: str = "libero_spatial",
     max_episode_steps: int = 10000,
     rl_control_state: bool = False,
-    world_cord: str = "base",
-    coordinate_calibration: bool = False,
     camera_depths: bool = True,
 ) -> LiberoEnv:
     """Build a single-env LiberoEnv pinned to ``task_id`` / ``seed``."""
@@ -140,9 +138,7 @@ def make_env(
     if rl_control_state:
         from robots.libero.control import controlled_env_type
 
-        env_type = controlled_env_type(
-            world_cord=world_cord, coordinate_calibration=coordinate_calibration
-        )
+        env_type = controlled_env_type()
     env = env_type(
         cfg=cfg, num_envs=1, seed_offset=0, total_num_processes=1, worker_info=None
     )
@@ -380,12 +376,6 @@ def main():
         action="store_true",
         help="Disable automatic depth observables for RGB-only control.",
     )
-    p.add_argument("--world-cord", choices=("base", "general"), default="base")
-    p.add_argument(
-        "--coordinate-calibration",
-        action="store_true",
-        help="Read native mounted-base, table and pad calibration.",
-    )
     p.add_argument(
         "--rl-control-state",
         action="store_true",
@@ -439,8 +429,6 @@ def main():
         suite_name=args.suite,
         max_episode_steps=args.max_episode_steps,
         rl_control_state=args.rl_control_state,
-        world_cord=args.world_cord,
-        coordinate_calibration=args.coordinate_calibration,
         camera_depths=not args.rgb_only,
     )
     facade = LiberoEnvFacade(

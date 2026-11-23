@@ -40,77 +40,12 @@ from rpent.utils.rpc import RpcFacade, make_rpc_client
 
 logger = get_logger("rl_remote")
 
-REMOTE_OPTION_DEFAULTS = {
-    "workflow": "episode",
-    "world_cord": "base",
-    "position_unit": "m",
-    "reasoning": True,
-    "observation_mode": "adaptive",
-    "prompt": "simple",
-    "image_size": 1024,
-    "action_mode": "batch",
-    "max_actions_per_call": 3,
-    "reasoning_history": -1,
-    "image_history": -1,
-    "perception_mode": "single",
-    "max_observe_calls": 8,
-    "observe_concurrency": 8,
-}
-
 
 def remote_options(task: dict) -> dict:
-    """Resolve and validate the workflow configuration at the RPC boundary."""
-    from robots.rl.contracts import (
-        validate_coordinates,
-        validate_image_size,
-        validate_options,
-        validate_perception_options,
-    )
-    from robots.rl.images import IMAGE_SIZES
-    from robots.rl.prompt_bundle import PROMPT_VARIANTS
+    """Validate the episode settings received over RPC."""
+    from robots.rl.contracts import validate_episode_options
 
-    options = {
-        name: task.get(name, default)
-        for name, default in REMOTE_OPTION_DEFAULTS.items()
-    }
-    for name, default in REMOTE_OPTION_DEFAULTS.items():
-        if type(options[name]) is not type(default):
-            raise ValueError(f"invalid remote workflow option {name}")
-    if options["workflow"] != "episode" or options["observation_mode"] != "adaptive":
-        raise ValueError("remote toolkit supports adaptive episode only")
-    if options["perception_mode"] != "single":
-        raise ValueError("remote toolkit supports single perception only")
-    if (
-        options["image_size"] not in IMAGE_SIZES
-        or options["prompt"] not in PROMPT_VARIANTS
-    ):
-        raise ValueError("invalid remote image size or prompt variant")
-    validate_coordinates(task["environment"], options["world_cord"])
-    from robots.rl.units import PositionUnits
-
-    PositionUnits(options["position_unit"])
-    validate_image_size(
-        task["environment"], options["world_cord"], options["image_size"]
-    )
-    from robots.rl.prompt_bundle import validate_workflow
-
-    validate_workflow(task["environment"], options["workflow"])
-    validate_options(
-        task["environment"],
-        options["workflow"],
-        options["action_mode"],
-        options["max_actions_per_call"],
-        options["reasoning_history"],
-        options["image_history"],
-        world_cord=options["world_cord"],
-    )
-    validate_perception_options(
-        options["workflow"],
-        options["perception_mode"],
-        options["max_observe_calls"],
-        options["observe_concurrency"],
-    )
-    return options
+    return validate_episode_options(task["environment"], task)
 
 
 def source_digest() -> str:
@@ -238,20 +173,10 @@ class ToolkitWorker(RpcFacade):
             "task": self.config["task"],
             "episode_contract_version": EPISODE_CONTRACT_VERSION,
             "max_episode_steps": self.config["max_episode_steps"],
-            "workflow_options": {
-                name: (
-                    getattr(self.toolkit, name)
-                    if name not in {"observation_mode", "prompt"}
-                    else self.config["task"].get(name, default)
-                )
-                for name, default in REMOTE_OPTION_DEFAULTS.items()
-            },
+            "episode_options": remote_options(self.config["task"]),
             "source_digest": source_digest(),
             "tools": declarations(self.toolkit),
-            "coordinates": self.toolkit._primitives.coordinates.metadata()
-            if self.toolkit.world_cord == "general"
-            or self.toolkit.environment == "libero"
-            else None,
+            "coordinates": self.toolkit._primitives.coordinates.metadata(),
             "pid": os.getpid(),
             "boot_id": Path("/proc/sys/kernel/random/boot_id").read_text().strip(),
         }
@@ -360,14 +285,9 @@ class RemoteToolkit(Toolkit):
             {**request["task"], **getattr(config, "prompt_vars", {})}
         )
         if configured != options:
-            raise ValueError(
-                "remote request differs from the planner workflow configuration"
-            )
+            raise ValueError("Remote episode options differ from the planner options")
         for name, value in options.items():
             setattr(self, name, value)
-        from robots.rl.units import PositionUnits
-
-        self.units = PositionUnits(self.position_unit)
         self.workflow_stats = {}
         self._call_lock = threading.Lock()
         self._call_id = 0
@@ -400,33 +320,29 @@ class RemoteToolkit(Toolkit):
             if (
                 metadata["task"] != request["task"]
                 or metadata["max_episode_steps"] != request["max_episode_steps"]
-                or metadata["workflow_options"] != options
+                or metadata["episode_options"] != options
             ):
                 raise ValueError("remote toolkit task or budget mismatch")
-            if self.world_cord == "general":
-                coordinates = metadata.get("coordinates") or {}
-                height = (
-                    "floor_height_above_base_m"
-                    if coordinates.get("support_surface") == "floor"
-                    else "table_height_above_base_m"
+            coordinates = metadata.get("coordinates") or {}
+            height = (
+                "floor_height_above_base_m"
+                if coordinates.get("support_surface") == "floor"
+                else "table_height_above_base_m"
+            )
+            if (
+                coordinates.get("tcp")
+                not in {"grip_site", "native_grasp_tcp", "calibrated_grasp_tcp"}
+                or coordinates.get("contract_version") != "episode_coordinates_v2"
+                or coordinates.get(height) is None
+            ):
+                raise ValueError(
+                    "remote general toolkit lacks matching base, support surface and TCP calibration"
                 )
-                if (
-                    coordinates.get("world_cord") != "general"
-                    or coordinates.get("tcp")
-                    not in {"grip_site", "native_grasp_tcp", "calibrated_grasp_tcp"}
-                    or coordinates.get("contract_version") != "episode_coordinates_v2"
-                    or coordinates.get(height) is None
-                ):
-                    raise ValueError(
-                        "remote general toolkit lacks matching base, support surface and TCP calibration"
-                    )
             from robots.rl.toolkit import episode_tools
 
             for definition in episode_tools(
                 self,
                 request["task"]["environment"],
-                self.world_cord,
-                self.units,
                 self.max_actions_per_call,
             ):
                 self.add_tool(definition.with_handler(self._handler(definition.name)))
@@ -444,7 +360,7 @@ class RemoteToolkit(Toolkit):
                             "episode_contract_version",
                             "task",
                             "max_episode_steps",
-                            "workflow_options",
+                            "episode_options",
                         )
                     },
                     indent=2,
@@ -615,7 +531,6 @@ def main() -> None:
     robot_args.cuda_device = config["gpu"]
     robot_args.sam3_endpoint = config["sam3_endpoint"]
     robot_args.max_episode_steps = config["max_episode_steps"]
-    robot_args.prompt = config["task"].get("prompt", "simple")
     robot_args.libero_type = config["task"].get("libero_type")
     release = contextlib.ExitStack()
     try:

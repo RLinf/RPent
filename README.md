@@ -122,7 +122,7 @@ RPent is built for four kinds of users:
 
 ## Quick Start
 
-For adaptive VLM control without a VLA on LIBERO, RoboCasa or RoboTwin, see the [shared RL workflow installation, launchers and parameters](tools/rl/README.md). LIBERO also offers `episode_image`, RGB-only `pear` control and the `general` robot-base coordinate frame; the guide documents tools, coordinates and context boundaries.
+Run LIBERO, RoboTwin, RoboCasa or RoboDojo with the shared episode tools. See the [installation and rollout guide](docs/source-en/rst_source/simulators/rl.rst).
 
 **1. Choose an environment and install RPent.**
 

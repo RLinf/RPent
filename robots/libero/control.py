@@ -24,10 +24,8 @@ from rpent.robots.components.am_contracts import AMControlSpec
 class ControlObservation:
     """Transparent native-env wrapper exposing a picklable robot-state property."""
 
-    def __init__(self, env, *, world_cord="base", coordinate_calibration=False):
+    def __init__(self, env):
         self.env = env
-        self.world_cord = world_cord
-        self.coordinate_calibration = coordinate_calibration
         self._coordinate_calibration = None
 
     def __getattr__(self, name):
@@ -139,11 +137,7 @@ class ControlObservation:
             )
             jaw_axes.append(site_rotation.T @ axis_world)
         return {
-            **(
-                self._general_state(native, robot, arm)
-                if self.world_cord == "general" or self.coordinate_calibration
-                else {}
-            ),
+            **self._general_state(native, robot, arm),
             "jaw_slide_axes_site": np.asarray(jaw_axes),
             "xyz": native.sim.data.site_xpos[site].copy(),
             "rotation": site_rotation,
@@ -160,33 +154,22 @@ class ControlObservation:
         }
 
 
-def wrap_factory(factory, *, world_cord="base", coordinate_calibration=False):
+def wrap_factory(factory):
     """Wrap one existing RLinf factory; no simulator import or environment clone."""
 
     def create():
-        return ControlObservation(
-            factory(),
-            world_cord=world_cord,
-            coordinate_calibration=coordinate_calibration,
-        )
+        return ControlObservation(factory())
 
     return create
 
 
-def controlled_env_type(*, world_cord="base", coordinate_calibration=False):
+def controlled_env_type():
     """Return a thin LiberoEnv subclass using its supported factory extension."""
     from rlinf.envs.sim.libero.libero_env import LiberoEnv
 
     class ControlledLiberoEnv(LiberoEnv):
         def get_env_fns(self):
-            return [
-                wrap_factory(
-                    factory,
-                    world_cord=world_cord,
-                    coordinate_calibration=coordinate_calibration,
-                )
-                for factory in super().get_env_fns()
-            ]
+            return [wrap_factory(factory) for factory in super().get_env_fns()]
 
     return ControlledLiberoEnv
 

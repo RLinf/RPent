@@ -122,7 +122,7 @@ RPent 面向以下四类用户：
 
 ## 快速开始
 
-使用 VLM 的 adaptive 工作流直接控制 LIBERO、RoboCasa 或 RoboTwin（不使用 VLA）时，参见[共享 RL 工作流的环境安装、启动与参数说明](tools/rl/README_zh.md)，LIBERO 还支持 `episode_image`、纯 RGB 的 `pear` 控制和 `general` 基座坐标系；指南说明工具、坐标及上下文边界。
+LIBERO、RoboTwin、RoboCasa 和 RoboDojo 共用一套 episode 工具。参见[安装与采集指南](docs/source-zh/rst_source/simulators/rl.rst)。
 
 **1. 选择一个环境并安装 RPent。**
 

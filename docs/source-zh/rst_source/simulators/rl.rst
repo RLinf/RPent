@@ -1,81 +1,73 @@
 机器人 Episode
 ==============
 
-用同一套四个工具在 LIBERO、RoboTwin、RoboCasa 或 RoboDojo 中运行模型。任务和原生成功判定由仿真器提供。
+用同一套 episode 在 LIBERO、RoboTwin、RoboCasa 或 RoboDojo 中运行模型。模型可调用 ``view_env``、``segment``、``back_project`` 和 ``execute_actions``。仿真器测量状态、执行动作并判定任务成功。只有 ``view_env`` 向模型返回图像。
 
-安装
-----
+安装仿真环境
+------------
 
-每种仿真器使用独立的 Python 环境。在其中安装 RPent，并按仿真器指南准备运行包和资产。``requirements/libero-rl.txt``\ 、``requirements/rl-robotwin.txt`` 和 ``requirements/rl-robocasa.txt`` 分别提供对应的 episode 依赖。RoboDojo 使用自己的 Isaac 环境和 ``robodojo-sim`` extra。准备 SAM3 权重或已有的 SAM3 服务地址。模型服务使用独立环境。
-
-接入 RLinf 时，从配套的 RPent 代码目录把 ``requirements/episode-planner.txt`` 装入 RL 环境。它提供 planner 和 RPC 客户端。仿真依赖装在运行仿真进程的主机上。
+准备配套版本的 RPent 和 RLinf。在运行仿真的主机上执行对应的安装命令。安装脚本创建独立虚拟环境，并引用该 RLinf checkout 中的仿真适配器。
 
 .. code-block:: bash
 
-   uv pip install --python "$RL_PYTHON" -r requirements/episode-planner.txt
-   uv pip install --python "$LIBERO_PYTHON" -r requirements/libero-rl.txt
-   uv pip install --python "$ROBOTWIN_PYTHON" -r requirements/rl-robotwin.txt
-   uv pip install --python "$ROBOCASA_PYTHON" -r requirements/rl-robocasa.txt
-   uv pip install --python "$ROBODOJO_PYTHON" -e '.[robodojo-sim]' \
-     --extra-index-url https://pypi.nvidia.com \
-     --override requirements/robodojo-override.txt
-
-将各变量设为对应虚拟环境中的 Python。仿真依赖与资产在各自后端机器上安装。
+   bash tools/rl/install_simulator.sh libero   .venv-libero   "$RLINF_ROOT"
+   bash tools/rl/install_simulator.sh robotwin .venv-robotwin "$RLINF_ROOT"
+   bash tools/rl/install_simulator.sh robocasa .venv-robocasa "$RLINF_ROOT"
+   bash tools/rl/install_simulator.sh robodojo .venv-robodojo "$RLINF_ROOT"
 
 .. list-table::
    :header-rows: 1
 
    * - 仿真器
-     - 已验证的运行环境
-   * - LIBERO-PRO
-     - Python 3.12、MuJoCo 3.3.0、robosuite 1.5.2 和 LIBERO-PRO 资产
+     - 主机上的依赖和资产
+   * - LIBERO
+     - Python 3.12、EGL 和 MuJoCo。设置 ``LIBERO_TYPE=pro`` 与 ``LIBERO_CONFIG_PATH``，配置中给出资产、BDDL 和原生初态文件的位置。见 :doc:`libero`。
    * - RoboTwin
-     - Python 3.11、SAPIEN 3.0.0b1、RoboTwin runtime 0.1.3 和匹配的 cuRobo 构建
+     - Python 3.11、NVIDIA Vulkan 和与 Torch 匹配的 CUDA 工具链，用于构建 cuRobo。在环境中运行 ``robotwin-download-assets``，将快照根目录设为 ``ROBOTWIN_ASSETS_PATH``。见 :doc:`robotwin`。
    * - RoboCasa
-     - Python 3.11、MuJoCo 3.3.0、RoboCasa365 1.0.1 和固定版本的 robosuite
+     - Python 3.11 和 EGL。在环境中运行 ``python -m robocasa.scripts.download_kitchen_assets --type all``。见 :doc:`robocasa`。
    * - RoboDojo
-     - Python 3.11、Isaac Sim 5.1、配套 IsaacLab 和 cuRobo 构建，以及原生评测布局
+     - Python 3.11、Isaac Sim 5.1 和 RTX GPU。将 RoboDojo 资产和评测布局放在 ``ROBODOJO_ASSETS_ROOT``。见 :doc:`robodojo`。
 
-运行评测
---------
-
-激活相应仿真环境，在 RPent 代码目录运行。以下示例连接已有的 SAM3 池和兼容 OpenAI 接口的模型服务。
-直跑时如使用模型自带的处理器计算 prompt 长度，请在当前解释器中安装匹配的
-Transformers、Torch 和 Torchvision，并用 ``RPENT_TOKENIZER_PATH`` 指向本地 checkpoint。
-使用远程 toolkit 时，只有 planner 解释器加载模型处理器。
+准备兼容 OpenAI API 的模型服务和 SAM3 服务。在负责 SAM3 的 Python 环境中安装 ``sam3`` extra，把 ``SAM3_CHECKPOINT_PATH`` 设为本机权重文件。用分配给 SAM3 的 GPU 启动服务。
 
 .. code-block:: bash
 
-   export RPENT_MODEL=openai-chat:Qwen3.8-27B
+   "$SAM3_PYTHON" -m rpent.robots.components.sam3_server \
+     --host 127.0.0.1 --port 28424 --cuda-device 1
+
+运行一条轨迹
+------------
+
+激活仿真器的虚拟环境。下面用本机的 SAM3 和已经启动的模型服务运行 LIBERO。
+
+.. code-block:: bash
+
+   source .venv-libero/bin/activate
+   export RPENT_MODEL=openai-chat:Qwen3.5-4B
    export RPENT_BASE_URL=http://127.0.0.1:30000/v1
    export RPENT_SAM3_ENDPOINT=http://127.0.0.1:28424
-   bash tools/rl/run.sh --simulator libero --libero-type pro \
-     --suite libero_spatial --task 2 --seed 0 --cuda-device 0 \
-     --world-cord general --position-unit cm \
-     --max-turns 100 --max-tokens 32768 --reasoning-effort xhigh
+   export RPENT_OUTPUT_DIR="$PWD/runs/libero-first"
+   bash tools/rl/run.sh --simulator libero --suite libero_spatial --task 0 --seed 0
 
-其它仿真器用 ``--simulator`` 选择 ``robotwin``\ 、``robocasa`` 或 ``robodojo``，并通过 ``--task-name`` 指定任务。RoboDojo 还接受 ``--layout``。批量评测用 ``python tools/rl/run_batch.py run OUTPUT --jobs MANIFEST`` 读取 JSON 清单。``--pilot-jobs`` 可指定先运行的清单子集，结果计入同一批次。收集器逐条写入已审计结果，续跑时从剩余任务与 seed 开始。
+RoboTwin、RoboCasa 和 RoboDojo 使用 ``--simulator`` 和 ``--task-name``。RoboDojo 可用 ``--layout`` 指定评测布局。输出目录保存图像、实测状态、工具回执和原生终局。批量采集用 ``tools/rl/run_batch.py`` 读取 JSON 任务清单，逐条封存并支持续跑。
 
-接入 RLinf
-----------
+提供训练工具服务
+----------------
 
-在仿真环境中启动后端，指定仿真器、GPU 槽位和 SAM3 地址。
-RoboTwin 还需在启动管理器前，在后端环境中设置 ``ROBOTWIN_ASSETS_PATH``。
+用同一仿真环境和资产启动 RPC。后端管理分配给它的 GPU 槽和子进程。下面的 LIBERO 服务可同时运行四个环境。
 
 .. code-block:: bash
 
-   python -m robots.rl.remote_manager --simulator libero \
-     --gpu-slots 0:1,1:1 --sam3-endpoint http://127.0.0.1:28424 \
-     --output-dir /path/to/backend --port 28490
+   python -m robots.rl.remote_manager --simulator libero --gpu-slots 0:4 \
+     --sam3-endpoint http://127.0.0.1:28424 --port 28561 \
+     --output-dir "$PWD/runs/libero-toolkit"
 
-将 RLinf 的 ``tools.rpent.python`` 指向 planner 解释器，将 ``tools.rpent.remote_toolkit_endpoint`` 指向 agent worker 可访问的后端地址。两端使用相同版本的 RPent。后端管理槽位并核验仿真器、工具契约和坐标配置。直接评测与远程调用使用同一适配器。
+每种仿真器使用自己的 endpoint。服务默认监听回环地址，跨主机时使用受限转发。资产留在仿真端，观察和工具回执通过 RPC 返回。Planner 和后端使用相同 RPent 版本。训练启动见 `RLinf 指南 <https://github.com/zhexuanxu/RLinf/blob/rpent-ppo/docs/source-zh/rst_source/examples/agentic/rpent_episode_sync.rst>`_。
 
-动作与感知
+坐标与动作
 ----------
 
-- ``view_env`` 返回最新 RGB、相机名称和图像尺寸。模型只通过这个工具接收 RGB。
-- ``segment`` 接受文字或一个点，用 SAM3 测量可见表面。``back_project`` 接受像素、框或已保存的 mask，查询拍摄时的深度。像素顺序是 ``[row,col]``，框采用半开区间 ``[row_min,col_min,row_max,col_max]``。点和框按对应观察步的实际图像大小校验，mask 绑定原相机和拍摄步。
-- 感知回执标明相机、拍摄步、位置单位、拍摄坐标版本和结果坐标版本。历史观察保留拍摄时的 RGB-D 与标定，几何结果使用当前坐标表达。
-- ``execute_actions`` 按顺序执行最多三项。RoboTwin 和 RoboDojo 的每个手臂项指定 ``left`` 或 ``right``。RoboCasa 可以把 ``move_base``\ 、``move_lift`` 和手臂动作放在同一批。执行器在每项开始前实测坐标系，并用该坐标系解释模型填入的原始目标。每项返回实测状态和残差，遇到部分完成、错误或终局时停止后续动作。
+模型接口用厘米表示位置、长度和线速度。姿态为固定轴 XYZ 的 roll、pitch、yaw，单位为弧度。单臂取实测安装座为原点，双臂取两个安装座的中点。X 向前，Y 向机器人左侧，Z 向上。感知工具在该坐标系内回报可见表面的几何，原始深度和仿真点云仍用米。
 
-``--world-cord base`` 使用仿真世界坐标。``general`` 的原点为单臂安装座或双臂安装座中点，+x 向前、+y 向左、+z 向上。``--position-unit m|cm`` 决定线性量的输入与返回单位，角度使用弧度。提示词里的画面方向帮助定位物体，动作目标来自深度工具和实测状态。原生成功或预算耗尽后自动结束，模型提交最终文字答复时根据原生状态记录结果。
+每批最多三个顺序动作，每项控制一个部件。RoboCasa 的手臂目标相对于该项开始时实测的坐标系，包括前一项刚移动底盘或升降的情况。观察和感知回执记录拍摄及结果所用的坐标版本，动作输入只写目标。

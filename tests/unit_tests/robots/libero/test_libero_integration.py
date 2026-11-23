@@ -454,11 +454,12 @@ def test_seeded_vla_chunks_repeat_after_reset():
 
 
 def _rl_episode_args(tmp_path, monkeypatch, init_runtime, toolkit):
-    from robots.libero import rl_episode
+    from robots.rl import rl_episode
 
     spec = SimpleNamespace(
         parse_config=lambda args: SimpleNamespace(prompt_vars={}),
         init_runtime=init_runtime,
+        configure_planner=lambda planner, config: planner,
         prompts=SimpleNamespace(render=lambda *args, **kwargs: "Move the robot."),
     )
     monkeypatch.setattr(rl_episode, "init_output_dir", lambda path: None)
@@ -472,21 +473,20 @@ def _rl_episode_args(tmp_path, monkeypatch, init_runtime, toolkit):
         "max_turns": 2,
         "request_timeout_s": 5,
         "episode_timeout_s": 5,
-        "no_images": True,
         "history_compaction": None,
     }
-    task = {"suite": "libero_goal", "task": 7, "seed": 3, "vla_seed": 1}
+    task = {"suite": "libero_goal", "task": 7, "seed": 3, "init_state_id": 3}
     request.write_text(json.dumps({"task": task, "planner": planner}))
     return SimpleNamespace(
         output_dir=tmp_path,
         request=request,
-        frozen_memory_dir=None,
+        image_size=1024,
         tokenizer_path=None,
     )
 
 
 def test_rl_episode_setup_failure_releases_started_services(tmp_path, monkeypatch):
-    from robots.libero import rl_episode
+    from robots.rl import rl_episode
 
     daemon = SimpleNamespace(stop=Mock())
 
@@ -867,7 +867,7 @@ def test_libero_failed_chunk_discards_unconfirmed_actions(
 
 
 def test_rl_episode_reports_outcome_after_releasing_the_scene(tmp_path, monkeypatch):
-    from robots.libero import rl_episode
+    from robots.rl import rl_episode
 
     released, seen = [], {}
     daemon = SimpleNamespace(stop=lambda: released.append("env"))
@@ -880,7 +880,10 @@ def test_rl_episode_reports_outcome_after_releasing_the_scene(tmp_path, monkeypa
         return SimpleNamespace(
             primitives=SimpleNamespace(reset_info={"init_state_id": 3}),
             solved=lambda: True,
-            state=SimpleNamespace(get=lambda: SimpleNamespace(truncated=False)),
+            state=SimpleNamespace(
+                records=lambda: [],
+                latest_record=lambda: SimpleNamespace(truncated=False),
+            ),
             close=lambda: released.append("toolkit"),
         )
 
@@ -897,7 +900,7 @@ def test_rl_episode_reports_outcome_after_releasing_the_scene(tmp_path, monkeypa
     args = _rl_episode_args(tmp_path, monkeypatch, init_runtime, toolkit)
     monkeypatch.setattr(rl_episode, "solve", solve)
     assert rl_episode.run(args) == 0
-    assert seen == {"output": tmp_path, "components": {"env", "vla", "sam3"}, "task": 7}
+    assert seen == {"output": tmp_path, "components": {"env", "sam3"}, "task": 7}
     assert released == ["toolkit", "env"]
     # The trainer reads exactly these fields.
     assert json.loads((tmp_path / "outcome.json").read_text()) == {
@@ -908,10 +911,4 @@ def test_rl_episode_reports_outcome_after_releasing_the_scene(tmp_path, monkeypa
         "error": None,
         "error_kind": None,
         "init_state_id": 3,
-        "memory_entries": [],
     }
-    task = json.loads(args.request.read_text())
-    task["task"]["memory_entries"] = [{"id": "task-family/task.md", "sha256": "0"}]
-    args.request.write_text(json.dumps(task))
-    with pytest.raises(ValueError, match="given together"):
-        rl_episode.run(args)

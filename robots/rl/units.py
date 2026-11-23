@@ -6,8 +6,7 @@ from __future__ import annotations
 
 import math
 import re
-from copy import deepcopy
-from dataclasses import dataclass, replace
+from dataclasses import replace
 from typing import Any
 
 from pydantic import ConfigDict, create_model
@@ -19,44 +18,31 @@ from rpent.tools import Tool
 _LENGTH_FIELDS = frozenset({"xyz", "world_xyz", "tcp_xyz", "base_xyz", "vx", "vy"})
 
 
-def _scale(value: Any, factor: float) -> Any:
+def _scale(value: Any, to_model: bool) -> Any:
     if value is None:
         return None
     if isinstance(value, (list, tuple)):
-        return [_scale(item, factor) for item in value]
+        return [_scale(item, to_model) for item in value]
     if (
         isinstance(value, bool)
         or not isinstance(value, (int, float))
         or not math.isfinite(value)
     ):
         raise ValueError("A linear quantity must contain finite numbers")
-    return value * factor
+    return value * 100.0 if to_model else value / 100.0
 
 
-@dataclass(frozen=True)
-class PositionUnits:
-    """Metres internally, with a declared model-facing unit and matching names."""
+class Centimeters:
+    """Translate model-facing centimeters and native metres."""
 
-    name: str = "m"
-
-    def __post_init__(self) -> None:
-        if self.name not in {"m", "cm"}:
-            raise ValueError("position_unit must be m or cm")
-
-    @property
-    def factor(self) -> float:
-        return 100.0 if self.name == "cm" else 1.0
+    factor = 100.0
 
     def field(self, name: str, *, to_model: bool = True) -> str:
-        if self.name == "m":
-            return name
         old, new = ("_m", "_cm") if to_model else ("_cm", "_m")
         return name[: -len(old)] + new if name.endswith(old) else name
 
     def payload(self, value: Any, *, to_model: bool = True) -> Any:
         """Convert structured feedback/arguments without touching image bytes."""
-        if self.name == "m":
-            return deepcopy(value)
         if isinstance(value, list):
             return [self.payload(item, to_model=to_model) for item in value]
         if not isinstance(value, dict):
@@ -66,13 +52,14 @@ class PositionUnits:
             native_key = key if to_model else self.field(key, to_model=False)
             output_key = self.field(key, to_model=to_model)
             if native_key in _LENGTH_FIELDS or native_key.endswith("_m"):
-                result[output_key] = _scale(
-                    item, self.factor if to_model else 1 / self.factor
-                )
+                result[output_key] = _scale(item, to_model)
             elif key == "commanded_local_velocity":
                 # Existing RoboCasa base feedback packs vx, vy and yaw_rate.
-                factor = self.factor if to_model else 1 / self.factor
-                result[key] = [item[0] * factor, item[1] * factor, item[2]]
+                result[key] = [
+                    _scale(item[0], to_model),
+                    _scale(item[1], to_model),
+                    item[2],
+                ]
             elif key == "units" and isinstance(item, dict):
                 result[key] = {
                     **item,
@@ -83,8 +70,6 @@ class PositionUnits:
         return result
 
     def description(self, text: str) -> str:
-        if self.name == "m":
-            return text
         text = re.sub(r"\b([a-zA-Z_][a-zA-Z_0-9]*)_m\b", r"\1_cm", text)
         # Examples contain literal coordinates; leaving them in metres would
         # silently teach a target 100x too small. Public schemas retain bounds.
@@ -133,10 +118,12 @@ class PositionUnits:
         return walk(schema)
 
 
-def model_tool(declaration: Tool, units: PositionUnits) -> Tool:
-    """Publish model units; convert arguments only at the simulator boundary."""
-    if units.name == "m":
-        return declaration
+CENTIMETERS = Centimeters()
+
+
+def model_tool(declaration: Tool) -> Tool:
+    """Publish centimetres; convert arguments at the simulator boundary."""
+    units = CENTIMETERS
     schema = units.schema(declaration.input_schema)
 
     def external_field(name):

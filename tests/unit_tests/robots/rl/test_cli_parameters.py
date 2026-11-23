@@ -284,7 +284,6 @@ def test_configurable_message_window_keeps_pairs_and_zero_disables_trigger():
         ("--max-tokens", "8192"),
         ("--compaction-max-messages", "0"),
         ("--compaction-keep-messages", "20"),
-        ("--position-unit", "cm"),
         ("--sam3-timeout-s", "600"),
     ],
 )
@@ -308,46 +307,20 @@ def test_batch_manifest_pins_generation_and_window(tmp_path, monkeypatch, flag, 
             signal.signal(sig, handler)
 
 
-def test_episode_cli_defaults_and_unit_forwarding(tmp_path):
+def test_episode_cli_uses_fixed_coordinates(tmp_path):
     from robots.rl.robot_spec import _parse_config, get_robot_spec
     from rpent.cli.main import _build_argparser
 
     cli = _build_argparser()
     get_robot_spec().add_cli_args(cli, use_dashboard=False)
-    args = cli.parse_args(
-        [
-            "--robot",
-            "rl",
-            "--suite",
-            "libero_object",
-            "--task",
-            "0",
-            "--world-cord",
-            "general",
-            "--position-unit",
-            "cm",
-        ]
-    )
-    config = _parse_config(args)
-    assert config.prompt_vars["position_unit"] == "cm"
-    assert config.task_desc["world_cord"] == "general"
-    batch_options = batch_args(
-        tmp_path, "--world-cord", "general", "--position-unit", "cm"
-    )
-    batch.resolve_run_options(batch_options)
-    flags = batch.episode_options(batch_options)
-    assert flags[flags.index("--position-unit") + 1] == "cm"
-    assert flags[flags.index("--world-cord") + 1] == "general"
-    for removed in (
-        "--workflow",
-        "--prompt",
-        "--observation-mode",
-        "--perception-mode",
-    ):
-        assert removed not in flags
-    default = batch_args(tmp_path)
-    batch.resolve_run_options(default)
-    assert default.position_unit == "m" and default.world_cord == "base"
+    argv = ["--robot", "rl", "--suite", "libero_object", "--task", "0"]
+    config = _parse_config(cli.parse_args(argv))
+    assert "world_cord" not in config.task_desc
+    for option, value in (("--world-cord", "base"), ("--position-unit", "m")):
+        with pytest.raises(SystemExit):
+            cli.parse_args([*argv, option, value])
+        with pytest.raises(SystemExit):
+            batch_args(tmp_path, option, value)
 
 
 @pytest.mark.parametrize(
@@ -439,22 +412,17 @@ def test_trainer_episode_recording_is_explicit(tmp_path, record):
         str(tmp_path / "request.json"),
         "--simulator",
         "libero",
-        "--action-mode",
-        "batch",
         "--max-actions-per-call",
         "3",
     ]
     args = parse_args(argv + (["--record-api-trace"] if record else []))
     assert args.record_api_trace is record
-    assert args.workflow == "episode" and args.action_mode == "batch"
-    assert args.max_actions_per_call == 3 and args.perception_mode == "single"
+    assert args.max_actions_per_call == 3
     assert list(tmp_path.iterdir()) == []
 
 
-def test_episode_batch_pins_frame_and_reasoning_and_forwards_both(tmp_path):
-    args = batch_args(tmp_path, "--world-cord", "general", "--no-reasoning")
+def test_episode_batch_forwards_reasoning_choice(tmp_path):
+    args = batch_args(tmp_path, "--no-reasoning")
     batch.resolve_run_options(args)
-    assert args.world_cord == "general" and args.no_thinking
-    flags = batch.episode_options(args)
-    assert flags[flags.index("--world-cord") + 1] == "general"
-    assert "--no-thinking" in flags
+    assert args.no_thinking
+    assert "--no-thinking" in batch.episode_options(args)

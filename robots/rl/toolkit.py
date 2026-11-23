@@ -26,7 +26,7 @@ from typing import Any
 from robots.rl.contracts import CAMERAS, EPISODE_CONTRACT_VERSION
 from robots.rl.images import NATIVE_SIZE
 from robots.rl.perception import RecordedPerception
-from robots.rl.prompt_bundle import validate_workflow
+from robots.rl.units import CENTIMETERS
 from rpent.dashboard.events import DashboardEventSink
 from rpent.memory import MemoryManager
 from rpent.session import EnvState
@@ -35,7 +35,7 @@ from rpent.tools.toolkit import Toolkit
 from rpent.utils.serialization import write_json
 
 
-def primitive_owner(environment: str, world_cord: str = "base"):
+def primitive_owner(environment: str):
     """Select the same primitive owner class for local and remote execution."""
     if environment == "libero":
         from robots.rl.tools import LiberoRLPrimitives
@@ -48,28 +48,16 @@ def primitive_owner(environment: str, world_cord: str = "base"):
     from robots.rl.backends import (
         RoboCasaGeneralPrimitives,
         RoboTwinGeneralPrimitives,
-        RoboTwinPrimitives,
     )
 
     if environment == "robocasa":
         return RoboCasaGeneralPrimitives
     if environment == "robotwin":
-        return (
-            RoboTwinGeneralPrimitives if world_cord == "general" else RoboTwinPrimitives
-        )
+        return RoboTwinGeneralPrimitives
     raise ValueError(f"Unsupported episode environment: {environment}")
 
 
-def uses_native_1024(environment: str, world_cord: str = "base") -> bool:
-    """Return whether the selected environment renders native 1024x1024 RGB-D."""
-    return environment == "libero" or (
-        environment == "robocasa" and world_cord == "general"
-    )
-
-
-def episode_tools(
-    toolkit, environment, world_cord, units, max_actions, perception=None
-):
+def episode_tools(toolkit, environment, max_actions, perception=None):
     """Build the same model schema without importing native adapters on the client."""
     from robots.rl.actions import ActionBatch, DualArmBatch, MobileBatch
     from robots.rl.contracts import coordinate_definition, strict_tool
@@ -93,10 +81,9 @@ def episode_tools(
     for declaration in (owner.view_env, owner.segment, owner.back_project, batch):
         yield model_tool(
             strict_tool(
-                coordinate_definition(declaration, world_cord),
+                coordinate_definition(declaration),
                 cameras=CAMERAS[environment],
             ),
-            units,
         )
 
 
@@ -112,57 +99,16 @@ class RLToolkit(Toolkit):
         runtime_kwargs: dict[str, Any],
         dashboard_events: DashboardEventSink,
         memory: MemoryManager,
-        observation_mode: str,
         output_dir: Path | str,
         environment: str = "libero",
-        workflow: str = "episode",
         image_size: int = 1024,
-        action_mode: str = "batch",
         max_actions_per_call: int = 3,
         reasoning_history: int = -1,
         image_history: int = -1,
-        perception_mode: str = "single",
-        max_observe_calls: int = 8,
-        observe_concurrency: int = 8,
-        world_cord: str = "base",
-        position_unit: str = "m",
         reasoning: bool = True,
     ) -> None:
-        if observation_mode != "adaptive":
-            raise ValueError("rl supports only adaptive observations")
-        validate_workflow(environment, workflow)
-        from robots.rl.contracts import (
-            validate_coordinates,
-            validate_image_size,
-            validate_options,
-            validate_perception_options,
-        )
-
-        validate_coordinates(environment, world_cord)
-        from robots.rl.units import PositionUnits
-
-        self.units = PositionUnits(position_unit)
-        self.position_unit = position_unit
-        self.world_cord, self.reasoning = world_cord, reasoning
-        validate_image_size(environment, world_cord, image_size)
-        validate_options(
-            environment,
-            workflow,
-            action_mode,
-            max_actions_per_call,
-            reasoning_history,
-            image_history,
-            world_cord=world_cord,
-        )
-        validate_perception_options(
-            workflow, perception_mode, max_observe_calls, observe_concurrency
-        )
-        self.perception_mode = perception_mode
-        self.max_observe_calls, self.observe_concurrency = (
-            max_observe_calls,
-            observe_concurrency,
-        )
-        self.action_mode, self.max_actions_per_call = action_mode, max_actions_per_call
+        self.reasoning = reasoning
+        self.max_actions_per_call = max_actions_per_call
         self.reasoning_history, self.image_history = reasoning_history, image_history
         self.output_dir = Path(output_dir)
         self.image_size = image_size
@@ -173,17 +119,11 @@ class RLToolkit(Toolkit):
         super().__init__(dashboard_events=dashboard_events, state=state, memory=memory)
         self._images_sent = 0
         self._images_lock = threading.Lock()
-        self.environment, self.workflow = environment, workflow
-        primitive_type = primitive_owner(environment, world_cord)
-        native_options = dict(runtime_kwargs)
-        if environment in {"libero", "robodojo"}:
-            native_options.update(world_cord=world_cord)
-        elif environment == "robocasa":
-            native_options.update(world_cord=world_cord)
-        self._primitives = primitive_type(
-            state=state, check_cancelled=self.raise_if_cancelled, **native_options
+        self.environment = environment
+        self._primitives = primitive_owner(environment)(
+            state=state, check_cancelled=self.raise_if_cancelled, **runtime_kwargs
         )
-        if uses_native_1024(environment, world_cord) and image_size != NATIVE_SIZE:
+        if environment in {"libero", "robocasa"} and image_size != NATIVE_SIZE:
             self._primitives.display_size = image_size
         self.action_error = None
         self._task = self._primitives.env.get_task_language()
@@ -193,8 +133,6 @@ class RLToolkit(Toolkit):
             episode_tools(
                 self,
                 environment,
-                world_cord,
-                self.units,
                 max_actions_per_call,
                 perception=self._primitives,
             )
@@ -207,11 +145,9 @@ class RLToolkit(Toolkit):
         return getattr(getattr(self._primitives, "coordinates", None), "version", 0)
 
     def _model_feedback(self, result: ToolResult) -> ToolResult:
-        if self.world_cord == "general":
-            result.data["coordinates"] = self._primitives.coordinates.description()
-        if self.position_unit != "m":
-            result.data = self.units.payload(result.data)
-        result.data["position_unit"] = self.position_unit
+        result.data["coordinates"] = self._primitives.coordinates.description()
+        result.data = CENTIMETERS.payload(result.data)
+        result.data["position_unit"] = "cm"
         return result
 
     def _register_common_tools(self) -> None:
@@ -263,7 +199,6 @@ class RLToolkit(Toolkit):
         observation = ToolResult(
             data={
                 "task": self._task,
-                "observation_mode": "adaptive",
                 "state": {"step": step, **self._robot_state()},
             },
         )
@@ -272,7 +207,6 @@ class RLToolkit(Toolkit):
         self._state.save(
             "planner_audit.json",
             {
-                "observation_mode": "adaptive",
                 "episode_contract_version": EPISODE_CONTRACT_VERSION,
                 "tools": [
                     {
@@ -421,18 +355,11 @@ class RLToolkit(Toolkit):
         self._state.save(
             "rollout.json",
             {
-                "observation_mode": "adaptive",
-                "workflow": self.workflow,
-                "world_cord": self.world_cord,
-                "position_unit": self.position_unit,
+                "position_unit": "cm",
                 "coordinate_contract": "episode_coordinates_v2",
                 "episode_contract_version": EPISODE_CONTRACT_VERSION,
                 "reasoning": self.reasoning,
                 "image_size": self.image_size,
-                "action_mode": self.action_mode,
-                "perception_mode": self.perception_mode,
-                "max_observe_calls": self.max_observe_calls,
-                "observe_concurrency": self.observe_concurrency,
                 "max_actions_per_call": self.max_actions_per_call,
                 "reasoning_history": self.reasoning_history,
                 "image_history": self.image_history,

@@ -39,9 +39,8 @@ def grasp_axes(closing: np.ndarray, approach: np.ndarray) -> np.ndarray:
 
 @dataclass(frozen=True)
 class Coordinates:
-    """Map simulator-world positions and rotations into the selected world frame."""
+    """Map simulator-world positions and rotations into the measured robot mounting frame."""
 
-    mode: str
     origin: np.ndarray
     rotation: np.ndarray
     table_height_m: float | None = None
@@ -50,33 +49,8 @@ class Coordinates:
     tcp: str = "native_grasp_tcp"
 
     @classmethod
-    def from_control(cls, mode: str, control: dict[str, Any]) -> Coordinates:
+    def from_control(cls, control: dict[str, Any]) -> Coordinates:
         """Validate native calibration once, before any general-frame action."""
-        if mode == "base":
-            calibration = control.get("coordinate_calibration")
-            heights = (
-                {}
-                if calibration is None
-                else {
-                    f"{kind}_height_m": float(
-                        np.asarray(calibration[f"{kind}_top_xyz"])[2]
-                        - np.asarray(calibration["base_xyz"])[2]
-                    )
-                    for kind in ("table", "floor")
-                    if f"{kind}_top_xyz" in calibration
-                }
-            )
-            return cls(
-                mode,
-                np.zeros(3),
-                np.eye(3),
-                tcp=str(control.get("native_tcp", "grip_site")),
-                **heights,
-            )
-        if mode != "general":
-            raise ValueError("world_cord must be base or general")
-        if not isinstance(control, dict):
-            raise ValueError("general requires native robot control calibration")
         try:
             calibration = control["coordinate_calibration"]
             origin = np.asarray(calibration["base_xyz"], dtype=np.float64)
@@ -106,7 +80,6 @@ class Coordinates:
         up = np.array([0.0, 0.0, 1.0])
         rotation = np.column_stack((forward, np.cross(up, forward), up))
         return cls(
-            mode,
             origin.copy(),
             rotation,
             **{f"{kind}_height_m": float(surface[2] - origin[2])},
@@ -140,12 +113,9 @@ class Coordinates:
     def metadata(self) -> dict[str, Any]:
         """Describe model coordinates and raw point-map storage without ambiguity."""
         return {
-            "world_cord": self.mode,
             "tcp": self.tcp,
             "units": {"position": "metres", "orientation": "radians"},
-            "axes": {"x": "forward", "y": "robot_left", "z": "up"}
-            if self.mode == "general"
-            else {"x": "sim_world_x", "y": "sim_world_y", "z": "sim_world_z"},
+            "axes": {"x": "forward", "y": "robot_left", "z": "up"},
             "origin_in_sim_world": self.origin.tolist(),
             "rotation_to_sim_world": self.rotation.tolist(),
             "raw_point_map_frame": "sim_world",
@@ -167,7 +137,6 @@ class Coordinates:
         """Give the model the frame convention, without the simulator-world origin."""
         metadata = self.metadata()
         return {
-            "world_cord": self.mode,
             "tcp": metadata["tcp"],
             "units": metadata["units"],
             "axes": metadata["axes"],

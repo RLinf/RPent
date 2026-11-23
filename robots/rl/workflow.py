@@ -22,33 +22,18 @@ from pydantic_ai import ModelRetry, ToolCallPart
 from pydantic_ai.capabilities import AbstractCapability
 from pydantic_ai.exceptions import UnexpectedModelBehavior
 
-from rpent.utils.serialization import write_json
-
 
 class WorkflowCapability(AbstractCapability):
-    """Keep one global request budget while replacing only visible context."""
+    """Validate complete replies before executing any tool."""
 
-    def __init__(
-        self,
-        toolkit,
-        system_prompt: str,
-        user_message: str,
-        max_turns: int,
-        *,
-        timeout_s: float,
-    ) -> None:
+    def __init__(self, toolkit) -> None:
         self.toolkit = toolkit
-        self.system_prompt, self.user_message = system_prompt, user_message
-        self.max_turns, self.timeout_s = max_turns, timeout_s
-        self.started = time.perf_counter()
         self.allowed = {item.name: item for item in toolkit.list_tools()}
         self.stats = toolkit.workflow_stats
-        self.stats.update(context_resets=0, invalid_tool_responses=0, model_seconds=0.0)
+        self.stats.update(invalid_tool_responses=0, model_seconds=0.0)
 
     async def before_model_request(self, ctx, request_context):
         """Allow a final reply or a single validated tool call."""
-        toolkit = self.toolkit
-        turn = ctx.usage.requests + 1
         request_context.model_settings = {
             **(request_context.model_settings or {}),
             "parallel_tool_calls": False,
@@ -76,24 +61,10 @@ class WorkflowCapability(AbstractCapability):
                     definitions,
                     parallel=False,
                     require_tool=False,
-                    fractional_bounds_at_execution=toolkit.world_cord == "general",
+                    fractional_bounds_at_execution=True,
                 ),
             }
-        self.turn = turn
         self.request_started = time.perf_counter()
-        write_json(
-            toolkit.output_dir / "workflow_requests" / f"{turn:04d}.json",
-            {
-                "request": turn,
-                "context_id": 0,
-                "reset": False,
-                "required_tools": [],
-                "workflow": toolkit.workflow,
-                "image_size": toolkit.image_size,
-                "bounded_qwen_xml": bounded,
-                "history_messages_before_compaction": len(request_context.messages),
-            },
-        )
         return request_context
 
     async def after_model_request(self, ctx, *, request_context, response):
@@ -109,7 +80,6 @@ class WorkflowCapability(AbstractCapability):
             raise UnexpectedModelBehavior(
                 "Token limit reached before any response was generated"
             )
-        names = [call.tool_name for call in calls]
         if len(calls) > 1:
             error = "Use one tool call per response."
         if error is None:
@@ -127,19 +97,6 @@ class WorkflowCapability(AbstractCapability):
 
                     error = f"Invalid tool arguments: {exc}. {argument_hint(call.tool_name, getattr(self.toolkit, 'environment', 'libero'))}"
                     break
-        path = self.toolkit.output_dir / "workflow_responses" / f"{self.turn:04d}.json"
-        write_json(
-            path,
-            {
-                "request": self.turn,
-                "context_id": 0,
-                "model_seconds": elapsed,
-                "tools": names,
-                "error": error,
-                "input_tokens": response.usage.input_tokens,
-                "output_tokens": response.usage.output_tokens,
-            },
-        )
         if error:
             self.stats["invalid_tool_responses"] += 1
             feedback = error + " No tool executed."

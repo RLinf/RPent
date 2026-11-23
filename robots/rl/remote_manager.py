@@ -23,11 +23,12 @@ import sys
 import threading
 import time
 import uuid
+from collections import Counter
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
-from robots.rl.contracts import CAMERAS, EPISODE_CONTRACT_VERSION
-from robots.rl.remote import REMOTE_OPTION_DEFAULTS, remote_options
+from robots.rl.contracts import CAMERAS, EPISODE_CONTRACT_VERSION, EPISODE_OPTIONS
+from robots.rl.remote import remote_options
 from rpent.utils.config import get_repo_root
 from rpent.utils.daemon import ProcessDaemon
 from rpent.utils.logging import get_logger
@@ -47,7 +48,8 @@ def validate_request(
         )
     if request["episode_contract_version"] != EPISODE_CONTRACT_VERSION:
         raise ValueError("unsupported episode contract version")
-    if type(request["gpu"]) is not int or request["gpu"] not in gpus:
+    gpu = request["gpu"]
+    if gpu is not None and (type(gpu) is not int or gpu not in gpus):
         raise ValueError("requested GPU is not assigned to this backend")
     if (
         type(request["max_episode_steps"]) is not int
@@ -66,12 +68,9 @@ def validate_request(
         "seed",
         "split",
         "task_config",
-        "workflow",
-        "observation_mode",
-        "prompt",
         "libero_type",
         "init_state_id",
-        *REMOTE_OPTION_DEFAULTS,
+        *EPISODE_OPTIONS,
     }
     if environment == "robodojo":
         allowed.add("layout")
@@ -161,10 +160,12 @@ class BackendManager(RpcFacade):
                 raise RuntimeError(f"remote attempt {owner_id} was cancelled")
             if owner_id is not None and owner_id in self._owners:
                 raise ValueError(f"remote attempt {owner_id} is already open")
-            if (
-                sum(row["gpu"] == gpu for row in self._workers.values())
-                >= self.slots[gpu]
-            ):
+            reserved = Counter(row["gpu"] for row in self._workers.values())
+            if gpu is None:
+                gpu = min(
+                    self.slots, key=lambda device: reserved[device] / self.slots[device]
+                )
+            if reserved[gpu] >= self.slots[gpu]:
                 raise RuntimeError(f"GPU{gpu} episode slots are full")
             self._workers[session] = {
                 "gpu": gpu,
@@ -182,6 +183,7 @@ class BackendManager(RpcFacade):
             output.mkdir()
             config = {
                 **request,
+                "gpu": gpu,
                 "output_dir": str(output / "artifacts"),
                 "sam3_endpoint": self.sam3_endpoint,
             }

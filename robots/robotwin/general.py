@@ -27,7 +27,7 @@ class RobotwinFrame:
 
     @classmethod
     def from_calibration(cls, calibration: dict[str, Any]) -> "RobotwinFrame":
-        coordinates = Coordinates.from_control("general", calibration)
+        coordinates = Coordinates.from_control(calibration)
         return cls(coordinates, calibration)
 
     def tool_rotation(self, arm: str) -> np.ndarray:

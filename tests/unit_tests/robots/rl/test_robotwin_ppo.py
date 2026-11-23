@@ -15,9 +15,6 @@ from tests.unit_tests.robots.rl.test_backend_contracts import Twin
 
 OPTIONS = {
     "environment": "robotwin",
-    "workflow": "episode",
-    "world_cord": "general",
-    "action_mode": "batch",
 }
 
 
@@ -81,13 +78,12 @@ def test_robotwin_episode_tools_report_and_execute_in_the_same_frame(
         runtime_kwargs={"env": env, "sam3_client": None},
         dashboard_events=SimpleNamespace(emit=lambda _event: None),
         memory=None,
-        observation_mode="adaptive",
         output_dir=tmp_path,
         **OPTIONS,
     )
     initial = toolkit.initial_observation().data
     left = initial["state"]["left"]["pose"]
-    np.testing.assert_allclose(left["xyz"], [0.65, 0, -0.38])
+    np.testing.assert_allclose(left["xyz"], [65, 0, -38])
     assert initial["coordinates"]["tcp"] == "native_grasp_tcp"
     assert {tool.name for tool in toolkit.list_tools()} == {
         "view_env",
@@ -100,15 +96,15 @@ def test_robotwin_episode_tools_report_and_execute_in_the_same_frame(
     point = toolkit.execute_tool(
         "back_project", {"pixel": [0, 0], "step": 0, "camera": "head"}
     )
-    np.testing.assert_allclose(point.data["world_xyz"], [0.65, 0, 0.22])
+    np.testing.assert_allclose(point.data["world_xyz"], [65, 0, 22])
     invalid_height = toolkit.execute_tool(
         "back_project",
-        {"box": [0, 0, 4, 6], "camera": "head", "step": 0, "z_range_m": [0]},
+        {"box": [0, 0, 4, 6], "camera": "head", "step": 0, "z_range_cm": [0]},
     )
     assert invalid_height.is_error
 
-    move = {"action": "move_to", "arm": "left", "xyz": [0.67, 0, -0.38]}
-    move_right = {"action": "move_to", "arm": "right", "xyz": [0.68, 0, -0.38]}
+    move = {"action": "move_to", "arm": "left", "xyz": [67, 0, -38]}
+    move_right = {"action": "move_to", "arm": "right", "xyz": [68, 0, -38]}
     grip = {"action": "set_gripper", "arm": "right", "opening": 1}
     for invalid in (
         {"actions": [move, {"action": "set_gripper", "opening": 0}]},

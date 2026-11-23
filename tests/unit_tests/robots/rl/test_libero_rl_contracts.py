@@ -71,6 +71,14 @@ class FakeEnv:
             ),
             "main_images": np.zeros((4, 4, 3), dtype=np.uint8),
             "control_state": {
+                "coordinate_calibration": {
+                    "base_xyz": [0, 0, 0],
+                    "base_rotation": np.eye(3),
+                    "table_top_xyz": [0, 0, 0.12],
+                    "tcp": "grip_site",
+                },
+                "jaw_slide_axes_site": [[1, 0, 0], [-1, 0, 0]],
+                "wrist_to_site_in_site": [0, 0, 1],
                 "xyz": self.xyz.copy(),
                 "rotation": self.rotation.as_matrix(),
                 "control_to_world_rotation": np.eye(3),
@@ -160,17 +168,25 @@ def make_toolkit(
         },
         dashboard_events=NullDashboardEventSink(),
         memory=MemoryManager(tmp_path / "memory"),
-        observation_mode=mode,
         output_dir=tmp_path / "run",
         **options,
     )
 
 
+def execute_with_si_values(toolkit, name, arguments):
+    """Measure the simulator contract in metres through the centimetre tools."""
+    from robots.rl.units import CENTIMETERS
+
+    result = toolkit.execute_tool(name, CENTIMETERS.payload(arguments))
+    result.data = CENTIMETERS.payload(result.data, to_model=False)
+    return result
+
+
 def execute_item(toolkit, name, arguments):
     from rpent.tools import ToolResult
 
-    result = toolkit.execute_tool(
-        "execute_actions", {"actions": [{"action": name, **arguments}]}
+    result = execute_with_si_values(
+        toolkit, "execute_actions", {"actions": [{"action": name, **arguments}]}
     )
     if result.is_error or not result.data["results"]:
         return result
@@ -187,44 +203,19 @@ def test_adaptive_returns_images_only_from_view_env(tmp_path) -> None:
     toolkit = make_toolkit(tmp_path, "adaptive")
     opening = toolkit.initial_observation()
     moved = execute_item(toolkit, "move_to", {"xyz": [0.1, -0.2, 0.95]})
-    segmented = toolkit.execute_tool("segment", {"prompt": "cube"})
+    segmented = execute_with_si_values(toolkit, "segment", {"prompt": "cube"})
     assert opening.data["task"] == "put the cube in the bowl"
     assert opening.data["state"]["step"] == 0
     assert opening.images == moved.images == segmented.images == []
     assert "mask_id" in segmented.data and "found" not in segmented.data
-    view = toolkit.execute_tool("view_env", {})
+    view = execute_with_si_values(toolkit, "view_env", {})
     assert len(view.images) == 2
     assert view.data["camera"] == "all"
-    assert view.data["position_unit"] == "m"
+    assert view.data["position_unit"] == "cm"
     assert view.data["capture_frame_version"] == view.data["frame_version"] == 0
     toolkit.close()
     rollout = json.loads((tmp_path / "run" / "rollout.json").read_text())
     assert rollout["images_sent"] == 2
-
-
-@pytest.mark.parametrize("mode", ("image", "text"))
-def test_removed_observation_modes_are_rejected(tmp_path, mode) -> None:
-    parser = argparse.ArgumentParser()
-    robot_spec.get_robot_spec().add_cli_args(parser, use_dashboard=True)
-    with pytest.raises(SystemExit):
-        parser.parse_args(["--observation-mode", mode])
-    with pytest.raises(ValueError, match="only adaptive"):
-        prompt_bundle.system_prompt({"observation_mode": mode})
-    with pytest.raises(ValueError, match="only adaptive"):
-        make_toolkit(tmp_path, mode)
-    from robots.rl.rl_episode import build_planner
-
-    with pytest.raises(ValueError, match="only adaptive"):
-        build_planner(
-            base_url="http://127.0.0.1:1/v1",
-            model_name="policy",
-            max_tokens=32768,
-            request_timeout_s=1,
-            episode_timeout_s=1,
-            observation_mode=mode,
-            history_compaction=None,
-            count_tokens=None,
-        )
 
 
 def test_pure_translation_and_pure_rotation_hold_the_other_pose_part(tmp_path) -> None:
@@ -327,12 +318,16 @@ def test_segment_and_back_project_share_steps_boxes_and_masks(tmp_path) -> None:
     sam3 = FakeSam3(bar_mask(), box=[3.6, 7.2, 27.5, 11.4])
     toolkit = make_toolkit(tmp_path, "adaptive", sam3=sam3)
 
-    found = toolkit.execute_tool("segment", {"prompt": "cube"}).data
-    by_mask = toolkit.execute_tool("back_project", {"mask_id": found["mask_id"]}).data
-    by_box = toolkit.execute_tool(
-        "back_project", {"box": [8, 4, 12, 28], "step": 0}
+    found = execute_with_si_values(toolkit, "segment", {"prompt": "cube"}).data
+    by_mask = execute_with_si_values(
+        toolkit, "back_project", {"mask_id": found["mask_id"]}
     ).data
-    by_pixel = toolkit.execute_tool("back_project", {"pixel": [9, 9], "step": 0}).data
+    by_box = execute_with_si_values(
+        toolkit, "back_project", {"box": [8, 4, 12, 28], "step": 0}
+    ).data
+    by_pixel = execute_with_si_values(
+        toolkit, "back_project", {"pixel": [9, 9], "step": 0}
+    ).data
 
     assert found["mask_id"] == "m_0_agentview_1"
     assert found["box"] == [7, 3, 12, 28]
@@ -356,7 +351,7 @@ def test_segment_and_back_project_share_steps_boxes_and_masks(tmp_path) -> None:
         ("back_project", {"box": [8, 4, 12, 28], "step": 0, "z_range_m": [1.5, 2]}),
         ("segment", {"point": [9, 9]}),
     ):
-        assert "error" in toolkit.execute_tool(*rejected).data
+        assert "error" in execute_with_si_values(toolkit, *rejected).data
 
 
 def test_mask_without_depth_keeps_the_mask_and_reports_missing_geometry(
@@ -364,7 +359,7 @@ def test_mask_without_depth_keeps_the_mask_and_reports_missing_geometry(
 ) -> None:
     toolkit = make_toolkit(tmp_path, "adaptive", env=FakeEnv(depth_m=math.nan))
 
-    found = toolkit.execute_tool("segment", {"prompt": "cube"}).data
+    found = execute_with_si_values(toolkit, "segment", {"prompt": "cube"}).data
 
     assert "found" not in found and "score" not in found
     assert found["box"] == [8, 4, 12, 28]
@@ -372,7 +367,9 @@ def test_mask_without_depth_keeps_the_mask_and_reports_missing_geometry(
     assert found["geometry_unavailable"]
     assert (
         "error"
-        in toolkit.execute_tool("back_project", {"mask_id": found["mask_id"]}).data
+        in execute_with_si_values(
+            toolkit, "back_project", {"mask_id": found["mask_id"]}
+        ).data
     )
 
 
@@ -413,144 +410,6 @@ def test_surface_direction_is_reported_only_for_elongated_points() -> None:
     )
     assert geometry.surface_geometry(square)["axis_yaw"] is None
     assert geometry.surface_geometry(bar[:5]) is None
-
-
-@pytest.mark.parametrize("variant", prompt_bundle.PROMPT_VARIANTS)
-def test_prompts_carry_only_the_interface_contract(variant) -> None:
-    prompts = robot_spec.get_robot_spec().prompts
-
-    variables = {"observation_mode": "adaptive", "prompt": variant}
-    system = prompts.render("system", variables=variables)
-    text = system + prompts.render("user", variables=variables)
-    assert not any(
-        word in text.lower()
-        for word in ("pi0", "memory", "guide", "recipe", "seed", "suite")
-    )
-    # No tools beyond the robot's own, and nothing a planner cannot call.
-    assert not any(word in text for word in ("read_image", "shell", "bash", "python"))
-    mentioned = {name for name in ALL_TOOLS if name in text}
-    assert mentioned <= ALL_TOOLS
-    assert "Positions use the world frame" in system
-    assert "exactly one tool call" in system
-
-
-def test_only_fixed_simple_prompt_is_supported() -> None:
-    simple = prompt_bundle.system_prompt({"prompt": "simple"})
-    assert simple == prompt_bundle.system_prompt({})
-    assert "Images are supplied only through view_env" in simple
-    for old in ("base", "base_gripper", "base_gripper_camera", "fancy"):
-        with pytest.raises(ValueError, match="fixed prompt"):
-            prompt_bundle.system_prompt({"prompt": old})
-
-
-@pytest.mark.parametrize(
-    "environment,workflow",
-    [
-        ("libero", "episode"),
-        ("robocasa", "episode"),
-        ("robotwin", "episode"),
-    ],
-)
-def test_supported_combinations_use_native_tasks_without_prompt_files(
-    environment, workflow, tmp_path
-):
-    args = argparse.Namespace(
-        env=environment,
-        workflow=workflow,
-        suite="libero_goal",
-        task=1,
-        task_name="example_task",
-        seed=0,
-        observation_mode="adaptive",
-        prompt="simple",
-        output_dir=tmp_path,
-    )
-    config = robot_spec.get_robot_spec().parse_config(args)
-    assert "task_prompt" not in config.prompt_vars
-    assert robot_spec.get_robot_spec().prompts.render(
-        "system", variables=config.prompt_vars
-    )
-
-
-@pytest.mark.parametrize("environment", ["robocasa", "robotwin"])
-def test_unsupported_zap_fails_before_accessing_native_runtime(environment, tmp_path):
-    args = argparse.Namespace(
-        env=environment, workflow="zap_turn", observation_mode="adaptive"
-    )
-    with pytest.raises(ValueError, match="supports only episode"):
-        robot_spec.get_robot_spec().parse_config(args)
-    with pytest.raises(ValueError, match="supports only episode"):
-        RLToolkit(
-            runtime_kwargs={},
-            dashboard_events=NullDashboardEventSink(),
-            memory=MemoryManager(tmp_path / "memory"),
-            observation_mode="adaptive",
-            output_dir=tmp_path / "run",
-            environment=environment,
-            workflow="zap_turn",
-        )
-    assert not (tmp_path / "run").exists()
-
-
-def test_fixed_prompt_reaches_the_prompt_variables() -> None:
-    args = argparse.Namespace(
-        suite="libero_goal",
-        task=1,
-        seed=0,
-        observation_mode="adaptive",
-        prompt="simple",
-        output_dir=None,
-    )
-    config = robot_spec.get_robot_spec().parse_config(args)
-    assert config.prompt_vars == {
-        "observation_mode": "adaptive",
-        "prompt": "simple",
-        "environment": "libero",
-        "workflow": "episode",
-        "world_cord": "base",
-        "position_unit": "m",
-        "reasoning": True,
-        "image_size": 1024,
-        "action_mode": "batch",
-        "max_actions_per_call": 3,
-        "reasoning_history": -1,
-        "image_history": -1,
-        "perception_mode": "single",
-        "max_observe_calls": 8,
-        "observe_concurrency": 8,
-    }
-    assert config.task_desc["prompt"] == "simple"
-
-
-@pytest.mark.parametrize(
-    "override",
-    [
-        {"planner": "codex"},
-        {"planner": "claude_code"},
-        {"tui": True},
-        {"dashboard": True},
-        {"memory_dir": "/memory"},
-        {"no_images": True},
-    ],
-)
-def test_options_that_would_change_the_rollout_unnoticed_are_rejected(
-    override,
-) -> None:
-    args = argparse.Namespace(
-        planner="api",
-        dashboard=False,
-        tui=False,
-        memory_dir=None,
-        memory_repo=None,
-        no_images=False,
-        observation_mode="adaptive",
-    )
-    validate = robot_spec.get_robot_spec().validate_args
-
-    validate(args)
-    vars(args).update(override)
-    with pytest.raises(ValueError):
-        validate(args)
 
 
 def test_planner_sees_only_the_robot_tools(tmp_path) -> None:
@@ -600,7 +459,6 @@ def test_episode_planner_is_a_thinking_qwen_policy_client() -> None:
         max_tokens=32768,
         request_timeout_s=1,
         episode_timeout_s=1,
-        observation_mode="adaptive",
         history_compaction=None,
         count_tokens=None,
     )
@@ -624,7 +482,6 @@ def test_training_sampling_and_request_audit_reach_the_native_planner(tmp_path):
         max_tokens=32768,
         request_timeout_s=1,
         episode_timeout_s=1,
-        observation_mode="adaptive",
         history_compaction=None,
         count_tokens=None,
         sampling_params={
@@ -654,14 +511,14 @@ def test_trainer_keeps_sam_service_failure_separate_from_task_failure(tmp_path):
     toolkit = make_toolkit(tmp_path, "adaptive")
     result = PlannerResult(stats={"turns_used": 1})
     try:
-        toolkit.execute_tool("segment", {})
+        execute_with_si_values(toolkit, "segment", {})
         assert episode_outcome(result, toolkit, 80)["terminal"] is True
 
         def broken(*args, **kwargs):
             raise ConnectionError("SAM3 unavailable")
 
         toolkit._primitives._sam3.segment = broken
-        toolkit.execute_tool("segment", {"prompt": "cube"})
+        execute_with_si_values(toolkit, "segment", {"prompt": "cube"})
         outcome = episode_outcome(result, toolkit, 80)
         assert not outcome["terminal"] and not outcome["success"]
         assert outcome["error_kind"] == "tool_transport"
@@ -722,15 +579,6 @@ def test_runtime_reports_a_server_that_exits_before_announcing(tmp_path):
         )
 
 
-@pytest.mark.parametrize(
-    "workflow", ["episode_image", "pear", "zap_turn", "zap_episode", "zap_subtask"]
-)
-def test_removed_workflows_fail_before_creating_environment(tmp_path, workflow):
-    with pytest.raises(ValueError, match="supports only episode"):
-        make_toolkit(tmp_path, "adaptive", workflow=workflow)
-    assert not (tmp_path / "run").exists()
-
-
 @pytest.mark.parametrize("size", [512, 256])
 def test_display_pixel_uses_original_native_depth(tmp_path, monkeypatch, size):
     from robots.rl.images import map_pixel
@@ -738,20 +586,20 @@ def test_display_pixel_uses_original_native_depth(tmp_path, monkeypatch, size):
     monkeypatch.setattr(tools, "IMAGE_SIZE", 1024)
     toolkit = make_toolkit(tmp_path, "adaptive", image_size=size)
     toolkit.initial_observation()
-    view = toolkit.execute_tool("view_env", {})
+    view = execute_with_si_values(toolkit, "view_env", {})
     assert view.data["images"][0]["size"] == [size, size]
     point = [size // 2 - 1, size // 2 - 1]
     mapped = map_pixel(point, (size, size), (1024, 1024))
     expected = toolkit.state.load("agentview_world.npz", step=0)[mapped[0], mapped[1]]
-    result = toolkit.execute_tool("back_project", {"pixel": point, "step": 0})
+    result = execute_with_si_values(
+        toolkit, "back_project", {"pixel": point, "step": 0}
+    )
     np.testing.assert_allclose(result.data["world_xyz"], expected, atol=0.0001)
     assert toolkit.state.load("agentview_world.npz", step=0).shape[:2] == (1024, 1024)
     toolkit.close()
 
 
-@pytest.mark.parametrize("removed", ["multiturn", "zap"])
-def test_removed_workflow_names_are_rejected(removed):
-    parser = argparse.ArgumentParser()
-    robot_spec.get_robot_spec().add_cli_args(parser, use_dashboard=False)
-    with pytest.raises(SystemExit):
-        parser.parse_args(["--workflow", removed])
+def test_libero_prompt_describes_centimetres_and_measurement():
+    prompt = prompt_bundle.system_prompt({"environment": "libero"})
+    assert "centimetres" in prompt
+    assert "execute_actions" in prompt and "agentview" in prompt

@@ -12,15 +12,10 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Run one shared-workflow simulator episode for an RL trainer.
+"""Run one RPent episode and write its native outcome for the learner.
 
-An RL trainer such as RLinf starts this module once per episode on the node
-that hosts the simulator, with the OpenAI-compatible endpoint that serves its
-policy. The end-effector planner solves the task with a fresh simulator
-environment and the running SAM3 service, with adaptive observations.
-The outcome is written to ``outcome.json`` in ``--output-dir``.
-RPent keeps per-process state such as the output directory, so every episode
-runs in its own process.
+The planner talks to the policy endpoint and uses a simulator toolkit over RPC.
+Each episode runs in a process with its own output directory and session.
 """
 
 from __future__ import annotations
@@ -81,23 +76,14 @@ def start_environment(
     ``release`` stops the started services and closes the toolkit.
     """
     args.env = task.get("environment", getattr(args, "env", "libero"))
-    args.workflow = task.get("workflow", getattr(args, "workflow", "episode"))
+    from robots.rl.contracts import EPISODE_OPTIONS
+
     args.no_thinking = not task.get(
         "reasoning", not getattr(args, "no_thinking", False)
     )
-    args.image_size = task.get("image_size", getattr(args, "image_size", 1024))
-    for name, default in (
-        ("world_cord", "base"),
-        ("position_unit", "m"),
-        ("perception_mode", "single"),
-        ("max_observe_calls", 8),
-        ("observe_concurrency", 8),
-        ("action_mode", "batch"),
-        ("max_actions_per_call", 3),
-        ("reasoning_history", -1),
-        ("image_history", -1),
-    ):
-        setattr(args, name, task.get(name, getattr(args, name, default)))
+    for name, default in EPISODE_OPTIONS.items():
+        if name != "reasoning":
+            setattr(args, name, task.get(name, getattr(args, name, default)))
     args.suite, args.task, args.seed = task.get("suite"), task.get("task"), task["seed"]
     args.task_name = task.get("task_name", getattr(args, "task_name", None))
     args.layout = task.get("layout", getattr(args, "layout", 0))
@@ -138,7 +124,6 @@ def build_planner(
     max_tokens: int,
     request_timeout_s: float,
     episode_timeout_s: float,
-    observation_mode: str,
     history_compaction: dict | None,
     count_tokens: Callable[[str], int] | None,
     reasoning_effort: str = "none",
@@ -154,8 +139,6 @@ def build_planner(
     Qwen requests carry thinking-mode sampling, an explicit thinking switch,
     and an effort tier only when requested.
     """
-    if observation_mode != "adaptive":
-        raise ValueError("rl supports only adaptive observations")
     trace, http_client = None, None
     if request_trace_dir is not None:
         import httpx
@@ -306,8 +289,6 @@ def run(args: argparse.Namespace) -> int:
     history_compaction = options.pop("history_compaction", None)
     if options.pop("no_images", False):
         raise ValueError("rl requires camera images")
-    args.observation_mode = options.pop("observation_mode", args.observation_mode)
-    args.prompt = options.pop("prompt", args.prompt)
     args.image_size = options.pop("image_size", args.image_size)
     thinking = options.get("thinking", task.get("reasoning", True))
     if getattr(args, "no_thinking", None) is not None:
@@ -332,7 +313,6 @@ def run(args: argparse.Namespace) -> int:
         )
         planner, client = build_planner(
             **options,
-            observation_mode=args.observation_mode,
             history_compaction=history_compaction,
             count_tokens=count_tokens,
             tokenizer_path=args.tokenizer_path,
@@ -356,10 +336,7 @@ def run(args: argparse.Namespace) -> int:
         write_transcript(args.output_dir, result)
         outcome = {
             **episode_outcome(result, toolkit, max_turns),
-            "observation_mode": args.observation_mode,
-            "prompt": args.prompt,
             "init_state_id": task.get("init_state_id"),
-            "memory_entries": [],
         }
     # Written once the simulator is released, so an outcome means a clean end.
     (args.output_dir / "outcome.json").write_text(json.dumps(outcome) + "\n")

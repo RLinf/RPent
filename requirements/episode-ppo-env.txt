@@ -1,2 +1,3 @@
-# LIBERO simulation profile for the remote episode backend.
+# LIBERO with a co-located SAM3 service.
 -r libero-rl.txt
+-e .[sam3]

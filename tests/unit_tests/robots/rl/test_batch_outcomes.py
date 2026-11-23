@@ -121,30 +121,6 @@ def test_resume_rejects_a_modified_evaluation(tmp_path):
     assert batch.evaluated(tmp_path) is None
 
 
-@pytest.mark.parametrize("environment", ["robocasa", "robotwin"])
-def test_zap_batch_rejects_native_jobs_before_writing_manifest(tmp_path, environment):
-    jobs = tmp_path / "jobs.json"
-    jobs.write_text(
-        json.dumps(
-            [{"environment": environment, "task_name": "example_task", "seed": 1}]
-        )
-    )
-    output = tmp_path / "batch"
-    output.mkdir()
-    args = argparse.Namespace(
-        infrastructure_retries=1,
-        episode_timeout=14400,
-        start_interval=0,
-        max_initializing_per_gpu=1,
-        jobs=jobs,
-        seeds=None,
-        workflow="zap_turn",
-    )
-    with pytest.raises(ValueError, match="episode exposes only"):
-        batch.collect(args, output)
-    assert not (output / "manifest.json").exists()
-
-
 @pytest.mark.parametrize("no_thinking", [False, True])
 @pytest.mark.parametrize("missing_trace", [False, True])
 def test_batch_thinking_reaches_process_and_cannot_change_on_resume(

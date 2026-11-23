@@ -19,40 +19,13 @@ from __future__ import annotations
 from collections.abc import Mapping
 from pathlib import Path
 
-OBSERVATION_MODES = ("adaptive",)
-WORKFLOWS = ("episode",)
-ENVIRONMENT_WORKFLOWS = dict.fromkeys(
-    ("libero", "robotwin", "robocasa", "robodojo"), WORKFLOWS
-)
-PROMPT_VARIANTS = ("simple",)
-
-
-def validate_workflow(environment: str, workflow: str) -> None:
-    """Reject historical workflow requests instead of silently reinterpreting them."""
-    if environment not in ENVIRONMENT_WORKFLOWS:
-        raise ValueError(f"unsupported simulator: {environment!r}")
-    if workflow != "episode":
-        raise ValueError("The four-simulator interface supports only episode")
-
 
 def system_prompt(variables: Mapping[str, object] | None = None) -> str:
-    """Render the fixed robot description and the selected physical unit."""
+    """Render the robot description with the fixed centimetre interface."""
     variables = variables or {}
-    environment = str(variables.get("environment", "libero"))
-    validate_workflow(environment, str(variables.get("workflow", "episode")))
-    if variables.get("observation_mode", "adaptive") != "adaptive":
-        raise ValueError("episode supports only adaptive observations")
-    if variables.get("prompt", "simple") != "simple":
-        raise ValueError("episode uses a fixed prompt per simulator")
-    if variables.get("perception_mode", "single") != "single":
-        raise ValueError("episode exposes view_env, segment and back_project")
-    general = variables.get("world_cord", "base") == "general"
+    environment = variables.get("environment", "libero")
     prompts = Path(__file__).parent / "prompts"
-    names = (
-        ("general.md", f"{environment}_general.md", "episode.md")
-        if general
-        else ("shared.md", f"{environment}.md", "episode.md")
-    )
+    names = ("general.md", f"{environment}_general.md", "episode.md")
     sections = [(prompts / name).read_text().strip() for name in names]
     if not variables.get("reasoning", True):
         sections[-1] = sections[-1].replace(
@@ -68,11 +41,9 @@ def system_prompt(variables: Mapping[str, object] | None = None) -> str:
         "Older reasoning or camera images may be removed from the conversation. "
         "Use a new view when you need pixels absent from the current history."
     )
-    from robots.rl.units import PositionUnits
+    from robots.rl.units import CENTIMETERS
 
-    return PositionUnits(str(variables.get("position_unit", "m"))).description(
-        "\n\n".join(sections)
-    )
+    return CENTIMETERS.description("\n\n".join(sections))
 
 
 def user_prompt(variables: Mapping[str, object] | None = None) -> str:

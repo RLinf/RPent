@@ -42,7 +42,7 @@ def test_tableless_scene_reports_the_measured_floor_height(monkeypatch):
         [0, 0.3, 0.4], [0, -0.3, 0.4], point, support_surface=kind
     )
     description = Coordinates.from_control(
-        "general", {"coordinate_calibration": calibration}
+        {"coordinate_calibration": calibration}
     ).description()
     assert description["support_surface"] == "floor"
     assert description["floor_height_above_base_m"] == pytest.approx(-0.28)
@@ -83,7 +83,9 @@ def test_collision_xform_mesh_is_measured_in_rigid_link_frame(monkeypatch):
             yield from prim_range(child)
 
     mesh = Prim("/robot/link7/collisions/link7/mesh", points=[[0, 0, 0], [1, 2, 3]])
-    collider = Prim("/robot/link7/collisions/link7", apis=(CollisionAPI,), children=[mesh])
+    collider = Prim(
+        "/robot/link7/collisions/link7", apis=(CollisionAPI,), children=[mesh]
+    )
     visual = Prim("/robot/link7/visuals/link7", points=[[999, 999, 999]])
     link = Prim("/robot/link7", apis=(rigid_api,), children=[visual, collider])
     link.transform[:3, 3] = [5, 0, 0]
@@ -94,15 +96,22 @@ def test_collision_xform_mesh_is_measured_in_rigid_link_frame(monkeypatch):
         sys.modules,
         "pxr",
         SimpleNamespace(
-            Usd=SimpleNamespace(PrimRange=prim_range, TraverseInstanceProxies=lambda: None),
-            UsdPhysics=SimpleNamespace(RigidBodyAPI=rigid_api, CollisionAPI=CollisionAPI),
+            Usd=SimpleNamespace(
+                PrimRange=prim_range, TraverseInstanceProxies=lambda: None
+            ),
+            UsdPhysics=SimpleNamespace(
+                RigidBodyAPI=rigid_api, CollisionAPI=CollisionAPI
+            ),
             UsdGeom=SimpleNamespace(
                 Mesh=mesh_type,
-                XformCache=lambda: SimpleNamespace(GetLocalToWorldTransform=lambda p: p.transform.T),
+                XformCache=lambda: SimpleNamespace(
+                    GetLocalToWorldTransform=lambda p: p.transform.T
+                ),
             ),
         ),
     )
     # USD's Mesh is both a schema type and a wrapper around a mesh prim.
+
     class Mesh:
         def __init__(self, prim):
             self.prim = prim

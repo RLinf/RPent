@@ -1,6 +1,6 @@
 # LIBERO simulation profile for Python 3.12 and Linux x86_64.
 # Install only the simulator and SAM3: the shared rl workflow does not use OpenPi/Pi0.5.
--e .[sam3]
+-e .
 rpent-libero @ git+https://github.com/RLinf/LIBERO.git@rpent
 rpent-liberopro @ git+https://github.com/RLinf/LIBERO-PRO.git@rpent
 mujoco==3.3.0

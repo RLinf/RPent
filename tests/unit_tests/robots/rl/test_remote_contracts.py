@@ -29,11 +29,16 @@ import pytest
 
 from robots.rl import remote, tools
 from robots.rl.remote_manager import BackendManager, validate_request
+from robots.rl.units import CENTIMETERS
 from rpent.dashboard.events import NullDashboardEventSink
 from rpent.memory import MemoryManager
 from rpent.utils.rpc import RpcError, RpcFacade
 from rpent.utils.rpc.http_rpc import HttpRpcClient, HttpRpcServer
-from tests.unit_tests.robots.rl.test_libero_rl_contracts import FakeEnv, make_toolkit
+from tests.unit_tests.robots.rl.test_libero_rl_contracts import (
+    FakeEnv,
+    execute_with_si_values,
+    make_toolkit,
+)
 
 
 @pytest.mark.parametrize("environment", ["libero", "robotwin", "robocasa", "robodojo"])
@@ -60,8 +65,6 @@ def test_episode_runtime_request_is_accepted_by_its_remote_manager(
             "0",
             "--seed",
             "1",
-            "--world-cord",
-            "base" if environment == "libero" else "general",
             *task_args,
         ]
     )
@@ -139,13 +142,14 @@ def connected(tmp_path, monkeypatch, request):
     monkeypatch.setattr(
         templates, "default_variables", lambda: {"output_dir": "/offline/output"}
     )
-    options = getattr(request, "param", {})
-    if options.get("world_cord") == "general":
+    options = dict(getattr(request, "param", {}))
+    if options.get("calibrated", False):
         from tests.unit_tests.robots.rl.test_coordinates import CalibratedEnv
 
         env = CalibratedEnv([1, -2, 0.5], 0.4, success_below_z=1.45)
     else:
         env = FakeEnv(success_below_z=0.95)
+    options.pop("calibrated", None)
     toolkit = make_toolkit(tmp_path / "backend", "adaptive", env=env, **options)
     release = contextlib.ExitStack()
     release.callback(toolkit.close)
@@ -198,14 +202,16 @@ def test_remote_preserves_native_tools_observations_and_original_bytes(connected
     assert client.initial_observation().data["state"]["step"] == 0
     from tests.unit_tests.robots.rl.test_libero_rl_contracts import execute_item
 
-    invalid = execute_item(client, "move_to", {"xyz": "bad"})
+    invalid = client.execute_tool(
+        "execute_actions", {"actions": [{"action": "move_to", "xyz": "bad"}]}
+    )
     assert invalid.is_error and connected.bridge.calls == ["rl.observe"]
     moved = execute_item(client, "move_to", {"xyz": [0.1, -0.2, 0.9]})
     # Native success terminates this fixture before the requested pose settles.
     assert moved.data["status"] == "partial"
     assert moved.data["reason"] == "terminated"
     assert client.solved() is True
-    viewed = client.execute_tool("view_env", {})
+    viewed = execute_with_si_values(client, "view_env", {})
     assert len(viewed.images) == 2
     assert client.state.records() == connected.toolkit.state.records()
     client.close()
@@ -226,7 +232,6 @@ def test_remote_preserves_native_tools_observations_and_original_bytes(connected
     "connected",
     [
         {
-            "action_mode": "batch",
             "max_actions_per_call": 3,
             "reasoning_history": 3,
             "image_history": 1,
@@ -245,7 +250,8 @@ def test_remote_batch_has_identical_contract_and_never_executes_invalid_list(con
             "back_project",
         }
         assert client.reasoning_history == 3 and client.image_history == 1
-        invalid = client.execute_tool(
+        invalid = execute_with_si_values(
+            client,
             "execute_actions",
             {
                 "actions": [
@@ -257,7 +263,8 @@ def test_remote_batch_has_identical_contract_and_never_executes_invalid_list(con
         assert invalid.is_error
         assert connected.bridge.calls == ["rl.observe"]
         assert connected.env.actions == []
-        moved = client.execute_tool(
+        moved = execute_with_si_values(
+            client,
             "execute_actions",
             {
                 "actions": [
@@ -278,13 +285,14 @@ def test_response_loss_cannot_become_a_tool_error_and_replay_the_action(connecte
     client = connected.connect()
     connected.bridge.fail_after_action = True
     with pytest.raises(RuntimeError, match="outcome is uncertain"):
-        client.execute_tool(
+        execute_with_si_values(
+            client,
             "execute_actions",
             {"actions": [{"action": "move_to", "xyz": [0.1, -0.2, 0.9]}]},
         )
     count = len(connected.env.actions)
     with pytest.raises(RuntimeError, match="outcome is uncertain"):
-        client.execute_tool("move_to", {"xyz": [0.1, -0.2, 1.0]})
+        execute_with_si_values(client, "move_to", {"xyz": [0.1, -0.2, 1.0]})
     assert len(connected.env.actions) == count
     assert connected.bridge.calls.count("rl.execute") == 1
     client.close()
@@ -324,7 +332,7 @@ def test_close_releases_owned_worker_even_if_cancellation_connection_fails(conne
 
 
 @pytest.mark.parametrize(
-    "field", ["source_digest", "task", "tools", "max_episode_steps", "workflow_options"]
+    "field", ["source_digest", "task", "tools", "max_episode_steps", "episode_options"]
 )
 def test_incompatible_backend_is_rejected_and_released(connected, field):
     connected.bridge.mismatch = field
@@ -418,7 +426,7 @@ def test_manager_rejects_tasks_outside_its_native_resource_contract(changes):
         "task": {"environment": "robotwin", "task_name": "adjust_bottle", "seed": 1},
         "gpu": 0,
         "max_episode_steps": 10000,
-        "episode_contract_version": 2,
+        "episode_contract_version": 3,
         **changes,
     }
     with pytest.raises(ValueError):
@@ -447,7 +455,7 @@ def test_manager_validates_workflow_options_before_starting_a_worker(bad):
         },
         "gpu": 0,
         "max_episode_steps": 10000,
-        "episode_contract_version": 2,
+        "episode_contract_version": 3,
     }
     with pytest.raises(ValueError):
         validate_request(request, {0})
@@ -465,7 +473,7 @@ def test_manager_capacity_includes_reserved_initializations_and_cleanup(tmp_path
         "task": {"environment": "robotwin", "task_name": "adjust_bottle", "seed": 1},
         "gpu": 0,
         "max_episode_steps": 10000,
-        "episode_contract_version": 2,
+        "episode_contract_version": 3,
     }
     try:
         with pytest.raises(RuntimeError, match="slots are full"):
@@ -482,7 +490,7 @@ def _owned_request():
         "task": {"environment": "robotwin", "task_name": "adjust_bottle", "seed": 1},
         "gpu": 0,
         "max_episode_steps": 10000,
-        "episode_contract_version": 2,
+        "episode_contract_version": 3,
     }
 
 
@@ -954,7 +962,7 @@ def test_manager_control_calls_respond_while_bulk_replies_are_pending(tmp_path):
 
 @pytest.mark.parametrize(
     "connected",
-    [{"world_cord": "general"}, {"world_cord": "general", "position_unit": "cm"}],
+    [{"calibrated": True}],
     indirect=True,
 )
 def test_remote_general_converts_once_and_carries_native_completion(connected):
@@ -963,13 +971,11 @@ def test_remote_general_converts_once_and_carries_native_completion(connected):
     client = connected.connect()
     np.testing.assert_allclose(
         client.initial_observation().data["state"]["pose"]["xyz"],
-        connected.toolkit.units.payload(connected.toolkit._robot_state())["pose"][
-            "xyz"
-        ],
+        CENTIMETERS.payload(connected.toolkit._robot_state())["pose"]["xyz"],
     )
-    scale = 100 if client.position_unit == "cm" else 1
+    scale = 100
     measured = client.execute_tool("segment", {"prompt": "cube", "step": 0})
-    suffix = client.position_unit
+    suffix = "cm"
     assert measured.data[f"top_z_{suffix}"] == pytest.approx(scale, abs=0.01)
     moved = client.execute_tool(
         "execute_actions",
@@ -986,7 +992,7 @@ def test_remote_general_converts_once_and_carries_native_completion(connected):
     client.close()
 
 
-@pytest.mark.parametrize("connected", [{"world_cord": "general"}], indirect=True)
+@pytest.mark.parametrize("connected", [{"calibrated": True}], indirect=True)
 def test_remote_general_accepts_measured_floor_calibration(connected):
     from dataclasses import replace
 

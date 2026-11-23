@@ -28,12 +28,8 @@ from math import isfinite
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from robots.rl.contracts import EPISODE_CONTRACT_VERSION
-from robots.rl.prompt_bundle import (
-    system_prompt,
-    user_prompt,
-    validate_workflow,
-)
+from robots.rl.contracts import EPISODE_CONTRACT_VERSION, validate_episode_options
+from robots.rl.prompt_bundle import system_prompt, user_prompt
 from rpent.dashboard.events import DashboardEventSink
 from rpent.evaluation import RunFinalizationContext, write_json_atomic
 from rpent.memory import MemoryManager
@@ -46,8 +42,6 @@ from rpent.utils.rpc import make_rpc_client, wait_for_endpoint
 
 if TYPE_CHECKING:
     from rpent.utils.rpc import RpcClient
-
-SUPPORTED_PLANNERS = ("api",)
 
 
 def get_robot_spec() -> RobotSpec:
@@ -91,21 +85,8 @@ def get_toolkit(
         dashboard_events=dashboard_events,
         # Required by Toolkit; this toolkit registers no file tools to read it.
         memory=MemoryManager(get_memory_dir("rl")),
-        observation_mode=config.prompt_vars["observation_mode"],
         output_dir=config.output_dir,
-        environment=config.prompt_vars.get("environment", "libero"),
-        workflow=config.prompt_vars.get("workflow", "episode"),
-        image_size=config.prompt_vars.get("image_size", 1024),
-        action_mode=config.prompt_vars.get("action_mode", "batch"),
-        max_actions_per_call=config.prompt_vars.get("max_actions_per_call", 3),
-        reasoning_history=config.prompt_vars.get("reasoning_history", -1),
-        image_history=config.prompt_vars.get("image_history", -1),
-        perception_mode=config.prompt_vars.get("perception_mode", "single"),
-        max_observe_calls=config.prompt_vars.get("max_observe_calls", 8),
-        observe_concurrency=config.prompt_vars.get("observe_concurrency", 8),
-        world_cord=config.prompt_vars.get("world_cord", "base"),
-        position_unit=config.prompt_vars.get("position_unit", "m"),
-        reasoning=config.prompt_vars.get("reasoning", True),
+        **config.prompt_vars,
     )
 
 
@@ -117,22 +98,6 @@ def _add_cli_args(parser: argparse.ArgumentParser, use_dashboard: bool) -> None:
         choices=("libero", "robocasa", "robotwin", "robodojo"),
         default="libero",
     )
-    parser.set_defaults(
-        workflow="episode",
-        observation_mode="adaptive",
-        prompt="simple",
-        perception_mode="single",
-        max_observe_calls=8,
-        observe_concurrency=8,
-    )
-    parser.add_argument("--position-unit", choices=("m", "cm"), default="m")
-    parser.add_argument(
-        "--world-cord",
-        choices=("base", "general"),
-        default="base",
-        help="base: existing simulator world; general: measured mounting-base frame and robot grasp TCP.",
-    )
-    parser.add_argument("--action-mode", choices=("batch",), default="batch")
     parser.add_argument("--max-actions-per-call", type=int, default=3)
     parser.add_argument(
         "--reasoning-history",
@@ -220,64 +185,17 @@ def _add_cli_args(parser: argparse.ArgumentParser, use_dashboard: bool) -> None:
 
 
 def _validate_args(args: argparse.Namespace) -> None:
-    """Reject options that would change the fixed rollout setup unnoticed."""
-    environment = getattr(args, "env", "libero")
-    workflow = getattr(args, "workflow", "episode")
-    world_cord = getattr(args, "world_cord", "base")
-    validate_workflow(environment, workflow)
-    if getattr(args, "prompt", "simple") != "simple":
-        raise ValueError("episode uses a fixed prompt per simulator")
-    from robots.rl.contracts import (
-        validate_coordinates,
-        validate_image_size,
-        validate_options,
-        validate_perception_options,
-    )
-
-    validate_coordinates(environment, world_cord)
-    validate_image_size(environment, world_cord, getattr(args, "image_size", 1024))
-    validate_perception_options(
-        workflow,
-        getattr(args, "perception_mode", "single"),
-        getattr(args, "max_observe_calls", 8),
-        getattr(args, "observe_concurrency", 8),
-    )
-    validate_options(
-        environment,
-        workflow,
-        getattr(args, "action_mode", "batch"),
-        getattr(args, "max_actions_per_call", 3),
-        getattr(args, "reasoning_history", -1),
-        getattr(args, "image_history", -1),
-        world_cord=world_cord,
-    )
-    import math
-
-    timeout = getattr(args, "sam3_timeout_s", 120.0)
-    if not math.isfinite(timeout) or timeout <= 0:
+    """Check episode requirements at the CLI boundary."""
+    if not isfinite(args.sam3_timeout_s) or args.sam3_timeout_s <= 0:
         raise ValueError("sam3-timeout-s must be finite and positive")
-    if args.planner not in SUPPORTED_PLANNERS:
-        raise ValueError(
-            f"rl supports --planner {' or '.join(SUPPORTED_PLANNERS)}; "
-            f"{args.planner} cannot restrict its built-in tools"
-        )
-    if args.dashboard or args.tui:
-        raise ValueError("rl runs non-interactive rollouts")
+    if args.planner != "api" or args.dashboard or args.tui:
+        raise ValueError("rl requires a non-interactive API planner")
     if args.memory_dir is not None or args.memory_repo is not None:
-        raise ValueError("rl loads no memory; remove --memory-dir/--memory-repo")
-    if getattr(args, "observation_mode", "adaptive") != "adaptive":
-        raise ValueError("rl supports only adaptive observations")
+        raise ValueError("rl accepts no external memory")
     if args.no_images:
-        raise ValueError("rl requires camera images; remove --no-images")
-    if getattr(args, "remote_toolkit_endpoint", None) is not None:
-        if getattr(args, "workflow", "episode") != "episode":
-            raise ValueError("remote toolkit supports episode only")
-        if getattr(args, "perception_mode", "single") != "single":
-            raise ValueError("remote toolkit currently supports single perception")
-        if args.env_endpoint is not None or args.sam3_endpoint is not None:
-            raise ValueError(
-                "remote toolkit owns its env/SAM3; remove separate endpoints"
-            )
+        raise ValueError("rl requires camera images")
+    if args.remote_toolkit_endpoint and (args.env_endpoint or args.sam3_endpoint):
+        raise ValueError("The remote toolkit owns its environment and SAM3 endpoints")
 
 
 def _skip_memory(args: argparse.Namespace, config: RunConfig) -> None:
@@ -286,37 +204,10 @@ def _skip_memory(args: argparse.Namespace, config: RunConfig) -> None:
 
 def _parse_config(args: argparse.Namespace) -> RunConfig:
     """Derive the run identifiers and the planner-visible prompt variables."""
-    if getattr(args, "observation_mode", "adaptive") != "adaptive":
-        raise ValueError("rl supports only adaptive observations")
-    environment = getattr(args, "env", "libero")
-    workflow = getattr(args, "workflow", "episode")
-    world_cord = getattr(args, "world_cord", "base")
-    validate_workflow(environment, workflow)
-    if getattr(args, "prompt", "simple") != "simple":
-        raise ValueError("episode uses a fixed prompt per simulator")
-    from robots.rl.contracts import (
-        validate_coordinates,
-        validate_image_size,
-        validate_options,
-        validate_perception_options,
-    )
-
-    validate_coordinates(environment, world_cord)
-    validate_image_size(environment, world_cord, getattr(args, "image_size", 1024))
-    validate_perception_options(
-        workflow,
-        getattr(args, "perception_mode", "single"),
-        getattr(args, "max_observe_calls", 8),
-        getattr(args, "observe_concurrency", 8),
-    )
-    validate_options(
+    environment = args.env
+    options = validate_episode_options(
         environment,
-        workflow,
-        getattr(args, "action_mode", "batch"),
-        getattr(args, "max_actions_per_call", 3),
-        getattr(args, "reasoning_history", -1),
-        getattr(args, "image_history", -1),
-        world_cord=world_cord,
+        {**vars(args), "reasoning": not getattr(args, "no_thinking", False)},
     )
     if environment == "libero" and not args.suite:
         raise ValueError("--suite is required")
@@ -331,51 +222,26 @@ def _parse_config(args: argparse.Namespace) -> RunConfig:
         if environment == "libero"
         else f"{environment}_{args.task_name}"
     )
-    cell += f"_s{args.seed}_adaptive"
+    cell += f"_s{args.seed}"
     output_dir = args.output_dir or (
-        get_repo_root() / "logs" / f"{datetime.now():%Y%m%d-%H:%M:%S}_{cell}"
+        get_repo_root() / "logs" / f"{datetime.now():%Y%m%d-%H%M%S}_{cell}"
     )
+    native_task = (
+        {"suite": args.suite, "task": args.task}
+        if environment == "libero"
+        else {"task_name": args.task_name}
+    )
+    if environment == "robodojo":
+        native_task["layout"] = args.layout
     return RunConfig(
         recipe_tag=cell.removeprefix("libero_"),
         output_dir=Path(output_dir),
-        prompt_vars={
-            "observation_mode": getattr(args, "observation_mode", "adaptive"),
-            "prompt": getattr(args, "prompt", "simple"),
-            "environment": environment,
-            "workflow": workflow,
-            "world_cord": getattr(args, "world_cord", "base"),
-            "position_unit": getattr(args, "position_unit", "m"),
-            "reasoning": not getattr(args, "no_thinking", False),
-            "image_size": getattr(args, "image_size", 1024),
-            "action_mode": getattr(args, "action_mode", "batch"),
-            "perception_mode": getattr(args, "perception_mode", "single"),
-            "max_observe_calls": getattr(args, "max_observe_calls", 8),
-            "observe_concurrency": getattr(args, "observe_concurrency", 8),
-            "max_actions_per_call": getattr(args, "max_actions_per_call", 3),
-            "reasoning_history": getattr(args, "reasoning_history", -1),
-            "image_history": getattr(args, "image_history", -1),
-        },
+        prompt_vars={"environment": environment, **options},
         task_desc={
-            "suite": args.suite,
-            "task": args.task,
-            "seed": args.seed,
-            **({"layout": args.layout} if environment == "robodojo" else {}),
-            "observation_mode": getattr(args, "observation_mode", "adaptive"),
-            "prompt": getattr(args, "prompt", "simple"),
             "environment": environment,
-            "workflow": workflow,
-            "world_cord": getattr(args, "world_cord", "base"),
-            "position_unit": getattr(args, "position_unit", "m"),
-            "reasoning": not getattr(args, "no_thinking", False),
-            "image_size": getattr(args, "image_size", 1024),
-            "action_mode": getattr(args, "action_mode", "batch"),
-            "perception_mode": getattr(args, "perception_mode", "single"),
-            "max_observe_calls": getattr(args, "max_observe_calls", 8),
-            "observe_concurrency": getattr(args, "observe_concurrency", 8),
-            "max_actions_per_call": getattr(args, "max_actions_per_call", 3),
-            "reasoning_history": getattr(args, "reasoning_history", -1),
-            "image_history": getattr(args, "image_history", -1),
-            **({"task_name": args.task_name} if environment != "libero" else {}),
+            "seed": args.seed,
+            **native_task,
+            **options,
         },
     )
 
@@ -482,7 +348,6 @@ def _start_env(
         camera_args = (
             ["--camera-h", "1024", "--camera-w", "1024"]
             if environment == "robocasa"
-            and getattr(args, "world_cord", "base") == "general"
             else []
         )
         return _spawn_server(
@@ -527,8 +392,6 @@ def _start_env(
             "--max-episode-steps",
             str(args.max_episode_steps),
             "--rl-control-state",
-            "--world-cord",
-            getattr(args, "world_cord", "base"),
         ],
         {
             "LIBERO_TYPE": args.libero_type or get_libero_type(),
@@ -674,7 +537,7 @@ def _connect_env(args: argparse.Namespace, rpc) -> dict[str, Any]:
     elif environment == "robocasa":
         from robots.robocasa.env_client import RoboCasaEnvClient
 
-        camera_size = 1024 if getattr(args, "world_cord", "base") == "general" else 256
+        camera_size = 1024
         env = RoboCasaEnvClient(
             rpc,
             expected_meta={
@@ -718,7 +581,7 @@ def configure_planner(planner, config: RunConfig):
     from robots.rl.history import HistoryRetention
 
     planner.capabilities_factory = lambda toolkit, system, user, turns: [
-        WorkflowCapability(toolkit, system, user, turns, timeout_s=planner.timeout_s),
+        WorkflowCapability(toolkit),
         HistoryRetention(toolkit),
     ]
     return planner

@@ -18,7 +18,7 @@ from rpent.tools import ToolResult
 def primitive():
     obj = object.__new__(RoboDojoPrimitives)
     obj.coordinates = Coordinates(
-        "general", np.array([2.0, -1.0, 0.5]), Rotation.from_euler("z", 0.7).as_matrix()
+        np.array([2.0, -1.0, 0.5]), Rotation.from_euler("z", 0.7).as_matrix()
     )
     obj.calibration = {
         "tools": {

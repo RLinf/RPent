@@ -28,97 +28,6 @@ def _arm_pose(state, arm):
     return np.asarray(measured["pose"]["xyz"], dtype=np.float64)
 
 
-@pytest.mark.timeout(1800)
-def test_native_metre_centimetre_equivalence():
-    """Repeat one measured pose/gripper sequence from the same native reset."""
-    from scipy.spatial.transform import Rotation
-
-    parser = argparse.ArgumentParser()
-    get_robot_spec().add_cli_args(parser, use_dashboard=False)
-    args = parser.parse_args(shlex.split(os.environ["RPENT_GEOMETRY_ARGS"]))
-    root = Path(os.environ["RPENT_E2E_OUTPUT_DIR"])
-    root.mkdir(parents=True, exist_ok=False)
-    sequences = {}
-    for unit, factor in (("m", 1), ("cm", 100)):
-        args.position_unit = unit
-        args.output_dir = root / unit
-        args.output_dir.mkdir()
-        init_output_dir(args.output_dir)
-        task = {
-            "environment": args.env,
-            "suite": args.suite,
-            "task": args.task,
-            "seed": args.seed,
-        }
-        with contextlib.ExitStack() as release:
-            tk, _ = start_environment(args, task, release)
-            tk.initial_observation()
-            initial = tk._robot_state()
-            arms = ("left", "right") if "left" in initial else (None,)
-            records = []
-            for arm in arms:
-                state = tk._robot_state()
-                measured = state if arm is None else state[arm]
-                xyz = np.asarray(measured["pose"]["xyz"]) + [0, 0, 0.01]
-                rpy = np.asarray(measured["pose"]["orientation_rpy"]) + [0, 0, 0.04]
-                actions = [
-                    {
-                        "action": "move_to",
-                        "xyz": (xyz * factor).tolist(),
-                        "orientation_rpy": rpy.tolist(),
-                    },
-                    {"action": "set_gripper", "opening": 0.2},
-                    {"action": "set_gripper", "opening": 0.9},
-                ]
-                if arm is not None:
-                    for action in actions:
-                        action["arm"] = arm
-                for action in actions:
-                    arguments = {"actions": [action]}
-                    result = tk.execute_tool("execute_actions", arguments)
-                    assert not result.is_error, result.data
-                    state = tk._robot_state()
-                    measured = state if arm is None else state[arm]
-                    records.append(
-                        {
-                            "arm": arm,
-                            "action": action,
-                            "measured": measured,
-                            "result": result.data,
-                        }
-                    )
-            sequences[unit] = {
-                "initial": initial,
-                "records": records,
-                "env_steps": tk._primitives.env_steps,
-            }
-    for metre, centimetre in zip(
-        sequences["m"]["records"], sequences["cm"]["records"], strict=True
-    ):
-        np.testing.assert_allclose(
-            metre["measured"]["pose"]["xyz"],
-            centimetre["measured"]["pose"]["xyz"],
-            atol=0.002,
-        )
-        np.testing.assert_allclose(
-            metre["measured"]["opening"], centimetre["measured"]["opening"], atol=0.03
-        )
-        first = Rotation.from_euler("xyz", metre["measured"]["pose"]["orientation_rpy"])
-        second = Rotation.from_euler(
-            "xyz", centimetre["measured"]["pose"]["orientation_rpy"]
-        )
-        assert (first.inv() * second).magnitude() < 0.015
-        if metre["action"]["action"] == "move_to":
-            np.testing.assert_allclose(
-                metre["action"]["xyz"],
-                np.asarray(centimetre["action"]["xyz"]) / 100,
-                atol=0.0001,
-            )
-    write_json_atomic(
-        root / "unit-equivalence-result.json", {"passed": True, **sequences}
-    )
-
-
 @pytest.mark.timeout(1200)
 def test_episode_geometry_and_control():
     parser = argparse.ArgumentParser()
@@ -142,7 +51,7 @@ def test_episode_geometry_and_control():
         tk.initial_observation()
         initial = tk._robot_state()
         coordinates = p.coordinates
-        factor = 100 if args.position_unit == "cm" else 1
+        factor = 100
         cameras = getattr(p, "cameras", ("agentview", "wrist"))
         step = tk.state.latest_step
         view = tk.execute_tool("view_env", {})
@@ -224,14 +133,6 @@ def test_episode_geometry_and_control():
             if arm is not None:
                 action["arm"] = arm
             arguments = {"actions": [action]}
-            if args.world_cord == "general":
-                stale = tk.execute_tool(
-                    "execute_actions", {**arguments, "frame_version": -1}
-                )
-                assert stale.is_error
-                np.testing.assert_allclose(
-                    _arm_pose(tk._robot_state(), arm), before, atol=1e-6
-                )
             result = tk.execute_tool("execute_actions", arguments)
             assert not result.is_error, result.data
             after = _arm_pose(tk._robot_state(), arm)
@@ -265,12 +166,12 @@ def test_mobile_frame_and_historical_projection():
     parser = argparse.ArgumentParser()
     get_robot_spec().add_cli_args(parser, use_dashboard=False)
     args = parser.parse_args(shlex.split(os.environ["RPENT_GEOMETRY_ARGS"]))
-    if args.env != "robocasa" or args.world_cord != "general":
+    if args.env != "robocasa":
         pytest.skip("requires the native RoboCasa mobile mounting frame")
     args.output_dir = Path(os.environ["RPENT_E2E_OUTPUT_DIR"])
     args.output_dir.mkdir(parents=True, exist_ok=False)
     init_output_dir(args.output_dir)
-    factor = 100 if args.position_unit == "cm" else 1
+    factor = 100
     task = {"environment": args.env, "task_name": args.task_name, "seed": args.seed}
     with contextlib.ExitStack() as release:
         tk, _ = start_environment(args, task, release)
@@ -296,7 +197,7 @@ def test_mobile_frame_and_historical_projection():
             },
             {
                 "action": "move_lift",
-                f"delta_{args.position_unit}": 0.01 * factor,
+                "delta_cm": 0.01 * factor,
                 "duration_s": 3,
             },
             {"action": "move_to", "xyz": (target * factor).tolist()},

@@ -18,6 +18,7 @@ from tests.unit_tests.robots.rl.test_libero_rl_contracts import (
     FakeEnv,
     FakeSam3,
     bar_mask,
+    execute_with_si_values,
 )
 
 
@@ -71,23 +72,19 @@ def offline(monkeypatch):
     )
 
 
-def make(tmp_path, *, env=None, workflow="episode", world_cord="general", **options):
+def make(tmp_path, *, env=None, **options):
     env = env or CalibratedEnv()
     toolkit = RLToolkit(
         runtime_kwargs={"env": env, "sam3_client": FakeSam3(bar_mask())},
         dashboard_events=NullDashboardEventSink(),
         memory=MemoryManager(tmp_path / "memory"),
-        observation_mode="adaptive",
         output_dir=tmp_path / "run",
-        workflow=workflow,
-        world_cord=world_cord,
         **options,
     )
     return toolkit, env
 
 
-@pytest.mark.parametrize("mode", ["base", "general"])
-def test_floor_height_is_explicit_and_not_reported_as_a_table(mode):
+def test_floor_height_is_explicit_and_not_reported_as_a_table():
     from robots.rl.coordinates import Coordinates
 
     env = CalibratedEnv([4, -3, 2])
@@ -95,7 +92,7 @@ def test_floor_height_is_explicit_and_not_reported_as_a_table(mode):
     calibration = control["coordinate_calibration"]
     del calibration["table_top_xyz"]
     calibration["floor_top_xyz"] = [4, -3, 1.95]
-    frame = Coordinates.from_control(mode, control)
+    frame = Coordinates.from_control(control)
     for metadata in (frame.metadata(), frame.description()):
         assert metadata["support_surface"] == "floor"
         assert metadata["floor_height_above_base_m"] == pytest.approx(-0.05)
@@ -116,7 +113,7 @@ def test_episode_returns_frame_invariant_robot_and_geometry(tmp_path):
             tk.execute_tool("segment", {"prompt": "cube", "camera": camera, "step": 0})
             for tk in (first, second)
         ]
-        for key in ("world_xyz", "top_z_m", "size_xyz_m", "axis_yaw"):
+        for key in ("world_xyz", "top_z_cm", "size_xyz_cm", "axis_yaw"):
             assert a.data[key] == pytest.approx(b.data[key], abs=1e-4)
         a, b = [
             tk.execute_tool(
@@ -129,7 +126,7 @@ def test_episode_returns_frame_invariant_robot_and_geometry(tmp_path):
 
 def test_regions_filter_general_z_and_recompute_rotated_extents(tmp_path):
     toolkit, _ = make(tmp_path, env=CalibratedEnv([10, -4, 2], 0.8))
-    found = toolkit.execute_tool("segment", {"prompt": "cube", "step": 0})
+    found = execute_with_si_values(toolkit, "segment", {"prompt": "cube", "step": 0})
     assert found.data["top_z_m"] == pytest.approx(1.0, abs=1e-4)
     assert found.data["size_xyz_m"][0] > 4 * found.data["size_xyz_m"][1]
     assert found.data["axis_yaw"] == pytest.approx(0, abs=1e-4)
@@ -137,11 +134,11 @@ def test_regions_filter_general_z_and_recompute_rotated_extents(tmp_path):
         {"box": [8, 4, 12, 28], "step": 0},
         {"mask_id": found.data["mask_id"]},
     ):
-        accepted = toolkit.execute_tool(
-            "back_project", {**region, "z_range_m": [0.99, 1.01]}
+        accepted = execute_with_si_values(
+            toolkit, "back_project", {**region, "z_range_m": [0.99, 1.01]}
         )
-        rejected = toolkit.execute_tool(
-            "back_project", {**region, "z_range_m": [2.99, 3.01]}
+        rejected = execute_with_si_values(
+            toolkit, "back_project", {**region, "z_range_m": [2.99, 3.01]}
         )
         assert accepted.data["world_xyz"][2] == pytest.approx(1, abs=1e-4)
         assert rejected.is_error
@@ -189,31 +186,9 @@ def test_absolute_tcp_targets_and_omitted_position_survive_rotation(tmp_path):
     )
 
 
-def test_general_requires_calibration_but_base_keeps_original_control_point(tmp_path):
-    with pytest.raises(ValueError, match="calibration"):
-        make(tmp_path / "missing", env=FakeEnv())
-    toolkit, env = make(tmp_path / "base", world_cord="base")
-    assert toolkit._robot_state()["pose"]["xyz"] == env.xyz.tolist()
-    assert not np.allclose(env.xyz, env.last_obs["control_state"]["pad_tcp_xyz"])
-    frame = toolkit._primitives.coordinates
-    native = np.array([[0, 0, 0], [np.nan, 0, 1], [1, 2, 3]])
-    np.testing.assert_allclose(toolkit._primitives.surface_points(native), [[1, 2, 3]])
-    assert frame.mode == "base"
-
-
-def test_removed_prompt_variants_rejected():
-    from robots.rl.prompt_bundle import system_prompt
-
-    for variant in ("base", "base_gripper", "base_gripper_camera"):
-        with pytest.raises(ValueError, match="fixed prompt"):
-            system_prompt({"prompt": variant})
-
-
 def test_model_frame_description_hides_simulator_origin_but_audit_keeps_it(tmp_path):
-    a, _ = make(tmp_path / "a", workflow="episode")
-    b, _ = make(
-        tmp_path / "b", workflow="episode", env=CalibratedEnv([40, -30, 20], 0.7)
-    )
+    a, _ = make(tmp_path / "a")
+    b, _ = make(tmp_path / "b", env=CalibratedEnv([40, -30, 20], 0.7))
     first, second = a.initial_observation(), b.initial_observation()
     assert first.data["coordinates"] == second.data["coordinates"]
     assert "origin_in_sim_world" not in str(first.data)
@@ -222,3 +197,10 @@ def test_model_frame_description_hides_simulator_origin_but_audit_keeps_it(tmp_p
         a.state.load("coordinates.json", step=None)["origin_in_sim_world"]
         != b.state.load("coordinates.json", step=None)["origin_in_sim_world"]
     )
+
+
+def test_mount_frame_requires_calibration(tmp_path):
+    env = FakeEnv()
+    del env.last_obs["control_state"]["coordinate_calibration"]
+    with pytest.raises(ValueError, match="calibration"):
+        make(tmp_path, env=env)

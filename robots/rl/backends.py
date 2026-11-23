@@ -214,57 +214,6 @@ class RoboCasaPrimitives(ScenePrimitives):
         return action, float(np.linalg.norm(position)), float(np.linalg.norm(angle))
 
     @tool
-    def move_to(
-        self,
-        xyz: Annotated[list[float], Field(min_length=3, max_length=3)],
-        quaternion: Annotated[list[float], Field(min_length=4, max_length=4)]
-        | None = None,
-    ) -> ToolResult:
-        """Servo the grasp point to an absolute world position, optionally setting its full orientation. The jaw opening is held. Motion follows a straight line without collision avoidance; choose clear waypoints. The result reports measured pose errors, independently of task success.
-
-        Args:
-            xyz: Absolute grasp-point position [x,y,z], world metres.
-            quaternion: Optional unit orientation [w,x,y,z] in the world frame; omitted holds the measured orientation.
-        """
-        if self.ended:
-            return ToolResult(data={"error": "episode_ended"})
-        target = np.asarray(xyz, dtype=float)
-        goal = (
-            self.measure().rotation
-            if quaternion is None
-            else Rotation.from_quat(quaternion, scalar_first=True).as_matrix()
-        )
-        reason = "max_steps"
-        for _ in range(self._config.max_motion_steps):
-            current = self.measure()
-            action, distance, angle = self._pose_action(current, target, goal)
-            if (
-                distance < self._config.position_tolerance_m
-                and angle < self._config.rotation_tolerance_rad
-            ):
-                reason = None
-                break
-            if self.ended:
-                reason = "episode_ended"
-                break
-            self._step(action)
-        current = self.measure()
-        return ToolResult(
-            data={
-                "status": "reached" if reason is None else "partial",
-                **({"reason": reason} if reason else {}),
-                "xyz": current.xyz.tolist(),
-                "quaternion_wxyz": Rotation.from_matrix(current.rotation)
-                .as_quat(scalar_first=True)
-                .tolist(),
-                "position_error_m": float(np.linalg.norm(target - current.xyz)),
-                "rotation_error_rad": float(
-                    Rotation.from_matrix(goal @ current.rotation.T).magnitude()
-                ),
-            }
-        )
-
-    @tool
     def set_gripper(self, opening: Annotated[float, Field(ge=0, le=1)]) -> ToolResult:
         """Set the normalized jaw opening while holding the current world pose. 0 closes and 1 opens. A blocked closing jaw is not proof of a grasp; the measured gap is held during later motions.
 
@@ -385,8 +334,7 @@ class RoboCasaGeneralPrimitives(RoboCasaPrimitives):
     def _surface_center(self, native: np.ndarray, points: np.ndarray) -> np.ndarray:
         return np.median(points, axis=0)
 
-    def __init__(self, *, world_cord: str = "general", **kwargs) -> None:
-        self.world_cord = world_cord
+    def __init__(self, **kwargs) -> None:
         super().__init__(**kwargs)
         self._refresh_coordinates()
         self._state.save("coordinates.json", self._coordinates_metadata(), step=None)
@@ -406,17 +354,13 @@ class RoboCasaGeneralPrimitives(RoboCasaPrimitives):
         from robots.rl.coordinates import Coordinates, grasp_axes
 
         native = self._measure_native()
-        coordinates = Coordinates.from_control(self.world_cord, self._control)
+        coordinates = Coordinates.from_control(self._control)
         if previous := getattr(self, "coordinates", None):
             coordinates = coordinates.after(previous)
         self.coordinates = coordinates
-        self.tool_rotation = (
-            grasp_axes(
-                self._control["jaw_slide_axes_site"][0],
-                self._control["wrist_to_site_in_site"],
-            )
-            if self.world_cord == "general"
-            else np.eye(3)
+        self.tool_rotation = grasp_axes(
+            self._control["jaw_slide_axes_site"][0],
+            self._control["wrist_to_site_in_site"],
         )
         return Measurement(
             self.coordinates.points(self._tcp_world(native)),
@@ -824,24 +768,6 @@ class RoboTwinPrimitives(ScenePrimitives):
         result[:3, :3] = Rotation.from_quat(pose[3:], scalar_first=True).as_matrix()
         result[:3, 3] = pose[:3]
         return result
-
-    @tool
-    def move_to(
-        self,
-        arm: Literal["left", "right"],
-        xyz: Annotated[list[float], Field(min_length=3, max_length=3)] | None = None,
-        orientation_rpy: Annotated[list[float], Field(min_length=3, max_length=3)]
-        | None = None,
-    ) -> ToolResult:
-        """Move one grasp TCP in simulator world coordinates."""
-        if xyz is None and orientation_rpy is None:
-            return ToolResult(data={"error": "Supply xyz, orientation_rpy, or both"})
-        current = self._matrix(self.env.last_info["robot_state"][f"{arm}_tcp_pose"])
-        if xyz is not None:
-            current[:3, 3] = xyz
-        if orientation_rpy is not None:
-            current[:3, :3] = Rotation.from_euler("xyz", orientation_rpy).as_matrix()
-        return self._move_arm(arm, current)
 
     def _move_arm(self, arm: str, target: np.ndarray) -> ToolResult:
         state = self.env.last_info["robot_state"]

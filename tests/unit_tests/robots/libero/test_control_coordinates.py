@@ -82,7 +82,7 @@ def native_scene():
 
 def test_native_calibration_is_fixed_per_reset_but_tcp_is_measured():
     scene = native_scene()
-    wrapped = ControlObservation(scene, world_cord="general")
+    wrapped = ControlObservation(scene)
     first = wrapped.rpent_control_state
     np.testing.assert_allclose(first["xyz"], [4.2, -3.0, 1.2])
     assert first["coordinate_calibration"]["tcp"] == "grip_site"
@@ -100,14 +100,6 @@ def test_native_calibration_is_fixed_per_reset_but_tcp_is_measured():
     )
 
 
-def test_legacy_control_does_not_require_new_calibration():
-    scene = native_scene()
-    del scene.model.mujoco_arena
-    state = ControlObservation(scene).rpent_control_state
-    assert state["reference"] == "grip_site"
-    assert "coordinate_calibration" not in state
-
-
 @pytest.mark.parametrize(
     "field", ["table_body", "living_room_table_body", "coffee_table_body"]
 )
@@ -119,7 +111,7 @@ def test_table_height_uses_compiled_collision_surface_not_nominal_offset(field):
             "table_top_abs": np.array([0, 0, 999]),
         }
     )
-    measured = ControlObservation(scene, world_cord="general").rpent_control_state
+    measured = ControlObservation(scene).rpent_control_state
     assert measured["coordinate_calibration"]["table_top_xyz"][2] == pytest.approx(0.9)
 
 
@@ -127,7 +119,7 @@ def test_missing_table_geometry_is_an_error_not_a_height_guess():
     scene = native_scene()
     scene.sim.model.geom_contype[2] = scene.sim.model.geom_conaffinity[2] = 0
     with pytest.raises(ValueError, match="collision boxes"):
-        ControlObservation(scene, world_cord="general").rpent_control_state
+        ControlObservation(scene).rpent_control_state
 
 
 def test_floor_calibration_uses_plane_position_without_inventing_a_table():
@@ -138,13 +130,13 @@ def test_floor_calibration_uses_plane_position_without_inventing_a_table():
     scene.sim.model.geom_type[2] = 0
     scene.sim.data.geom_xmat[2] = np.eye(3).flatten()
     scene.sim.model.geom_size[2] = [3, 3, 0.125]
-    state = ControlObservation(scene, world_cord="general").rpent_control_state
+    state = ControlObservation(scene).rpent_control_state
     calibration = state["coordinate_calibration"]
     np.testing.assert_allclose(calibration["floor_top_xyz"], [4, -3, 0.88])
     assert "table_top_xyz" not in calibration
     scene.sim.data.geom_xmat[2] = Rotation.from_euler("x", np.pi).as_matrix().flatten()
     with pytest.raises(ValueError, match="upward floor plane"):
-        ControlObservation(scene, world_cord="general").rpent_control_state
+        ControlObservation(scene).rpent_control_state
 
 
 def test_rgb_only_environment_disables_automatic_depth_observables():

@@ -94,7 +94,6 @@ class LiberoRLPrimitives(RecordedPerception):
         state: EnvState,
         check_cancelled: Callable[[], None],
         config: ControlConfig = ControlConfig(),
-        world_cord: str = "base",
         capture_geometry: bool = True,
     ) -> None:
         self.env = env
@@ -102,22 +101,15 @@ class LiberoRLPrimitives(RecordedPerception):
         self._state = state
         self._check_cancelled = check_cancelled
         self._config = config
-        from robots.rl.coordinates import Coordinates
+        from robots.rl.coordinates import Coordinates, grasp_axes
 
-        self.coordinates = Coordinates.from_control(
-            world_cord, env.last_obs["control_state"]
+        control = env.last_obs["control_state"]
+        self.coordinates = Coordinates.from_control(control)
+        self.tool_rotation = grasp_axes(
+            control["jaw_slide_axes_site"][0], control["wrist_to_site_in_site"]
         )
-        self.tool_rotation = np.eye(3)
-        if world_cord == "general":
-            from robots.rl.coordinates import grasp_axes
-
-            control = env.last_obs["control_state"]
-            self.tool_rotation = grasp_axes(
-                control["jaw_slide_axes_site"][0], control["wrist_to_site_in_site"]
-            )
         self.capture_geometry = capture_geometry
-        if world_cord == "general" or not capture_geometry:
-            self._state.save("coordinates.json", self.coordinates.metadata(), step=None)
+        self._state.save("coordinates.json", self.coordinates.metadata(), step=None)
         # The client resets on connect, leaving the gripper fully open.
         self._open_gap = self._finger_gap()
         self.env_steps = 0
@@ -144,7 +136,7 @@ class LiberoRLPrimitives(RecordedPerception):
         )
 
     def _tcp_world(self, current: Measurement) -> np.ndarray:
-        """LIBERO uses its native grasp site in both coordinate modes."""
+        """LIBERO uses its native grasp site."""
         return current.xyz
 
     def measure(self) -> Measurement:

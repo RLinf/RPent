@@ -34,7 +34,11 @@ from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 from uuid import uuid4
 
-from robots.rl.prompt_bundle import validate_workflow
+from robots.rl.contracts import (
+    CAMERAS,
+    EPISODE_CONTRACT_VERSION,
+    validate_episode_options,
+)
 from rpent.evaluation import write_json_atomic as atomic
 from rpent.evaluation.trajectory import audit_episode
 from rpent.planner.admission import recorded_queue_seconds
@@ -49,9 +53,6 @@ STOP = threading.Event()
 # These flags are declared once in run.sh; batch CLI values override that argv.
 RUN_FLAGS = (
     "--sam3-timeout-s",
-    "--world-cord",
-    "--position-unit",
-    "--action-mode",
     "--max-actions-per-call",
     "--reasoning-history",
     "--image-history",
@@ -117,14 +118,6 @@ def resolve_run_options(args: argparse.Namespace) -> None:
             )
         },
     )
-    from robots.rl.contracts import validate_perception_options
-
-    validate_perception_options(
-        args.workflow,
-        getattr(args, "perception_mode", "single"),
-        getattr(args, "max_observe_calls", 8),
-        getattr(args, "observe_concurrency", 8),
-    )
     import math
 
     if not math.isfinite(args.sam3_timeout_s) or args.sam3_timeout_s <= 0:
@@ -188,11 +181,10 @@ def read_jobs(path: Path, seeds: list[int] | None) -> list[dict]:
         for line in path.read_text().splitlines():
             if not line.strip() or line.lstrip().startswith("#"):
                 continue
-            mode, suite, task, seed = line.split()
+            _, suite, task, seed = line.split()
             jobs.append(
                 {
                     "environment": "libero",
-                    "observation_mode": mode,
                     "suite": suite,
                     "task": int(task),
                     "seed": int(seed),
@@ -200,12 +192,9 @@ def read_jobs(path: Path, seeds: list[int] | None) -> list[dict]:
             )
     normalized = []
     for original in jobs:
-        row = {"environment": "libero", "observation_mode": "adaptive", **original}
-        if (
-            row["environment"] not in ("libero", "robocasa", "robotwin", "robodojo")
-            or row["observation_mode"] != "adaptive"
-        ):
-            raise ValueError(f"invalid environment/observation mode: {row}")
+        row = {"environment": "libero", **original}
+        if row["environment"] not in CAMERAS:
+            raise ValueError(f"Unsupported simulator: {row['environment']}")
         identifiers = (
             [row.get("suite")]
             if row["environment"] == "libero"
@@ -229,15 +218,15 @@ def read_jobs(path: Path, seeds: list[int] | None) -> list[dict]:
     return normalized
 
 
-def job_name(job: dict, prompt: str, workflow: str) -> str:
-    """Name one native task/seed without collisions between workflows."""
+def job_name(job: dict) -> str:
+    """Name one native task/seed including native layout when applicable."""
     task = (
         f"{job['suite']}_t{job['task']}"
         if job["environment"] == "libero"
         else f"{job['environment']}_{job['task_name']}"
     )
     layout = f"_l{job.get('layout', 0)}" if job["environment"] == "robodojo" else ""
-    return f"{task}_s{job['seed']}{layout}_adaptive-{prompt}-{workflow}"
+    return f"{task}_s{job['seed']}{layout}"
 
 
 def job_arguments(job: dict) -> list[str]:
@@ -439,27 +428,7 @@ def collect(args: argparse.Namespace, batch: Path) -> None:
         )
     jobs = read_jobs(Path(args.jobs), args.seeds)
     for job in jobs:
-        validate_workflow(job["environment"], args.workflow)
-        from robots.rl.contracts import (
-            validate_coordinates,
-            validate_image_size,
-            validate_options,
-        )
-
-        world_cord = getattr(args, "world_cord", "base")
-        validate_coordinates(job["environment"], world_cord)
-        validate_image_size(
-            job["environment"], world_cord, getattr(args, "image_size", 1024)
-        )
-        validate_options(
-            job["environment"],
-            args.workflow,
-            getattr(args, "action_mode", "batch"),
-            getattr(args, "max_actions_per_call", 3),
-            getattr(args, "reasoning_history", -1),
-            getattr(args, "image_history", -1),
-            world_cord=world_cord,
-        )
+        validate_episode_options(job["environment"], vars(args))
     pilot_path = getattr(args, "pilot_jobs", None)
     pilot = read_jobs(Path(pilot_path), args.seeds) if pilot_path else []
     if pilot_path and (not pilot or any(job not in jobs for job in pilot)):
@@ -469,18 +438,14 @@ def collect(args: argparse.Namespace, batch: Path) -> None:
             "A staged pilot is incompatible with an all-jobs start barrier"
         )
     identity = {
+        "episode_contract_version": EPISODE_CONTRACT_VERSION,
         "jobs": jobs,
         "pilot_jobs": pilot,
-        "prompt": args.prompt,
-        "workflow": args.workflow,
-        "world_cord": args.world_cord,
-        "position_unit": args.position_unit,
         "image_size": getattr(args, "image_size", 1024),
         "thinking": not getattr(args, "no_thinking", False),
         "run_options": {
             flag: getattr(args, flag[2:].replace("-", "_")) for flag in RUN_FLAGS
         },
-        "action_mode": getattr(args, "action_mode", "batch"),
         "max_actions_per_call": getattr(args, "max_actions_per_call", 3),
         "reasoning_history": getattr(args, "reasoning_history", -1),
         "image_history": getattr(args, "image_history", -1),
@@ -529,7 +494,7 @@ def collect(args: argparse.Namespace, batch: Path) -> None:
         else None
     )
     for index, job in enumerate(jobs):
-        output = batch / job_name(job, args.prompt, args.workflow)
+        output = batch / job_name(job)
         row = completed(output)
         if row:
             records.append(row)
@@ -823,7 +788,7 @@ def collect(args: argparse.Namespace, batch: Path) -> None:
     drain_pending()
     pause_reason = None
     if pilot and not STOP.is_set():
-        pilot_names = {job_name(job, args.prompt, args.workflow) for job in pilot}
+        pilot_names = {job_name(job) for job in pilot}
         pilot_rows = [
             row for row in outcomes if Path(row["directory"]).parent.name in pilot_names
         ]
@@ -935,9 +900,6 @@ def build_parser() -> tuple[argparse.ArgumentParser, argparse.ArgumentParser]:
         default=None,
         help="SAM RPC deadline including queue time; default 120 seconds.",
     )
-    collection.add_argument("--world-cord", choices=("base", "general"), default=None)
-    collection.add_argument("--position-unit", choices=("m", "cm"), default=None)
-    collection.add_argument("--action-mode", choices=("batch",), default=None)
     collection.add_argument("--max-actions-per-call", type=int, default=None)
     collection.add_argument("--reasoning-history", type=int, default=None)
     collection.add_argument("--image-history", type=int, default=None)
@@ -953,15 +915,7 @@ def build_parser() -> tuple[argparse.ArgumentParser, argparse.ArgumentParser]:
     collection.add_argument(
         "--thinking", "--reasoning", dest="no_thinking", action="store_false"
     )
-    collection.set_defaults(
-        no_thinking=None,
-        workflow="episode",
-        prompt="simple",
-        observation_mode="adaptive",
-        perception_mode="single",
-        max_observe_calls=8,
-        observe_concurrency=8,
-    )
+    collection.set_defaults(no_thinking=None)
     collection.add_argument("--max-turns", type=int, default=None)
     collection.add_argument("--max-tokens", type=int, default=None)
     collection.add_argument("--context-window", type=int, default=None)

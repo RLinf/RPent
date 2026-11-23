@@ -27,7 +27,7 @@ import numpy as np
 import pytest
 from PIL import Image
 
-from robots.libero import rl_episode
+from robots.rl import rl_episode
 from rpent.dashboard.events import NullDashboardEventSink
 from rpent.memory import MemoryManager
 from rpent.session import EnvState
@@ -191,7 +191,6 @@ def run_planner(toolkit, base_url, max_turns=3, **options):
         "max_tokens": 64,
         "request_timeout_s": 600,
         "episode_timeout_s": 1200,
-        "no_images": False,
         "history_compaction": None,
         **options,
     }
@@ -287,10 +286,9 @@ def test_unreachable_endpoint_ends_without_a_task_outcome(toolkit):
     assert not status["terminal"] and status["error_kind"] == "model_transport"
 
 
-@pytest.mark.parametrize("no_images", [False, True])
-def test_episode_can_withhold_tool_images(toolkit, policy_endpoint, no_images):
+def test_episode_keeps_view_images(toolkit, policy_endpoint):
     base_url, requests = policy_endpoint([tool_call("look")])
-    run_planner(toolkit, base_url, max_turns=2, no_images=no_images)
+    run_planner(toolkit, base_url, max_turns=2)
     parts = [
         part
         for message in requests[1]["messages"]
@@ -298,8 +296,7 @@ def test_episode_can_withhold_tool_images(toolkit, policy_endpoint, no_images):
         for part in message["content"]
     ]
     images = [part for part in parts if part.get("type") == "image_url"]
-    assert bool(images) is not no_images
-    assert ("Image omitted" in json.dumps(requests[1])) is no_images
+    assert len(images) == 1
 
 
 @pytest.mark.parametrize(
@@ -327,7 +324,7 @@ def test_episode_can_withhold_tool_images(toolkit, policy_endpoint, no_images):
             True,
             "episode_timeout",
         ),
-        (False, True, 2, None, "environment_limit", True, None),
+        (False, True, 2, None, "environment_step_limit", True, None),
         (False, False, 4, None, "request_limit", True, None),
         (False, False, 2, None, "planner_completed", True, None),
         (False, False, 2, "backend failed", "error", False, None),
@@ -347,7 +344,10 @@ def test_planner_episode_terminal_contract(
 ):
     toolkit = SimpleNamespace(
         solved=lambda: success,
-        state=SimpleNamespace(get=lambda: SimpleNamespace(truncated=truncated)),
+        state=SimpleNamespace(
+            records=lambda: [],
+            latest_record=lambda: SimpleNamespace(truncated=truncated),
+        ),
     )
     result = SimpleNamespace(
         stats={"turns_used": turns}, error=error, error_kind=error_kind

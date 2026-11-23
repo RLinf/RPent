@@ -9,9 +9,6 @@ if [[ -n "$model_lower" && "$model_lower" != *qwen3.8* && -z "${RPENT_REASONING_
 fi
 run_args=(
   --sam3-timeout-s "${RPENT_SAM3_TIMEOUT_S:-120}"                 # SAM3 排队加推理 RPC 时限，不延长 planner 总预算。
-  --position-unit "${RPENT_POSITION_UNIT:-m}"                      # 模型接口的线性单位；内部控制与原始深度保持米。
-  --world-cord "${RPENT_WORLD_CORD:-base}"                         # base 保留旧仿真坐标；general 使用测得的安装基座与抓取 TCP。
-  --action-mode "${RPENT_ACTION_MODE:-batch}"                     # 动作接口；batch 逐项执行，遇到 partial 或错误即停。
   --max-actions-per-call "${RPENT_MAX_ACTIONS_PER_CALL:-3}"        # batch 每次最多执行的动作数量。
   --reasoning-history "${RPENT_REASONING_HISTORY:--1}"            # 保留最近几轮推理：-1 全部、0 删除、正数 N 轮。
   --image-history "${RPENT_IMAGE_HISTORY:--1}"                    # 保留最近几组图片：双相机算一组，-1 全部、0 无图。

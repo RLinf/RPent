@@ -155,7 +155,7 @@ def test_native_camera_backprojection_accepts_sapien_extrinsic_shape(
 
 def test_arm_plan_transforms_tcp_to_eef_and_holds_unselected_targets(tmp_path):
     primitive = twin_primitives(tmp_path)
-    result = primitive.move_to("left", [0.1, 0.2, 0.5])
+    result = primitive._move_arm("left", primitive._matrix([0.1, 0.2, 0.5, 1, 0, 0, 0]))
     assert result.data["status"] == "reached"
     np.testing.assert_allclose(primitive.env.plans[0][1][:3], [0.1, 0.2, 0.4])
     assert len(primitive.env.plans) == 1
@@ -169,7 +169,9 @@ def test_arm_plan_transforms_tcp_to_eef_and_holds_unselected_targets(tmp_path):
 
 def test_failed_plan_executes_no_motion(tmp_path):
     primitive = twin_primitives(tmp_path, failed_arm="right")
-    result = primitive.move_to("right", [0.2, -0.2, 0.6])
+    result = primitive._move_arm(
+        "right", primitive._matrix([0.2, -0.2, 0.6, 1, 0, 0, 0])
+    )
     assert result.data["reason"] == "plan_failed"
     assert len(primitive.env.plans) == 1
     assert primitive.env.chunks == [] and primitive.env_steps == 0
@@ -186,7 +188,7 @@ def test_motion_holds_final_waypoint_until_measured_joint_drive_settles(tmp_path
         return result
 
     primitive.env.chunk_step = lagging_drive
-    result = primitive.move_to("left", [0.1, 0.2, 0.5])
+    result = primitive._move_arm("left", primitive._matrix([0.1, 0.2, 0.5, 1, 0, 0, 0]))
     assert result.data["status"] == "reached"
     assert result.data["settling_steps"] == 10
     assert len(primitive.env.chunks) == 2

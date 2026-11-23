@@ -19,6 +19,7 @@ from tests.unit_tests.robots.rl.test_libero_rl_contracts import (
     FakeEnv,
     FakeSam3,
     bar_mask,
+    execute_with_si_values,
 )
 
 
@@ -30,16 +31,13 @@ def offline(monkeypatch):
     )
 
 
-def make(tmp_path, workflow="episode", action_mode="batch", **kwargs):
+def make(tmp_path, **kwargs):
     env = kwargs.pop("env", FakeEnv())
     tk = RLToolkit(
         runtime_kwargs={"env": env, "sam3_client": FakeSam3(bar_mask())},
         dashboard_events=NullDashboardEventSink(),
         memory=MemoryManager(tmp_path / "memory"),
-        observation_mode="adaptive",
         output_dir=tmp_path / "run",
-        workflow=workflow,
-        action_mode=action_mode,
         **kwargs,
     )
     return tk, env
@@ -90,8 +88,9 @@ def test_invalid_queries_never_advance(tmp_path, name, args):
 
 
 def test_batch_validates_every_item_before_any_physics(tmp_path):
-    tk, env = make(tmp_path, action_mode="batch")
-    result = tk.execute_tool(
+    tk, env = make(tmp_path)
+    result = execute_with_si_values(
+        tk,
         "execute_actions",
         {
             "actions": [
@@ -102,16 +101,19 @@ def test_batch_validates_every_item_before_any_physics(tmp_path):
     )
     assert result.is_error and not env.actions
     assert tk.state.latest_step == 0
-    assert tk.execute_tool("move_to", {"xyz": [0.2, 0, 1]}).is_error
-    assert tk.execute_tool("execute_actions", {"actions": []}).is_error
-    assert tk.execute_tool(
-        "execute_actions", {"actions": [{"action": "set_gripper", "opening": 1}] * 4}
+    assert execute_with_si_values(tk, "move_to", {"xyz": [0.2, 0, 1]}).is_error
+    assert execute_with_si_values(tk, "execute_actions", {"actions": []}).is_error
+    assert execute_with_si_values(
+        tk,
+        "execute_actions",
+        {"actions": [{"action": "set_gripper", "opening": 1}] * 4},
     ).is_error
 
 
 def test_batch_stops_at_contact_and_requires_explicit_view(tmp_path):
-    tk, env = make(tmp_path, action_mode="batch", env=FakeEnv(block_gap=0.04))
-    result = tk.execute_tool(
+    tk, env = make(tmp_path, env=FakeEnv(block_gap=0.04))
+    result = execute_with_si_values(
+        tk,
         "execute_actions",
         {
             "actions": [
@@ -131,8 +133,9 @@ def test_batch_stops_at_contact_and_requires_explicit_view(tmp_path):
 
 
 def test_success_stops_batch_without_advancing_remaining_actions(tmp_path):
-    tk, env = make(tmp_path, action_mode="batch", env=FakeEnv(success_below_z=0.95))
-    result = tk.execute_tool(
+    tk, env = make(tmp_path, env=FakeEnv(success_below_z=0.95))
+    result = execute_with_si_values(
+        tk,
         "execute_actions",
         {
             "actions": [
@@ -161,7 +164,8 @@ def test_world_commands_convert_through_rotated_controller_frame(tmp_path):
 
     tk, env = make(tmp_path, env=RotatedBase())
     target = [math.pi, 0.2, 0.4]
-    result = tk.execute_tool(
+    result = execute_with_si_values(
+        tk,
         "execute_actions",
         {
             "actions": [
@@ -181,16 +185,16 @@ def test_small_vlm_pixels_validate_before_native_depth_conversion(
     monkeypatch.setattr(tools, "IMAGE_SIZE", 1024)
     tk, _ = make(tmp_path, image_size=size)
     coordinate = size - 5
-    result = tk.execute_tool(
-        "back_project", {"step": 0, "pixel": [coordinate, coordinate]}
+    result = execute_with_si_values(
+        tk, "back_project", {"step": 0, "pixel": [coordinate, coordinate]}
     )
     assert not result.is_error
     native = int((coordinate + 0.5) * 1024 / size)
     assert result.data["world_xyz"] == pytest.approx(
         [(native - 512) / 1024, (native - 512) / 1024, 1], abs=0.001
     )
-    assert tk.execute_tool(
-        "back_project", {"step": 0, "pixel": [size, coordinate]}
+    assert execute_with_si_values(
+        tk, "back_project", {"step": 0, "pixel": [size, coordinate]}
     ).is_error
 
 
@@ -199,11 +203,13 @@ def test_segmentation_not_found_is_text_and_raw_detection_is_preserved(tmp_path)
 
     tk, _ = make(tmp_path)
     tk._primitives._sam3.segment = lambda *a, **kw: Sam3Result(found=False, score=0.1)
-    result = tk.execute_tool("segment", {"step": 0, "prompt": "missing target"})
+    result = execute_with_si_values(
+        tk, "segment", {"step": 0, "prompt": "missing target"}
+    )
     assert result.data["code"] == "not_found"
     assert result.data["camera"] == "agentview"
     assert result.data["step"] == 0
-    assert result.data["position_unit"] == "m"
+    assert result.data["position_unit"] == "cm"
     assert "found" not in result.data and "score" not in result.data
     raw = tk.state.load("sam3_detection_1.json", step=0)
     assert raw["found"] is False and raw["score"] == 0.1
@@ -211,8 +217,12 @@ def test_segmentation_not_found_is_text_and_raw_detection_is_preserved(tmp_path)
 
 def test_mask_parameter_cannot_select_different_camera(tmp_path):
     tk, _ = make(tmp_path)
-    mask = tk.execute_tool("segment", {"step": 0, "prompt": "cube"}).data["mask_id"]
-    result = tk.execute_tool("back_project", {"mask_id": mask, "camera": "wrist"})
+    mask = execute_with_si_values(tk, "segment", {"step": 0, "prompt": "cube"}).data[
+        "mask_id"
+    ]
+    result = execute_with_si_values(
+        tk, "back_project", {"mask_id": mask, "camera": "wrist"}
+    )
     assert result.is_error
 
 
@@ -282,7 +292,7 @@ def test_sam_audit_preserves_exact_mask_score_threshold_and_service_error(tmp_pa
     tk._primitives._sam3.segment = lambda *a, **kw: Sam3Result(
         found=True, score=score, box=[1.25, 2.5, 8.75, 9.5], mask=mask
     )
-    visible = tk.execute_tool("segment", {"step": 0, "prompt": "red cup"})
+    visible = execute_with_si_values(tk, "segment", {"step": 0, "prompt": "red cup"})
     assert "score" not in visible.data and "found" not in visible.data
     raw = tk.state.load("sam3_detection_1.json", step=0)
     assert raw["score"] == score and raw["min_score"] == 0.2
@@ -295,7 +305,7 @@ def test_sam_audit_preserves_exact_mask_score_threshold_and_service_error(tmp_pa
         raise ConnectionError("SAM worker unavailable")
 
     tk._primitives._sam3.segment = failed
-    failure = tk.execute_tool("segment", {"step": 0, "prompt": "red cup"})
+    failure = execute_with_si_values(tk, "segment", {"step": 0, "prompt": "red cup"})
     assert failure.is_error and "segmentation_failed" in failure.to_text()
     raw = tk.state.load("sam3_detection_2.json", step=0)
     assert raw["category"] == "service_error"
@@ -331,7 +341,7 @@ def test_empty_qwen_tool_has_bounded_native_grammar_and_same_contract(
         model_settings=qwen_model_settings(max_tokens=32768, reasoning_effort="xhigh"),
     )
     context = SimpleNamespace(usage=SimpleNamespace(requests=0))
-    cap = WorkflowCapability(tk, "system", "task", 100, timeout_s=7200)
+    cap = WorkflowCapability(tk)
     result = asyncio.run(cap.before_model_request(context, request))
     extra = result.model_settings["extra_body"]
     assert extra["chat_template_kwargs"]["enable_thinking"] is True

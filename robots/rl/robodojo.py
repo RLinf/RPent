@@ -22,13 +22,13 @@ class RoboDojoPrimitives(ScenePrimitives):
     cameras = CAMERAS
     _model_points = LiberoRLPrimitives._model_points
 
-    def __init__(self, *, world_cord="base", **kwargs):
+    def __init__(self, **kwargs):
         super().__init__(**kwargs)
         self.native = NativePrimitives(
             env=self.env, check_cancelled=self._check_cancelled
         )
         self.calibration = self.env.coordinate_calibration()
-        self.coordinates = Coordinates.from_control(world_cord, self.calibration)
+        self.coordinates = Coordinates.from_control(self.calibration)
         self._state.save(
             "coordinates.json",
             {**self.coordinates.metadata(), "calibration": self.calibration},
@@ -59,14 +59,11 @@ class RoboDojoPrimitives(ScenePrimitives):
 
     def _pose(self, arm, motion):
         native = pose_matrix(motion[f"{arm}_eef_pose"])
-        if self.coordinates.mode == "general":
-            calibration = self.calibration["tools"][arm]
-            offset = np.asarray(calibration["offset_in_native_m"])
-            rotation = np.asarray(calibration["rotation_to_native"])
-            xyz = native[:3, 3] + native[:3, :3] @ offset
-            axes = native[:3, :3] @ rotation
-        else:
-            xyz, axes = native[:3, 3], native[:3, :3]
+        calibration = self.calibration["tools"][arm]
+        offset = np.asarray(calibration["offset_in_native_m"])
+        rotation = np.asarray(calibration["rotation_to_native"])
+        xyz = native[:3, 3] + native[:3, :3] @ offset
+        axes = native[:3, :3] @ rotation
         return self.coordinates.points(xyz), self.coordinates.orientation(axes)
 
     def _native_call(self, operation, *args, **kwargs):
@@ -178,14 +175,11 @@ class RoboDojoPrimitives(ScenePrimitives):
         )
         native_rotation = self.coordinates.world_orientation(rotation)
         native_xyz = self.coordinates.world_position(target)
-        if self.coordinates.mode == "general":
-            calibration = self.calibration["tools"][arm]
-            native_rotation = (
-                native_rotation @ np.asarray(calibration["rotation_to_native"]).T
-            )
-            native_xyz -= native_rotation @ np.asarray(
-                calibration["offset_in_native_m"]
-            )
+        calibration = self.calibration["tools"][arm]
+        native_rotation = (
+            native_rotation @ np.asarray(calibration["rotation_to_native"]).T
+        )
+        native_xyz -= native_rotation @ np.asarray(calibration["offset_in_native_m"])
         result = self._native_call(
             self.native.move_to,
             arm=arm,

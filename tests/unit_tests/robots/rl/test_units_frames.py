@@ -8,9 +8,8 @@ from scipy.spatial.transform import Rotation
 
 from robots.rl import tools
 from robots.rl.coordinates import Coordinates, grasp_axes
-from robots.rl.prompt_bundle import system_prompt
 from robots.rl.toolkit import RLToolkit
-from robots.rl.units import PositionUnits
+from robots.rl.units import CENTIMETERS
 from rpent.dashboard.events import NullDashboardEventSink
 from rpent.memory import MemoryManager
 from tests.unit_tests.robots.rl.test_libero_rl_contracts import (
@@ -44,54 +43,21 @@ def factory(tmp_path, monkeypatch):
         "rpent.utils.templates.default_variables", lambda: {"output_dir": str(tmp_path)}
     )
 
-    def make(unit):
+    def make():
         env = CalibratedEnv()
         tk = RLToolkit(
             runtime_kwargs={"env": env, "sam3_client": FakeSam3(bar_mask())},
             dashboard_events=NullDashboardEventSink(),
-            memory=MemoryManager(tmp_path / unit / "memory"),
-            observation_mode="adaptive",
-            output_dir=tmp_path / unit,
-            world_cord="general",
-            position_unit=unit,
-            action_mode="batch",
+            memory=MemoryManager(tmp_path / "memory"),
+            output_dir=tmp_path / "run",
         )
         return tk, env
 
     return make
 
 
-def test_metres_centimetres_execute_identical_physical_sequence(factory):
-    metre, a = factory("m")
-    centimetre, b = factory("cm")
-    for tk, scale in [(metre, 1), (centimetre, 100)]:
-        result = tk.execute_tool(
-            "execute_actions",
-            {
-                "actions": [
-                    {
-                        "action": "move_to",
-                        "xyz": [v * scale for v in [0.12, -0.21, 0.88]],
-                        "orientation_rpy": [3.1, 0.05, 0.2],
-                    },
-                    {"action": "set_gripper", "opening": 0.5},
-                ],
-            },
-        )
-        assert result.data["executed_count"] == 2, result.to_text()
-        assert result.data["final_state"]["pose"]["xyz"][0] == pytest.approx(
-            a.xyz[0] * scale, abs=0.001
-        )
-        assert result.data["coordinates"]["frame_version"] == 0
-    np.testing.assert_allclose(a.actions, b.actions, atol=1e-10)
-    np.testing.assert_allclose(a.xyz, b.xyz, atol=1e-10)
-    np.testing.assert_allclose(
-        a.rotation.as_matrix(), b.rotation.as_matrix(), atol=1e-10
-    )
-
-
 def test_action_frame_version_is_receipt_only(factory):
-    toolkit, env = factory("cm")
+    toolkit, env = factory()
     action = {"actions": [{"action": "move_to", "xyz": [10, -20, 80]}]}
     assert toolkit.execute_tool(
         "execute_actions", {**action, "frame_version": 0}
@@ -118,7 +84,7 @@ def test_units_convert_lengths_not_angles_pixels_time_or_opening():
         "pixel": [20, 30],
         "box": [1, 2, 3, 4],
     }
-    units = PositionUnits("cm")
+    units = CENTIMETERS
     external = units.payload(original)
     assert external["xyz"] == pytest.approx([12.3456, 0, -40])
     assert external["top_z_cm"] == 20
@@ -137,24 +103,11 @@ def test_units_convert_lengths_not_angles_pixels_time_or_opening():
     assert "ccm" not in units.description("Speed 0.1 m/s, maximum 2 metres.")
 
 
-def test_native_tcp_metadata_distinguishes_wrist_from_grip_site():
-    for control, expected in (
-        ({}, "grip_site"),
-        ({"native_tcp": "native_wrist_ik"}, "native_wrist_ik"),
-    ):
-        frame = Coordinates.from_control("base", control)
-        assert frame.metadata()["tcp"] == expected
-        assert frame.description()["tcp"] == expected
-        np.testing.assert_array_equal(
-            frame.world_position([0.1, 0.2, 0.3]), [0.1, 0.2, 0.3]
-        )
-
-
 def test_common_tool_axes_roundtrip_under_rotated_base():
     c = grasp_axes([0, 1, 0], [1, 0, 0])
     native = Rotation.from_euler("xyz", [0.4, -0.5, 1.2]).as_matrix()
     base = Coordinates(
-        "general", np.array([3, -1, 0.7]), Rotation.from_euler("z", 0.9).as_matrix()
+        np.array([3, -1, 0.7]), Rotation.from_euler("z", 0.9).as_matrix()
     )
     visible = base.orientation(native @ c)
     np.testing.assert_allclose(
@@ -165,24 +118,15 @@ def test_common_tool_axes_roundtrip_under_rotated_base():
 
 
 def test_frame_version_changes_only_for_mount_motion():
-    base = Coordinates("general", np.array([0.0, 0.0, 0.0]), np.eye(3))
+    base = Coordinates(np.array([0.0, 0.0, 0.0]), np.eye(3))
     assert base.after(base).version == 0
-    lifted = Coordinates("general", np.array([0.0, 0.0, 0.05]), np.eye(3)).after(base)
+    lifted = Coordinates(np.array([0.0, 0.0, 0.05]), np.eye(3)).after(base)
     assert lifted.version == 1
     assert lifted.after(lifted).version == 1
     turned = Coordinates(
-        "general", lifted.origin, Rotation.from_euler("z", 0.2).as_matrix()
+        lifted.origin, Rotation.from_euler("z", 0.2).as_matrix()
     ).after(lifted)
     assert turned.version == 2
-
-
-def test_current_libero_base_prompt_uses_batched_actions_and_metre_poses():
-    prompt = system_prompt(
-        {"environment": "libero", "world_cord": "base", "position_unit": "m"}
-    )
-    assert "grip_site" in prompt and "world metres" in prompt
-    assert "execute_actions" in prompt
-    assert "finish ends" not in prompt and "frame_version" not in prompt
 
 
 @pytest.mark.parametrize("backend", ["libero", "robocasa", "robotwin", "robodojo"])
@@ -190,10 +134,10 @@ def test_every_backend_transforms_points_before_median_extent_and_z_filter(backe
     from robots.rl import geometry
     from robots.rl.toolkit import primitive_owner
 
-    obj = object.__new__(primitive_owner(backend, "general"))
+    obj = object.__new__(primitive_owner(backend))
     yaw = Rotation.from_euler("z", 0.73).as_matrix()
     origin = np.array([4.0, -3.0, 2.0])
-    obj.coordinates = Coordinates("general", origin, yaw)
+    obj.coordinates = Coordinates(origin, yaw)
     # Asymmetric sampling exposes transform(median(world)) != median(transform(world)).
     expected = np.array(
         [
@@ -231,3 +175,15 @@ def test_general_world_origin_is_a_valid_depth_point():
         valid_points(points, zero_is_invalid=False), [[0.0, 0.0, 0.0]]
     )
     assert len(valid_points(points)) == 0  # frozen base-mode zero sentinel
+
+
+def test_centimetre_goal_reaches_native_pose(factory):
+    toolkit, env = factory()
+    result = toolkit.execute_tool(
+        "execute_actions",
+        {"actions": [{"action": "move_to", "xyz": [12, -21, 88]}]},
+    )
+    assert result.data["executed_count"] == 1
+    assert result.data["position_unit"] == "cm"
+    assert result.data["final_state"]["pose"]["xyz"] == pytest.approx([12, -21, 88])
+    assert env.xyz == pytest.approx([0.12, -0.21, 0.98])

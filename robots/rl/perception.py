@@ -44,8 +44,7 @@ class RecordedPerception:
         return self._model_points(
             geometry.valid_points(
                 native_points,
-                zero_is_invalid=getattr(self, "coordinates", None) is None
-                or self.coordinates.mode != "general",
+                zero_is_invalid=False,
             )
         )
 
@@ -61,8 +60,7 @@ class RecordedPerception:
         """Select corresponding native and model-frame points before aggregation."""
         native = geometry.valid_points(
             samples,
-            zero_is_invalid=getattr(self, "coordinates", None) is None
-            or self.coordinates.mode != "general",
+            zero_is_invalid=False,
         )
         points = self._model_points(native)
         if z_range_m is not None:
