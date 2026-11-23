@@ -33,7 +33,13 @@ case "$simulator" in
     "${pip[@]}" --index https://download.pytorch.org/whl/cu128 torch==2.11.0 torchvision==0.26.0
     ;;
   robotwin)
-    "${pip[@]}" --index https://download.pytorch.org/whl/cu128 torch==2.8.0
+    "${pip[@]}" --index https://download.pytorch.org/whl/cu128 torch==2.8.0 torchvision==0.23.0
+    ;;
+  robocasa)
+    "${pip[@]}" --index https://download.pytorch.org/whl/cpu torch==2.7.1 torchvision==0.22.1
+    ;;
+  robodojo)
+    "${pip[@]}" --index https://download.pytorch.org/whl/cu128 torch==2.7.0 torchvision==0.22.0
     ;;
 esac
 options=()
@@ -56,3 +62,4 @@ if not (root / "rlinf/envs").is_dir():
 Path(sysconfig.get_path("purelib"), "rlinf-source.pth").write_text(f"{root}\n")
 PY
 "$python" -m robots.rl.remote_manager --help > /dev/null
+"$python" -c 'from transformers import AutoProcessor'

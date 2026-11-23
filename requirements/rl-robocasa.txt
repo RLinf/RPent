@@ -6,3 +6,6 @@ robosuite @ git+https://github.com/RLinf/robosuite.git@97cfbde4b68d8ec43dad20cf4
 mujoco==3.3.0
 numpy==1.26.4
 scipy==1.15.3
+torch==2.7.1
+torchvision==0.22.1
+transformers==4.57.6

@@ -6,3 +6,5 @@ omegaconf
 hydra-core
 psutil
 imageio-ffmpeg==0.6.0
+torchvision==0.23.0
+transformers==4.57.6
