@@ -1,11 +1,8 @@
 # Isolated simulator process; Python 3.11.
-# Use Torch 2.8.0+cu128 and the tested native cuRobo build.
+# The versioned runtime pins its native simulator and numerical dependencies.
 -e .
 rlinf-robotwin-runtime==0.1.3
 omegaconf
 hydra-core
 psutil
-numpy==1.26.4
-scipy==1.15.3
 imageio-ffmpeg==0.6.0
-sapien==3.0.0b1
