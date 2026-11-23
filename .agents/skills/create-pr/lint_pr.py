@@ -95,7 +95,7 @@ COMMENT_RE = re.compile(r"<!--.*?-->", re.DOTALL)
 HEADING_RE = re.compile(
     r"^(?P<indent>[ \t]*)(?P<hashes>#{1,6})\s+(?P<text>.*?)\s*:?\s*$"
 )
-FENCE_RE = re.compile(r"^\s*(```|~~~)")
+FENCE_RE = re.compile(r"^\s*(`{3,}|~{3,})(.*)$")
 CHECKED_RE = re.compile(r"^\s*[-*]\s*\[[xX]\]")
 UNCHECKED_RE = re.compile(r"^\s*[-*]\s*\[\s*\]")
 LIST_RE = re.compile(r"^\s*(?:[-*+]|\d+[.)])\s+")
@@ -171,20 +171,56 @@ class Section:
         return COMMENT_RE.sub("", "\n".join(self.lines)).strip()
 
 
+def fence_mask_with_state(lines: Iterable[str]) -> tuple[list[bool], bool]:
+    """Return (per-line in-code mask, whether a fence remained unclosed)."""
+    mask: list[bool] = []
+    fence = ""
+    for line in lines:
+        m = FENCE_RE.match(line)
+        if not fence:
+            if m:
+                fence = m.group(1)
+                mask.append(True)
+            else:
+                mask.append(False)
+        else:
+            mask.append(True)
+            if (
+                m
+                and m.group(1)[0] == fence[0]
+                and len(m.group(1)) >= len(fence)
+                and not m.group(2).strip()
+            ):
+                fence = ""
+    return mask, bool(fence)
+
+
 def fence_mask(lines: Iterable[str]) -> list[bool]:
     """Return, per line, whether it sits inside a fenced code block."""
-    mask, inside = [], False
-    for line in lines:
-        if FENCE_RE.match(line):
-            mask.append(True)
-            inside = not inside
-            continue
-        mask.append(inside)
-    return mask
+    return fence_mask_with_state(lines)[0]
+
+
+def strip_comments_outside_fences(text: str) -> str:
+    """Strip HTML comments outside fenced code blocks while preserving code lines."""
+    lines = text.splitlines(keepends=True)
+    in_code = fence_mask(ln.rstrip("\r\n") for ln in lines)
+    chunks: list[str] = []
+    prose_buf: list[str] = []
+    for line, code in zip(lines, in_code):
+        if code:
+            if prose_buf:
+                chunks.append(COMMENT_RE.sub("", "".join(prose_buf)))
+                prose_buf = []
+            chunks.append(line)
+        else:
+            prose_buf.append(line)
+    if prose_buf:
+        chunks.append(COMMENT_RE.sub("", "".join(prose_buf)))
+    return "".join(chunks)
 
 
 def split_sections(body: str) -> list[Section]:
-    """Split a PR body into heading-delimited sections (code fences respected)."""
+    """Split a PR body into top-level heading-delimited sections (code fences respected)."""
     lines = body.splitlines()
     in_code = fence_mask(lines)
     sections: list[Section] = []
@@ -194,7 +230,7 @@ def split_sections(body: str) -> list[Section]:
                 sections[-1].lines.append(line)
             continue
         m = HEADING_RE.match(line)
-        if m:
+        if m and len(m.group("hashes")) <= 2:
             sections.append(Section(name=m.group("text").strip(), start=i))
         elif sections:
             sections[-1].lines.append(line)
@@ -297,17 +333,6 @@ def check_title(title: str) -> list[Finding]:
                     "Drop the parentheses or name the touched component.",
                 )
             )
-        elif scope.strip().lower() in VAGUE_SCOPES:
-            out.append(
-                Finding(
-                    "WARN",
-                    "title",
-                    "title-scope-vague",
-                    f"Scope {scope!r} says nothing about what changed.",
-                    "Name the component the diff touches (e.g. `planner`, "
-                    "`toolkit`, `libero`, `efe`, `docs`) or drop the scope.",
-                )
-            )
         elif not SCOPE_RE.match(scope):
             out.append(
                 Finding(
@@ -317,6 +342,17 @@ def check_title(title: str) -> list[Finding]:
                     f"Scope {scope!r} is not lowercase [a-z0-9_-].",
                     "Scopes take lowercase letters, digits, hyphens and "
                     "underscores only.",
+                )
+            )
+        elif scope in VAGUE_SCOPES:
+            out.append(
+                Finding(
+                    "WARN",
+                    "title",
+                    "title-scope-vague",
+                    f"Scope {scope!r} says nothing about what changed.",
+                    "Name the component the diff touches (e.g. `planner`, "
+                    "`toolkit`, `libero`, `efe`, `docs`) or drop the scope.",
                 )
             )
 
@@ -539,18 +575,18 @@ def check_body(body: str, *, docs_only: bool = False) -> list[Finding]:
     out.extend(check_indentation(body))
 
     lines = body.splitlines()
-    if body.count("```") % 2:
+    in_code, unclosed_fence = fence_mask_with_state(lines)
+    if unclosed_fence:
         out.append(
             Finding(
                 "ERROR",
                 "body",
                 "body-fence",
-                "Unbalanced ``` fence — later text is swallowed.",
+                "Unbalanced code fence — later text is swallowed.",
             )
         )
 
     sections = split_sections(body)
-    names = [s.name for s in sections]
 
     for name, must_fill in TEMPLATE_SECTIONS:
         sec = find_section(sections, name)
@@ -577,16 +613,12 @@ def check_body(body: str, *, docs_only: bool = False) -> list[Finding]:
                 )
             )
 
-    present = [n for n, _ in TEMPLATE_SECTIONS if find_section(sections, n)]
-    order = [
-        i
-        for i, n in enumerate(names)
-        if any(
-            n.lower().rstrip(":?").startswith(t.lower().rstrip(":?"))
-            for t, _ in TEMPLATE_SECTIONS
-        )
+    positions = [
+        sec.start
+        for name, _ in TEMPLATE_SECTIONS
+        if (sec := find_section(sections, name)) is not None
     ]
-    if len(present) > 1 and order != sorted(order):
+    if len(positions) > 1 and positions != sorted(positions):
         out.append(
             Finding(
                 "WARN",
@@ -745,7 +777,10 @@ def fix_body(body: str, *, unwrap: bool = False) -> str:
     lines = body.replace("\r\n", "\n").splitlines()
     in_code = fence_mask(lines)
 
-    mangled = any(f.level == "ERROR" for f in check_indentation(body))
+    mangled = any(
+        f.code in ("body-indented-heading", "body-indented")
+        for f in check_indentation(body)
+    )
     if mangled:
         positives = [
             line_indent(line)
@@ -758,15 +793,15 @@ def fix_body(body: str, *, unwrap: bool = False) -> str:
 
     out = []
     for i, line in enumerate(lines):
-        if in_code[i]:
-            out.append(line)
-            continue
         fixed = line[offset:] if offset and line_indent(line) >= offset else line
+        if in_code[i]:
+            out.append(fixed)
+            continue
         if HEADING_RE.match(fixed) or fixed.strip().count("|") >= 2:
             fixed = fixed.lstrip()
         out.append(fixed.rstrip())
 
-    text = COMMENT_RE.sub("", "\n".join(out))
+    text = strip_comments_outside_fences("\n".join(out))
     if unwrap:
         text = unwrap_paragraphs(text)
     text = re.sub(r"\n{3,}", "\n\n", text)
@@ -871,22 +906,19 @@ def main(argv: list[str] | None = None) -> int:
         print(fix_body(body, unwrap=args.unwrap), end="")
         return 0
 
-    if not args.pr and not args.title and not args.body_file:
+    check_t = args.pr is not None or args.title is not None
+    check_b = args.pr is not None or args.body_file is not None
+    if not check_t and not check_b:
         sys.exit("error: lint needs --pr, or --title and/or --body-file")
 
     title, body = load(args)
     findings: list[Finding] = []
-    if title or args.pr:
+    if check_t:
         findings += check_title(title)
-    if body or args.pr:
+    if check_b:
         findings += check_body(body, docs_only=args.docs_only)
     scope = " and ".join(
-        part
-        for part, on in (
-            ("title", bool(title or args.pr)),
-            ("body", bool(body or args.pr)),
-        )
-        if on
+        part for part, on in (("title", check_t), ("body", check_b)) if on
     )
     return report(
         findings, title=title or "(none given)", quiet=args.quiet, scope=scope

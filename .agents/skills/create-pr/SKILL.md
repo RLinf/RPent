@@ -59,7 +59,7 @@ python3 .agents/skills/create-pr/lint_pr.py template > /tmp/pr-body.md
 | Section | What goes in it |
 | --- | --- |
 | `## Description` | Background, motivation, and main changes (compatibility, migrations, new dependencies, runtime impact). ≤ 250 words, ≤ 12 bullets. Required. |
-| `## Testing` | Exact automated commands run and their results. Required unless `--docs-only` is passed. |
+| `## Testing` | Exact automated commands run and their results. Warns if missing, or if empty without `--docs-only`. |
 | `## Manual verification` | GPU, simulator, model-service, or real-robot verification details, or `Not needed` when offline tests cover the change. |
 | `## Checklist` | Tick every applicable box from `.github/PULL_REQUEST_TEMPLATE.md`. Required. |
 

@@ -170,6 +170,9 @@ def prose_blocks(source: str) -> list[Block]:
             skip_above = _indent(line)
             continue
 
+        if re.match(r"^(?:\*\s+-\s+|[-*+]\s+|\d+[.)]\s+|:[\w-]+:)", stripped):
+            flush()
+
         buffer.append((number, line))
         pending_literal = stripped.endswith("::")
 
@@ -224,7 +227,10 @@ def _markers_in(text: str) -> list[tuple[int, str]]:
     found: list[tuple[int, str]] = []
     for marker in MARKERS:
         for index in _occurrences(text, marker):
-            if marker == "**" and text[index : index + 3] == "***":
+            if marker == "**" and (
+                text[index : index + 3] == "***"
+                or (index > 0 and text[index - 1] == "*")
+            ):
                 continue
             found.append((index, marker))
     return sorted(found)
@@ -247,8 +253,16 @@ def check_block(path: Path, block: Block) -> list[Finding]:
         later = [p for p, m in occurrences[order + 1 :] if m == marker]
 
         if not _valid_start(text, index, marker):
+            after = index + len(marker)
             partner = next((p for p in later if not text[p - 1].isspace()), None)
-            if partner is not None and index > 0 and ord(text[index - 1]) > 0x7F:
+            if (
+                partner is not None
+                and index > 0
+                and after < len(text)
+                and not text[after].isspace()
+                and START_PREFIX_RE.match(text[index - 1]) is None
+                and ord(text[index - 1]) > 0x7F
+            ):
                 findings.append(
                     Finding(
                         path,

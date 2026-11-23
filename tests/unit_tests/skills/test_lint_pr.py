@@ -39,6 +39,7 @@ lint_pr = runpy.run_path(str(SCRIPT))
             ["title-desc-long"],
         ),
         ("feat(): add support", ["title-scope-empty"]),
+        ("feat(NEW): add support", ["title-scope-format"]),
     ],
 )
 def test_check_title_enforces_conventional_commits(title, expected_codes):
@@ -72,11 +73,16 @@ def test_template_and_check_body(tmp_path, capsys):
     )
 
 
-def test_fix_body_deindents_uniform_paste_offset():
+def test_fix_body_deindents_uniform_paste_offset_and_preserves_code_comments():
     indented = (
         "    ## Description\n"
         "\n"
         "    Add a new helper.\n"
+        "\n"
+        "    ```html\n"
+        "    <!-- keep comment inside code fence -->\n"
+        "    <div>example</div>\n"
+        "    ```\n"
         "\n"
         "    ## Testing\n"
         "\n"
@@ -93,3 +99,91 @@ def test_fix_body_deindents_uniform_paste_offset():
     assert any(f.level == "ERROR" for f in lint_pr["check_indentation"](indented))
     fixed = lint_pr["fix_body"](indented)
     assert lint_pr["check_body"](fixed) == []
+    assert "<!-- keep comment inside code fence -->" in fixed
+    assert "\n```html\n<!-- keep comment inside code fence -->\n" in fixed
+
+
+def test_section_order_and_subheadings_in_check_body():
+    # F2 & F3: ### subheadings stay inside ## Description, and swapped top-level
+    # sections trigger section-order.
+    body_with_subheadings = (
+        "## Description\n"
+        "\n"
+        "### Motivation\n"
+        "\n"
+        "Improve PR linting.\n"
+        "\n"
+        "### Testing notes\n"
+        "\n"
+        "Covered by unit tests.\n"
+        "\n"
+        "## Testing\n"
+        "\n"
+        "- `pytest tests/unit_tests/skills -v`\n"
+        "\n"
+        "## Manual verification\n"
+        "\n"
+        "Not needed\n"
+        "\n"
+        "## Checklist\n"
+        "\n"
+        "- [x] My code follows the code style of this project.\n"
+    )
+    assert lint_pr["check_body"](body_with_subheadings) == []
+
+    reordered = (
+        "## Checklist\n"
+        "\n"
+        "- [x] My code follows the code style of this project.\n"
+        "\n"
+        "## Description\n"
+        "\n"
+        "Add a helper.\n"
+        "\n"
+        "## Testing\n"
+        "\n"
+        "- `pytest tests/unit_tests/skills -v`\n"
+        "\n"
+        "## Manual verification\n"
+        "\n"
+        "Not needed\n"
+    )
+    codes = [f.code for f in lint_pr["check_body"](reordered)]
+    assert "section-order" in codes
+
+
+def test_commonmark_fences_and_empty_cli_inputs(tmp_path):
+    # F4 & F7: Empty --title or empty --body-file must be linted and fail,
+    # nested ``` inside ```` must pass, and unclosed ~~~ must fail.
+    empty_body = tmp_path / "empty.md"
+    empty_body.write_text("", encoding="utf-8")
+    assert lint_pr["main"](["lint", "--body-file", str(empty_body)]) == 1
+    assert lint_pr["main"](["lint", "--title", ""]) == 1
+
+    nested_fence_body = (
+        "## Description\n"
+        "\n"
+        "````markdown\n"
+        "```python\n"
+        "x = 1\n"
+        "```\n"
+        "````\n"
+        "\n"
+        "## Testing\n"
+        "\n"
+        "- `pytest`\n"
+        "\n"
+        "## Manual verification\n"
+        "\n"
+        "Not needed\n"
+        "\n"
+        "## Checklist\n"
+        "\n"
+        "- [x] My code follows the code style of this project.\n"
+    )
+    assert lint_pr["check_body"](nested_fence_body) == []
+
+    unclosed_tilde = nested_fence_body.replace("````markdown", "~~~markdown").replace(
+        "````", ""
+    )
+    assert any(f.code == "body-fence" for f in lint_pr["check_body"](unclosed_tilde))
