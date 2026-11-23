@@ -27,6 +27,7 @@ from scipy.spatial.transform import Rotation
 from robots.rl import geometry
 from robots.rl.tools import ControlConfig, LiberoRLPrimitives, Measurement, _clip_norm
 from rpent.tools import ToolResult, tool
+from rpent.utils.transforms import quaternion_wxyz, rotation_from_wxyz
 
 
 class ScenePrimitives(LiberoRLPrimitives):
@@ -140,9 +141,9 @@ class RoboCasaPrimitives(ScenePrimitives):
         return {
             "pose": {
                 "xyz": np.round(measurement.xyz, 4).tolist(),
-                "quaternion_wxyz": Rotation.from_matrix(measurement.rotation)
-                .as_quat(scalar_first=True)
-                .tolist(),
+                "quaternion_wxyz": quaternion_wxyz(
+                    Rotation.from_matrix(measurement.rotation)
+                ).tolist(),
             },
             "opening": round(measurement.opening, 3),
             "finger_gap_m": round(self._finger_gap(), 5),
@@ -765,7 +766,7 @@ class RoboTwinPrimitives(ScenePrimitives):
     def _matrix(pose):
         pose = np.asarray(pose, dtype=float)
         result = np.eye(4)
-        result[:3, :3] = Rotation.from_quat(pose[3:], scalar_first=True).as_matrix()
+        result[:3, :3] = rotation_from_wxyz(pose[3:]).as_matrix()
         result[:3, 3] = pose[:3]
         return result
 
@@ -776,7 +777,7 @@ class RoboTwinPrimitives(ScenePrimitives):
         desired = target @ np.linalg.inv(np.linalg.inv(eef) @ tcp)
         pose = [
             *desired[:3, 3],
-            *Rotation.from_matrix(desired[:3, :3]).as_quat(scalar_first=True),
+            *quaternion_wxyz(Rotation.from_matrix(desired[:3, :3])),
         ]
         self._check_cancelled()
         plan = self.env.plan_arm_path(arm, pose)

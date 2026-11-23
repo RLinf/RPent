@@ -52,6 +52,7 @@ def source_digest() -> str:
     """Identify both ends of the control, tool and artifact protocol."""
     root = get_repo_root()
     digest = hashlib.sha256()
+    digest.update((root / "rpent/utils/transforms.py").read_bytes())
     for folder in (
         "robots/rl",
         "robots/libero",

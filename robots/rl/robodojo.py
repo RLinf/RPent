@@ -16,6 +16,7 @@ from robots.robodojo.access import CAMERAS
 from robots.robodojo.primitives import RoboDojoPrimitives as NativePrimitives
 from robots.robodojo.tools import _world_from_depth
 from rpent.tools import ToolResult, tool
+from rpent.utils.transforms import quaternion_wxyz
 
 
 class RoboDojoPrimitives(ScenePrimitives):
@@ -184,9 +185,7 @@ class RoboDojoPrimitives(ScenePrimitives):
             self.native.move_to,
             arm=arm,
             xyz=native_xyz.tolist(),
-            quat=Rotation.from_matrix(native_rotation)
-            .as_quat(scalar_first=True)
-            .tolist(),
+            quat=quaternion_wxyz(Rotation.from_matrix(native_rotation)).tolist(),
         )
         if not self._check_execution(result):
             return result
