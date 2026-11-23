@@ -74,7 +74,7 @@ Review each change against the relevant categories.
 
 For each changed function, compare the full versions at the merge base and the PR head. Label a finding that relies on a separate comparison with upstream `main` as a `main-branch cross-check`. Check that robot-specific policy stays in `robots/<robot>/` while shared code uses RPent's extension points (`RobotSpec`, `Toolkit`, `Planner`, RPC facades) rather than robot- or planner-name branches, keeps optional imports lazy, preserves owned-daemon vs. borrowed-endpoint cleanup, and keeps rendered prompts and tool schemas accurate and concise.
 
-Apply the matching skill for each touched area—[add-robot](../add-robot/SKILL.md) for robot, Env/VLA, or tool wiring, [verify-change](../verify-change/SKILL.md) for unit/e2e coverage, `pyproject.toml` extras, and CI, and [docs-check](../docs-check/SKILL.md) for docs against code (in both directions) and EN/ZH parity.
+Apply the matching skill for each touched area—[add-robot](../add-robot/SKILL.md) for robot, Env/VLA, or tool wiring, [verify-change](../verify-change/SKILL.md) for unit/e2e coverage, `pyproject.toml` extras, and CI, [docs-check](../docs-check/SKILL.md) (including `python3 .agents/skills/docs-check/check_rst_markup.py`) for docs against code (in both directions) and EN/ZH parity, and [create-pr](../create-pr/SKILL.md) (`python3 .agents/skills/create-pr/lint_pr.py lint --pr "$N"`) for PR title and description format.
 
 Check `docs-style` as a pass of its own after `docs-check`. Read every page the PR adds or changes in full and in both languages, as a reader who is new to RPent and has not seen its code, classify its page type, and check it against [docs/STYLE_GUIDE.md](../../../docs/STYLE_GUIDE.md) and [write-doc](../write-doc/SKILL.md).
 

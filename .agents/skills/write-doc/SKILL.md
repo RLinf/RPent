@@ -104,9 +104,10 @@ After drafting, read each language on its own.
 2. Preserve existing leaderboard data, reproduction matrices, anchors, and
    coming-soon entries unless explicitly asked to change them; add redirects in
    both `conf.py` files when moving pages.
-3. Build both documentation trees with warnings treated as errors:
+3. Check RST inline markup and build both documentation trees with warnings treated as errors:
 
 ```bash
+python3 .agents/skills/docs-check/check_rst_markup.py
 sphinx-build -W --keep-going docs/source-en docs/build/html-en
 sphinx-build -W --keep-going docs/source-zh docs/build/html-zh
 ```

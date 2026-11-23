@@ -53,11 +53,12 @@ for CI build settings. From the repository root, with
 [documentation dependencies](../../../docs/requirements.txt) installed:
 
 ```bash
+python3 .agents/skills/docs-check/check_rst_markup.py
 sphinx-build -W --keep-going docs/source-en docs/build/html-en
 sphinx-build -W --keep-going docs/source-zh docs/build/html-zh
 ```
 
-Run these when the change affects Sphinx pages or their build inputs. Standalone
+`check_rst_markup.py` checks docutils inline-markup recognition rules across `.rst` files and catches CJK punctuation adjacency bugs (`**...**` or `` ``...`` `` followed by `（` or preceded by Chinese characters without `\ `) that either fail the build or silently swallow prose into a code span without a Sphinx warning. Run these when the change affects Sphinx pages or their build inputs. Standalone
 Markdown instructions and source comments need path/link and semantic checks;
 the Sphinx build does not validate them. Reuse relevant prompt/rendering tests
 when model-visible behavior changes, following
