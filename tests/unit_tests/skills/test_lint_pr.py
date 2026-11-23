@@ -104,7 +104,7 @@ def test_fix_body_deindents_uniform_paste_offset_and_preserves_code_comments():
 
 
 def test_section_order_and_subheadings_in_check_body():
-    # F2 & F3: ### subheadings stay inside ## Description, and swapped top-level
+    # ### subheadings stay inside ## Description, and swapped top-level
     # sections trigger section-order.
     body_with_subheadings = (
         "## Description\n"
@@ -153,7 +153,7 @@ def test_section_order_and_subheadings_in_check_body():
 
 
 def test_commonmark_fences_and_empty_cli_inputs(tmp_path):
-    # F4 & F7: Empty --title or empty --body-file must be linted and fail,
+    # Empty --title or empty --body-file must be linted and fail,
     # nested ``` inside ```` must pass, and unclosed ~~~ must fail.
     empty_body = tmp_path / "empty.md"
     empty_body.write_text("", encoding="utf-8")
