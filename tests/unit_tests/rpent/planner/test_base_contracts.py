@@ -34,6 +34,8 @@ from rpent.planner.base import (
     check_planner_mcp_support,
     display_tool_name,
 )
+from rpent.tools import mcp_tools
+from rpent.utils.mcp_servers import McpServerSpec
 
 
 @pytest.mark.parametrize("source", ["argument", "environment", "override"])
@@ -138,9 +140,6 @@ def test_display_tool_name_shortens_mcp_names() -> None:
 def test_check_planner_mcp_servers_skips_the_toolkit_layer(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from rpent.tools import mcp_tools
-    from rpent.utils.mcp_servers import McpServerSpec
-
     def unreachable(spec):
         raise ConnectionError("connection refused")
 
@@ -159,9 +158,6 @@ def test_check_planner_mcp_servers_skips_the_toolkit_layer(
 def test_check_planner_mcp_servers_names_the_first_failure(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from rpent.tools import mcp_tools
-    from rpent.utils.mcp_servers import McpServerSpec
-
     checked: list[str] = []
 
     def unreachable(spec):
@@ -186,8 +182,6 @@ def test_check_planner_mcp_servers_names_the_first_failure(
 def test_check_planner_mcp_servers_resolves_env_headers(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from rpent.utils.mcp_servers import McpServerSpec
-
     monkeypatch.delenv("FACILITY_TOKEN", raising=False)
 
     error = check_planner_mcp_servers(
@@ -204,68 +198,47 @@ def test_check_planner_mcp_servers_resolves_env_headers(
     assert error is not None and "FACILITY_TOKEN" in error
 
 
+@pytest.mark.parametrize(
+    ("planner_tools", "expected"),
+    [
+        (("read_power_meter",), None),
+        (
+            ("read_power_meter", "set_outlet"),
+            "mcp_servers.facility did not expose tool(s) ['set_outlet']; "
+            "available: ['read_power_meter']",
+        ),
+    ],
+)
 def test_check_planner_mcp_servers_requires_the_named_tools(
     monkeypatch: pytest.MonkeyPatch,
+    planner_tools: tuple[str, ...],
+    expected: str | None,
 ) -> None:
-    from rpent.tools import mcp_tools
-    from rpent.utils.mcp_servers import McpServerSpec
-
     monkeypatch.setattr(
         mcp_tools,
         "list_remote_tools",
         lambda spec: [SimpleNamespace(name="read_power_meter")],
-    )
-
-    error = check_planner_mcp_servers(
-        (
-            McpServerSpec(
-                name="facility",
-                url="https://facility.example/mcp",
-                planner_tools=("read_power_meter", "set_outlet"),
-            ),
-        )
     )
 
     # Same contract as Toolkit registration: a name the server does not expose is
     # a configuration error, not a tool the model silently does without.
-    assert error == (
-        "mcp_servers.facility did not expose tool(s) ['set_outlet']; "
-        "available: ['read_power_meter']"
-    )
-
-
-def test_check_planner_mcp_servers_accepts_exposed_names(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    from rpent.tools import mcp_tools
-    from rpent.utils.mcp_servers import McpServerSpec
-
-    monkeypatch.setattr(
-        mcp_tools,
-        "list_remote_tools",
-        lambda spec: [SimpleNamespace(name="read_power_meter")],
-    )
-
     assert (
         check_planner_mcp_servers(
             (
                 McpServerSpec(
                     name="facility",
                     url="https://facility.example/mcp",
-                    planner_tools=("read_power_meter",),
+                    planner_tools=planner_tools,
                 ),
             )
         )
-        is None
+        == expected
     )
 
 
 def test_check_planner_mcp_servers_rejects_joined_name_collisions(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from rpent.tools import mcp_tools
-    from rpent.utils.mcp_servers import McpServerSpec
-
     def exposed(spec) -> list[Any]:
         # ``a`` + ``b_c`` and ``a_b`` + ``c`` both join to ``a_b_c``.
         return [SimpleNamespace(name="b_c" if spec.name == "a" else "c")]
@@ -285,9 +258,6 @@ def test_check_planner_mcp_servers_rejects_joined_name_collisions(
 def test_check_planner_mcp_servers_rejects_a_toolkit_name_collision(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from rpent.tools import mcp_tools
-    from rpent.utils.mcp_servers import McpServerSpec
-
     monkeypatch.setattr(
         mcp_tools,
         "list_remote_tools",
@@ -306,8 +276,6 @@ def test_check_planner_mcp_servers_rejects_a_toolkit_name_collision(
 
 
 def test_planner_mcp_support_names_the_backend_and_its_servers() -> None:
-    from rpent.utils.mcp_servers import McpServerSpec
-
     attached = McpServerSpec(
         name="web", url="https://web.example/mcp", planner_tools="*"
     )
@@ -322,8 +290,6 @@ def test_planner_mcp_support_names_the_backend_and_its_servers() -> None:
 
 
 def test_flash_ends_the_run_for_planner_attached_servers(tmp_path: Path) -> None:
-    from rpent.utils.mcp_servers import McpServerSpec
-
     planner = build_planner(
         "flash",
         output_dir=tmp_path,

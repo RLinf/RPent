@@ -14,13 +14,11 @@
 
 """Expose selected external MCP tools as first-class Toolkit tools.
 
-Tools that need coordination with the robot's execution loop do not belong
-with the planner: the model must not be able to call a charging dock or
-safety interlock out of band. A robot registers them through
-:meth:`~rpent.tools.toolkit.Toolkit.add_mcp_tools`, which registers the named
-remote tools on its Toolkit. They become ordinary Toolkit tools, so every
-planner exposes them the same way: ``claude_code`` and ``codex`` as
-``mcp__rpent__<name>``, ``api`` by the tool's own name.
+Tools that must be ordered against robot actions do not belong with the
+planner: the model must not be able to call a charging dock or safety
+interlock out of band. A robot registers them through
+:meth:`~rpent.tools.toolkit.Toolkit.add_mcp_tools`; they then behave like local
+tools, including exclusive execution and observation capture.
 
 Registration is explicit on purpose. The shared config can declare a server
 and reserve its tools by omitting ``planner_tools``, but only robot code that

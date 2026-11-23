@@ -25,6 +25,9 @@ from typing import Any
 
 import pytest
 
+from rpent.robots import RunConfig
+from rpent.utils.mcp_servers import McpServerSpec
+
 REPO_ROOT = Path(__file__).resolve().parents[4]
 ROBOT_HELP_CASES = [
     ("libero", ("--suite", "--task", "--libero-type")),
@@ -1166,8 +1169,6 @@ def test_invalid_memory_source_fails_before_startup(
 
 def test_shared_mcp_servers_merge_into_run_config(tmp_path: Path) -> None:
     cli = _cli_module()
-    from rpent.robots import RunConfig
-    from rpent.utils.mcp_servers import McpServerSpec
 
     run_config = RunConfig(
         recipe_tag="run",
@@ -1185,8 +1186,6 @@ def test_shared_mcp_servers_merge_into_run_config(tmp_path: Path) -> None:
 
 def test_shared_mcp_servers_reject_collision_with_robot_config(tmp_path: Path) -> None:
     cli = _cli_module()
-    from rpent.robots import RunConfig
-    from rpent.utils.mcp_servers import McpServerSpec
 
     run_config = RunConfig(
         recipe_tag="run",
@@ -1207,8 +1206,6 @@ def test_cli_rejects_planner_servers_for_a_backend_that_cannot_attach_them(
     tmp_path: Path,
 ) -> None:
     cli = _cli_module()
-    from rpent.robots import RunConfig
-    from rpent.utils.mcp_servers import McpServerSpec
 
     started = False
 
@@ -1276,7 +1273,6 @@ def test_dashboard_rejects_shared_planner_servers_before_starting(
     tmp_path: Path,
 ) -> None:
     cli = _cli_module()
-    from rpent.robots import RunConfig
 
     shared = tmp_path / "mcp.yaml"
     shared.write_text(

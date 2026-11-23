@@ -20,10 +20,13 @@ import json
 import logging
 
 import pytest
+from pydantic_core import to_jsonable_python
 
 from rpent.planner.base import PlannerResult
+from rpent.robots import RunConfig
 from rpent.session import EnvState, Payload
-from rpent.session.planner_capture import end_planner_task
+from rpent.session.planner_capture import end_planner_task, task_config_snapshot
+from rpent.utils.mcp_servers import McpServerSpec
 
 
 @pytest.mark.parametrize(
@@ -136,12 +139,6 @@ def test_save_failure_is_logged_without_replacing_execution_error(
 
 
 def test_task_config_snapshot_redacts_mcp_header_values(tmp_path) -> None:
-    from pydantic_core import to_jsonable_python
-
-    from rpent.robots import RunConfig
-    from rpent.session.planner_capture import task_config_snapshot
-    from rpent.utils.mcp_servers import McpServerSpec
-
     spec = McpServerSpec(
         name="facility",
         url="https://facility.example/mcp",
@@ -172,23 +169,16 @@ def test_task_config_snapshot_redacts_mcp_header_values(tmp_path) -> None:
     }
     assert config["run"]["mcp_servers"][0]["planner_tools"] == ("read_power_meter",)
 
-
-def test_task_config_snapshot_omits_empty_mcp_lists(tmp_path) -> None:
-    from rpent.robots import RunConfig
-    from rpent.session.planner_capture import task_config_snapshot
-
-    run_config = RunConfig(
-        recipe_tag="run",
-        output_dir=tmp_path,
-        prompt_vars={},
-        task_desc={},
-    )
-
-    config = task_config_snapshot(
-        {"planner": "api", "shared_mcp_servers": ()}, run_config
-    )
-
     # A run without external MCP servers keeps the trajectory shape from before
     # the feature existed.
-    assert "shared_mcp_servers" not in config["arguments"]
-    assert "mcp_servers" not in config["run"]
+    bare = task_config_snapshot(
+        {"planner": "api", "shared_mcp_servers": ()},
+        RunConfig(
+            recipe_tag="run",
+            output_dir=tmp_path,
+            prompt_vars={},
+            task_desc={},
+        ),
+    )
+    assert "shared_mcp_servers" not in bare["arguments"]
+    assert "mcp_servers" not in bare["run"]

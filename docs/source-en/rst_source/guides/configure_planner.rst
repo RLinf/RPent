@@ -337,52 +337,70 @@ settings.
 Attach External MCP Servers
 ---------------------------
 
-RPent can call tools served by an external MCP server alongside its own. A
-server is declared once in a shared MCP config that every robot receives, or in
-a robot's own config. MCP is only the transport: tools the model can call at
-any time are attached to the planner, while tools that must run in order with
-robot actions — a charging dock that must not be entered mid-motion, lighting
-that changes camera exposure — are registered on the Toolkit by the robot; see
-:ref:`add-robot-toolkit` for that path and its call limits.
+RPent can call an external MCP server's tools alongside its own. Pass one YAML
+file with ``--mcp-config``; every robot gets these servers without code
+changes. This page covers planner attachment only; registering tools on the
+Toolkit is described in :ref:`add-robot-toolkit`.
 
 Prerequisites:
 
 - The server uses Streamable HTTP (``http://`` or ``https://``). RPent does not
   support stdio servers (``command``).
-- You know which tools to expose, or want to expose all of them.
 - The planner is ``api``, ``claude_code``, or ``codex``. ``gemini_cli`` and
   ``flash`` do not attach external servers and fail the run when one declares
   ``planner_tools``.
 
-Declare servers
-~~~~~~~~~~~~~~~
+Quick start
+~~~~~~~~~~~
 
-Write the shared servers in one YAML file and pass it with ``--mcp-config``:
+The example below starts a local server. Save the script as
+``power_meter.py``:
+
+.. dropdown:: Sample server (``power_meter.py``)
+
+   .. code-block:: python
+
+      from mcp.server.fastmcp import FastMCP
+
+      mcp = FastMCP("power-meter", host="127.0.0.1", port=8765)
+
+
+      @mcp.tool()
+      def read_power_meter() -> str:
+          """Return the current power meter reading."""
+          return "battery 82%, outlet idle"
+
+
+      if __name__ == "__main__":
+          mcp.run(transport="streamable-http")
+
+``mcp`` is already an RPent dependency. The server's endpoint is
+``http://127.0.0.1:8765/mcp``. Start it:
+
+.. code-block:: bash
+
+   python power_meter.py
+
+Save the following as ``power.yaml``:
 
 .. code-block:: yaml
 
    mcp_servers:
      power:
-       url: https://power.example.com/mcp
-       env_http_headers:
-         Authorization: POWER_TOKEN
+       url: http://127.0.0.1:8765/mcp
        planner_tools: [read_power_meter]
 
-Here ``power`` gives the planner one of its tools. Replace the names with the
-ones your servers provide; the command below uses LIBERO:
+Then run:
 
 .. code-block:: bash
 
-   export POWER_TOKEN="Bearer <token>"
-   rpent --robot libero --mcp-config /path/to/mcp.yaml \
+   rpent --robot libero --mcp-config power.yaml \
      --suite libero_goal_task --task 1 --seed 0 --planner claude_code
 
-The CLI merges this file into every run, so every robot gets these servers
-without code changes. A robot can also declare servers in its config YAML's
-``mcp_servers`` section, but no shipped robot does. Server names must be unique
-across both sources. Only the ``mcp_servers`` section is read, so the file may
-hold other settings; an unset ``${oc.env:...}`` outside that section does not
-block startup.
+If the run starts without a planner error, the server is attached: the model
+sees ``mcp__power__read_power_meter``, and a call returns the text above. For a
+real server, replace the URL and tool names; the next section covers
+authentication.
 
 Server fields
 ~~~~~~~~~~~~~
@@ -396,15 +414,17 @@ Server fields
      - Meaning
    * - ``url``
      - Yes
-     - The server's Streamable HTTP endpoint.
+     - The server's Streamable HTTP endpoint. A user name or password in it is
+       rejected.
    * - ``headers``
      - No
      - Literal request headers. ``${oc.env:...}`` is resolved when the config
        is read.
    * - ``env_http_headers``
      - No
-     - Maps a header name to an environment variable name. The value is read
-       when a request is made and sent verbatim.
+     - Maps a header name to an environment variable name. The value is sent
+       verbatim, so the variable must contain the complete value, for example
+       ``Bearer <token>``. The header name cannot also appear in ``headers``.
    * - ``planner_tools``
      - No
      - Which tools the planner may call: ``"*"``, a list of names, or omitted.
@@ -413,76 +433,54 @@ Server fields
 
    Keep credentials in ``env_http_headers``. Literal ``headers`` values are
    passed on the command line of the ``claude_code`` and ``codex`` child
-   processes, where other local users can read them. Task records keep ``url``
-   without its query and fragment, and a URL with a user name or password is
-   rejected; pass credentials in headers rather than the URL.
-
-.. note::
-
-   ``env_http_headers`` sends the variable's value verbatim. To send a bearer
-   token, include the scheme in the variable, for example
-   ``export POWER_TOKEN="Bearer <token>"``. ``claude_code`` passes only the
-   variable reference to its CLI, so the secret stays off the command line. A
-   header name can appear in only one of the two fields.
+   processes, where other local users can read them.
 
 ``planner_tools`` has three forms:
 
 - ``"*"`` exposes every tool the server provides.
-- A list limits the planner to those tools; under ``claude_code`` it only
-  controls auto-approval (see below).
-- Omitting it keeps the server out of the planner, so an unavailable server
-  does not block startup; the robot can still register its tools on the
-  Toolkit. Registration lists the server's tools at startup, so a server a
-  robot registers must be reachable then.
+- A list limits the planner to those tools.
+- Omitting it keeps the server out of the planner.
 
 ``claude_code`` mounts the whole server, so the list only marks which tools are
 auto-approved. Tools outside the list stay visible to the model, but a call in a
 non-interactive run is refused because nothing can approve it. Split servers
 along permission boundaries when this matters.
 
-The server name becomes the tool namespace: ``claude_code`` and ``codex`` show
-``mcp__<server>__<tool>`` and ``api`` shows ``<server>_<tool>``. A name must
-start with a letter or digit and may otherwise contain letters, digits, ``_``,
-or ``-``. It must not contain ``__`` or end with ``_``, and must not be
-``rpent``, which RPent reserves for its own Toolkit server. The ``api`` planner
-uses RPent's MCP client, so no extra package is needed.
+The server name becomes part of every tool name: ``claude_code`` and ``codex``
+use ``mcp__<server>__<tool>``, and ``api`` uses ``<server>_<tool>``. A name
+must start with a letter or digit and may otherwise contain only letters,
+digits, ``_``, or ``-``. It must not contain ``__``, end with ``_``, or be
+``rpent``.
 
-Run behavior and deadlines
-~~~~~~~~~~~~~~~~~~~~~~~~~~
+Startup checks and deadlines
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-``api``, ``claude_code``, and ``codex`` contact every server with
-``planner_tools`` set before the first model request. Any of these ends the run
-with a planner error rather than continuing without the server:
+Every run contacts each server with ``planner_tools`` set before the first
+model request. Any of these ends the run with a planner error:
 
 - The server is unreachable.
 - A variable named in ``env_http_headers`` is unset.
 - ``planner_tools`` names a tool the server does not provide; the error lists
   the tools it does.
-- An external tool collides with another name. ``api`` joins names with a
-  single underscore, so its tools can collide with an RPent tool or another
-  server's tool; ``claude_code`` and ``codex`` use the ``mcp__`` prefix and
-  cannot.
 
-MCP requests inside the RPent process have a 60-second deadline by default,
-including registered Toolkit tools, this check, and the ``api`` planner's
-connections. Set ``MCP_CALL_TIMEOUT_S`` (in seconds) to change it. The deadline
-also bounds how long cancellation waits for a registered call in flight;
-closing a timed-out session does not wait for the remote tool to finish.
+MCP requests inside the RPent process time out after 60 seconds by default; set
+``MCP_CALL_TIMEOUT_S`` (in seconds) to change it. ``claude_code`` and ``codex``
+connect from their own CLI processes and follow the CLIs' timeouts.
 
-``claude_code`` and ``codex`` connect to planner servers from their own CLI
-processes, so those calls follow the CLIs' timeouts. The check above runs before
-``--planner-timeout-s`` starts counting, so a server that hangs can add up to
-two request deadlines first: one to connect and one for its tool listing.
+.. dropdown:: Implementation details
 
-A remote tool that reports an error reaches the model differently depending on
-where it is attached. The ``api`` planner follows pydantic-ai's MCP default and
-raises it as a retry; a tool registered on the Toolkit returns it as an ordinary
-result, like local tools. MCP does not distinguish argument errors from device
-faults, so put calls that are not safe to repeat on the Toolkit.
-
-Once the model receives its first request, every check has passed; external
-calls then appear in the transcript's tool-call records. A configuration error
-ends the run before that request and gives the reason in the planner result.
+   - The same deadline covers registered Toolkit tools and the ``api``
+     connections. It also bounds how long cancellation waits for a call in
+     flight; closing a timed-out session does not wait for the remote tool to
+     finish.
+   - The ``claude_code`` and ``codex`` startup checks run before
+     ``--planner-timeout-s`` starts counting, so a server that hangs can add up
+     to two request deadlines first: one to connect and one for its tool
+     listing.
+   - ``api`` joins names with a single underscore, so its tools can collide
+     with an RPent tool or another server's tool; ``claude_code`` and
+     ``codex`` use the ``mcp__`` prefix and cannot.
+   - Task records keep ``url`` without its query and fragment.
 
 .. _planner-check:
 

@@ -116,6 +116,7 @@ def test_construction_rejects_a_spec_no_backend_could_use() -> None:
         {"name": "rpent", "url": "https://web.example/mcp"},
         {"name": "a__b", "url": "https://web.example/mcp"},
         {"name": "docs\n", "url": "https://web.example/mcp"},
+        {"name": "bad name", "url": "https://web.example/mcp"},
         {"name": "power_", "url": "https://web.example/mcp"},
         {"name": "web", "url": "ftp://web.example/mcp"},
         {"name": "web", "url": "https://user:pass@web.example/mcp"},
@@ -129,31 +130,9 @@ def test_rejects_non_mapping_section() -> None:
         parse_mcp_servers(["web"])
 
 
-def test_rejects_non_http_url() -> None:
+def test_parse_surfaces_construction_errors_with_the_section_path() -> None:
     with pytest.raises(ValueError, match=r"mcp_servers\.web\.url must be an http"):
         parse_mcp_servers({"web": {"url": "ftp://example/mcp"}})
-
-
-def test_rejects_reserved_server_name() -> None:
-    with pytest.raises(ValueError, match="reserved"):
-        parse_mcp_servers({"rpent": {"url": "https://example/mcp"}})
-
-
-def test_rejects_invalid_server_name() -> None:
-    with pytest.raises(ValueError, match=r"mcp_servers\.bad name"):
-        parse_mcp_servers({"bad name": {"url": "https://example/mcp"}})
-
-
-def test_rejects_double_underscore_in_name() -> None:
-    with pytest.raises(ValueError, match="without"):
-        parse_mcp_servers({"a__b": {"url": "https://example/mcp"}})
-
-
-def test_rejects_trailing_underscore_in_name() -> None:
-    # ``power_`` plus the separator makes ``mcp__power___set``, which
-    # display_tool_name splits at the first ``__`` into ``power:_set``.
-    with pytest.raises(ValueError, match="trailing"):
-        parse_mcp_servers({"power_": {"url": "https://example/mcp"}})
 
 
 def test_rejects_unknown_keys() -> None:

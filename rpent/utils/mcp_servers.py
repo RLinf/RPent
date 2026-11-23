@@ -77,17 +77,15 @@ class McpServerSpec:
 
     Attributes:
         name: Server name, also its namespace in ``mcp__<name>__<tool>``.
-        url: Streamable-HTTP endpoint (``http://`` or ``https://``), without
-            embedded credentials: a URL with a user name or password is
-            rejected, and task records drop its query and fragment, so
-            authentication belongs in ``headers`` or ``env_http_headers``.
+        url: Streamable-HTTP endpoint (``http://`` or ``https://``). A URL with
+            a user name or password is rejected, and task records drop its
+            query and fragment.
         headers: Optional literal request headers. The ``claude_code`` and
             ``codex`` backends pass these through child-process arguments,
-            where other local users can read them; keep secrets in
-            ``env_http_headers`` instead.
+            where other local users can read them.
         env_http_headers: Header name to environment-variable name. Values are
             read when the server is used, keeping secrets out of generated
-            config and out of the child process arguments.
+            config and out of the child-process arguments.
         planner_tools: ``"*"`` attaches every tool to the planners; a tuple
             attaches only those names; ``None`` does not attach the server to
             the planners at all. Only the planners consume this field.

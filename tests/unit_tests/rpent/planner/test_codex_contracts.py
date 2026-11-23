@@ -35,9 +35,7 @@ from rpent.planner.codex import (
     CodexPlanner,
     _codex_mcp_config_overrides,
 )
-from rpent.planner.utils.http_mcp_server import (
-    HttpMcpServer,
-)
+from rpent.planner.utils.http_mcp_server import HttpMcpServer
 from rpent.session import EnvState, MissingInfo, Payload, codex_capture
 from rpent.tools import ToolResult
 from rpent.tools.common import CommonTools
@@ -441,25 +439,64 @@ def test_config_overrides_normalize_provider_url(
     ]
 
 
-def test_restricted_sandboxes_approve_the_planner_owned_mcp_tools(
+@pytest.mark.parametrize(
+    ("sandbox", "mcp_url", "mcp_servers", "expected"),
+    [
+        pytest.param(
+            "read-only",
+            "http://fake.invalid/mcp/",
+            (),
+            [
+                'mcp_servers.rpent.url="http://fake.invalid/mcp/"',
+                'mcp_servers.rpent.default_tools_approval_mode="approve"',
+            ],
+            id="planner-owned-read-only",
+        ),
+        pytest.param(
+            "full-access",
+            "http://fake.invalid/mcp/",
+            (),
+            ['mcp_servers.rpent.url="http://fake.invalid/mcp/"'],
+            id="planner-owned-full-access",
+        ),
+        pytest.param(
+            "read-only",
+            None,
+            (
+                McpServerSpec(
+                    name="web",
+                    url="https://mcp.example/mcp",
+                    planner_tools="*",
+                ),
+            ),
+            [
+                'mcp_servers.web.url="https://mcp.example/mcp"',
+                "mcp_servers.web.required=true",
+                'mcp_servers.web.default_tools_approval_mode="approve"',
+            ],
+            id="external-read-only",
+        ),
+    ],
+)
+def test_restricted_sandboxes_approve_mcp_tools(
     monkeypatch: pytest.MonkeyPatch,
+    sandbox: str,
+    mcp_url: str | None,
+    mcp_servers: tuple[McpServerSpec, ...],
+    expected: list[str],
 ) -> None:
     monkeypatch.delenv("CODEX_MODEL_CONTEXT_WINDOW", raising=False)
     monkeypatch.delenv("CODEX_AUTO_COMPACT_TOKEN_LIMIT", raising=False)
 
-    assert _codex_mcp_config_overrides(
-        mcp_url="http://fake.invalid/mcp/",
-        base_url=None,
-        sandbox="read-only",
-    ) == [
-        'mcp_servers.rpent.url="http://fake.invalid/mcp/"',
-        'mcp_servers.rpent.default_tools_approval_mode="approve"',
-    ]
-    assert _codex_mcp_config_overrides(
-        mcp_url="http://fake.invalid/mcp/",
-        base_url=None,
-        sandbox="full-access",
-    ) == ['mcp_servers.rpent.url="http://fake.invalid/mcp/"']
+    assert (
+        _codex_mcp_config_overrides(
+            mcp_url=mcp_url,
+            base_url=None,
+            sandbox=sandbox,
+            mcp_servers=mcp_servers,
+        )
+        == expected
+    )
 
 
 def test_config_overrides_attach_external_mcp_servers(
@@ -480,7 +517,7 @@ def test_config_overrides_attach_external_mcp_servers(
             McpServerSpec(
                 name="kb",
                 url="https://kb.example/mcp",
-                headers={"Authorization": "Bearer token"},
+                headers={"Authorization": "Bearer token", "X-Emoji": "😀"},
                 env_http_headers={"X-Shared-Token": "SHARED_TOKEN"},
                 planner_tools=("search", "fetch"),
             ),
@@ -488,64 +525,15 @@ def test_config_overrides_attach_external_mcp_servers(
         ),
     )
 
+    # Header values and non-BMP text reach the child config verbatim.
     assert overrides == [
         'mcp_servers.web.url="https://mcp.example/mcp"',
         "mcp_servers.web.required=true",
         'mcp_servers.kb.url="https://kb.example/mcp"',
         "mcp_servers.kb.required=true",
-        'mcp_servers.kb.http_headers={"Authorization" = "Bearer token"}',
+        'mcp_servers.kb.http_headers={"Authorization" = "Bearer token", "X-Emoji" = "😀"}',
         'mcp_servers.kb.env_http_headers={"X-Shared-Token" = "SHARED_TOKEN"}',
         'mcp_servers.kb.enabled_tools=["search", "fetch"]',
-    ]
-
-
-def test_restricted_sandboxes_approve_external_mcp_tools(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.delenv("CODEX_MODEL_CONTEXT_WINDOW", raising=False)
-    monkeypatch.delenv("CODEX_AUTO_COMPACT_TOKEN_LIMIT", raising=False)
-
-    assert _codex_mcp_config_overrides(
-        mcp_url=None,
-        base_url=None,
-        sandbox="read-only",
-        mcp_servers=(
-            McpServerSpec(
-                name="web",
-                url="https://mcp.example/mcp",
-                planner_tools="*",
-            ),
-        ),
-    ) == [
-        'mcp_servers.web.url="https://mcp.example/mcp"',
-        "mcp_servers.web.required=true",
-        'mcp_servers.web.default_tools_approval_mode="approve"',
-    ]
-
-
-def test_config_overrides_keep_non_bmp_values_verbatim(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.delenv("CODEX_MODEL_CONTEXT_WINDOW", raising=False)
-    monkeypatch.delenv("CODEX_AUTO_COMPACT_TOKEN_LIMIT", raising=False)
-
-    overrides = _codex_mcp_config_overrides(
-        mcp_url=None,
-        base_url=None,
-        mcp_servers=(
-            McpServerSpec(
-                name="web",
-                url="https://mcp.example/mcp",
-                headers={"X-Emoji": "😀"},
-                planner_tools="*",
-            ),
-        ),
-    )
-
-    assert overrides == [
-        'mcp_servers.web.url="https://mcp.example/mcp"',
-        "mcp_servers.web.required=true",
-        'mcp_servers.web.http_headers={"X-Emoji" = "😀"}',
     ]
 
 

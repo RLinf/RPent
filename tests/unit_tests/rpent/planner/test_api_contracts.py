@@ -24,6 +24,7 @@ import math
 import queue
 import threading
 import time
+from contextlib import contextmanager
 from datetime import datetime
 from types import SimpleNamespace
 from typing import Any
@@ -35,6 +36,7 @@ import pytest
 from pydantic_ai import (
     BinaryContent,
     ModelRequest,
+    ModelResponse,
     ModelRetry,
     TextPart,
     ToolReturnPart,
@@ -43,21 +45,26 @@ from pydantic_ai import (
 from pydantic_ai.exceptions import UnexpectedModelBehavior, UsageLimitExceeded
 from pydantic_ai.models.function import DeltaThinkingPart, DeltaToolCall, FunctionModel
 from pydantic_ai.models.test import TestModel
+from pydantic_ai.toolsets.filtered import FilteredToolset
+from pydantic_ai.toolsets.prefixed import PrefixedToolset
 from pydantic_ai_harness.compaction._shared import estimate_text_tokens
 from pydantic_core import to_jsonable_python
 
 from rpent.dashboard.events import RunStartedEvent, TranscriptEvent, UsageEvent
 from rpent.dashboard.state import DashboardState
+from rpent.memory.manager import MemoryManager
 from rpent.planner.api_loop import (
     ApiAgentLoop,
     _external_result_text,
     _HarnessToolkit,
 )
+from rpent.planner.utils.http_mcp_server import HttpMcpServer
 from rpent.prompt.api import API_PLANNER_INSTRUCTIONS, render_environment_context
 from rpent.session import EnvState, Payload
 from rpent.tools import Toolkit, ToolResult, common
 from rpent.tools import tool as declare_tool
-from rpent.tools.base import MAX_TOOL_TEXT_BYTES
+from rpent.tools.base import MAX_TOOL_TEXT_BYTES, tool_error
+from rpent.utils.logging import init_output_dir
 from rpent.utils.mcp_servers import McpServerSpec
 
 FINISH_ARGS = {"status": "success", "summary": "done"}
@@ -1668,6 +1675,58 @@ def test_interrupted_tool_arguments_are_retained_without_execution(tmp_path):
     assert call.status == "not_executed" and toolkit.calls == []
 
 
+WEB_MCP = McpServerSpec(name="web", url="https://mcp.example/mcp", planner_tools="*")
+
+
+def _external_toolset(monkeypatch: pytest.MonkeyPatch, call: Any = None) -> Any:
+    """Return the ``web`` toolset, calling ``call`` instead of a real server."""
+    from rpent.planner import api_loop
+
+    if call is not None:
+        monkeypatch.setattr(api_loop, "call_remote_tool_async", call)
+    events = Events()
+    planner = ApiAgentLoop(
+        model=TestModel(), dashboard_events=events, mcp_servers=(WEB_MCP,)
+    )
+    adapter = _HarnessToolkit(
+        RobotToolkit(events), dashboard_events=events, no_images=True
+    )
+    return planner._external_toolsets(adapter)[0]
+
+
+def _counting_model() -> tuple[FunctionModel, list[Any]]:
+    """Return a model that logs each request instead of answering the task."""
+    requests: list[Any] = []
+
+    def model_function(messages, info):
+        requests.append(messages)
+        return ModelResponse(parts=[TextPart("unused")])
+
+    return FunctionModel(model_function), requests
+
+
+@contextmanager
+def _loopback_server(tmp_path, handler):
+    """Serve ``handler`` over a real MCP server; yield events, state, toolkit, url."""
+    init_output_dir(tmp_path / "log")
+    events = Events()
+    state = EnvState(tmp_path / "state")
+    state.start_task(instruction="Do the task.", config=Payload("test", {}))
+    toolkit = RobotToolkit(events, state=state)
+    server_toolkit = Toolkit(
+        dashboard_events=events, memory=MemoryManager(tmp_path / "memory")
+    )
+    server_toolkit.add_tool(declare_tool(readonly=True)(handler))
+    server = HttpMcpServer(server_toolkit)
+    url = server.start()
+    try:
+        yield events, state, toolkit, url
+    finally:
+        server.stop()
+        toolkit.close()
+        server_toolkit.close()
+
+
 def test_no_external_toolsets_without_declared_servers() -> None:
     events = Events()
     planner = ApiAgentLoop(model=TestModel(), dashboard_events=events)
@@ -1712,19 +1771,7 @@ def test_external_toolset_lists_the_remote_tools(
         ]
 
     monkeypatch.setattr(api_loop, "list_remote_tools_async", remote_tools)
-    events = Events()
-    planner = ApiAgentLoop(
-        model=TestModel(),
-        dashboard_events=events,
-        mcp_servers=(
-            McpServerSpec(name="web", url="https://mcp.example/mcp", planner_tools="*"),
-        ),
-    )
-    adapter = _HarnessToolkit(
-        RobotToolkit(events), dashboard_events=events, no_images=True
-    )
-
-    (prefixed,) = planner._external_toolsets(adapter)
+    prefixed = _external_toolset(monkeypatch)
     tools = asyncio.run(prefixed.get_tools(SimpleNamespace(max_retries=2)))
 
     # The model sees the server's name joined to the tool name, which is what
@@ -1743,8 +1790,6 @@ def test_external_toolset_lists_the_remote_tools(
 def test_external_toolset_returns_text_and_png_images(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from rpent.planner import api_loop
-
     async def call(spec: McpServerSpec, name: str, arguments: dict[str, Any]) -> Any:
         assert (name, arguments) == ("search", {"q": "x"})
         return SimpleNamespace(
@@ -1760,20 +1805,7 @@ def test_external_toolset_returns_text_and_png_images(
             isError=False,
         )
 
-    monkeypatch.setattr(api_loop, "call_remote_tool_async", call)
-    events = Events()
-    planner = ApiAgentLoop(
-        model=TestModel(),
-        dashboard_events=events,
-        mcp_servers=(
-            McpServerSpec(name="web", url="https://mcp.example/mcp", planner_tools="*"),
-        ),
-    )
-    adapter = _HarnessToolkit(
-        RobotToolkit(events), dashboard_events=events, no_images=True
-    )
-    (prefixed,) = planner._external_toolsets(adapter)
-
+    prefixed = _external_toolset(monkeypatch, call)
     content = asyncio.run(prefixed.wrapped.direct_call_tool("search", {"q": "x"}))
 
     assert content[0] == "ok"
@@ -1786,8 +1818,6 @@ def test_external_toolset_returns_text_and_png_images(
 def test_external_text_results_are_capped_like_local_tools(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from rpent.planner import api_loop
-
     long_text = "x" * (MAX_TOOL_TEXT_BYTES * 2)
 
     async def call(spec: McpServerSpec, name: str, arguments: dict[str, Any]) -> Any:
@@ -1797,25 +1827,11 @@ def test_external_text_results_are_capped_like_local_tools(
             isError=False,
         )
 
-    monkeypatch.setattr(api_loop, "call_remote_tool_async", call)
-    events = Events()
-    planner = ApiAgentLoop(
-        model=TestModel(),
-        dashboard_events=events,
-        mcp_servers=(
-            McpServerSpec(name="web", url="https://mcp.example/mcp", planner_tools="*"),
-        ),
-    )
-    adapter = _HarnessToolkit(
-        RobotToolkit(events), dashboard_events=events, no_images=True
-    )
-    (prefixed,) = planner._external_toolsets(adapter)
-
+    prefixed = _external_toolset(monkeypatch, call)
     content = asyncio.run(prefixed.wrapped.direct_call_tool("search", {"q": "x"}))
 
     assert len(content[0]) == MAX_TOOL_TEXT_BYTES
     assert content[0].endswith("\n[truncated]")
-    assert len(_external_result_text(long_text)) == MAX_TOOL_TEXT_BYTES
 
     # The bound is UTF-8 bytes, not code points: CJK text must not get three
     # times the local budget.
@@ -1828,8 +1844,6 @@ def test_external_text_results_are_capped_like_local_tools(
 def test_external_result_parts_share_one_text_budget(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from rpent.planner import api_loop
-
     long_text = "x" * (MAX_TOOL_TEXT_BYTES * 2)
 
     async def call(spec: McpServerSpec, name: str, arguments: dict[str, Any]) -> Any:
@@ -1839,20 +1853,7 @@ def test_external_result_parts_share_one_text_budget(
             isError=False,
         )
 
-    monkeypatch.setattr(api_loop, "call_remote_tool_async", call)
-    events = Events()
-    planner = ApiAgentLoop(
-        model=TestModel(),
-        dashboard_events=events,
-        mcp_servers=(
-            McpServerSpec(name="web", url="https://mcp.example/mcp", planner_tools="*"),
-        ),
-    )
-    adapter = _HarnessToolkit(
-        RobotToolkit(events), dashboard_events=events, no_images=True
-    )
-    (prefixed,) = planner._external_toolsets(adapter)
-
+    prefixed = _external_toolset(monkeypatch, call)
     content = asyncio.run(prefixed.wrapped.direct_call_tool("search", {"q": "x"}))
 
     # A server can return text and structured content; together they must stay
@@ -1861,41 +1862,9 @@ def test_external_result_parts_share_one_text_budget(
     assert content[0].endswith("\n[truncated]")
 
 
-def test_external_toolset_turns_a_remote_error_into_a_retry(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    from rpent.planner import api_loop
-
-    async def call(spec: McpServerSpec, name: str, arguments: dict[str, Any]) -> Any:
-        return SimpleNamespace(
-            content=[SimpleNamespace(type="text", text="no such index")],
-            structuredContent=None,
-            isError=True,
-        )
-
-    monkeypatch.setattr(api_loop, "call_remote_tool_async", call)
-    events = Events()
-    planner = ApiAgentLoop(
-        model=TestModel(),
-        dashboard_events=events,
-        mcp_servers=(
-            McpServerSpec(name="web", url="https://mcp.example/mcp", planner_tools="*"),
-        ),
-    )
-    adapter = _HarnessToolkit(
-        RobotToolkit(events), dashboard_events=events, no_images=True
-    )
-    (prefixed,) = planner._external_toolsets(adapter)
-
-    with pytest.raises(ModelRetry, match="no such index"):
-        asyncio.run(prefixed.wrapped.direct_call_tool("search", {"q": "x"}))
-
-
 def test_external_error_text_is_capped_like_forwarded_text(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from rpent.planner import api_loop
-
     long_text = "x" * (MAX_TOOL_TEXT_BYTES * 2)
 
     async def call(spec: McpServerSpec, name: str, arguments: dict[str, Any]) -> Any:
@@ -1905,19 +1874,7 @@ def test_external_error_text_is_capped_like_forwarded_text(
             isError=True,
         )
 
-    monkeypatch.setattr(api_loop, "call_remote_tool_async", call)
-    events = Events()
-    planner = ApiAgentLoop(
-        model=TestModel(),
-        dashboard_events=events,
-        mcp_servers=(
-            McpServerSpec(name="web", url="https://mcp.example/mcp", planner_tools="*"),
-        ),
-    )
-    adapter = _HarnessToolkit(
-        RobotToolkit(events), dashboard_events=events, no_images=True
-    )
-    (prefixed,) = planner._external_toolsets(adapter)
+    prefixed = _external_toolset(monkeypatch, call)
 
     with pytest.raises(ModelRetry) as excinfo:
         asyncio.run(prefixed.wrapped.direct_call_tool("search", {"q": "x"}))
@@ -1949,9 +1906,6 @@ def test_external_toolsets_attach_only_the_planner_layer() -> None:
     adapter = _HarnessToolkit(
         RobotToolkit(events), dashboard_events=events, no_images=True
     )
-
-    from pydantic_ai.toolsets.filtered import FilteredToolset
-    from pydantic_ai.toolsets.prefixed import PrefixedToolset
 
     toolsets = planner._external_toolsets(adapter)
 
@@ -2066,18 +2020,11 @@ def test_external_tool_hook_records_failed_calls() -> None:
 
 
 def test_unreachable_planner_server_ends_the_run_before_the_model() -> None:
-    from pydantic_ai import ModelResponse
-
     events = Events()
-    requests = 0
-
-    def model_function(messages, info):
-        nonlocal requests
-        requests += 1
-        return ModelResponse(parts=[TextPart("unused")])
+    model, requests = _counting_model()
 
     planner = ApiAgentLoop(
-        model=FunctionModel(model_function),
+        model=model,
         dashboard_events=events,
         mcp_servers=(
             # Port 1 refuses connections immediately on every platform.
@@ -2097,14 +2044,12 @@ def test_unreachable_planner_server_ends_the_run_before_the_model() -> None:
     assert result.stop_reason == "planner_error"
     assert result.error is not None and "mcp_servers.facility" in result.error
     # The run must not continue without the external tools it declared.
-    assert requests == 0
+    assert requests == []
 
 
 def test_external_tool_named_like_the_adapter_tool_ends_the_run_before_the_model(
     monkeypatch,
 ) -> None:
-    from pydantic_ai import ModelResponse
-
     from rpent.tools import mcp_tools
 
     # ``read`` + ``image`` joins to the adapter's own ``read_image``, which is
@@ -2113,15 +2058,10 @@ def test_external_tool_named_like_the_adapter_tool_ends_the_run_before_the_model
         mcp_tools, "list_remote_tools", lambda spec: [SimpleNamespace(name="image")]
     )
     events = Events()
-    requests = 0
-
-    def model_function(messages, info):
-        nonlocal requests
-        requests += 1
-        return ModelResponse(parts=[TextPart("unused")])
+    model, requests = _counting_model()
 
     planner = ApiAgentLoop(
-        model=FunctionModel(model_function),
+        model=model,
         dashboard_events=events,
         mcp_servers=(
             McpServerSpec(name="read", url="http://127.0.0.1:1/mcp", planner_tools="*"),
@@ -2137,31 +2077,12 @@ def test_external_tool_named_like_the_adapter_tool_ends_the_run_before_the_model
 
     assert result.stop_reason == "planner_error"
     assert result.error is not None and "read_image" in result.error
-    assert requests == 0
+    assert requests == []
 
 
 def test_external_tool_capture_records_the_call_as_completed(tmp_path) -> None:
-    from rpent.memory.manager import MemoryManager
-    from rpent.planner.utils.http_mcp_server import HttpMcpServer
-    from rpent.tools import Toolkit
-    from rpent.tools import ToolResult as Result
-    from rpent.utils.logging import init_output_dir
-
-    init_output_dir(tmp_path / "log")
-    events = Events()
-    state = EnvState(tmp_path / "state")
-    state.start_task(instruction="Do the task.", config=Payload("test", {}))
-    toolkit = RobotToolkit(events, state=state)
-    server_toolkit = Toolkit(
-        dashboard_events=events, memory=MemoryManager(tmp_path / "memory")
-    )
-
-    @declare_tool(readonly=True)
-    def lookup(q: str) -> Result:
-        return Result(data={"q": q, "hits": 1})
-
-    server_toolkit.add_tool(lookup)
-    server = HttpMcpServer(server_toolkit)
+    def lookup(q: str) -> ToolResult:
+        return ToolResult(data={"q": q, "hits": 1})
 
     async def stream(messages, info):
         if len(messages) == 1:
@@ -2171,23 +2092,18 @@ def test_external_tool_capture_records_the_call_as_completed(tmp_path) -> None:
         else:
             yield finish()
 
-    url = server.start()
-    try:
+    with _loopback_server(tmp_path, lookup) as (events, state, toolkit, url):
         planner = ApiAgentLoop(
             model=FunctionModel(stream_function=stream),
             dashboard_events=events,
             mcp_servers=(McpServerSpec(name="web", url=url, planner_tools="*"),),
         )
         result = planner.solve(
-            system_prompt="Use the robot toolkit. Finish when done.",
+            system_prompt=ROBOT_PROMPT,
             user_message="Do the task.",
             toolkit=toolkit,
             max_turns=4,
         )
-    finally:
-        server.stop()
-        toolkit.close()
-        server_toolkit.close()
 
     assert result.error is None, result.error
     call = state.planner_records()[0].tool_calls[0]
@@ -2202,28 +2118,10 @@ def test_external_tool_error_under_capture_reaches_the_model_as_a_retry(
     tmp_path,
 ) -> None:
     """A remote ``isError`` retries; capture must not record its feedback twice."""
-    from rpent.memory.manager import MemoryManager
-    from rpent.planner.utils.http_mcp_server import HttpMcpServer
-    from rpent.tools import Toolkit
-    from rpent.tools import ToolResult as Result
-    from rpent.tools.base import tool_error
-    from rpent.utils.logging import init_output_dir
 
-    init_output_dir(tmp_path / "log")
-    events = Events()
-    state = EnvState(tmp_path / "state")
-    state.start_task(instruction="Do the task.", config=Payload("test", {}))
-    toolkit = RobotToolkit(events, state=state)
-    server_toolkit = Toolkit(
-        dashboard_events=events, memory=MemoryManager(tmp_path / "memory")
-    )
-
-    @declare_tool(readonly=True)
-    def lookup(q: str) -> Result:
+    def lookup(q: str) -> ToolResult:
         return tool_error("unavailable", "try again")
 
-    server_toolkit.add_tool(lookup)
-    server = HttpMcpServer(server_toolkit)
     requests = 0
 
     async def stream(messages, info):
@@ -2236,8 +2134,7 @@ def test_external_tool_error_under_capture_reaches_the_model_as_a_retry(
         else:
             yield finish()
 
-    url = server.start()
-    try:
+    with _loopback_server(tmp_path, lookup) as (events, state, toolkit, url):
         planner = ApiAgentLoop(
             model=FunctionModel(stream_function=stream),
             dashboard_events=events,
@@ -2249,10 +2146,6 @@ def test_external_tool_error_under_capture_reaches_the_model_as_a_retry(
             toolkit=toolkit,
             max_turns=4,
         )
-    finally:
-        server.stop()
-        toolkit.close()
-        server_toolkit.close()
 
     assert result.error is None, result.error
     assert requests == 2
