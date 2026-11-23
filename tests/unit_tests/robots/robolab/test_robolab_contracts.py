@@ -236,17 +236,21 @@ def test_native_episode_survives_artifact_reset_and_freezes(success, chunk):
     assert env.calls == 5
 
 
-@pytest.mark.parametrize("native_success", [None, False, True])
-def test_result_preserves_native_unfinished_status(tmp_path, native_success):
+@pytest.mark.parametrize(
+    "metrics", [{}, {"success": None}, {"success": False}, {"success": True}]
+)
+def test_result_uses_current_run_metrics_in_reused_directory(tmp_path, metrics):
+    native_success = metrics.get("success")
     (tmp_path / "states.json").write_text(
-        json.dumps({"steps": [{"state": {"success": native_success}}]}),
+        json.dumps({"steps": [{"state": {"success": not native_success}}]}),
         encoding="utf-8",
     )
     context = RunFinalizationContext(
         output_dir=tmp_path,
         robot_name="robolab",
         task_desc={"task": "BananaInBowlTask", "seed": 0},
-        environment_success=bool(native_success),
+        environment_success=bool(native_success) if metrics else None,
+        environment_metrics=metrics,
         agent_error=None,
         elapsed_s=1.0,
         planner="api",
@@ -342,10 +346,12 @@ def test_policy_tool_executes_until_native_success_and_records_state(tmp_path):
         memory=MemoryManager(tmp_path / "memory"),
         output_dir=tmp_path / "run",
     )
+    assert toolkit.evaluation_metrics(success=False) == {"success": None}
     assert toolkit.state.get(0).state["success"] is None
     result = toolkit.execute_tool("pi05_act", {"steps": 5})
     assert result.data["state"]["success"] is True
     assert len(env.actions) == 2
+    assert toolkit.evaluation_metrics(success=True) == {"success": True}
     assert toolkit.solved()
     assert toolkit.state.get(1).terminated
     assert {"main.png", "wrist.png"} <= toolkit.state.get(1).artifacts

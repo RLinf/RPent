@@ -17,7 +17,6 @@
 from __future__ import annotations
 
 import argparse
-import json
 import os
 import re
 import sys
@@ -99,15 +98,7 @@ def _resolve_dashboard(args: argparse.Namespace) -> DashboardSpec:
 
 def finalize_run(context: RunFinalizationContext) -> Path:
     """Record benchmark success separately from the planner's finish status."""
-    # The shared runner coerces solved() to bool; the trace retains the native None.
-    state_path = context.output_dir / "states.json"
-    native_success = None
-    if state_path.is_file():
-        steps = json.loads(state_path.read_text(encoding="utf-8"))["steps"]
-        if steps:
-            native_success = steps[-1]["state"]["success"]
-            if native_success is not None and type(native_success) is not bool:
-                raise ValueError("RoboLab success must be true, false, or null")
+    native_success = context.environment_metrics.get("success")
     return write_json_atomic(
         context.output_dir / "result.json",
         {
