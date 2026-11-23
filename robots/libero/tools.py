@@ -63,7 +63,7 @@ class LiberoPrimitives:
     def __init__(
         self,
         env: LiberoEnvClient | CapturingEnvClient,
-        model: BaseVLAClient | LiberoWAMClient,
+        model: BaseVLAClient | LiberoWAMClient | None,
         sam3_client: Sam3Client,
         check_cancelled: Callable[[], None],
         molmo_client: MolmoClient | None = None,
@@ -1306,11 +1306,12 @@ def _save_observation_artifacts(
 # ---------------------------------------------------------------------------
 
 
-@tool(readonly=True, exclude=("state",))
+@tool(readonly=True, exclude=("state", "include_images"))
 def view_env_state(
     step: Annotated[int, Field(json_schema_extra={"default": -1})] = -1,
     *,
     state: EnvState,
+    include_images: bool = True,
 ) -> ToolResult:
     """Read one recorded state and its observation artifacts. Step -1 selects the latest entry. Embeds policy, agentview, and wrist images when available. Use the calibration-frame images for pixel back-projection; JSON state alone is not enough. Use agentview for global tabletop layout and object locations; use wrist for close-range details near the gripper, occlusions, and container/cabinet interiors.
 
@@ -1338,6 +1339,8 @@ def view_env_state(
         "result": record.result,
         "elapsed_s": record.elapsed_s,
     }
+    if not include_images:
+        return ToolResult(data=out)
     for names in (
         ("agentview_policy.png",),
         ("agentview_high.png", "agentview.png"),

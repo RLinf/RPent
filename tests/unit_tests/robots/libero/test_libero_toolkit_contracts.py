@@ -135,6 +135,36 @@ def test_wam_configuration_and_toolkit_use_local_memory(tmp_path, monkeypatch, b
         spec.parse_config(args)
 
 
+def test_no_vla_runtime_starts_only_environment_and_sam3(tmp_path, monkeypatch):
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--output-dir")
+    parser.add_argument("--memory-profile")
+    parser.add_argument("--memory-dir")
+    parser.add_argument("--policy-mode", default="code")
+    spec = robot_spec.get_robot_spec()
+    spec.add_cli_args(parser, False)
+    args = parser.parse_args(["--suite", "libero_object", "--task", "0", "--no-vla"])
+    config = spec.parse_config(args)
+    assert config.task_desc["policy_kind"] == "geometry"
+    assert config.task_desc["policy_backend"] is None
+    assert spec.resolve_dashboard(args)["runtime_components"][1]["name"] == "sam3"
+
+    started = []
+
+    def spawn(daemons, events, component, starter):
+        started.append(component)
+        return None, object()
+
+    monkeypatch.setattr(robot_spec, "try_spawn_server", spawn)
+    monkeypatch.setattr(robot_spec, "try_wait_server", lambda *a, **kw: {})
+    spec.init_runtime(args, tmp_path, NullDashboardEventSink(), None)
+    assert started == ["env", "sam3"]
+
+    args.policy_mode = "tools"
+    with pytest.raises(ValueError, match="requires --policy-mode code"):
+        spec.parse_config(args)
+
+
 def test_toolkit_factory_configures_memory_access_by_mode(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,

@@ -70,6 +70,7 @@ FLASH_SUITES = frozenset(
 def _resolve_dashboard(args: argparse.Namespace) -> DashboardSpec:
     """Build the Dashboard configuration for the selected action model."""
     kind = "wam" if getattr(args, "am_backend", None) in WAM_BACKENDS else "vla"
+    no_vla = getattr(args, "no_vla", False)
     return {
         "task": {
             "command": "/rpent-task",
@@ -84,7 +85,11 @@ def _resolve_dashboard(args: argparse.Namespace) -> DashboardSpec:
         },
         "runtime_components": (
             {"name": "env", "label": "ENV", "scope": "unique"},
-            {"name": kind, "label": kind.upper(), "scope": "shared"},
+            *(
+                ({"name": kind, "label": kind.upper(), "scope": "shared"},)
+                if not no_vla
+                else ()
+            ),
             {"name": "sam3", "label": "SAM3", "scope": "shared"},
             {
                 "name": "molmo",
@@ -97,9 +102,7 @@ def _resolve_dashboard(args: argparse.Namespace) -> DashboardSpec:
         ),
         "primitives": (
             "move_to",
-            "pi0_pick",
-            "pi0_doubled",
-            "wam_act",
+            *(("pi0_pick", "pi0_doubled", "wam_act") if not no_vla else ()),
             "release",
             "set_gripper",
             "rotate_wrist",
@@ -177,6 +180,7 @@ def get_toolkit(
 ):
     """Return the LIBERO toolkit for the current session."""
     from robots.libero.toolkit import LiberoToolkit
+
     explore = mode == "exploration"
 
     memory = None
@@ -229,6 +233,11 @@ def _add_cli_args(parser: argparse.ArgumentParser, use_dashboard: bool) -> None:
     parser.add_argument("--max-episode-steps", type=int, default=10000)
     add_cuda_device_arg(parser)
     add_am_args(parser, platform="libero")
+    parser.add_argument(
+        "--no-vla",
+        action="store_true",
+        help="Use geometric control with --policy-mode code on standard LIBERO.",
+    )
     parser.add_argument(
         "--libero-type",
         default=None,
@@ -325,10 +334,16 @@ def _parse_config(args: argparse.Namespace) -> RunConfig:
         raise ValueError("--task is required")
     planner = getattr(args, "planner", None)
     args.libero_type = resolve_libero_type(args.suite, args.libero_type)
-    am = select_am(args, "libero")
-    wam = am if am.is_wam else None
-    policy_kind = "wam" if wam else "vla"
-    policy_backend = wam.backend if wam else (args.am_backend or "pi05")
+    no_vla = getattr(args, "no_vla", False)
+    if no_vla:
+        if getattr(args, "policy_mode", "tools") != "code":
+            raise ValueError("--no-vla requires --policy-mode code")
+        if args.libero_type != "standard":
+            raise ValueError("--no-vla supports standard LIBERO")
+    am = None if no_vla else select_am(args, "libero")
+    wam = am if am is not None and am.is_wam else None
+    policy_kind = "geometry" if no_vla else "wam" if wam else "vla"
+    policy_backend = am.backend if am is not None else None
     if wam:
         if planner == "flash" or getattr(args, "explore", False):
             raise ValueError("WAM supports evaluation without Flash Mode only")
@@ -617,8 +632,9 @@ def _init_runtime(
     from robots.libero.env_client import LiberoEnvClient
     from rpent.robots.components.sam3_client import Sam3Client
 
-    am = select_am(args, "libero")
-    wam = am if am.is_wam else None
+    no_vla = getattr(args, "no_vla", False)
+    am = None if no_vla else select_am(args, "libero")
+    wam = am if am is not None and am.is_wam else None
     policy_kind = "wam" if wam else "vla"
     starters = {
         "env": lambda: _spawn_env_server(args, output_dir),
@@ -646,6 +662,9 @@ def _init_runtime(
         "sam3": lambda rpc: {"sam3_client": Sam3Client(rpc)},
         "molmo": lambda rpc: _molmo_clients(args, rpc),
     }
+    if no_vla:
+        del starters[policy_kind]
+        del connectors[policy_kind]
     selected = set(starters) if components is None else set(components)
     if getattr(args, "planner", None) != "flash" and not getattr(
         args, "geometry", False

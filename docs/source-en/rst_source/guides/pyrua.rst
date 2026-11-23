@@ -43,6 +43,20 @@ via either the CLI or the Dashboard. It cannot be combined with
 ``--planner flash`` or ``--explore``. PyRUA mode does not load task
 memory or generate an action recipe.
 
+On standard LIBERO, add ``--no-vla`` to run geometric control with SAM3.
+The Python cell localizes objects with ``segment`` and ``back_project``,
+then checks motion and grasp feedback while calling ``move_to``, ``move_pose``,
+``set_gripper``, and ``release``. Set ``SAM3_CHECKPOINT_PATH`` for a local server
+or use ``--sam3-endpoint`` for an existing server. The run uses no action model
+service. Call ``view_env_state`` explicitly when images are needed.
+
+.. code-block:: bash
+
+   rpent --robot libero --libero-type standard \
+     --suite libero_object --task 0 --seed 0 \
+     --planner claude_code --model deepseek-v4.1-flash-1017 \
+     --policy-mode code --no-vla
+
 
 How Code Execution Works
 ------------------------

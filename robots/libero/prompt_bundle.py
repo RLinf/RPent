@@ -24,6 +24,7 @@ from robots.libero.prompts import explore as explore_parts
 from robots.libero.prompts import user as user_parts
 from rpent.prompt.utils import PromptNode
 
+
 def system_prompt(
     variables: Mapping[str, object] | None = None,
 ) -> PromptNode:
@@ -31,7 +32,9 @@ def system_prompt(
     variables = variables or {}
 
     if variables.get("policy_mode") == "code":
-        return code_parts.system_prompt()
+        return code_parts.system_prompt(
+            geometric=variables.get("policy_kind") == "geometry"
+        )
 
     if (
         variables.get("mode", "eval") == "explore"
@@ -40,6 +43,7 @@ def system_prompt(
         return explore_parts.system_prompt(variables)
 
     return evaluate_parts.system_prompt(variables)
+
 
 def user_prompt(variables: Mapping[str, object] | None = None) -> PromptNode:
     """Assemble the LIBERO user prompt tree."""
@@ -67,5 +71,6 @@ def user_prompt(variables: Mapping[str, object] | None = None) -> PromptNode:
         "MODE": mode,
         "BEGIN": user_parts.BEGIN,
     }
+
 
 __all__ = ["system_prompt", "user_prompt"]

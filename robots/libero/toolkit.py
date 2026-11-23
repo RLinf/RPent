@@ -115,11 +115,11 @@ class LiberoToolkit(Toolkit):
                     check_cancelled=self.raise_if_cancelled,
                 )
                 self.add_tool(self._geometry.geometry)
-        if policy_kind == "wam":
+        if policy_kind in {"wam", "geometry"}:
             finish = self._tools["finish"]
             self.add_tool(
                 replace(
-                    finish.with_handler(partial(self._wam_finish, finish)),
+                    finish.with_handler(partial(self._native_finish, finish)),
                     description="End the episode with its observed outcome. "
                     "Success requires native environment success.",
                 ),
@@ -143,14 +143,14 @@ class LiberoToolkit(Toolkit):
             self.add_tool(
                 definition.with_handler(partial(definition, state=self._state))
             )
+        excluded = {
+            "vla": {"wam_act"},
+            "wam": {"pi0_pick", "pi0_doubled"},
+            "geometry": {"pi0_pick", "pi0_doubled", "wam_act"},
+        }[self._policy_kind]
         for definition in iter_tools(self._primitives):
             if generic_tools and definition.name == "segment":
                 continue
-            excluded = (
-                {"pi0_pick", "pi0_doubled"}
-                if self._policy_kind == "wam"
-                else {"wam_act"}
-            )
             if definition.name in excluded:
                 continue
             if definition.name == "segment":
@@ -173,7 +173,9 @@ class LiberoToolkit(Toolkit):
         self, handler: Callable[..., ToolResult], **kwargs: Any
     ) -> ToolResult:
         env = self._primitives.env
-        if self._policy_kind == "wam" and (env.terminated or env.truncated):
+        if self._policy_kind in {"wam", "geometry"} and (
+            env.terminated or env.truncated
+        ):
             status = "success" if env.terminated else "failure"
             raise ValueError(
                 "Episode already ended; no further motion is allowed. "
@@ -181,7 +183,7 @@ class LiberoToolkit(Toolkit):
             )
         return handler(**kwargs)
 
-    def _wam_finish(self, inner: Any, **kwargs: Any) -> ToolResult:
+    def _native_finish(self, inner: Any, **kwargs: Any) -> ToolResult:
         """Require native task success before accepting a success claim."""
         if kwargs.get("status") == "success" and not self.solved():
             return ToolResult(
@@ -267,9 +269,15 @@ class LiberoToolkit(Toolkit):
                     record.step_idx,
                     e,
                 )
-        out = libero_tools.view_env_state(record.step_idx, state=self._state)
+        out = libero_tools.view_env_state(
+            record.step_idx,
+            state=self._state,
+            include_images=self._policy_kind != "geometry",
+        )
         out.data["agent_elapsed_s"] = elapsed_s
-        if self._policy_kind == "wam" and (record.terminated or record.truncated):
+        if self._policy_kind in {"wam", "geometry"} and (
+            record.terminated or record.truncated
+        ):
             status = "success" if record.terminated else "failure"
             out.data["next_action"] = (
                 f"Episode ended. Call finish with status={status!r}; "
@@ -293,6 +301,8 @@ class LiberoToolkit(Toolkit):
         self._state.reset()
 
         runtime_kwargs = dict(runtime_kwargs)
+        if self._policy_kind == "geometry":
+            runtime_kwargs["model"] = None
         if self._mode == "evaluation":
             env = runtime_kwargs["env"]
             runtime_kwargs["env"] = CapturingEnvClient(

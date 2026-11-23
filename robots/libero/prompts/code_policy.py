@@ -126,16 +126,38 @@ PLACING_AND_RECOVERY = r"""
 """
 
 
-def system_prompt() -> dict[str, PromptNode]:
+GEOMETRIC_GRASP = r"""
+Use SAM3 and calibrated world coordinates for grasping. Localize the target
+and destination from `robo.segment`. Its `world_xyz` is the visible surface;
+choose a grasp height that puts the fingers around the object below its top.
+Use `robo.view_env_state` when you need RGB images and `back_project` to measure
+surface points or container interiors. Action replies contain numeric state.
+
+Write a bounded Python controller. Move above the target with the gripper open,
+descend vertically, close with `set_gripper`, then lift vertically with the
+gripper closed. Check each move's `final_dist_m` and inspect finger separation
+after lifting. Use visual localization when grasp feedback is ambiguous. Only
+carry a confirmed grasp. Carry above the destination, release, and use the
+native `terminated` result to decide whether to finish. If still active, check
+the scene and recover from observed state. The robot tools are the only source
+for scene data. Read the task instruction from the initial observation.
+"""
+
+
+def system_prompt(*, geometric: bool = False) -> dict[str, PromptNode]:
     """Assemble code execution rules and libero operating knowledge."""
     return {
         **common.system_prompt(),
         "Observation and task success": OBSERVATION_AND_TASK_SUCCESS,
         "Frames, units, scene": FRAMES_UNITS_SCENE,
         "Gripper": GRIPPER,
-        "Motion": MOTION,
-        "The VLA skills": VLA_SKILLS,
+        "Motion": MOTION.split("- Long pushes", 1)[0] if geometric else MOTION,
+        **(
+            {"Geometric grasp": GEOMETRIC_GRASP}
+            if geometric
+            else {"The VLA skills": VLA_SKILLS}
+        ),
         "Perception": PERCEPTION,
-        "Placing and recovery": PLACING_AND_RECOVERY,
+        **({} if geometric else {"Placing and recovery": PLACING_AND_RECOVERY}),
         "API reference": "{{code_policy_api}}",
     }
