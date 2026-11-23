@@ -82,10 +82,10 @@ from rpent.planner.base import (
     cancel_and_wait,
     execute_tool,
 )
+from rpent.planner.compaction.window import RequestAwareSlidingWindow
 from rpent.prompt.api import API_PLANNER_INSTRUCTIONS, render_environment_context
 from rpent.session.env_capture import current_tool_call
 from rpent.session.planner_capture import CapturingModel, sdk_payload
-from rpent.planner.compaction.window import RequestAwareSlidingWindow
 from rpent.tools.toolkit import Toolkit, ToolResult
 from rpent.utils.logging import get_logger
 from rpent.utils.templates import substitute
@@ -100,6 +100,10 @@ class _InvalidToolArguments(ModelRetry):
 
 class _AutomaticCompletion(Exception):
     """The toolkit completed the task before another model request."""
+
+
+class _EnvironmentFailure(RuntimeError):
+    """The native environment failed; no subsequent model request is useful."""
 
 
 class _RequestBudgetExhausted(Exception):
@@ -310,7 +314,9 @@ class ApiAgentLoop(Planner):
         agent = Agent(
             capture if capture is not None else self.model,
             name="rpent_api",
-            system_prompt=(API_PLANNER_INSTRUCTIONS, system_prompt),
+            system_prompt=(API_PLANNER_INSTRUCTIONS, system_prompt)
+            if getattr(toolkit, "api_environment_context", True)
+            else system_prompt,
             output_type=adapter.output_types,
             toolsets=[adapter],
             # Accepted finish skips sibling tool calls in the same response.
@@ -344,13 +350,24 @@ class ApiAgentLoop(Planner):
                 submit_while_busy=True,
             )
         run = asyncio.create_task(session.run(_ConversationAgent(agent), prompt))
+        admission = getattr(self.model, "admission_clock", None)
+        queue_start = admission.excluded() if admission is not None else 0.0
         try:
-            await asyncio.wait_for(
-                run,
-                timeout=None if self.interactive else self.timeout_s,
-            )
+            if admission is not None and not self.interactive:
+                from rpent.planner.admission import await_task_budget
+
+                await await_task_budget(run, self.timeout_s, admission)
+            else:
+                await asyncio.wait_for(
+                    run,
+                    timeout=None if self.interactive else self.timeout_s,
+                )
         except (_RequestBudgetExhausted, _AutomaticCompletion) as exc:
-            session.stop_reason = "request_limit" if isinstance(exc, _RequestBudgetExhausted) else "environment_terminal"
+            session.stop_reason = (
+                "request_limit"
+                if isinstance(exc, _RequestBudgetExhausted)
+                else "environment_terminal"
+            )
             session.error = None
             logger.info("%s", exc)
         except Exception as exc:
@@ -383,6 +400,11 @@ class ApiAgentLoop(Planner):
                 "total_cached_input_tokens": session.usage.cache_read_tokens,
                 "turns_used": session.usage.requests,
                 "tool_calls": adapter.tool_calls,
+                **(
+                    {"model_queue_seconds": admission.excluded() - queue_start}
+                    if admission is not None
+                    else {}
+                ),
             },
             error=session.error,
             stop_reason=session.stop_reason,
@@ -765,7 +787,11 @@ class _Session(AbstractCapability):
             return result
         except (_RequestBudgetExhausted, _AutomaticCompletion) as exc:
             # The native CLI catches run exceptions before _solve can see them.
-            self.stop_reason = "request_limit" if isinstance(exc, _RequestBudgetExhausted) else "environment_terminal"
+            self.stop_reason = (
+                "request_limit"
+                if isinstance(exc, _RequestBudgetExhausted)
+                else "environment_terminal"
+            )
             self.error = None
             raise
         except RunCancelled:
@@ -775,7 +801,11 @@ class _Session(AbstractCapability):
         except Exception as exc:
             self.stop_reason = "planner_error"
             self.error_kind = (
-                "invalid_action" if isinstance(exc, InvalidActionResponse) else None
+                "infrastructure_error"
+                if isinstance(exc, _EnvironmentFailure)
+                else "invalid_action"
+                if isinstance(exc, InvalidActionResponse)
+                else None
             )
             if isinstance(exc, APIConnectionError) or (
                 isinstance(exc, ModelAPIError)
@@ -823,6 +853,10 @@ class _Session(AbstractCapability):
         completion = self.toolkit.completion_result()
         if completion is not None:
             self.toolkit.finish_result = completion
+            if completion.get("status") == "error":
+                raise _EnvironmentFailure(
+                    completion.get("reason", "environment failed")
+                )
             raise _AutomaticCompletion("Native episode completed.")
         try:
             self.limits.check_before_request(self.usage + ctx.usage)
@@ -859,7 +893,11 @@ class _Session(AbstractCapability):
             return node
         if not isinstance(node, ModelRequestNode):
             return node
-        if not ctx.messages and ctx.prompt:
+        if (
+            not ctx.messages
+            and ctx.prompt
+            and getattr(self.toolkit.toolkit, "api_environment_context", True)
+        ):
             # The SDK puts the task last. Keep it with the context during compaction.
             parts = list(node.request.parts)
             parts.insert(-1, UserPromptPart(render_environment_context()))

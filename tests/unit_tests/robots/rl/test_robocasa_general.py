@@ -7,7 +7,6 @@ from __future__ import annotations
 import argparse
 import contextlib
 import io
-import json
 import sys
 import threading
 from pathlib import Path
@@ -22,8 +21,6 @@ from robots.rl import remote, robot_spec
 from robots.rl.backends import RoboCasaGeneralPrimitives
 from robots.rl.contracts import (
     argument_hint,
-    validate_coordinates,
-    validate_image_size,
     validate_options,
 )
 from robots.rl.prompt_bundle import system_prompt
@@ -258,6 +255,7 @@ class FakeRoboCasaGeneralEnv:
             return {
                 "coordinate_calibration": {
                     "base_xyz": self.mount_origin.copy(),
+                    "tcp": "grip_site",
                     "base_rotation": self.mount_rotation.copy(),
                     top_key: np.array(
                         [self.base_xyz[0], self.base_xyz[1], self.support_z]
@@ -274,6 +272,7 @@ class FakeRoboCasaGeneralEnv:
                 "site_xyz": self.site_xyz.copy(),
                 "site_rotation": self.site_rotation.copy(),
                 "jaw_slide_axes_site": np.array([[1.0, 0.0, 0.0], [-1.0, 0.0, 0.0]]),
+                "wrist_to_site_in_site": np.array([0.0, 0.0, 0.097]),
             }
         if method == "env.get_camera_transform":
             return self._pixel_to_world_transform()
@@ -391,122 +390,22 @@ def _make_toolkit(
 # ---------------------------------------------------------------------------
 
 
-def test_robocasa_base_batch_rejected_across_all_entrypoints(tmp_path, monkeypatch):
-    validate_coordinates("robocasa", "base")
-    validate_coordinates("robocasa", "general")
-    with pytest.raises(ValueError, match="LIBERO and RoboCasa only"):
-        validate_coordinates("robotwin", "general")
-
-    # Direct validator
-    validate_options("robocasa", "episode", "single", 3, -1, -1, world_cord="base")
-    validate_options("robocasa", "episode", "batch", 3, -1, -1, world_cord="general")
-    validate_options("robocasa", "episode", "single", 3, 2, 1, world_cord="general")
-    with pytest.raises(ValueError):
-        validate_options("robocasa", "episode", "batch", 3, -1, -1, world_cord="base")
-    with pytest.raises(ValueError):
-        validate_options("robocasa", "episode", "single", 3, -1, 1, world_cord="base")
-
-    # image_size gating
-    validate_image_size("robocasa", "general", 512)
-    validate_image_size("robocasa", "general", 256)
-    validate_image_size("robocasa", "base", 1024)
-    with pytest.raises(ValueError):
-        validate_image_size("robocasa", "base", 256)
-
-    # CLI _validate_args and _parse_config
-    spec = robot_spec.get_robot_spec()
-    bad_cli = argparse.Namespace(
-        env="robocasa",
-        workflow="episode",
-        world_cord="base",
-        action_mode="batch",
-        max_actions_per_call=3,
-        reasoning_history=-1,
-        image_history=-1,
-        perception_mode="single",
-        max_observe_calls=8,
-        observe_concurrency=8,
-        image_size=1024,
-        sam3_timeout_s=120.0,
-        planner="api",
-        dashboard=False,
-        tui=False,
-        memory_dir=None,
-        memory_repo=None,
-        observation_mode="adaptive",
-        no_images=False,
-        remote_toolkit_endpoint=None,
-        env_endpoint=None,
-        sam3_endpoint=None,
-        task_name="OpenDrawer",
-        seed=0,
-        prompt="simple",
-        output_dir=tmp_path,
-        suite=None,
-        task=None,
-    )
-    with pytest.raises(ValueError):
-        spec.validate_args(bad_cli)
-    with pytest.raises(ValueError):
-        spec.parse_config(bad_cli)
-
-    # Local RLToolkit
-    with pytest.raises(ValueError):
-        RLToolkit(
-            runtime_kwargs={},
-            dashboard_events=NullDashboardEventSink(),
-            memory=MemoryManager(tmp_path / "mem"),
-            observation_mode="adaptive",
-            output_dir=tmp_path / "should-not-create",
-            environment="robocasa",
-            workflow="episode",
-            world_cord="base",
-            action_mode="batch",
+def test_robocasa_batch_is_the_public_interface_in_both_frames(tmp_path):
+    for frame in ("base", "general"):
+        validate_options("robocasa", "episode", "batch", 3, -1, -1, world_cord=frame)
+        options = remote.remote_options(
+            {"environment": "robocasa", "world_cord": frame, "action_mode": "batch"}
         )
-    assert not (tmp_path / "should-not-create").exists()
-
-    # Remote RPC options
-    with pytest.raises(ValueError):
-        remote.remote_options(
-            {
-                "environment": "robocasa",
-                "task_name": "OpenDrawer",
-                "seed": 0,
-                "workflow": "episode",
-                "world_cord": "base",
-                "action_mode": "batch",
-            }
-        )
-
-    # Batch launcher tools/rl/run_batch.py
-    from tools.rl import run_batch as batch
-
-    monkeypatch.setattr(batch, "resolve_run_options", lambda a: None)
-
-    jobs = tmp_path / "jobs.json"
-    jobs.write_text(
-        json.dumps([{"environment": "robocasa", "task_name": "OpenDrawer", "seed": 0}])
-    )
-    batch_out = tmp_path / "batch_out"
-    batch_out.mkdir()
-    batch_args = argparse.Namespace(
-        infrastructure_retries=1,
-        episode_timeout=14400,
-        start_interval=0,
-        max_initializing_per_gpu=1,
-        jobs=jobs,
-        seeds=None,
-        workflow="episode",
-        world_cord="base",
-        action_mode="batch",
-        max_actions_per_call=3,
-        reasoning_history=-1,
-        image_history=-1,
-        image_size=1024,
-    )
-    with pytest.raises(ValueError):
-        batch.collect(batch_args, batch_out)
-    assert not (batch_out / "manifest.json").exists()
+        assert options["action_mode"] == "batch"
+        tk, _ = _make_toolkit(tmp_path / frame, world_cord=frame)
+        assert {tool.name for tool in tk.list_tools()} == {
+            "view_env",
+            "segment",
+            "back_project",
+            "execute_actions",
+        }
+    with pytest.raises(ValueError, match="batch actions"):
+        validate_options("robocasa", "episode", "single", 3, -1, -1)
 
 
 # ---------------------------------------------------------------------------
@@ -548,7 +447,7 @@ def _make_fake_facade(*, with_counter: bool, with_floor: bool = True):
         np.zeros(3),
         mount_pos,
         np.array([1.2, -0.4, 0.0]),
-        site_pos,
+        site_pos - site_rot @ np.array([0.0, 0.0, 0.097]),
     ]
     body_xmat = [
         np.eye(3).reshape(-1),
@@ -588,6 +487,7 @@ def _make_fake_facade(*, with_counter: bool, with_floor: bool = True):
     )
     robot = SimpleNamespace(
         eef_site_id={"right": 1},
+        robot_model=SimpleNamespace(eef_name={"right": "hand"}),
         gripper={
             "right": SimpleNamespace(
                 important_geoms={
@@ -695,7 +595,7 @@ def test_facade_calibration_supports_counter_and_floor_fallback():
 # ---------------------------------------------------------------------------
 
 
-def test_rotation_only_move_to_preserves_pad_tcp_and_aligns_site_axes(tmp_path):
+def test_rotation_only_move_to_preserves_grip_site_and_aligns_site_axes(tmp_path):
     env = FakeRoboCasaGeneralEnv(
         base_xyz=(3.1, -1.7, 0.0),
         base_yaw=np.pi / 2,
@@ -703,7 +603,7 @@ def test_rotation_only_move_to_preserves_pad_tcp_and_aligns_site_axes(tmp_path):
         pad_offset_site=(0.002, -0.001, -0.0036),
         camera_size=64,
     )
-    tk, _ = _make_toolkit(tmp_path, env=env, action_mode="single", image_size=1024)
+    tk, _ = _make_toolkit(tmp_path, env=env, action_mode="batch", image_size=1024)
     p = tk._primitives
     assert isinstance(p, RoboCasaGeneralPrimitives)
 
@@ -721,14 +621,14 @@ def test_rotation_only_move_to_preserves_pad_tcp_and_aligns_site_axes(tmp_path):
     assert "base_quaternion_xyzw" not in init_state
 
     # Immediately execute rotation-only move_to right after connect (verifies init order,
-    # 90deg site vs eef_quat alignment, and target-rotation pad-TCP compensation).
-    tcp_before = env.pad_tcp_xyz.copy()
+    # 90deg site vs eef_quat alignment, and native grip-site preservation).
+    tcp_before = env.site_xyz.copy()
     target_rpy = [float(np.pi), 0.0, float(np.pi / 4)]
-    result = tk.execute_tool("move_to", {"orientation_rpy": target_rpy})
+    result = execute(tk, "move_to", {"orientation_rpy": target_rpy})
     assert result.data["status"] == "reached"
     assert result.data["position_error_m"] < 0.004
     assert result.data["rotation_error_rad"] < 0.02
-    assert np.linalg.norm(env.pad_tcp_xyz - tcp_before) < 0.004
+    assert np.linalg.norm(env.site_xyz - tcp_before) < 0.004
     expected_world_rot = p.coordinates.world_orientation(
         Rotation.from_euler("xyz", target_rpy).as_matrix()
     )
@@ -763,17 +663,15 @@ def test_dynamic_mount_frame_updates_heights_and_historical_back_project(
     tk, _ = _make_toolkit(tmp_path, env=env, sam3=FakeSam3(mask), action_mode="batch")
 
     # Step 0 perception
-    seg0 = tk.execute_tool(
-        "segment", {"prompt": "mug", "camera": "agentview", "step": 0}
-    )
+    seg0 = execute(tk, "segment", {"prompt": "mug", "camera": "agentview", "step": 0})
     assert seg0.data["step"] == 0
     assert seg0.data["coordinate_step"] == 0
     mask_id = seg0.data["mask_id"]
 
-    bp0_pixel = tk.execute_tool(
-        "back_project", {"pixel": [18, 28], "camera": "agentview", "step": 0}
+    bp0_pixel = execute(
+        tk, "back_project", {"pixel": [18, 28], "camera": "agentview", "step": 0}
     )
-    bp0_mask = tk.execute_tool("back_project", {"mask_id": mask_id})
+    bp0_mask = execute(tk, "back_project", {"mask_id": mask_id})
     assert bp0_pixel.data["step"] == 0 and bp0_pixel.data["coordinate_step"] == 0
     assert bp0_mask.data["step"] == 0 and bp0_mask.data["coordinate_step"] == 0
 
@@ -789,8 +687,8 @@ def test_dynamic_mount_frame_updates_heights_and_historical_back_project(
     np.testing.assert_allclose(bp0_mask.data["world_xyz"], seg0.data["world_xyz"])
 
     # Move base (rotate + translate)
-    moved = tk.execute_tool(
-        "move_base", {"vx": 0.2, "vy": -0.1, "yaw_rate": 0.5, "duration_s": 1.6}
+    moved = execute(
+        tk, "move_base", {"vx": 0.2, "vy": -0.1, "yaw_rate": 0.5, "duration_s": 1.6}
     )
     assert moved.data["status"] == "commanded"
     assert "displacement_world_m" not in moved.data
@@ -799,7 +697,7 @@ def test_dynamic_mount_frame_updates_heights_and_historical_back_project(
 
     # Lift with joint limit hit: requested +0.20 m, clamped at lift_max_m=0.12 (+0.07 m actual)
     before_table_h = moved.data["coordinates"]["table_height_above_base_m"]
-    lifted = tk.execute_tool("move_lift", {"delta_m": 0.20, "duration_s": 2.0})
+    lifted = execute(tk, "move_lift", {"delta_m": 0.20, "duration_s": 2.0})
     assert lifted.data["status"] == "partial"
     assert lifted.data["reason"] == "blocked_or_joint_limit"
     actual_dz = lifted.data["mount_height_change_m"]
@@ -810,10 +708,10 @@ def test_dynamic_mount_frame_updates_heights_and_historical_back_project(
     # Re-query the exact same step=0 pixel and mask_id after base rotation + lift
     latest = tk.state.latest_step
     assert latest == 2
-    bp2_pixel = tk.execute_tool(
-        "back_project", {"pixel": [18, 28], "camera": "agentview", "step": 0}
+    bp2_pixel = execute(
+        tk, "back_project", {"pixel": [18, 28], "camera": "agentview", "step": 0}
     )
-    bp2_mask = tk.execute_tool("back_project", {"mask_id": mask_id})
+    bp2_mask = execute(tk, "back_project", {"mask_id": mask_id})
     assert bp2_pixel.data["step"] == 0 and bp2_pixel.data["coordinate_step"] == latest
     assert bp2_mask.data["step"] == 0 and bp2_mask.data["coordinate_step"] == latest
     assert not np.allclose(bp2_pixel.data["world_xyz"], bp0_pixel.data["world_xyz"])
@@ -822,20 +720,22 @@ def test_dynamic_mount_frame_updates_heights_and_historical_back_project(
     origin_2 = np.asarray(coords_2["origin_in_sim_world"])
     rot_2 = np.asarray(coords_2["rotation_to_sim_world"])
     world_pixel_2 = origin_2 + rot_2 @ np.asarray(bp2_pixel.data["world_xyz"])
-    world_mask_2 = origin_2 + rot_2 @ np.asarray(bp2_mask.data["world_xyz"])
     np.testing.assert_allclose(world_pixel_2, world_pixel_0, atol=1e-3)
-    np.testing.assert_allclose(world_mask_2, world_mask_0, atol=1e-3)
-    seg2 = tk.execute_tool(
-        "segment", {"prompt": "mug", "camera": "agentview", "step": 0}
+    np.testing.assert_allclose(
+        bp2_mask.data["world_xyz"],
+        np.median((native_points - origin_2) @ rot_2, axis=0),
+        atol=1e-3,
     )
+    seg2 = execute(tk, "segment", {"prompt": "mug", "camera": "agentview", "step": 0})
     assert seg2.data["coordinate_step"] == latest
     np.testing.assert_allclose(seg2.data["world_xyz"], bp2_mask.data["world_xyz"])
     low, high = np.percentile((native_points - origin_2) @ rot_2, [5, 95], axis=0)
     np.testing.assert_allclose(seg2.data["size_xyz_m"], high - low, atol=1e-3)
     band = [low[2] - 0.001, high[2] + 0.001]
-    filtered = tk.execute_tool("back_project", {"mask_id": mask_id, "z_range_m": band})
+    filtered = execute(tk, "back_project", {"mask_id": mask_id, "z_range_m": band})
     assert filtered.data["world_xyz"] == bp2_mask.data["world_xyz"]
-    assert tk.execute_tool(
+    assert execute(
+        tk,
         "back_project",
         {"mask_id": mask_id, "z_range_m": [band[1] + 0.1, band[1] + 0.2]},
     ).is_error
@@ -910,7 +810,7 @@ def test_raw_depth_endpoints_filtered_before_back_projection(
     assert np.isnan(world[0, :7]).all()
     assert np.isfinite(world[0, 7]).all()
     for col in (0, 6):
-        bad = tk.execute_tool("back_project", {"pixel": [0, col], "step": 0})
+        bad = execute(tk, "back_project", {"pixel": [0, col], "step": 0})
         assert "insufficient depth" in bad.data["error"]
 
 
@@ -941,9 +841,15 @@ def test_base_tracks_signed_motion_in_initial_frame(tmp_path, vx, yaw_rate, slip
 
         env.step = slide
     tk, _ = _make_toolkit(tmp_path, env=env)
-    result = tk.execute_tool(
+    result = execute(
+        tk,
         "move_base",
-        {"vx": vx, "yaw_rate": yaw_rate, "duration_s": 2 if slip == "none" else 1},
+        {
+            "vx": vx,
+            "vy": 0,
+            "yaw_rate": yaw_rate,
+            "duration_s": 2 if slip == "none" else 1,
+        },
     ).data
     if slip == "none":
         assert result["status"] == "commanded"
@@ -973,7 +879,7 @@ def test_lift_judges_unrounded_height_after_stop(tmp_path, rebound):
 
     env.step = rebound_on_stop
     tk, _ = _make_toolkit(tmp_path, env=env)
-    result = tk.execute_tool("move_lift", {"delta_m": 0.05}).data
+    result = execute(tk, "move_lift", {"delta_m": 0.05}).data
     assert result["height_error_m"] == pytest.approx(round(-rebound, 4))
     assert result["status"] == ("partial" if rebound > 0.004 else "reached")
     assert (result["reason"] == "completed") == (rebound <= 0.004)
@@ -992,11 +898,11 @@ def test_closing_gripper_corrects_tcp_drift(tmp_path):
         return result
 
     env.step = disturb_arm
-    tk, _ = _make_toolkit(tmp_path, env=env, action_mode="single")
-    tcp, rotation = env.pad_tcp_xyz.copy(), env.site_rotation.copy()
-    result = tk.execute_tool("set_gripper", {"opening": 0}).data
+    tk, _ = _make_toolkit(tmp_path, env=env, action_mode="batch")
+    tcp, rotation = env.site_xyz.copy(), env.site_rotation.copy()
+    result = execute(tk, "set_gripper", {"opening": 0}).data
     assert result["status"] == "reached"
-    assert np.linalg.norm(env.pad_tcp_xyz - tcp) < 0.004
+    assert np.linalg.norm(env.site_xyz - tcp) < 0.004
     assert Rotation.from_matrix(env.site_rotation @ rotation.T).magnitude() < 0.02
 
 
@@ -1052,7 +958,7 @@ def test_invalid_and_far_clipping_depth_are_excluded_from_geometry(tmp_path):
 def test_native_1024_and_resized_offcenter_pixel_and_edge_box(tmp_path, image_size):
     env = FakeRoboCasaGeneralEnv(camera_size=1024)
     tk, _ = _make_toolkit(tmp_path, env=env, action_mode="batch", image_size=image_size)
-    view = tk.execute_tool("view_env", {"camera": "all"})
+    view = execute(tk, "view_env", {"camera": "all"})
     assert len(view.images) == 3
     for info, raw_bytes in zip(view.data["images"], view.images):
         assert info["size"] == [image_size, image_size]
@@ -1065,9 +971,7 @@ def test_native_1024_and_resized_offcenter_pixel_and_edge_box(tmp_path, image_si
 
     # Off-center asymmetric pixel: (row=25%, col=75%) detects flip or row/col swap immediately.
     pixel = [image_size // 4, (3 * image_size) // 4]
-    bp = tk.execute_tool(
-        "back_project", {"pixel": pixel, "camera": "agentview", "step": 0}
-    )
+    bp = execute(tk, "back_project", {"pixel": pixel, "camera": "agentview", "step": 0})
     assert not bp.is_error
     # At depth=1.0m: x_cam=(col-cx)/fx=+0.25, y_cam=(row-cy)/fy=-0.25
     # With cam_in_mount R=[[0,-1,0],[-1,0,0],[0,0,-1]], t=[0.50,0.15,1.20]:
@@ -1076,8 +980,8 @@ def test_native_1024_and_resized_offcenter_pixel_and_edge_box(tmp_path, image_si
 
     # Edge-touching half-open box reaching image_size must pass schema & scale cleanly.
     edge_box = [image_size - 32, image_size - 32, image_size, image_size]
-    bp_box = tk.execute_tool(
-        "back_project", {"box": edge_box, "camera": "agentview", "step": 0}
+    bp_box = execute(
+        tk, "back_project", {"box": edge_box, "camera": "agentview", "step": 0}
     )
     assert not bp_box.is_error
 
@@ -1137,6 +1041,47 @@ def test_robot_spec_selects_1024_for_general_and_256_for_base(monkeypatch, tmp_p
 # ---------------------------------------------------------------------------
 
 
+def test_centimetre_base_speed_schema_and_physical_motion(tmp_path):
+    metre, first = _make_toolkit(tmp_path / "m", position_unit="m")
+    centimetre, second = _make_toolkit(tmp_path / "cm", position_unit="cm")
+    declaration = next(
+        t for t in centimetre.list_tools() if t.name == "execute_actions"
+    )
+    base_schema = declaration.input_schema["$defs"]["BaseMove"]["properties"]
+    for name in ("vx", "vy"):
+        field = base_schema[name]
+        assert (field["minimum"], field["maximum"]) == (-35, 35)
+        assert "cm/s" in field["description"]
+        assert "0.35" not in field["description"]
+    for toolkit, factor in ((metre, 1), (centimetre, 100)):
+        result = execute(
+            toolkit,
+            "move_base",
+            {"vx": 0.2 * factor, "vy": -0.1 * factor, "yaw_rate": 0, "duration_s": 1},
+        )
+        assert not result.is_error
+    np.testing.assert_allclose(first.actions, second.actions)
+    prompt = system_prompt(
+        {"environment": "robocasa", "world_cord": "general", "position_unit": "cm"}
+    )
+    assert "vx/vy in centimetres/second" in prompt
+
+
+def test_general_base_command_requires_explicit_velocity_before_motion(tmp_path):
+    toolkit, env = _make_toolkit(tmp_path, position_unit="cm")
+    result = execute(toolkit, "move_base", {})
+    assert result.is_error and not env.actions
+    result = execute(
+        toolkit, "move_base", {"vx": 20, "vy": 0, "yaw_rate": 0, "duration_s": 1}
+    )
+    assert not result.is_error and env.actions
+    before = len(env.actions)
+    result = execute(
+        toolkit, "move_base", {"vx": 20, "vy": 0, "yaw_rate": 0.6, "duration_s": 1}
+    )
+    assert result.is_error and len(env.actions) == before
+
+
 def test_batch_tools_blocked_gripper_hold_and_stalled_early_stop(tmp_path):
     env = FakeRoboCasaGeneralEnv(block_gap=0.036, camera_size=32)
     tk, _ = _make_toolkit(tmp_path / "blocked", env=env, action_mode="batch")
@@ -1145,13 +1090,11 @@ def test_batch_tools_blocked_gripper_hold_and_stalled_early_stop(tmp_path):
         "segment",
         "back_project",
         "execute_actions",
-        "move_base",
-        "move_lift",
-        "finish",
     }
 
     # Batch stops early on blocked gripper; 3rd item must not run.
-    res = tk.execute_tool(
+    res = execute(
+        tk,
         "execute_actions",
         {
             "actions": [
@@ -1169,7 +1112,8 @@ def test_batch_tools_blocked_gripper_hold_and_stalled_early_stop(tmp_path):
     assert tk._primitives._hold_opening == 0.0
     # Next lift move continues commanding closing torque (> 0) on gripper.
     before_steps = len(env.actions)
-    lifted = tk.execute_tool(
+    lifted = execute(
+        tk,
         "execute_actions",
         {"actions": [{"action": "move_to", "xyz": [0.28, -0.02, 0.60]}]},
     )
@@ -1181,7 +1125,8 @@ def test_batch_tools_blocked_gripper_hold_and_stalled_early_stop(tmp_path):
     tk_stall, _ = _make_toolkit(
         tmp_path / "stall", env=stalled_env, action_mode="batch"
     )
-    stalled = tk_stall.execute_tool(
+    stalled = execute(
+        tk_stall,
         "execute_actions",
         {"actions": [{"action": "move_to", "xyz": [0.40, 0.0, 0.55]}]},
     )
@@ -1207,21 +1152,21 @@ def test_prompt_and_history_retention_for_robocasa_general(tmp_path):
         }
     )
     assert "lifting support" in general_batch
-    assert "coordinate_step" in general_batch
-    assert "move_base and move_lift remain standalone tools" in general_batch
-    assert "use execute_actions for every physical action" not in general_batch
+    assert "frame_version" not in general_batch
+    assert "share a batch with arm actions" in general_batch
+    assert "uses the actual measured mount" in general_batch
 
     base_single = system_prompt(
         {
             "environment": "robocasa",
             "workflow": "episode",
             "world_cord": "base",
-            "action_mode": "single",
+            "action_mode": "batch",
             "prompt": "simple",
         }
     )
-    assert "quaternion [w,x,y,z]" in base_single
-    assert "move_lift" not in base_single
+    assert "fixed-axis XYZ" in base_single
+    assert "move_lift" in base_single
 
     assert "selected arm" not in argument_hint("move_to", "robocasa")
     assert "selected arm" in argument_hint("move_to", "robotwin")
@@ -1230,7 +1175,7 @@ def test_prompt_and_history_retention_for_robocasa_general(tmp_path):
     from robots.rl.history import HistoryRetention
 
     spec = robot_spec.get_robot_spec()
-    for world_cord, expect_retention in (("general", True), ("base", False)):
+    for world_cord, expect_retention in (("general", True), ("base", True)):
         planner = ApiAgentLoop(
             model="test",
             dashboard_events=NullDashboardEventSink(),
@@ -1302,7 +1247,7 @@ def test_prompt_and_history_retention_for_robocasa_general(tmp_path):
 
 
 @pytest.mark.parametrize("support_kind", ["table", "floor"])
-@pytest.mark.parametrize("action_mode", ["single", "batch"])
+@pytest.mark.parametrize("action_mode", ["batch"])
 def test_remote_robocasa_general_handshake_and_historical_query(
     tmp_path, monkeypatch, support_kind, action_mode
 ):
@@ -1363,7 +1308,7 @@ def test_remote_robocasa_general_handshake_and_historical_query(
             assert remote.declarations(client) == remote.declarations(toolkit)
             init = client.initial_observation().data
             assert init["coordinates"]["world_cord"] == "general"
-            assert init["coordinates"]["tcp"] == "finger_pad_midpoint"
+            assert init["coordinates"]["tcp"] == "grip_site"
             if support_kind == "floor":
                 assert init["coordinates"]["support_surface"] == "floor"
                 assert init["coordinates"]["table_height_above_base_m"] is None
@@ -1382,23 +1327,21 @@ def test_remote_robocasa_general_handshake_and_historical_query(
             )
             assert bp0.data["coordinate_step"] == 0
 
-            if action_mode == "batch":
-                act = client.execute_tool(
-                    "execute_actions",
-                    {
-                        "actions": [
-                            {"action": "move_to", "xyz": [0.27, -0.02, 0.55]},
-                            {"action": "set_gripper", "opening": 1.0},
-                        ]
-                    },
-                )
-                assert act.data["status"] == "completed"
-            else:
-                act = client.execute_tool("move_to", {"xyz": [0.27, -0.02, 0.55]})
-                assert act.data["status"] == "reached"
+            act = client.execute_tool(
+                "execute_actions",
+                {
+                    "actions": [
+                        {"action": "move_to", "xyz": [0.27, -0.02, 0.55]},
+                        {"action": "set_gripper", "opening": 1.0},
+                    ]
+                },
+            )
+            assert act.data["status"] == "completed" and not act.images
 
-            moved = client.execute_tool(
-                "move_base", {"vx": 0.15, "yaw_rate": 0.4, "duration_s": 0.5}
+            moved = execute(
+                client,
+                "move_base",
+                {"vx": 0.15, "vy": 0, "yaw_rate": 0.4, "duration_s": 0.5},
             )
             assert moved.data["status"] == "commanded"
 
@@ -1424,3 +1367,46 @@ def test_remote_robocasa_general_handshake_and_historical_query(
         server.server_close()
         thread.join(timeout=3)
         assert not thread.is_alive()
+
+
+def execute(toolkit, name, arguments):
+    """Use a one-item batch when testing individual physical receipts."""
+    if name in {"move_to", "set_gripper", "move_base", "move_lift"}:
+        from tests.unit_tests.robots.rl.test_libero_rl_contracts import execute_item
+
+        return execute_item(toolkit, name, arguments)
+    return toolkit.execute_tool(name, arguments)
+
+
+def test_mixed_batch_uses_measured_base_and_lift_before_arm_target(tmp_path):
+    toolkit, env = _make_toolkit(tmp_path, position_unit="cm")
+    target = [30, -2, 55]
+    results = toolkit.execute_tool(
+        "execute_actions",
+        {
+            "actions": [
+                {
+                    "action": "move_base",
+                    "vx": 11,
+                    "vy": 0,
+                    "yaw_rate": 0.1,
+                    "duration_s": 1,
+                },
+                {"action": "move_lift", "delta_cm": 2, "duration_s": 2},
+                {"action": "move_to", "xyz": target},
+            ]
+        },
+    )
+    assert results.data["executed_count"] == 3, results.data
+    assert not results.images
+    base, lift, arm = results.data["results"]
+    assert base["frame_version"] > base["start_frame_version"]
+    assert lift["start_frame_version"] == base["frame_version"]
+    assert (
+        arm["start_frame_version"]
+        == lift["frame_version"]
+        > lift["start_frame_version"]
+    )
+    measured = env.mount_origin + env.mount_rotation @ (np.asarray(target) / 100)
+    np.testing.assert_allclose(env.pad_tcp_xyz, measured, atol=0.004)
+    assert results.data["position_unit"] == "cm"

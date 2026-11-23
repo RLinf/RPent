@@ -17,15 +17,15 @@
 from __future__ import annotations
 
 import socket
-import time
 import threading
+import time
 from contextlib import contextmanager
 
 import pytest
 
 from rpent.utils.daemon import pick_free_port
-from rpent.utils.rpc.http_rpc import HttpRpcClient
-from rpent.utils.rpc.socket_rpc import SocketRpcClient
+from rpent.utils.rpc.http_rpc import HttpRpcClient, HttpRpcServer
+from rpent.utils.rpc.socket_rpc import SocketRpcClient, SocketRpcServer
 
 
 @pytest.fixture
@@ -73,9 +73,6 @@ def make_serve_in_thread():
 
     return _ctx
 
-
-from rpent.utils.rpc.http_rpc import HttpRpcClient, HttpRpcServer
-from rpent.utils.rpc.socket_rpc import SocketRpcClient, SocketRpcServer
 
 TRANSPORTS = ["socket", "http"]
 

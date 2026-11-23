@@ -1,3 +1,5 @@
-# Compatibility entry: planner, simulator and training share the reason environment.
-# Install the validated offline package; this file preserves the old entry name.
--r episode-ppo-env.txt
+# Install from the RPent checkout in the RLinf planner/training environment.
+# The model backend and tokenizer come from the RLinf image.
+-e .
+openai==3.46.0
+httpx==0.28.1

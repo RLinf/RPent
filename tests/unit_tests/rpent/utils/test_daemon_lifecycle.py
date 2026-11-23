@@ -25,7 +25,7 @@ from typing import Any
 
 import pytest
 
-from rpent.utils.daemon import ParentDeathWatcher, ProcessDaemon
+from rpent.utils.daemon import ParentDeathWatcher, ProcessDaemon, process_start_ticks
 from rpent.utils.rpc import make_rpc_client, wait_for_endpoint, wait_for_ready
 
 
@@ -342,8 +342,10 @@ def test_spawned_daemon_inherits_rlinf_pythonpath(
 
 
 @pytest.mark.skipif(sys.platform != "linux", reason="uses Linux owned process groups")
+@pytest.mark.parametrize("leader_exits", [False, True])
 def test_owned_process_group_reaps_cold_children_without_stopping_other_daemons(
     tmp_path,
+    leader_exits,
 ):
     import json
 
@@ -362,7 +364,8 @@ def test_owned_process_group_reaps_cold_children_without_stopping_other_daemons(
     )
     parent = (
         "import subprocess,sys,time; "
-        f"subprocess.Popen([sys.executable,'-c',{child!r}]); time.sleep(60)"
+        f"subprocess.Popen([sys.executable,'-c',{child!r}]); "
+        f"time.sleep({0 if leader_exits else 60})"
     )
     daemon = ProcessDaemon(
         "cold-owned-tree",
@@ -382,6 +385,8 @@ def test_owned_process_group_reaps_cold_children_without_stopping_other_daemons(
     try:
         daemon.start()
         _wait_until(ids.exists)
+        if leader_exits:
+            _wait_until(lambda: daemon.poll() == 0)
         children = json.loads(ids.read_text())
         assert all(running(pid) for pid in children)
         daemon.stop(timeout=0.1)
@@ -480,7 +485,7 @@ def test_missing_process_group_does_not_scan_proc(monkeypatch):
         raise AssertionError("an absent process group needs no procfs enumeration")
 
     monkeypatch.setattr(module._PROCESS_GROUPS, "live", unexpected)
-    assert ProcessDaemon._live_process_group(10_000_000) == []
+    assert module._live_process_group(10_000_000) == []
 
 
 @pytest.mark.skipif(sys.platform != "linux", reason="uses Linux process identity")
@@ -493,7 +498,7 @@ def test_process_group_reuse_cannot_signal_a_foreign_group(tmp_path):
         "retired-owner", [sys.executable, "-c", "pass"], start_new_session=True
     )
     owner._process_group = foreign.pid
-    owner._process_group_start_ticks = owner._leader_start_ticks(foreign.pid) + 1
+    owner._process_group_start_ticks = process_start_ticks(foreign.pid) + 1
     try:
         with pytest.raises(RuntimeError, match="identifier was reused"):
             owner._stop_process_group(timeout=0.1)

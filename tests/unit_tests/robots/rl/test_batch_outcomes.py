@@ -73,6 +73,19 @@ def test_rejected_reply_does_not_hide_later_infrastructure_error(tmp_path):
     assert batch.terminal_failure(tmp_path) is None
 
 
+def test_native_failure_artifact_takes_precedence_over_planner_completion(tmp_path):
+    (tmp_path / "infrastructure_error.json").write_text('{"error":"CUDA failure"}')
+    (tmp_path / "result.json").write_text(
+        json.dumps({"success": False, "invalid_tool_responses": 1})
+    )
+    (tmp_path / "transcript_api.json").write_text(json.dumps({"error": None}))
+    (tmp_path / "states.json").write_text(
+        json.dumps({"steps": [{"terminated": False}]})
+    )
+    assert batch.terminal_failure(tmp_path) is None
+    assert batch.completed_without_training_trace(tmp_path, "missing trace") is None
+
+
 def test_deadline_without_final_result_is_retained_but_not_training_data(tmp_path):
     (tmp_path / "states.json").write_text(
         json.dumps({"steps": [{"terminated": False}]})
@@ -127,14 +140,15 @@ def test_zap_batch_rejects_native_jobs_before_writing_manifest(tmp_path, environ
         seeds=None,
         workflow="zap_turn",
     )
-    with pytest.raises(ValueError, match="does not support --workflow zap_turn"):
+    with pytest.raises(ValueError, match="episode exposes only"):
         batch.collect(args, output)
     assert not (output / "manifest.json").exists()
 
 
 @pytest.mark.parametrize("no_thinking", [False, True])
+@pytest.mark.parametrize("missing_trace", [False, True])
 def test_batch_thinking_reaches_process_and_cannot_change_on_resume(
-    tmp_path, monkeypatch, no_thinking
+    tmp_path, monkeypatch, no_thinking, missing_trace
 ):
     """Check the actual child argv and manifest boundary with an offline worker."""
     import sys
@@ -146,9 +160,16 @@ def test_batch_thinking_reaches_process_and_cannot_change_on_resume(
         "import json, os, sys\n"
         "from pathlib import Path\n"
         "p=Path(os.environ['RPENT_OUTPUT_DIR'])\n"
+        "assert os.environ['RPENT_RECORD_MODEL_REQUESTS']=='1'\n"
         "(p/'argv.json').write_text(json.dumps(sys.argv[1:]))\n"
         "(p/'states.json').write_text(json.dumps({'steps':[{'terminated':False}]}))\n"
-        "(p/'transcript_api.json').write_text(json.dumps({'error_kind':'context_limit'}))\n"
+        + (
+            "(p/'result.json').write_text(json.dumps({'task':{'seed':0},'success':False,'stats':{'turns_used':1},'max_turns':50}))\n"
+            "(p/'transcript_api.json').write_text(json.dumps({'error':None}))\n"
+            "(p/'rollout.json').write_text('{}')\n"
+            if missing_trace
+            else "(p/'transcript_api.json').write_text(json.dumps({'error_kind':'context_limit'}))\n"
+        )
     )
     launcher = batch.EVAL_DIR / "run.sh"
     (scripts / "run.sh").write_text(
@@ -176,7 +197,7 @@ def test_batch_thinking_reaches_process_and_cannot_change_on_resume(
         per_gpu=1,
         max_initializing_per_gpu=1,
         endpoints="http://127.0.0.1:1/v1",
-        infrastructure_retries=0,
+        infrastructure_retries=1,
         episode_timeout=30,
         start_interval=0,
         start_barrier=False,
@@ -188,6 +209,12 @@ def test_batch_thinking_reaches_process_and_cannot_change_on_resume(
     try:
         batch.collect(args, output)
         attempt = next(output.glob("*/attempt-001"))
+        assert not list(output.glob("*/attempt-002"))
+        if missing_trace:
+            outcome = batch.evaluated(attempt.parent)
+            assert outcome["termination_reason"] == "planner_completed"
+            assert outcome["training_usable"] is False
+            assert "completed turn coverage" in outcome["audit_error"]
         argv = json.loads((attempt / "argv.json").read_text())
         assert ("--no-thinking" in argv) is no_thinking
         assert (

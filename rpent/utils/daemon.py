@@ -160,6 +160,17 @@ class _ProcessGroupScanner:
 
     @staticmethod
     def _snapshot(group_ids: set[int]) -> dict[int, list[int]]:
+        if not Path("/proc/self/stat").is_file():
+            rows = subprocess.check_output(
+                ["ps", "-axo", "pid=,pgid=,stat="], text=True
+            ).splitlines()
+            live: dict[int, list[int]] = {}
+            for row in rows:
+                pid, group, state = row.split()
+                group_id = int(group)
+                if group_id in group_ids and not state.startswith("Z"):
+                    live.setdefault(group_id, []).append(int(pid))
+            return live
         live: dict[int, list[int]] = {}
         for stat in Path("/proc").glob("[0-9]*/stat"):
             try:
@@ -173,6 +184,47 @@ class _ProcessGroupScanner:
 
 
 _PROCESS_GROUPS = _ProcessGroupScanner()
+
+
+def process_start_ticks(pid: int) -> int | None:
+    """Read a Linux process start time for subsequent ownership checks."""
+    try:
+        fields = Path(f"/proc/{pid}/stat").read_text().rpartition(")")[2].split()
+    except (FileNotFoundError, ProcessLookupError):
+        return None
+    return int(fields[19])
+
+
+def _live_process_group(group_id: int) -> list[int]:
+    try:
+        os.killpg(group_id, 0)
+    except ProcessLookupError:
+        return []
+    return _PROCESS_GROUPS.live(group_id)
+
+
+def stop_owned_process_group(
+    group_id: int, leader_start_ticks: int | None, timeout: float
+) -> None:
+    """Terminate an owned session, including children surviving the leader."""
+    for sig in (signal.SIGTERM, signal.SIGKILL):
+        if not _live_process_group(group_id):
+            return
+        current = process_start_ticks(group_id)
+        if current is not None and current != leader_start_ticks:
+            raise RuntimeError(f"owned process group {group_id} identifier was reused")
+        try:
+            os.killpg(group_id, sig)
+        except ProcessLookupError:
+            return
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            if not _live_process_group(group_id):
+                return
+            time.sleep(0.02)
+    remaining = _live_process_group(group_id)
+    if remaining:
+        raise RuntimeError(f"owned process group {group_id} did not exit: {remaining}")
 
 
 class ProcessDaemon:
@@ -239,7 +291,7 @@ class ProcessDaemon:
             raise
         if self.start_new_session:
             self._process_group = self._proc.pid
-            self._process_group_start_ticks = self._leader_start_ticks(self._proc.pid)
+            self._process_group_start_ticks = process_start_ticks(self._proc.pid)
         logger.info("%s spawned (pid=%s)", self.name, self._proc.pid)
 
     def stop(self, timeout: float = 15.0) -> None:
@@ -252,7 +304,7 @@ class ProcessDaemon:
                     self._proc.wait(timeout=timeout)
                 except (BrokenPipeError, OSError, subprocess.TimeoutExpired):
                     pass
-            if self._proc.poll() is None:
+            if self._process_group is None and self._proc.poll() is None:
                 self._proc.terminate()
                 try:
                     self._proc.wait(timeout=timeout)
@@ -261,6 +313,7 @@ class ProcessDaemon:
                     self._proc.wait()
         if self._process_group is not None:
             self._stop_process_group(timeout)
+            self._proc.wait(timeout=timeout)
         if self._proc is not None and self._proc.stdin is not None:
             self._proc.stdin.close()
         if self._log_f is not None:
@@ -270,53 +323,8 @@ class ProcessDaemon:
                 pass
             self._log_f = None
 
-    @staticmethod
-    def _leader_start_ticks(group_id: int) -> int | None:
-        try:
-            fields = (
-                Path(f"/proc/{group_id}/stat").read_text().rpartition(")")[2].split()
-            )
-        except (FileNotFoundError, ProcessLookupError):
-            return None
-        return int(fields[19])
-
-    def _check_group_identity(self) -> None:
-        current = self._leader_start_ticks(self._process_group)
-        if current is not None and current != self._process_group_start_ticks:
-            raise RuntimeError(
-                f"owned process group {self._process_group} identifier was reused"
-            )
-
-    @staticmethod
-    def _live_process_group(group_id: int) -> list[int]:
-        try:
-            os.killpg(group_id, 0)
-        except ProcessLookupError:
-            return []
-        return _PROCESS_GROUPS.live(group_id)
-
     def _stop_process_group(self, timeout: float) -> None:
-        group_id = self._process_group
-        for sig in (signal.SIGTERM, signal.SIGKILL):
-            self._check_group_identity()
-            if not self._live_process_group(group_id):
-                self._process_group = None
-                return
-            self._check_group_identity()
-            try:
-                os.killpg(group_id, sig)
-            except ProcessLookupError:
-                self._process_group = None
-                return
-            deadline = time.monotonic() + timeout
-            while time.monotonic() < deadline:
-                if not self._live_process_group(group_id):
-                    self._process_group = None
-                    return
-                time.sleep(0.02)
-        remaining = self._live_process_group(group_id)
-        if remaining:
-            raise RuntimeError(
-                f"owned process group {group_id} did not exit: {remaining}"
-            )
+        stop_owned_process_group(
+            self._process_group, self._process_group_start_ticks, timeout
+        )
         self._process_group = None

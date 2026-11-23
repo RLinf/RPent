@@ -122,7 +122,7 @@ def test_no_memory_preserves_evaluation_toolset(
         prompt_vars={"memory_profile": "none"},
     )
     native = robot_spec.get_toolkit(
-        runtime_kwargs={"env_client": object()},
+        runtime_kwargs={"env": object()},
         dashboard_events=NullDashboardEventSink(),
         config=config,
         state_output_dir=tmp_path,

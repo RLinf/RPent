@@ -64,10 +64,12 @@ def world_from_depth(depth_m: np.ndarray, camera_meta: dict[str, Any]) -> np.nda
     return (camera_points @ extrinsic.T)[..., :3]
 
 
-def valid_points(points: np.ndarray) -> np.ndarray:
-    """Keep finite, nonzero world points as an ``(N, 3)`` float array."""
+def valid_points(points: np.ndarray, *, zero_is_invalid: bool = True) -> np.ndarray:
+    """Keep finite points; optionally reject the legacy zero-depth sentinel."""
     flat = np.asarray(points, dtype=np.float64).reshape(-1, 3)
-    keep = np.isfinite(flat).all(axis=1) & (np.abs(flat).sum(axis=1) > 1e-6)
+    keep = np.isfinite(flat).all(axis=1)
+    if zero_is_invalid:
+        keep &= np.abs(flat).sum(axis=1) > 1e-6
     return flat[keep]
 
 

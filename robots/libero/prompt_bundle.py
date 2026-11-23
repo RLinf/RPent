@@ -56,7 +56,9 @@ def user_prompt(variables: Mapping[str, object] | None = None) -> PromptNode:
     return {
         "CELL": user_parts.CELL,
         "MODE": mode,
-        "BEGIN": user_parts.BEGIN_WITH_TASK_MEMORY if variables.get("memory_in_task") else user_parts.BEGIN,
+        "BEGIN": user_parts.BEGIN_WITH_TASK_MEMORY
+        if variables.get("memory_in_task")
+        else user_parts.BEGIN,
     }
 
 

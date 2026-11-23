@@ -9,6 +9,11 @@ export LIBERO_TYPE=pro
 export ROBOTWIN_ASSETS_PATH="$RPENT_DATA_ROOT/robotwin"
 export RPENT_ROBOCASA_PYTHON="$PWD/.venv-robocasa/bin/python"
 export RPENT_ROBOTWIN_PYTHON="$PWD/.venv-robotwin/bin/python"
+export RPENT_ROBODOJO_PYTHON="$PWD/.venv-robodojo/bin/python"
+export ROBODOJO_ASSETS_ROOT="$RPENT_DATA_ROOT/RoboDojo"
+export RPENT_WORLD_CORD=general
+export RPENT_POSITION_UNIT=cm
+# Original SFT595 RL uses world_cord=base and position_unit=m.
 export RPENT_MODEL=openai-chat:qwen3.8-27b
 export RPENT_BASE_URL=http://127.0.0.1:30080/v1
 export RPENT_SAM3_ENDPOINT=http://127.0.0.1:8112

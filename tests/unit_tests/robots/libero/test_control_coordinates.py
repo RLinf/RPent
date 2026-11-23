@@ -84,11 +84,13 @@ def test_native_calibration_is_fixed_per_reset_but_tcp_is_measured():
     scene = native_scene()
     wrapped = ControlObservation(scene, world_cord="general")
     first = wrapped.rpent_control_state
-    np.testing.assert_allclose(first["pad_tcp_xyz"], [4.2, -3.0, 1.19])
+    np.testing.assert_allclose(first["xyz"], [4.2, -3.0, 1.2])
+    assert first["coordinate_calibration"]["tcp"] == "grip_site"
     scene.sim.data.geom_xpos[:, 0] += 0.01
+    scene.sim.data.site_xpos[:, 0] += 0.02
     scene.sim.data.body_xpos[0, 0] += 2
     second = wrapped.rpent_control_state
-    np.testing.assert_allclose(second["pad_tcp_xyz"], [4.21, -3.0, 1.19])
+    np.testing.assert_allclose(second["xyz"], [4.22, -3.0, 1.2])
     np.testing.assert_allclose(
         second["coordinate_calibration"]["base_xyz"], [4, -3, 0.8]
     )

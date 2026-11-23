@@ -19,7 +19,7 @@ import io
 import pytest
 from PIL import Image
 
-from robots.rl.images import native_pixel, resize_image, scale_box
+from robots.rl.images import map_box, map_pixel, resize_image
 
 
 @pytest.mark.parametrize("size", [1024, 512, 256])
@@ -28,15 +28,13 @@ def test_display_resize_and_native_pixel_centre(size):
     Image.new("RGB", (1024, 1024)).save(stream, format="PNG")
     resized = resize_image(stream.getvalue(), size)
     assert Image.open(io.BytesIO(resized)).size == (size, size)
-    assert native_pixel([0, size - 1], size) == [
-        1024 // size // 2,
-        1024 - (1024 // size + 1) // 2,
+    assert map_pixel([0, size - 1], (size, size), (1024, 1024)) == [
+        512 // size,
+        min(1023, 1024 - 512 // size),
     ]
-    assert scale_box([0, 0, size, size], size, 1024) == [0, 0, 1024, 1024]
-    with pytest.raises(ValueError, match="outside"):
-        native_pixel([size, 0], size)
+    assert map_box([0, 0, size, size], (size, size), (1024, 1024)) == [0, 0, 1024, 1024]
 
 
 def test_half_open_boxes_round_outward():
-    assert scale_box([1, 2, 5, 7], 1024, 256) == [0, 0, 2, 2]
-    assert scale_box([0, 0, 2, 2], 256, 1024) == [0, 0, 8, 8]
+    assert map_box([1, 2, 5, 7], (1024, 1024), (256, 256)) == [0, 0, 2, 2]
+    assert map_box([0, 0, 2, 2], (256, 256), (1024, 1024)) == [0, 0, 8, 8]

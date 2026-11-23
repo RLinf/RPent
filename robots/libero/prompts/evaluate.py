@@ -901,21 +901,32 @@ def system_prompt(
         return {
             "EVALUATION": NO_MEMORY_RULES,
             "RUNTIME": runtime(geometry),
-            "PRIMITIVES": allowed_primitives(bool(variables.get("enable_direct_action"))),
+            "PRIMITIVES": allowed_primitives(
+                bool(variables.get("enable_direct_action"))
+            ),
             "OUTPUT DISCIPLINE": OUTPUT_DISCIPLINE,
         }
     if variables.get("memory_profile", "hf") == "local":
         frozen = variables.get("memory_in_task")
         return {
             "ROLE AND EVALUATION": ROLE_AND_EVALUATION,
-            ("MEMORY PROFILE — FROZEN TASK MEMORY" if frozen else "MEMORY PROFILE — LOCAL SUITE + TASK + GLOBAL"): TASK_MEMORY_PROFILE if frozen else LOCAL_MEMORY_PROFILE,
+            (
+                "MEMORY PROFILE — FROZEN TASK MEMORY"
+                if frozen
+                else "MEMORY PROFILE — LOCAL SUITE + TASK + GLOBAL"
+            ): TASK_MEMORY_PROFILE if frozen else LOCAL_MEMORY_PROFILE,
             "PROVEN LEVERS": proven_levers(geometry),
             "RUNTIME": runtime(geometry),
             "YOUR GOAL": GOAL,
             "RULES (NON-NEGOTIABLE)": rules(geometry),
             "LOCALIZATION": localization(variables),
             "FIRST-STEP ALGORITHM": perception_algorithm(variables),
-            "WORKFLOW": Numbered(workflow_steps(TASK_MEMORY_WORKFLOW_STEPS if frozen else LOCAL_WORKFLOW_STEPS, variables)),
+            "WORKFLOW": Numbered(
+                workflow_steps(
+                    TASK_MEMORY_WORKFLOW_STEPS if frozen else LOCAL_WORKFLOW_STEPS,
+                    variables,
+                )
+            ),
             "KEY HYPERPARAMETERS": KEY_HYPERPARAMETERS,
             "OUTPUT DISCIPLINE": OUTPUT_DISCIPLINE,
         }

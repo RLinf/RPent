@@ -24,13 +24,12 @@ import subprocess
 import sys
 from datetime import datetime
 from functools import partial
+from math import isfinite
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from robots.rl.contracts import EPISODE_CONTRACT_VERSION
 from robots.rl.prompt_bundle import (
-    OBSERVATION_MODES,
-    PROMPT_VARIANTS,
-    WORKFLOWS,
     system_prompt,
     user_prompt,
     validate_workflow,
@@ -97,7 +96,7 @@ def get_toolkit(
         environment=config.prompt_vars.get("environment", "libero"),
         workflow=config.prompt_vars.get("workflow", "episode"),
         image_size=config.prompt_vars.get("image_size", 1024),
-        action_mode=config.prompt_vars.get("action_mode", "single"),
+        action_mode=config.prompt_vars.get("action_mode", "batch"),
         max_actions_per_call=config.prompt_vars.get("max_actions_per_call", 3),
         reasoning_history=config.prompt_vars.get("reasoning_history", -1),
         image_history=config.prompt_vars.get("image_history", -1),
@@ -105,6 +104,7 @@ def get_toolkit(
         max_observe_calls=config.prompt_vars.get("max_observe_calls", 8),
         observe_concurrency=config.prompt_vars.get("observe_concurrency", 8),
         world_cord=config.prompt_vars.get("world_cord", "base"),
+        position_unit=config.prompt_vars.get("position_unit", "m"),
         reasoning=config.prompt_vars.get("reasoning", True),
     )
 
@@ -114,36 +114,26 @@ def _add_cli_args(parser: argparse.ArgumentParser, use_dashboard: bool) -> None:
     parser.add_argument(
         "--simulator",
         dest="env",
-        choices=("libero", "robocasa", "robotwin"),
+        choices=("libero", "robocasa", "robotwin", "robodojo"),
         default="libero",
     )
-    parser.add_argument("--workflow", choices=WORKFLOWS, default="episode")
+    parser.set_defaults(
+        workflow="episode",
+        observation_mode="adaptive",
+        prompt="simple",
+        perception_mode="single",
+        max_observe_calls=8,
+        observe_concurrency=8,
+    )
+    parser.add_argument("--position-unit", choices=("m", "cm"), default="m")
     parser.add_argument(
         "--world-cord",
         choices=("base", "general"),
         default="base",
-        help="base: existing simulator world; general: mounted robot-base frame and finger-pad TCP (LIBERO, RoboTwin and RoboCasa).",
+        help="base: existing simulator world; general: measured mounting-base frame and robot grasp TCP.",
     )
-    parser.add_argument("--action-mode", choices=("single", "batch"), default="single")
+    parser.add_argument("--action-mode", choices=("batch",), default="batch")
     parser.add_argument("--max-actions-per-call", type=int, default=3)
-    parser.add_argument(
-        "--perception-mode",
-        choices=("single", "batch"),
-        default="single",
-        help="single: view_env/segment/back_project; batch: observe(calls=[...]), episode only.",
-    )
-    parser.add_argument(
-        "--max-observe-calls",
-        type=int,
-        default=8,
-        help="Maximum total subcalls in observe; >=1, requires perception-mode batch.",
-    )
-    parser.add_argument(
-        "--observe-concurrency",
-        type=int,
-        default=8,
-        help="Maximum independent observe subcalls in flight; >=1. Does not change SAM3 worker limits.",
-    )
     parser.add_argument(
         "--reasoning-history",
         type=int,
@@ -163,7 +153,16 @@ def _add_cli_args(parser: argparse.ArgumentParser, use_dashboard: bool) -> None:
         default=1024,
         help="VLM image width/height; native RGB-D and SAM3 remain 1024.",
     )
-    parser.add_argument("--task-name", help="RoboCasa or RoboTwin task identifier.")
+    parser.add_argument(
+        "--task-name", help="RoboCasa, RoboTwin or RoboDojo task identifier."
+    )
+    parser.add_argument(
+        "--layout",
+        type=int,
+        default=0,
+        help="RoboDojo official layout index within the seed group.",
+    )
+    parser.add_argument("--robodojo-source-root", type=Path, default=None)
     parser.add_argument(
         "--split", default="target", choices=("target", "pretrain", "all")
     )
@@ -180,20 +179,6 @@ def _add_cli_args(parser: argparse.ArgumentParser, use_dashboard: bool) -> None:
     )
     parser.add_argument(
         "--sim-python", help="Interpreter containing the selected simulator."
-    )
-    parser.add_argument(
-        "--observation-mode",
-        choices=OBSERVATION_MODES,
-        default="adaptive",
-        help="Adaptive observations: explicit in episode, automatic in zap_* modes.",
-    )
-    parser.add_argument(
-        "--prompt",
-        choices=PROMPT_VARIANTS,
-        default="simple",
-        help="System prompt variant: simple is the bare tool contract; base adds "
-        "the robot, frames and execution; base_gripper adds finger geometry; "
-        "base_gripper_camera adds camera geometry.",
     )
     parser.add_argument("--suite", help="LIBERO suite, e.g. libero_object")
     parser.add_argument("--task", type=int)
@@ -240,6 +225,8 @@ def _validate_args(args: argparse.Namespace) -> None:
     workflow = getattr(args, "workflow", "episode")
     world_cord = getattr(args, "world_cord", "base")
     validate_workflow(environment, workflow)
+    if getattr(args, "prompt", "simple") != "simple":
+        raise ValueError("episode uses a fixed prompt per simulator")
     from robots.rl.contracts import (
         validate_coordinates,
         validate_image_size,
@@ -258,7 +245,7 @@ def _validate_args(args: argparse.Namespace) -> None:
     validate_options(
         environment,
         workflow,
-        getattr(args, "action_mode", "single"),
+        getattr(args, "action_mode", "batch"),
         getattr(args, "max_actions_per_call", 3),
         getattr(args, "reasoning_history", -1),
         getattr(args, "image_history", -1),
@@ -278,15 +265,13 @@ def _validate_args(args: argparse.Namespace) -> None:
         raise ValueError("rl runs non-interactive rollouts")
     if args.memory_dir is not None or args.memory_repo is not None:
         raise ValueError("rl loads no memory; remove --memory-dir/--memory-repo")
-    if args.observation_mode != "adaptive":
+    if getattr(args, "observation_mode", "adaptive") != "adaptive":
         raise ValueError("rl supports only adaptive observations")
     if args.no_images:
         raise ValueError("rl requires camera images; remove --no-images")
     if getattr(args, "remote_toolkit_endpoint", None) is not None:
-        if getattr(args, "workflow", "episode") not in {"episode", "pear"}:
-            raise ValueError(
-                "remote toolkit currently supports --workflow episode or pear"
-            )
+        if getattr(args, "workflow", "episode") != "episode":
+            raise ValueError("remote toolkit supports episode only")
         if getattr(args, "perception_mode", "single") != "single":
             raise ValueError("remote toolkit currently supports single perception")
         if args.env_endpoint is not None or args.sam3_endpoint is not None:
@@ -301,12 +286,14 @@ def _skip_memory(args: argparse.Namespace, config: RunConfig) -> None:
 
 def _parse_config(args: argparse.Namespace) -> RunConfig:
     """Derive the run identifiers and the planner-visible prompt variables."""
-    if args.observation_mode != "adaptive":
+    if getattr(args, "observation_mode", "adaptive") != "adaptive":
         raise ValueError("rl supports only adaptive observations")
     environment = getattr(args, "env", "libero")
     workflow = getattr(args, "workflow", "episode")
     world_cord = getattr(args, "world_cord", "base")
     validate_workflow(environment, workflow)
+    if getattr(args, "prompt", "simple") != "simple":
+        raise ValueError("episode uses a fixed prompt per simulator")
     from robots.rl.contracts import (
         validate_coordinates,
         validate_image_size,
@@ -325,7 +312,7 @@ def _parse_config(args: argparse.Namespace) -> RunConfig:
     validate_options(
         environment,
         workflow,
-        getattr(args, "action_mode", "single"),
+        getattr(args, "action_mode", "batch"),
         getattr(args, "max_actions_per_call", 3),
         getattr(args, "reasoning_history", -1),
         getattr(args, "image_history", -1),
@@ -336,7 +323,7 @@ def _parse_config(args: argparse.Namespace) -> RunConfig:
     if environment == "libero" and args.task is None:
         raise ValueError("--task is required")
     if environment != "libero" and not args.task_name:
-        raise ValueError("--task-name is required for RoboCasa and RoboTwin")
+        raise ValueError("--task-name is required for RoboCasa, RoboTwin and RoboDojo")
     if environment != "libero" and not re.fullmatch(r"[A-Za-z0-9_]+", args.task_name):
         raise ValueError("task names must contain only letters, digits and underscores")
     cell = (
@@ -344,7 +331,7 @@ def _parse_config(args: argparse.Namespace) -> RunConfig:
         if environment == "libero"
         else f"{environment}_{args.task_name}"
     )
-    cell += f"_s{args.seed}_{args.observation_mode}"
+    cell += f"_s{args.seed}_adaptive"
     output_dir = args.output_dir or (
         get_repo_root() / "logs" / f"{datetime.now():%Y%m%d-%H:%M:%S}_{cell}"
     )
@@ -352,14 +339,15 @@ def _parse_config(args: argparse.Namespace) -> RunConfig:
         recipe_tag=cell.removeprefix("libero_"),
         output_dir=Path(output_dir),
         prompt_vars={
-            "observation_mode": args.observation_mode,
-            "prompt": args.prompt,
+            "observation_mode": getattr(args, "observation_mode", "adaptive"),
+            "prompt": getattr(args, "prompt", "simple"),
             "environment": environment,
             "workflow": workflow,
             "world_cord": getattr(args, "world_cord", "base"),
+            "position_unit": getattr(args, "position_unit", "m"),
             "reasoning": not getattr(args, "no_thinking", False),
             "image_size": getattr(args, "image_size", 1024),
-            "action_mode": getattr(args, "action_mode", "single"),
+            "action_mode": getattr(args, "action_mode", "batch"),
             "perception_mode": getattr(args, "perception_mode", "single"),
             "max_observe_calls": getattr(args, "max_observe_calls", 8),
             "observe_concurrency": getattr(args, "observe_concurrency", 8),
@@ -371,14 +359,16 @@ def _parse_config(args: argparse.Namespace) -> RunConfig:
             "suite": args.suite,
             "task": args.task,
             "seed": args.seed,
-            "observation_mode": args.observation_mode,
-            "prompt": args.prompt,
+            **({"layout": args.layout} if environment == "robodojo" else {}),
+            "observation_mode": getattr(args, "observation_mode", "adaptive"),
+            "prompt": getattr(args, "prompt", "simple"),
             "environment": environment,
             "workflow": workflow,
             "world_cord": getattr(args, "world_cord", "base"),
+            "position_unit": getattr(args, "position_unit", "m"),
             "reasoning": not getattr(args, "no_thinking", False),
             "image_size": getattr(args, "image_size", 1024),
-            "action_mode": getattr(args, "action_mode", "single"),
+            "action_mode": getattr(args, "action_mode", "batch"),
             "perception_mode": getattr(args, "perception_mode", "single"),
             "max_observe_calls": getattr(args, "max_observe_calls", 8),
             "observe_concurrency": getattr(args, "observe_concurrency", 8),
@@ -399,6 +389,11 @@ def _spawn_server(
     env_overrides: dict[str, str] | None = None,
     python: str | None = None,
 ) -> tuple[ProcessDaemon, RpcClient]:
+    startup_timeout = 300.0
+    if name == "env_server":
+        startup_timeout = float(os.environ.get("RPENT_ENV_STARTUP_TIMEOUT_S", "300"))
+        if not isfinite(startup_timeout) or startup_timeout <= 0:
+            raise ValueError("RPENT_ENV_STARTUP_TIMEOUT_S must be finite and positive")
     log = output_dir / f"{name}.log"
     log.write_text("")
     cuda = (
@@ -424,7 +419,7 @@ def _spawn_server(
     )
     daemon.start()
     try:
-        endpoint = wait_for_endpoint(daemon)
+        endpoint = wait_for_endpoint(daemon, timeout_s=startup_timeout)
     except BaseException:
         daemon.stop()
         raise
@@ -437,6 +432,38 @@ def _start_env(
     if args.env_endpoint is not None:
         return None, make_rpc_client(args.env_endpoint)
     environment = getattr(args, "env", "libero")
+    if environment == "robodojo":
+        simulator_python = args.sim_python or os.environ.get("RPENT_ROBODOJO_PYTHON")
+        return _spawn_server(
+            args,
+            output_dir,
+            "env_server",
+            get_repo_root() / "robots/robodojo/env_server.py",
+            [
+                "--task",
+                args.task_name,
+                "--layout",
+                str(args.layout),
+                "--seed",
+                str(args.seed),
+                "--max-episode-steps",
+                str(args.max_episode_steps),
+                "--mode",
+                "eval-fair",
+                "--episode-protocol",
+                "--headless",
+                "--enable_cameras",
+                "--save-dir",
+                str(output_dir / "native"),
+                *(
+                    ["--source-root", str(args.robodojo_source_root)]
+                    if args.robodojo_source_root
+                    else []
+                ),
+            ],
+            {"PYTHONPATH": str(get_repo_root()), "OMP_NUM_THREADS": "1"},
+            python=simulator_python,
+        )
     if environment != "libero":
         simulator_python = args.sim_python or os.environ.get(
             f"RPENT_{environment.upper()}_PYTHON"
@@ -500,14 +527,8 @@ def _start_env(
             "--max-episode-steps",
             str(args.max_episode_steps),
             "--rl-control-state",
-            *(["--rgb-only"] if getattr(args, "workflow", "episode") == "pear" else []),
             "--world-cord",
             getattr(args, "world_cord", "base"),
-            *(
-                ["--coordinate-calibration"]
-                if getattr(args, "workflow", "episode") == "pear"
-                else []
-            ),
         ],
         {
             "LIBERO_TYPE": args.libero_type or get_libero_type(),
@@ -571,6 +592,7 @@ def _init_runtime(
         return [], {
             "remote_endpoint": args.remote_toolkit_endpoint,
             "remote_request": {
+                "episode_contract_version": EPISODE_CONTRACT_VERSION,
                 "task": task,
                 "gpu": args.cuda_device,
                 "max_episode_steps": args.max_episode_steps,
@@ -588,8 +610,6 @@ def _init_runtime(
         },
     }
     selected = set(starters) if components is None else set(components)
-    if getattr(args, "workflow", "episode") == "pear":
-        selected.discard("sam3")
     if unknown := selected.difference(starters):
         raise ValueError(f"unknown rl runtime components: {sorted(unknown)}")
 
@@ -630,6 +650,26 @@ def _connect_env(args: argparse.Namespace, rpc) -> dict[str, Any]:
                 "seed": args.seed,
                 "max_episode_steps": args.max_episode_steps,
             },
+        )
+    elif environment == "robodojo":
+        from robots.robodojo.env_client import RoboDojoEnvClient
+
+        env = RoboDojoEnvClient(
+            rpc,
+            expected_meta={
+                "action_protocol_version": 1,
+                "task": args.task_name,
+                "layout": args.layout,
+                "seed": args.seed,
+                "mode": "eval-fair",
+                "episode_protocol": True,
+                "env_cfg_type": "arx_x5",
+                "device_id": args.cuda_device if args.cuda_device is not None else 0,
+                "num_envs": 1,
+                "random": False,
+                "max_episode_steps": args.max_episode_steps,
+            },
+            record_vpp2_history=False,
         )
     elif environment == "robocasa":
         from robots.robocasa.env_client import RoboCasaEnvClient
@@ -677,40 +717,10 @@ def configure_planner(planner, config: RunConfig):
         raise ValueError("rl workflows require --planner api")
     from robots.rl.history import HistoryRetention
 
-    if config.prompt_vars.get("workflow") == "pear":
-        planner.thinking = config.prompt_vars.get("reasoning", True)
-        if not planner.thinking:
-            planner.reasoning_effort = "none"
-            if planner.model_settings is not None:
-                from rpent.planner.qwen import is_qwen_model
-
-                if is_qwen_model(getattr(planner.model, "model_name", "")):
-                    extra = planner.model_settings.get("extra_body") or {}
-                    template = extra.get("chat_template_kwargs") or {}
-                    planner.model_settings.pop("openai_reasoning_effort", None)
-                    planner.model_settings["extra_body"] = {
-                        **extra,
-                        "chat_template_kwargs": {**template, "enable_thinking": False},
-                    }
     planner.capabilities_factory = lambda toolkit, system, user, turns: [
         WorkflowCapability(toolkit, system, user, turns, timeout_s=planner.timeout_s),
-        *(
-            [HistoryRetention(toolkit)]
-            if (
-                config.prompt_vars.get("environment", "libero") == "libero"
-                and config.prompt_vars.get("workflow", "episode")
-                in {"episode", "episode_image", "pear"}
-            )
-            or (
-                config.prompt_vars.get("environment", "libero") == "robocasa"
-                and config.prompt_vars.get("workflow", "episode") == "episode"
-                and config.prompt_vars.get("world_cord", "base") == "general"
-            )
-            else []
-        ),
+        HistoryRetention(toolkit),
     ]
-    if config.prompt_vars.get("workflow", "episode") == "zap_turn":
-        planner.compaction = None
     return planner
 
 

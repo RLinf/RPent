@@ -17,7 +17,7 @@
 import importlib
 import sys
 from copy import deepcopy
-from types import ModuleType, SimpleNamespace
+from types import SimpleNamespace
 
 import numpy as np
 import pytest
@@ -29,21 +29,6 @@ from robots.robodojo.env_facade import RoboDojoEnvFacade
 
 @pytest.fixture
 def agent_module(monkeypatch):
-    name = "rlinf.envs.sim.robodojo.robodojo_env"
-    try:
-        importlib.import_module(name)
-    except ModuleNotFoundError:
-        # The simulator adapter is optional in RPent's base test environment.
-        stub = ModuleType(name)
-
-        class RoboDojoEnv:
-            def close(self, clear_cache=True):
-                if not self._closed:
-                    self.venv.close(clear_cache)
-                    self._closed = True
-
-        stub.RoboDojoEnv = RoboDojoEnv
-        monkeypatch.setitem(sys.modules, name, stub)
     monkeypatch.delitem(sys.modules, "robots.robodojo.rlinf_env", raising=False)
     module = importlib.import_module("robots.robodojo.rlinf_env")
     yield module

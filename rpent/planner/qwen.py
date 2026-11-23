@@ -122,7 +122,11 @@ def qwen_model_settings(
             },
         },
     )
-    if reasoning_effort != "none":
+    if reasoning_effort == "xhigh":
+        # Qwen's tier belongs to its template; older OpenAI endpoint schemas
+        # accept "max" instead, which the Qwen template itself rejects.
+        settings["extra_body"]["chat_template_kwargs"]["reasoning_effort"] = "xhigh"
+    elif reasoning_effort != "none":
         settings["openai_reasoning_effort"] = OPENAI_REASONING_EFFORT_MAP.get(
             reasoning_effort, reasoning_effort
         )

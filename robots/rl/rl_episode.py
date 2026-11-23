@@ -88,10 +88,11 @@ def start_environment(
     args.image_size = task.get("image_size", getattr(args, "image_size", 1024))
     for name, default in (
         ("world_cord", "base"),
+        ("position_unit", "m"),
         ("perception_mode", "single"),
         ("max_observe_calls", 8),
         ("observe_concurrency", 8),
-        ("action_mode", "single"),
+        ("action_mode", "batch"),
         ("max_actions_per_call", 3),
         ("reasoning_history", -1),
         ("image_history", -1),
@@ -99,6 +100,7 @@ def start_environment(
         setattr(args, name, task.get(name, getattr(args, name, default)))
     args.suite, args.task, args.seed = task.get("suite"), task.get("task"), task["seed"]
     args.task_name = task.get("task_name", getattr(args, "task_name", None))
+    args.layout = task.get("layout", getattr(args, "layout", 0))
     args.split = task.get("split", getattr(args, "split", "target"))
     args.task_config = task.get(
         "task_config", getattr(args, "task_config", "demo_randomized")
@@ -228,6 +230,16 @@ async def solve(
 def episode_outcome(result: PlannerResult, toolkit: Toolkit, max_turns: int) -> dict:
     """Describe a finished episode; success always comes from the environment."""
     success = bool(toolkit.solved())
+    execution_error = getattr(toolkit, "infrastructure_error", None)
+    if execution_error is not None:
+        return {
+            "success": success,
+            "truncated": False,
+            "terminal": False,
+            "termination_reason": "infrastructure_error",
+            "error_kind": "tool_transport",
+            "error": execution_error,
+        }
     service_errors = []
     for record in toolkit.state.records():
         for name in sorted(record.artifacts):

@@ -140,6 +140,32 @@ def solve(tmp_path, model, toolkit=None, events=None, **kwargs):
     return result, toolkit, events
 
 
+def test_native_failure_stops_before_another_model_request(tmp_path):
+    toolkit = RobotToolkit(Events())
+    failed = False
+    requests = []
+
+    def act():
+        nonlocal failed
+        failed = True
+        return {"status": "error", "state_stale": True}
+
+    toolkit.register("act", act)
+    toolkit.completion_result = lambda: (
+        {"status": "error", "reason": "infrastructure_error"} if failed else None
+    )
+
+    async def stream(messages, info):
+        requests.append(messages)
+        assert len(requests) == 1
+        yield tool("act")
+
+    result, _, _ = solve(tmp_path, FunctionModel(stream_function=stream), toolkit)
+    assert len(requests) == 1
+    assert result.error_kind == "infrastructure_error"
+    assert result.error
+
+
 def test_uncompacted_sampling_preserves_history_and_settings(tmp_path):
     histories = []
 
@@ -320,7 +346,10 @@ def test_opening_message_appends_the_initial_observation(tmp_path):
 
     assert result.error is None
     opening = next(
-        part for part in histories[0][0].parts if isinstance(part, UserPromptPart)
+        part
+        for message in histories[0]
+        for part in message.parts
+        if isinstance(part, UserPromptPart) and "Do the task." in str(part.content)
     )
     text = opening.content if isinstance(opening.content, str) else opening.content[0]
     assert "Do the task." in text
@@ -353,7 +382,10 @@ def test_opening_message_drops_images_when_the_run_suppresses_them(tmp_path):
 
     assert result.error is None
     opening = next(
-        part for part in histories[0][0].parts if isinstance(part, UserPromptPart)
+        part
+        for message in histories[0]
+        for part in message.parts
+        if isinstance(part, UserPromptPart) and "Do the task." in str(part.content)
     )
     content = [opening.content] if isinstance(opening.content, str) else opening.content
     assert not [part for part in content if isinstance(part, BinaryContent)]
@@ -634,7 +666,7 @@ def test_schema_validation_and_sequential_physical_tools(tmp_path, invalid_posit
     planners = toolkit.state.planner_records()
     assert [len(record.tool_calls) for record in planners] == [1, 2, 1]
     refused = planners[0].tool_calls[0]
-    assert json.loads(refused.arguments.data) == {"position": "bad"}
+    assert json.loads(refused.arguments.data) == {"position": invalid_position}
     assert refused.status == "not_executed" and refused.started_at is None
     assert refused.feedback.format == "pydantic_ai.model_retry"
     assert all(call.status == "completed" for call in planners[1].tool_calls)
@@ -1833,6 +1865,8 @@ def test_interrupted_tool_arguments_are_retained_without_execution(tmp_path):
     assert call.arguments.data == '{ "position":'
     assert call.arguments.completeness == "partial"
     assert call.status == "not_executed" and toolkit.calls == []
+
+
 def _qwen_model(bodies, name="qwen3.5-4b", replies=None):
     from pydantic_ai.providers.openai import OpenAIProvider
 
@@ -1867,14 +1901,17 @@ def test_qwen_requests_state_thinking_and_sampling_explicitly(
     assert result.error is None
     assert toolkit.calls == [("finish", FINISH_ARGS)]
     body = bodies[0]
-    assert body["chat_template_kwargs"] == {
+    expected_template_kwargs = {
         "enable_thinking": thinking,
         "preserve_thinking": True,
     }
+    if expected_effort is not None:
+        expected_template_kwargs["reasoning_effort"] = expected_effort
+    assert body["chat_template_kwargs"] == expected_template_kwargs
     assert (body["temperature"], body["top_p"], body["top_k"]) == (1.0, 0.95, 20)
     assert body["max_completion_tokens"] == 32768
     assert body["parallel_tool_calls"] is False
-    assert body.get("reasoning_effort") == expected_effort
+    assert "reasoning_effort" not in body
 
 
 @pytest.mark.parametrize("qwen", [True, False])

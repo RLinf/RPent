@@ -137,7 +137,14 @@ class PlannerResult:
     planning without setting ``error``.
     """
 
-    __slots__ = ("finish_result", "messages", "stats", "error", "stop_reason", "error_kind")
+    __slots__ = (
+        "finish_result",
+        "messages",
+        "stats",
+        "error",
+        "stop_reason",
+        "error_kind",
+    )
 
     def __init__(
         self,
@@ -258,29 +265,41 @@ def build_api_model(
     from pydantic_ai.providers import infer_provider, infer_provider_class
 
     trace = None
-    if request_trace_dir is not None:
-        import httpx
+    admission = None
+    if os.environ.get("RPENT_EXCLUDE_MODEL_QUEUE") == "1":
+        from rpent.planner.admission import AdmissionClock
 
+        admission = AdmissionClock(request_trace_dir)
+    if request_trace_dir is not None:
         from rpent.planner.request_trace import RequestTrace, TraceTransport
 
         trace = RequestTrace(request_trace_dir)
 
     def _provider_factory(provider_name: str):
         """Build the provider for ``provider_name``."""
-        if not base_url and trace is None:
+        if not base_url and trace is None and admission is None:
             return infer_provider(provider_name)
         provider_cls = infer_provider_class(provider_name)
         params = inspect.signature(provider_cls.__init__).parameters
         kwargs = {}
         if "base_url" in params:
             kwargs["base_url"] = base_url
-        if trace is not None:
+        if trace is not None or admission is not None:
+            import httpx
+
             if "http_client" not in params:
                 raise ValueError(
                     "request recording requires an HTTP-compatible provider"
                 )
+            transport = None
+            if admission is not None:
+                from rpent.planner.admission import AdmissionTransport
+
+                transport = AdmissionTransport(admission)
+            if trace is not None:
+                transport = TraceTransport(trace, wrapped=transport)
             kwargs["http_client"] = httpx.AsyncClient(
-                transport=TraceTransport(trace), timeout=httpx.Timeout(14400.0)
+                transport=transport, timeout=httpx.Timeout(14400.0)
             )
         return provider_cls(**kwargs)
 
@@ -297,6 +316,12 @@ def build_api_model(
                 "native request recording currently requires a Qwen chat model"
             )
         resolved.request_trace = trace
+    if admission is not None:
+        from rpent.planner.qwen import QwenChatModel
+
+        if not isinstance(resolved, QwenChatModel):
+            raise ValueError("Model queue exclusion requires a Qwen chat model")
+        resolved.admission_clock = admission
     return resolved
 
 

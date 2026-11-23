@@ -547,8 +547,10 @@ def test_spawned_env_server_keeps_caller_mujoco_gl(
     else:
         monkeypatch.setenv("MUJOCO_GL", environ)
     monkeypatch.setattr(robot_spec, "ProcessDaemon", FakeDaemon)
-    monkeypatch.setattr(robot_spec, "pick_free_port", lambda: 43210)
-    monkeypatch.setattr(robot_spec, "HttpRpcClient", lambda url: url)
+    monkeypatch.setattr(
+        robot_spec, "wait_for_endpoint", lambda _: "http://127.0.0.1:43210"
+    )
+    monkeypatch.setattr(robot_spec, "make_rpc_client", lambda url: url)
     args = SimpleNamespace(
         env_endpoint=None,
         suite="libero_object",
@@ -664,6 +666,8 @@ def test_recipe_exports_generic_segment_calls_without_geometry_masks(tmp_path):
 
 class _LiberoBackend:
     def __init__(self):
+        self.task_ids = np.array([0])
+        self.trial_ids = np.array([0])
         self.executed = []
         self.wrap_count = 0
         self.reset_count = 0

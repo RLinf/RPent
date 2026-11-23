@@ -44,6 +44,8 @@ class CalibratedEnv(FakeEnv):
                 "table_top_xyz": self.origin + np.array([0, 0, 0.12]),
             },
             pad_tcp_xyz=self.xyz + self.rotation.as_matrix() @ self.pad_offset,
+            jaw_slide_axes_site=[[1, 0, 0], [-1, 0, 0]],
+            wrist_to_site_in_site=[0, 0, 0.097],
         )
 
     def render_camera(self, camera_name, height, width, depth=False):
@@ -100,56 +102,29 @@ def test_floor_height_is_explicit_and_not_reported_as_a_table(mode):
         assert metadata["table_height_above_base_m"] is None
 
 
-@pytest.mark.parametrize(
-    "workflow", ["episode", "episode_image", "zap_episode", "zap_turn", "zap_subtask"]
-)
-def test_all_workflows_return_frame_invariant_robot_and_geometry(tmp_path, workflow):
-    first, _ = make(tmp_path / "a", workflow=workflow)
-    second, _ = make(
-        tmp_path / "b", workflow=workflow, env=CalibratedEnv([4, -3, 2], 0.73)
-    )
+def test_episode_returns_frame_invariant_robot_and_geometry(tmp_path):
+    first, _ = make(tmp_path / "a")
+    second, _ = make(tmp_path / "b", env=CalibratedEnv([4, -3, 2], 0.73))
     for toolkit in (first, second):
         assert toolkit._primitives.coordinates.table_height_m == pytest.approx(0.12)
-    np.testing.assert_allclose(
-        first._robot_state()["pose"]["xyz"], second._robot_state()["pose"]["xyz"]
-    )
-    np.testing.assert_allclose(
-        first._robot_state()["pose"]["orientation_rpy"],
-        second._robot_state()["pose"]["orientation_rpy"],
-    )
-    if workflow.startswith("zap"):
-        for toolkit in (first, second):
-            toolkit._primitives._sam3.segment_queries = lambda raw, queries: [
-                [toolkit._primitives._sam3.segment(raw)]
-            ]
-            toolkit.snapshot.queries = ["cube"]
-        a, b = first.observe_snapshot(), second.observe_snapshot()
-        for camera in range(2):
-            for key in ("world_xyz", "top_z_m", "size_xyz_m", "axis_yaw"):
-                assert a.data["perception"][camera]["objects"][0]["surface"][
-                    key
-                ] == pytest.approx(
-                    b.data["perception"][camera]["objects"][0]["surface"][key], abs=1e-4
-                )
-    else:
-        for camera in ("agentview", "wrist"):
-            kwargs = {"prompt": "cube", "camera": camera}
-            if workflow == "episode":
-                kwargs["step"] = 0
-            a, b = (
-                first.execute_tool("segment", kwargs),
-                second.execute_tool("segment", kwargs),
+    for name in ("xyz", "orientation_rpy"):
+        np.testing.assert_allclose(
+            first._robot_state()["pose"][name], second._robot_state()["pose"][name]
+        )
+    for camera in ("agentview", "wrist"):
+        a, b = [
+            tk.execute_tool("segment", {"prompt": "cube", "camera": camera, "step": 0})
+            for tk in (first, second)
+        ]
+        for key in ("world_xyz", "top_z_m", "size_xyz_m", "axis_yaw"):
+            assert a.data[key] == pytest.approx(b.data[key], abs=1e-4)
+        a, b = [
+            tk.execute_tool(
+                "back_project", {"pixel": [10, 12], "camera": camera, "step": 0}
             )
-            for key in ("world_xyz", "top_z_m", "size_xyz_m", "axis_yaw"):
-                assert a.data[key] == pytest.approx(b.data[key], abs=1e-4)
-            kwargs = {"pixel": [10, 12], "camera": camera}
-            if workflow == "episode":
-                kwargs["step"] = 0
-            assert first.execute_tool("back_project", kwargs).data[
-                "world_xyz"
-            ] == pytest.approx(
-                second.execute_tool("back_project", kwargs).data["world_xyz"], abs=1e-4
-            )
+            for tk in (first, second)
+        ]
+        assert a.data["world_xyz"] == pytest.approx(b.data["world_xyz"], abs=1e-4)
 
 
 def test_regions_filter_general_z_and_recompute_rotated_extents(tmp_path):
@@ -178,61 +153,36 @@ def test_regions_filter_general_z_and_recompute_rotated_extents(tmp_path):
     )
 
 
-def test_batched_observe_uses_same_frame_for_image_mask_and_dependants(tmp_path):
-    toolkit, _ = make(
-        tmp_path, env=CalibratedEnv([5, 2, 3], -0.4), perception_mode="batch"
-    )
-    toolkit.initial_observation()
-    result = toolkit.execute_tool(
-        "observe",
-        {
-            "calls": [
-                {"id": "v", "op": "view_env", "camera": "agentview"},
-                {
-                    "id": "s",
-                    "op": "segment",
-                    "source": "@v.agentview",
-                    "prompt": "cube",
-                },
-                {
-                    "id": "p",
-                    "op": "back_project",
-                    "source": "@s",
-                    "z_range_m": [0.99, 1.01],
-                },
-            ]
-        },
-    )
-    assert not result.is_error
-    rows = {row["id"]: row for row in result.data["results"]}
-    assert rows["s"]["result"]["world_xyz"] == rows["p"]["result"]["world_xyz"]
-
-
 def test_absolute_tcp_targets_and_omitted_position_survive_rotation(tmp_path):
     toolkit, env = make(
         tmp_path,
         env=CalibratedEnv([1.5, -2, 0.8], 0.6, pad_offset=[0.018, 0.005, -0.025]),
     )
-    result = toolkit.execute_tool(
-        "move_to", {"xyz": [0.15, -0.18, 1.01], "orientation_rpy": [2.9, 0.1, 0.3]}
+    from tests.unit_tests.robots.rl.test_libero_rl_contracts import execute_item
+
+    result = execute_item(
+        toolkit,
+        "move_to",
+        {
+            "xyz": [0.15, -0.18, 1.01],
+            "orientation_rpy": [2.9, 0.1, 0.3],
+        },
     )
-    assert result.data["status"] == "reached"
+    assert result.data.get("status") == "reached", result.to_text()
     expected = env.origin + env.base_rotation @ np.array([0.15, -0.18, 1.01])
-    np.testing.assert_allclose(
-        env.last_obs["control_state"]["pad_tcp_xyz"], expected, atol=0.004
-    )
+    np.testing.assert_allclose(env.xyz, expected, atol=0.004)
     np.testing.assert_allclose(
         env.rotation.as_matrix(),
         env.base_rotation @ Rotation.from_euler("xyz", [2.9, 0.1, 0.3]).as_matrix(),
         atol=0.02,
     )
     before = toolkit._robot_state()["pose"]["xyz"]
-    result = toolkit.execute_tool("move_to", {"orientation_rpy": [2.7, -0.1, -0.2]})
-    assert result.data["status"] == "reached"
+    result = execute_item(toolkit, "move_to", {"orientation_rpy": [2.7, -0.1, -0.2]})
+    assert result.data.get("status") == "reached", result.to_text()
     np.testing.assert_allclose(
         toolkit._robot_state()["pose"]["xyz"], before, atol=0.004
     )
-    closed = toolkit.execute_tool("set_gripper", {"opening": 0})
+    closed = execute_item(toolkit, "set_gripper", {"opening": 0})
     assert closed.data["opening"] <= 0.08
     np.testing.assert_allclose(
         toolkit._robot_state()["pose"]["xyz"], before, atol=0.004
@@ -251,22 +201,19 @@ def test_general_requires_calibration_but_base_keeps_original_control_point(tmp_
     assert frame.mode == "base"
 
 
-def test_optional_gripper_prompt_describes_the_selected_control_point():
+def test_removed_prompt_variants_rejected():
     from robots.rl.prompt_bundle import system_prompt
 
-    options = {"prompt": "base_gripper_camera", "workflow": "episode"}
-    base = system_prompt({**options, "world_cord": "base"})
-    general = system_prompt({**options, "world_cord": "general"})
-    assert "9.7 cm beyond the wrist flange" in base
-    assert "1.2 cm above and 0.4 cm below" in base
-    assert "midpoint of the two finger-pad geometry centres" in general
-    assert "9.7 cm" not in general
-    assert "1.2 cm above and 0.4 cm below" not in general
+    for variant in ("base", "base_gripper", "base_gripper_camera"):
+        with pytest.raises(ValueError, match="fixed prompt"):
+            system_prompt({"prompt": variant})
 
 
 def test_model_frame_description_hides_simulator_origin_but_audit_keeps_it(tmp_path):
-    a, _ = make(tmp_path / "a", workflow="pear")
-    b, _ = make(tmp_path / "b", workflow="pear", env=CalibratedEnv([40, -30, 20], 0.7))
+    a, _ = make(tmp_path / "a", workflow="episode")
+    b, _ = make(
+        tmp_path / "b", workflow="episode", env=CalibratedEnv([40, -30, 20], 0.7)
+    )
     first, second = a.initial_observation(), b.initial_observation()
     assert first.data["coordinates"] == second.data["coordinates"]
     assert "origin_in_sim_world" not in str(first.data)

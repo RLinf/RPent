@@ -35,27 +35,23 @@ def resize_image(data: bytes, size: int) -> bytes:
         return output.getvalue()
 
 
-def scale_box(box: list[int], source: int, target: int) -> list[int]:
-    """Map half-open rectangle edges outward, retaining their covered region."""
+def map_box(
+    box: list[int], source: tuple[int, int], target: tuple[int, int]
+) -> list[int]:
+    """Map validated half-open rectangle edges outward."""
     return [
-        max(
-            0,
-            min(
-                target,
-                math.floor(value * target / source)
-                if index < 2
-                else math.ceil(value * target / source),
-            ),
+        (math.floor if index < 2 else math.ceil)(
+            value * target[index % 2] / source[index % 2]
         )
         for index, value in enumerate(box)
     ]
 
 
-def native_pixel(pixel: list[int], size: int) -> list[int]:
-    """Map a displayed pixel centre into the unchanged native depth image."""
-    if any(value < 0 or value >= size for value in pixel):
-        raise ValueError(f"pixel outside {size}x{size} planner image")
+def map_pixel(
+    pixel: list[int], source: tuple[int, int], target: tuple[int, int]
+) -> list[int]:
+    """Map a validated displayed pixel centre to the native observation."""
     return [
-        min(NATIVE_SIZE - 1, math.floor((value + 0.5) * NATIVE_SIZE / size))
-        for value in pixel
+        min(to - 1, math.floor((value + 0.5) * to / from_))
+        for value, from_, to in zip(pixel, source, target)
     ]

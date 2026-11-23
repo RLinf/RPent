@@ -83,6 +83,8 @@ class ScenePrimitives(LiberoRLPrimitives):
             elapsed_s=elapsed_s,
             extras={"env_steps": self.env_steps},
         ) as step:
+            if hasattr(self, "coordinates"):
+                self._save("step_coordinates.json", self.coordinates.metadata(), step)
             for camera in self.cameras:
                 rgb, world, calibration = self.capture(camera)
                 self._save(f"{camera}_raw.png", rgb, step)
@@ -102,100 +104,6 @@ class ScenePrimitives(LiberoRLPrimitives):
 
     def capture(self, camera: str) -> tuple[np.ndarray, np.ndarray, dict]:
         raise NotImplementedError
-
-    @tool(readonly=True)
-    def view_env(self, camera: str = "all") -> ToolResult:
-        """Return current recorded RGB views, without advancing physics. Pixels are [row,col] in the returned view and must use that view's observation step.
-
-        Args:
-            camera: A camera named in the robot description, or all.
-        """
-        names = self.cameras if camera == "all" else (camera,)
-        if any(name not in self.cameras for name in names):
-            return ToolResult(data={"error": f"available cameras: {self.cameras}"})
-        step = self._state.latest_step
-        shapes = [
-            list(self._state.load(f"{name}.png", step=step).shape[:2]) for name in names
-        ]
-        return ToolResult(
-            data={
-                "step": step,
-                "images": [
-                    {"camera": name, "size": shape}
-                    for name, shape in zip(names, shapes)
-                ],
-            },
-            images=self.images(step, list(names)),
-        )
-
-    @tool(readonly=True)
-    def segment(
-        self,
-        prompt: str | None = None,
-        point: list[int] | None = None,
-        camera: str | None = None,
-        step: int | None = None,
-    ) -> ToolResult:
-        """Segment a named object or one [row,col] point in a recorded camera frame. Returns its mask identifier, exclusive row/col box, and visible-surface world_xyz, top_z_m, size_xyz_m and axis_yaw; these are measurements, not grasp poses.
-
-        Args:
-            prompt: Object description; supply prompt or point, not both.
-            point: One [row,col] image pixel; requires step.
-            camera: A named robot camera; omitted selects the first overview.
-            step: Recorded observation step; text queries default to latest.
-        """
-        camera = camera or self.cameras[0]
-        if camera not in self.cameras:
-            return ToolResult(data={"error": f"available cameras: {self.cameras}"})
-        return super().segment(prompt=prompt, point=point, camera=camera, step=step)
-
-    @tool(readonly=True)
-    def back_project(
-        self,
-        pixel: list[int] | None = None,
-        box: list[int] | None = None,
-        mask_id: str | None = None,
-        camera: str | None = None,
-        step: int | None = None,
-        z_range_m: Annotated[list[float], Field(min_length=2, max_length=2)]
-        | None = None,
-    ) -> ToolResult:
-        """Measure a world-space visible surface from one pixel, box or saved segment mask. Boxes include background. Pixel/box queries require the exact camera and observation step; a mask identifier fixes both.
-
-        Args:
-            pixel: [row,col], requires step.
-            box: [row_min,col_min,row_max,col_max], max exclusive; requires step.
-            mask_id: Identifier returned by segment.
-            camera: Named camera for pixel/box queries; omitted selects the overview.
-            step: Recorded observation step for pixel/box queries.
-            z_range_m: Optional [low,high] world-z filter for a box or mask.
-        """
-        if mask_id is None:
-            camera = camera or self.cameras[0]
-            if camera not in self.cameras:
-                return ToolResult(data={"error": f"available cameras: {self.cameras}"})
-        if pixel is not None and len(pixel) != 2 or box is not None and len(box) != 4:
-            return ToolResult(data={"error": "pixel needs 2 values; box needs 4"})
-        return super().back_project(
-            pixel=pixel,
-            box=box,
-            mask_id=mask_id,
-            camera=camera,
-            step=step,
-            z_range_m=z_range_m,
-        )
-
-    @tool(readonly=True)
-    def finish(self) -> ToolResult:
-        """End the episode; takes no arguments. Returns _finish, success, terminated (native task success) and truncated (environment step budget reached). Calling finish does not make a task succeed. Example: {}."""
-        return ToolResult(
-            data={
-                "_finish": True,
-                "success": self.native_success(),
-                "terminated": self.native_success(),
-                "truncated": self.env_steps >= self._max_episode_steps,
-            }
-        )
 
 
 class RoboCasaPrimitives(ScenePrimitives):
@@ -467,7 +375,7 @@ class RoboCasaPrimitives(ScenePrimitives):
 
 
 class RoboCasaGeneralPrimitives(RoboCasaPrimitives):
-    """Dynamic mount-frame general coordinates, pad-midpoint TCP, base and lift control."""
+    """Dynamic mounting coordinates with the native grip site, base and lift control."""
 
     BASE_LIMITS = np.array([0.35, 0.35, 0.5], dtype=float)
     move_to = LiberoRLPrimitives.move_to
@@ -475,13 +383,10 @@ class RoboCasaGeneralPrimitives(RoboCasaPrimitives):
     _model_points = LiberoRLPrimitives._model_points
 
     def _surface_center(self, native: np.ndarray, points: np.ndarray) -> np.ndarray:
-        # Coordinate-wise medians depend on the axes. Keep the representative
-        # point fixed in the recorded cloud when the arm mount turns.
-        return self.coordinates.points(np.median(native, axis=0))
+        return np.median(points, axis=0)
 
     def __init__(self, *, world_cord: str = "general", **kwargs) -> None:
-        if world_cord != "general":
-            raise ValueError("RoboCasaGeneralPrimitives requires world_cord='general'")
+        self.world_cord = world_cord
         super().__init__(**kwargs)
         self._refresh_coordinates()
         self._state.save("coordinates.json", self._coordinates_metadata(), step=None)
@@ -495,16 +400,27 @@ class RoboCasaGeneralPrimitives(RoboCasaPrimitives):
         )
 
     def _tcp_world(self, current: Measurement) -> np.ndarray:
-        return np.asarray(self._control["pad_tcp_xyz"], dtype=np.float64)
+        return current.xyz
 
     def _refresh_coordinates(self) -> Measurement:
-        from robots.rl.coordinates import Coordinates
+        from robots.rl.coordinates import Coordinates, grasp_axes
 
         native = self._measure_native()
-        self.coordinates = Coordinates.from_control("general", self._control)
+        coordinates = Coordinates.from_control(self.world_cord, self._control)
+        if previous := getattr(self, "coordinates", None):
+            coordinates = coordinates.after(previous)
+        self.coordinates = coordinates
+        self.tool_rotation = (
+            grasp_axes(
+                self._control["jaw_slide_axes_site"][0],
+                self._control["wrist_to_site_in_site"],
+            )
+            if self.world_cord == "general"
+            else np.eye(3)
+        )
         return Measurement(
             self.coordinates.points(self._tcp_world(native)),
-            self.coordinates.orientation(native.rotation),
+            self.coordinates.orientation(native.rotation @ self.tool_rotation),
             native.opening,
         )
 
@@ -516,9 +432,6 @@ class RoboCasaGeneralPrimitives(RoboCasaPrimitives):
             "lift_m": round(float(self._control["lift_m"]), 6)
             if "lift_m" in self._control
             else None,
-            "pad_tcp_world_m": np.asarray(
-                self._control["pad_tcp_xyz"], dtype=float
-            ).tolist(),
             "site_world_m": np.asarray(self._control["site_xyz"], dtype=float).tolist(),
         }
         if "jaw_slide_axes_site" in self._control:
@@ -526,9 +439,6 @@ class RoboCasaGeneralPrimitives(RoboCasaPrimitives):
                 self._control["jaw_slide_axes_site"], dtype=float
             ).tolist()
         return metadata
-
-    def _geometry_metadata(self) -> dict[str, Any]:
-        return {"coordinate_step": self._state.latest_step}
 
     def robot_state(self) -> dict[str, Any]:
         measured = self._refresh_coordinates()
@@ -685,11 +595,11 @@ class RoboCasaGeneralPrimitives(RoboCasaPrimitives):
         yaw_rate: Annotated[float, Field(ge=-0.5, le=0.5)] = 0,
         duration_s: Annotated[float, Field(ge=0.1, le=2)] = 1,
     ) -> ToolResult:
-        """Move the mobile base at bounded velocity in its current local frame, then stop. Hold the arm's installed pose and existing gripper target. Contacts can prevent motion; read actual displacement and call view_env before choosing the next arm motion.
+        """Move the mobile base at bounded velocity in its current local frame, then stop. Hold the arm's installed pose and existing gripper target. Contacts can prevent motion. Read achieved displacement and the measured frame in the action feedback.
 
         Args:
-            vx: Forward speed in m/s, -0.35 to 0.35.
-            vy: Leftward speed in m/s, -0.35 to 0.35.
+            vx: Forward speed in metres/second, within the schema bounds.
+            vy: Leftward speed in metres/second, within the schema bounds.
             yaw_rate: Counterclockwise speed in rad/s, -0.5 to 0.5.
             duration_s: Requested duration, 0.1 to 2 seconds, including a final stop step.
         """
@@ -770,7 +680,7 @@ class RoboCasaGeneralPrimitives(RoboCasaPrimitives):
         """Raise or lower the arm's mounting support relative to its current measured height. Hold the installed arm pose and existing gripper target. Inspect achieved height change, updated support surface height, and call view_env before choosing the next arm motion; joint limits or contacts may cause a partial result.
 
         Args:
-            delta_m: Signed vertical change in mounting-support height, metres; positive raises, negative lowers, within +/-0.25.
+            delta_m: Signed vertical change in mounting-support height, metres; positive raises, negative lowers, within the schema bounds.
             duration_s: Execution budget from 0.1 to 5 seconds, including a final stop step.
         """
         if (
@@ -828,7 +738,7 @@ class RoboCasaGeneralPrimitives(RoboCasaPrimitives):
 
 
 class RoboTwinPrimitives(ScenePrimitives):
-    """Native planned one-arm or synchronized two-arm waypoint execution."""
+    """Native planned single-arm waypoint execution."""
 
     cameras = ("head", "left_wrist", "right_wrist")
 
@@ -892,11 +802,10 @@ class RoboTwinPrimitives(ScenePrimitives):
             "height": depth.shape[0],
             "width": depth.shape[1],
         }
-        return (
-            np.asarray(rgb),
-            geometry.world_from_depth(depth, calibration),
-            calibration,
-        )
+        depth = np.asarray(depth, dtype=float)
+        world = geometry.world_from_depth(depth, calibration)
+        world[~np.isfinite(depth) | (depth <= 0)] = np.nan
+        return np.asarray(rgb), world, calibration
 
     def _execute(self, waypoints):
         remaining = self._max_episode_steps - self.env_steps
@@ -920,70 +829,44 @@ class RoboTwinPrimitives(ScenePrimitives):
     def move_to(
         self,
         arm: Literal["left", "right"],
-        xyz: Annotated[list[float], Field(min_length=3, max_length=3)],
-        quaternion: Annotated[list[float], Field(min_length=4, max_length=4)]
-        | None = None,
-        other_xyz: Annotated[list[float], Field(min_length=3, max_length=3)]
-        | None = None,
-        other_quaternion: Annotated[list[float], Field(min_length=4, max_length=4)]
+        xyz: Annotated[list[float], Field(min_length=3, max_length=3)] | None = None,
+        orientation_rpy: Annotated[list[float], Field(min_length=3, max_length=3)]
         | None = None,
     ) -> ToolResult:
-        """Plan a world-frame TCP pose for the selected arm. Optionally give other_xyz to move both arms synchronously in this one call. Unspecified orientations hold measured values and both grippers hold their openings. Native planning errors are returned without executing a partial pair of plans.
+        """Move one grasp TCP in simulator world coordinates."""
+        if xyz is None and orientation_rpy is None:
+            return ToolResult(data={"error": "Supply xyz, orientation_rpy, or both"})
+        current = self._matrix(self.env.last_info["robot_state"][f"{arm}_tcp_pose"])
+        if xyz is not None:
+            current[:3, 3] = xyz
+        if orientation_rpy is not None:
+            current[:3, :3] = Rotation.from_euler("xyz", orientation_rpy).as_matrix()
+        return self._move_arm(arm, current)
 
-        Args:
-            arm: Anatomical left or right arm, as labelled in the camera views.
-            xyz: Absolute TCP position [x,y,z] in world metres.
-            quaternion: Optional TCP orientation [w,x,y,z], unit quaternion.
-            other_xyz: Optional absolute TCP position for the other arm.
-            other_quaternion: Optional orientation for the other arm; requires other_xyz.
-        """
-        if other_quaternion is not None and other_xyz is None:
-            return ToolResult(data={"error": "other_quaternion requires other_xyz"})
+    def _move_arm(self, arm: str, target: np.ndarray) -> ToolResult:
         state = self.env.last_info["robot_state"]
-        targets = {arm: (xyz, quaternion)}
-        if other_xyz is not None:
-            targets["right" if arm == "left" else "left"] = (
-                other_xyz,
-                other_quaternion,
+        tcp = self._matrix(state[f"{arm}_tcp_pose"])
+        eef = self._matrix(state[f"{arm}_eef_pose"])
+        desired = target @ np.linalg.inv(np.linalg.inv(eef) @ tcp)
+        pose = [
+            *desired[:3, 3],
+            *Rotation.from_matrix(desired[:3, :3]).as_quat(scalar_first=True),
+        ]
+        self._check_cancelled()
+        plan = self.env.plan_arm_path(arm, pose)
+        if (
+            plan["status"] != "Success"
+            or plan.get("position") is None
+            or not len(plan["position"])
+        ):
+            return ToolResult(
+                data={"status": "partial", "reason": "plan_failed", "arm": arm}
             )
-        paths, goals = {}, {}
-        for name, (position, orientation) in targets.items():
-            tcp = self._matrix(state[f"{name}_tcp_pose"])
-            eef = self._matrix(state[f"{name}_eef_pose"])
-            desired = tcp.copy()
-            desired[:3, 3] = position
-            if orientation is not None:
-                desired[:3, :3] = Rotation.from_quat(
-                    orientation, scalar_first=True
-                ).as_matrix()
-            desired_eef = desired @ np.linalg.inv(np.linalg.inv(eef) @ tcp)
-            goals[name] = desired
-            pose = [
-                *desired_eef[:3, 3],
-                *Rotation.from_matrix(desired_eef[:3, :3]).as_quat(scalar_first=True),
-            ]
-            self._check_cancelled()
-            plan = self.env.plan_arm_path(name, pose)
-            if (
-                plan["status"] != "Success"
-                or plan.get("position") is None
-                or not len(plan["position"])
-            ):
-                return ToolResult(
-                    data={"status": "partial", "reason": "plan_failed", "arm": name}
-                )
-            paths[name] = np.asarray(plan["position"])
-        length = max(len(path) for path in paths.values())
-        actions = []
         initial = np.asarray(state["qpos_target14"], dtype=float)
-        for index in range(length):
-            action = initial.copy()
-            for name, path in paths.items():
-                joint_slice = slice(0, 6) if name == "left" else slice(7, 13)
-                # Pair paths by normalized progress, finishing both on the last action.
-                waypoint = round(index * (len(path) - 1) / max(1, length - 1))
-                action[joint_slice] = path[waypoint]
-            actions.append(action)
+        actions = np.repeat(initial[None], len(plan["position"]), axis=0)
+        joint_slice = slice(0, 6) if arm == "left" else slice(7, 13)
+        actions[:, joint_slice] = plan["position"]
+        goals = {arm: target}
         result = self._execute(actions)
         if result.is_error:
             return result
@@ -1037,22 +920,18 @@ class RoboTwinPrimitives(ScenePrimitives):
         self,
         arm: Literal["left", "right"],
         opening: Annotated[float, Field(ge=0, le=1)],
-        other_opening: Annotated[float, Field(ge=0, le=1)] | None = None,
     ) -> ToolResult:
-        """Set one normalized gripper opening while holding both arm poses. Optionally set the other gripper in the same synchronized call. 0 closes, 1 opens; an opening target or jaw contact is not proof that an object is held.
+        """Set one normalized gripper opening while holding both arm poses. 0 closes, 1 opens; an opening target or jaw contact is not proof that an object is held.
 
         Args:
             arm: Anatomical left or right arm.
             opening: Normalized opening, from 0 closed to 1 open.
-            other_opening: Optional opening of the other gripper.
         """
         initial = np.asarray(
             self.env.last_info["robot_state"]["qpos_target14"], dtype=float
         )
         target = initial.copy()
         target[6 if arm == "left" else 13] = opening
-        if other_opening is not None:
-            target[13 if arm == "left" else 6] = other_opening
         result = self._execute(
             [
                 initial + (target - initial) * fraction
@@ -1061,12 +940,8 @@ class RoboTwinPrimitives(ScenePrimitives):
         )
         if not result.is_error:
             measured = self.env._client.call("env.measured_grippers")
-            targets = {arm: opening}
-            if other_opening is not None:
-                targets["right" if arm == "left" else "left"] = other_opening
-            reached = all(
-                abs(measured[name]["opening"] - value) < self._config.opening_tolerance
-                for name, value in targets.items()
+            reached = (
+                abs(measured[arm]["opening"] - opening) < self._config.opening_tolerance
             )
             result.data.update(
                 status="reached" if reached else "partial", grippers=measured
@@ -1079,6 +954,8 @@ class RoboTwinPrimitives(ScenePrimitives):
 class RoboTwinGeneralPrimitives(RoboTwinPrimitives):
     """Expose the shared mounting frame while retaining native planning and RGB-D."""
 
+    _model_points = LiberoRLPrimitives._model_points
+
     def __init__(self, **kwargs) -> None:
         from robots.robotwin.general import RobotwinFrame
 
@@ -1088,15 +965,11 @@ class RoboTwinGeneralPrimitives(RoboTwinPrimitives):
         self.coordinates = self.frame.coordinates
         self._state.save("coordinates.json", self.frame.metadata(), step=None)
 
-    def _grippers_with_pads(self):
-        return self.env._client.call("env.measured_grippers", kwargs={"with_pad": True})
-
     def robot_state(self) -> dict[str, Any]:
         native = self.env.last_info["robot_state"]
-        state = self._grippers_with_pads()
+        state = self.env._client.call("env.measured_grippers")
         for arm, gripper in state.items():
-            pad = gripper.pop("pad_tcp_xyz")
-            gripper["pose"] = self.frame.model_pose(native[f"{arm}_tcp_pose"], pad)
+            gripper["pose"] = self.frame.model_pose(native[f"{arm}_tcp_pose"], arm)
         return state
 
     def marker_position(self, arm: str, state: dict) -> np.ndarray:
@@ -1113,62 +986,22 @@ class RoboTwinGeneralPrimitives(RoboTwinPrimitives):
         xyz: Annotated[list[float], Field(min_length=3, max_length=3)] | None = None,
         orientation_rpy: Annotated[list[float], Field(min_length=3, max_length=3)]
         | None = None,
-        other_xyz: Annotated[list[float], Field(min_length=3, max_length=3)]
-        | None = None,
-        other_orientation_rpy: Annotated[list[float], Field(min_length=3, max_length=3)]
-        | None = None,
     ) -> ToolResult:
-        """Move an anatomical arm's finger-pad TCP to an absolute general-frame target.
+        """Move an anatomical arm's native grasp TCP to an absolute general-frame target.
 
         Positions use metres. orientation_rpy uses radians with Rz(yaw)Ry(pitch)Rx(roll).
         Supply xyz, orientation_rpy, or both. Omitted parts hold their measured values.
-        Optional other targets move the other arm synchronously. Both grippers keep
-        their previous targets. Read the returned measured pose and reached/partial
+        The other arm and both grippers keep their previous targets.
+        Read the returned measured pose and reached/partial
         status to determine what actually happened.
         """
         if xyz is None and orientation_rpy is None:
             return ToolResult(data={"error": "Supply xyz, orientation_rpy, or both"})
         native = self.env.last_info["robot_state"]
-        grippers = self._grippers_with_pads()
         target = self.frame.world_target(
             xyz,
             orientation_rpy,
             native[f"{arm}_tcp_pose"],
-            grippers[arm]["pad_tcp_xyz"],
+            arm,
         )
-        pad_targets = {
-            arm: grippers[arm]["pad_tcp_xyz"]
-            if xyz is None
-            else self.coordinates.world_position(np.asarray(xyz))
-        }
-        kwargs = {}
-        if other_xyz is not None or other_orientation_rpy is not None:
-            other = "right" if arm == "left" else "left"
-            other_target = self.frame.world_target(
-                other_xyz,
-                other_orientation_rpy,
-                native[f"{other}_tcp_pose"],
-                grippers[other]["pad_tcp_xyz"],
-            )
-            kwargs = {
-                "other_xyz": other_target[:3].tolist(),
-                "other_quaternion": other_target[3:].tolist(),
-            }
-            pad_targets[other] = (
-                grippers[other]["pad_tcp_xyz"]
-                if other_xyz is None
-                else self.coordinates.world_position(np.asarray(other_xyz))
-            )
-        result = super().move_to(
-            arm, target[:3].tolist(), quaternion=target[3:].tolist(), **kwargs
-        )
-        if errors := result.data.get("errors"):
-            actual = self._grippers_with_pads()
-            for side, goal in pad_targets.items():
-                error = float(
-                    np.linalg.norm(np.asarray(goal) - actual[side]["pad_tcp_xyz"])
-                )
-                errors[side]["position_error_m"] = error
-                if error >= self._config.position_tolerance_m:
-                    result.data.update(status="partial", reason="not_at_target")
-        return result
+        return self._move_arm(arm, self._matrix(target))

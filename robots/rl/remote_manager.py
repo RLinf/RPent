@@ -26,6 +26,7 @@ import uuid
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
+from robots.rl.contracts import CAMERAS, EPISODE_CONTRACT_VERSION
 from robots.rl.remote import REMOTE_OPTION_DEFAULTS, remote_options
 from rpent.utils.config import get_repo_root
 from rpent.utils.daemon import ProcessDaemon
@@ -36,10 +37,16 @@ from rpent.utils.rpc.http_rpc import EncodedRpcResponse, HttpRpcClient
 logger = get_logger("rl_backend")
 
 
-def validate_request(request: dict, gpus: set[int]) -> None:
-    """Validate only the task and resources accepted by this backend."""
-    if set(request) != {"task", "gpu", "max_episode_steps"}:
-        raise ValueError("backend request requires task, gpu and max_episode_steps")
+def validate_request(
+    request: dict, gpus: set[int], simulator: str | None = None
+) -> None:
+    """Validate the episode protocol, task and resources before allocation."""
+    if set(request) != {"task", "gpu", "max_episode_steps", "episode_contract_version"}:
+        raise ValueError(
+            "backend request requires task, gpu, max_episode_steps and episode_contract_version"
+        )
+    if request["episode_contract_version"] != EPISODE_CONTRACT_VERSION:
+        raise ValueError("unsupported episode contract version")
     if type(request["gpu"]) is not int or request["gpu"] not in gpus:
         raise ValueError("requested GPU is not assigned to this backend")
     if (
@@ -49,6 +56,8 @@ def validate_request(request: dict, gpus: set[int]) -> None:
         raise ValueError("max_episode_steps must be positive")
     task = request["task"]
     environment = task.get("environment")
+    if simulator is not None and environment != simulator:
+        raise ValueError(f"backend serves {simulator}, requested {environment}")
     allowed = {
         "environment",
         "suite",
@@ -64,12 +73,14 @@ def validate_request(request: dict, gpus: set[int]) -> None:
         "init_state_id",
         *REMOTE_OPTION_DEFAULTS,
     }
-    if set(task).difference(allowed) or environment not in (
-        "libero",
-        "robocasa",
-        "robotwin",
-    ):
+    if environment == "robodojo":
+        allowed.add("layout")
+    if set(task).difference(allowed) or environment not in CAMERAS:
         raise ValueError("unsupported remote simulator/task fields")
+    if environment == "robodojo" and (
+        type(task.get("layout", 0)) is not int or task.get("layout", 0) < 0
+    ):
+        raise ValueError("RoboDojo layout must be a nonnegative integer")
     remote_options(task)
     if type(task.get("seed")) is not int or task["seed"] < 0:
         raise ValueError("seed must be a nonnegative integer")
@@ -103,9 +114,12 @@ class BackendManager(RpcFacade):
         slots: dict[int, int],
         cold_starts: int,
         sam3_endpoint: str | None = None,
+        *,
+        simulator: str | None = None,
     ):
         super().__init__()
         self.output, self.slots, self.sam3_endpoint = output, slots, sam3_endpoint
+        self.simulator = simulator
         self.output.mkdir(parents=True, exist_ok=True)
         self._lock = threading.Lock()
         self._workers: dict[str, dict] = {}
@@ -132,13 +146,10 @@ class BackendManager(RpcFacade):
 
     def open(self, request: dict, owner_id: str | None = None) -> dict:
         """Start one worker; an optional attempt owner supports race-free cancellation."""
-        validate_request(request, set(self.slots))
+        validate_request(request, set(self.slots), self.simulator)
         if owner_id is not None:
             self._validate_owner(owner_id)
-        if (
-            request["task"].get("workflow", "episode") != "pear"
-            and not self.sam3_endpoint
-        ):
+        if not self.sam3_endpoint:
             raise ValueError("perception workflows require a configured SAM3 endpoint")
         gpu = request["gpu"]
         session = uuid.uuid4().hex
@@ -390,12 +401,15 @@ def main() -> None:
     """Start a backend on explicit GPUs; the default listener is loopback only."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output-dir", type=Path, required=True)
+    parser.add_argument("--simulator", choices=tuple(CAMERAS), required=True)
     parser.add_argument(
         "--gpu-slots", required=True, help="Comma-separated GPU:slots, e.g. 0:7,1:14"
     )
     parser.add_argument("--max-initializing-per-gpu", type=int, default=2)
     parser.add_argument(
-        "--sam3-endpoint", help="Required for perception workflows; pear uses no SAM3."
+        "--sam3-endpoint",
+        required=True,
+        help="SAM3 endpoint used by episode perception.",
     )
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=28090)
@@ -414,7 +428,11 @@ def main() -> None:
     ):
         parser.error("GPU ordinals must be nonnegative and capacities positive")
     BackendManager(
-        args.output_dir, slots, args.max_initializing_per_gpu, args.sam3_endpoint
+        args.output_dir,
+        slots,
+        args.max_initializing_per_gpu,
+        args.sam3_endpoint,
+        simulator=args.simulator,
     ).serve(
         transport="http", host=args.host, port=args.port, parent_watch=args.parent_watch
     )

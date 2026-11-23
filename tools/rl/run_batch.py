@@ -27,14 +27,18 @@ import queue
 import re
 import signal
 import subprocess
+import sys
 import threading
 import time
 from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
+from uuid import uuid4
 
-from robots.rl.prompt_bundle import PROMPT_VARIANTS, WORKFLOWS, validate_workflow
+from robots.rl.prompt_bundle import validate_workflow
 from rpent.evaluation import write_json_atomic as atomic
 from rpent.evaluation.trajectory import audit_episode
+from rpent.planner.admission import recorded_queue_seconds
+from rpent.utils.daemon import process_start_ticks, stop_owned_process_group
 
 EVAL_DIR = Path(__file__).resolve().parent
 CONFIGS = ("adaptive",)
@@ -45,11 +49,8 @@ STOP = threading.Event()
 # These flags are declared once in run.sh; batch CLI values override that argv.
 RUN_FLAGS = (
     "--sam3-timeout-s",
-    "--workflow",
     "--world-cord",
-    "--perception-mode",
-    "--max-observe-calls",
-    "--observe-concurrency",
+    "--position-unit",
     "--action-mode",
     "--max-actions-per-call",
     "--reasoning-history",
@@ -70,8 +71,6 @@ RUN_FLAGS = (
     "--repetition-penalty",
     "--max-episode-steps",
     "--planner-timeout-s",
-    "--observation-mode",
-    "--prompt",
 )
 
 
@@ -122,9 +121,9 @@ def resolve_run_options(args: argparse.Namespace) -> None:
 
     validate_perception_options(
         args.workflow,
-        args.perception_mode,
-        args.max_observe_calls,
-        args.observe_concurrency,
+        getattr(args, "perception_mode", "single"),
+        getattr(args, "max_observe_calls", 8),
+        getattr(args, "observe_concurrency", 8),
     )
     import math
 
@@ -203,7 +202,7 @@ def read_jobs(path: Path, seeds: list[int] | None) -> list[dict]:
     for original in jobs:
         row = {"environment": "libero", "observation_mode": "adaptive", **original}
         if (
-            row["environment"] not in ("libero", "robocasa", "robotwin")
+            row["environment"] not in ("libero", "robocasa", "robotwin", "robodojo")
             or row["observation_mode"] != "adaptive"
         ):
             raise ValueError(f"invalid environment/observation mode: {row}")
@@ -237,7 +236,8 @@ def job_name(job: dict, prompt: str, workflow: str) -> str:
         if job["environment"] == "libero"
         else f"{job['environment']}_{job['task_name']}"
     )
-    return f"{task}_s{job['seed']}_adaptive-{prompt}-{workflow}"
+    layout = f"_l{job.get('layout', 0)}" if job["environment"] == "robodojo" else ""
+    return f"{task}_s{job['seed']}{layout}_adaptive-{prompt}-{workflow}"
 
 
 def job_arguments(job: dict) -> list[str]:
@@ -247,7 +247,14 @@ def job_arguments(job: dict) -> list[str]:
         result += ["--suite", job["suite"], "--task", str(job["task"])]
     else:
         result += ["--task-name", job["task_name"]]
-    for field in ("split", "task_config", "assets_path", "sim_python"):
+    for field in (
+        "split",
+        "task_config",
+        "assets_path",
+        "sim_python",
+        "layout",
+        "robodojo_source_root",
+    ):
         if field in job:
             result += ["--" + field.replace("_", "-"), str(job[field])]
     return result
@@ -289,6 +296,8 @@ def terminal_failure(
     attempt: Path, *, deadline: bool = False, job: dict | None = None
 ) -> dict | None:
     """Keep normal model/budget failures as evaluations, outside training data."""
+    if (attempt / "infrastructure_error.json").exists():
+        return None
     try:
         result_path = attempt / "result.json"
         result = json.loads(result_path.read_text()) if result_path.exists() else {}
@@ -359,25 +368,48 @@ def evaluated(output: Path) -> dict | None:
     return None
 
 
+def completed_without_training_trace(attempt: Path, audit_error: str) -> dict | None:
+    """Keep a native terminal outcome when only its training audit fails.
+
+    A recording failure cannot justify resampling an already completed task.
+    Retain the audit error separately; this record never enters training data.
+    """
+    if (attempt / "infrastructure_error.json").exists():
+        return None
+    try:
+        result = json.loads((attempt / "result.json").read_text())
+        transcript = json.loads(next(attempt.glob("transcript_*.json")).read_text())
+        states = json.loads((attempt / "states.json").read_text())["steps"]
+        if (
+            result.get("agent_error")
+            or transcript.get("error")
+            or not states
+            or not result["stats"]["turns_used"]
+            or bool(result["success"]) != bool(states[-1]["terminated"])
+        ):
+            return None
+        reason = "success" if result["success"] else "planner_completed"
+        if not result["success"]:
+            if states[-1].get("truncated"):
+                reason = "environment_step_limit"
+            elif result["stats"]["turns_used"] >= result["max_turns"]:
+                reason = "request_limit"
+        return {
+            "directory": str(attempt.resolve()),
+            "task": result["task"],
+            "success": bool(result["success"]),
+            "stats": result["stats"],
+            "training_usable": False,
+            "termination_reason": reason,
+            "audit_error": audit_error,
+        }
+    except (OSError, ValueError, KeyError, StopIteration):
+        return None
+
+
 def interrupt(signum: int, frame: object) -> None:
     """Ask workers to stop their own process groups."""
     STOP.set()
-
-
-def stop_process(process: subprocess.Popen) -> None:
-    """Terminate the owned process group, escalating if graceful close stalls."""
-    try:
-        os.killpg(process.pid, signal.SIGTERM)
-    except ProcessLookupError:
-        pass
-    try:
-        process.wait(timeout=20)
-    except subprocess.TimeoutExpired:
-        try:
-            os.killpg(process.pid, signal.SIGKILL)
-        except ProcessLookupError:
-            pass
-        process.wait()
 
 
 def run(args: argparse.Namespace) -> None:
@@ -422,23 +454,33 @@ def collect(args: argparse.Namespace, batch: Path) -> None:
         validate_options(
             job["environment"],
             args.workflow,
-            getattr(args, "action_mode", "single"),
+            getattr(args, "action_mode", "batch"),
             getattr(args, "max_actions_per_call", 3),
             getattr(args, "reasoning_history", -1),
             getattr(args, "image_history", -1),
             world_cord=world_cord,
         )
+    pilot_path = getattr(args, "pilot_jobs", None)
+    pilot = read_jobs(Path(pilot_path), args.seeds) if pilot_path else []
+    if pilot_path and (not pilot or any(job not in jobs for job in pilot)):
+        raise ValueError("The pilot must be a nonempty subset of the frozen jobs")
+    if pilot and getattr(args, "start_barrier", False):
+        raise ValueError(
+            "A staged pilot is incompatible with an all-jobs start barrier"
+        )
     identity = {
         "jobs": jobs,
+        "pilot_jobs": pilot,
         "prompt": args.prompt,
         "workflow": args.workflow,
         "world_cord": args.world_cord,
+        "position_unit": args.position_unit,
         "image_size": getattr(args, "image_size", 1024),
         "thinking": not getattr(args, "no_thinking", False),
         "run_options": {
             flag: getattr(args, flag[2:].replace("-", "_")) for flag in RUN_FLAGS
         },
-        "action_mode": getattr(args, "action_mode", "single"),
+        "action_mode": getattr(args, "action_mode", "batch"),
         "max_actions_per_call": getattr(args, "max_actions_per_call", 3),
         "reasoning_history": getattr(args, "reasoning_history", -1),
         "image_history": getattr(args, "image_history", -1),
@@ -466,6 +508,7 @@ def collect(args: argparse.Namespace, batch: Path) -> None:
     endpoints = (
         args.endpoints.split(",") if args.endpoints else [os.environ["RPENT_BASE_URL"]]
     )
+    endpoint_assignment = getattr(args, "endpoint_assignment", "job")
     slots = [gpu for gpu in args.gpus.split(",") for _ in range(args.per_gpu)]
     if not slots or args.per_gpu < 1:
         raise ValueError("At least one environment slot is required")
@@ -478,6 +521,7 @@ def collect(args: argparse.Namespace, batch: Path) -> None:
     outcomes = []
     exhausted = []
     current_attempts = {}
+    deferred = []
     failed_before_gate = threading.Event()
     gate = (
         batch / f"start-gate-{time.time_ns()}.json"
@@ -496,7 +540,11 @@ def collect(args: argparse.Namespace, batch: Path) -> None:
             gpu = str(job.get("gpu", gpu_names[index % len(gpu_names)]))
             if gpu not in pending:
                 raise ValueError(f"task GPU {gpu} is outside --gpus")
-            pending[gpu].put((job, output, index))
+            work = (job, output, index)
+            if pilot and job not in pilot:
+                deferred.append((gpu, work))
+            else:
+                pending[gpu].put(work)
     atomic(batch / "valid-index.json", {"episodes": records})
     atomic(batch / "outcomes-index.json", {"episodes": outcomes})
     signal.signal(signal.SIGINT, interrupt)
@@ -540,17 +588,28 @@ def collect(args: argparse.Namespace, batch: Path) -> None:
                     gpu,
                     *episode_options(args),
                 ]
+                endpoint_index = index if endpoint_assignment == "slot" else job_index
                 environment = {
                     **os.environ,
+                    "RPENT_RECORD_MODEL_REQUESTS": "1",
+                    "RPENT_PYTHON": sys.executable,
                     "RPENT_OUTPUT_DIR": str(attempt),
-                    "RPENT_BASE_URL": endpoints[job_index % len(endpoints)],
+                    "RPENT_BASE_URL": endpoints[endpoint_index % len(endpoints)],
                     **({"RPENT_START_GATE": str(gate)} if gate else {}),
                 }
+                remote_endpoint = environment.get("RPENT_REMOTE_TOOLKIT_ENDPOINT")
+                remote_owner = uuid4().hex if remote_endpoint else None
+                if remote_owner is not None:
+                    environment["RPENT_REMOTE_OWNER_ID"] = remote_owner
+                    atomic(attempt / "remote-owner.json", {"owner_id": remote_owner})
                 while not initializing[gpu].acquire(timeout=0.5):
                     if STOP.is_set():
                         return
                 startup_held = True
                 begin = time.time()
+                watchdog = time.monotonic() + args.episode_timeout
+                check_at = watchdog
+                exclude_queue = environment.get("RPENT_EXCLUDE_MODEL_QUEUE") == "1"
                 deadline = False
                 with (attempt / "console.log").open("w") as log:
                     try:
@@ -561,22 +620,56 @@ def collect(args: argparse.Namespace, batch: Path) -> None:
                             stderr=subprocess.STDOUT,
                             start_new_session=True,
                         )
-                        while process.poll() is None:
-                            if startup_held and (attempt / "states.json").exists():
-                                initializing[gpu].release()
-                                startup_held = False
-                            if (
-                                STOP.is_set()
-                                or time.time() - begin >= args.episode_timeout
-                            ):
-                                deadline = not STOP.is_set()
-                                stop_process(process)
-                                break
-                            time.sleep(0.5)
-                        code = process.returncode
+                        leader_start = process_start_ticks(process.pid)
+                        try:
+                            while process.poll() is None:
+                                if startup_held and (attempt / "states.json").exists():
+                                    initializing[gpu].release()
+                                    startup_held = False
+                                if STOP.is_set():
+                                    break
+                                now = time.monotonic()
+                                if now >= check_at:
+                                    check_at = watchdog + (
+                                        recorded_queue_seconds(attempt / "api_trace")
+                                        if exclude_queue
+                                        else 0.0
+                                    )
+                                    if now >= check_at:
+                                        deadline = True
+                                        break
+                                time.sleep(0.5)
+                        finally:
+                            try:
+                                stop_owned_process_group(process.pid, leader_start, 20)
+                                code = process.wait(timeout=20)
+                            except (
+                                OSError,
+                                RuntimeError,
+                                subprocess.TimeoutExpired,
+                            ) as error:
+                                atomic(
+                                    attempt / "cleanup_error.json",
+                                    {"error": str(error)},
+                                )
+                                STOP.set()
+                                raise
                     finally:
                         if startup_held:
                             initializing[gpu].release()
+                if remote_owner is not None and (code or deadline or STOP.is_set()):
+                    from robots.rl.remote import cancel_remote_owners
+
+                    try:
+                        receipt = cancel_remote_owners(remote_endpoint, [remote_owner])
+                    except Exception as error:
+                        atomic(
+                            attempt / "cleanup_error.json",
+                            {"owner_id": remote_owner, "error": str(error)},
+                        )
+                        STOP.set()
+                        raise
+                    atomic(attempt / "remote-cleanup.json", receipt)
                 status = {
                     "exit_code": code,
                     "elapsed_seconds": time.time() - begin,
@@ -587,6 +680,15 @@ def collect(args: argparse.Namespace, batch: Path) -> None:
                 if STOP.is_set():
                     atomic(attempt / "INTERRUPTED.json", status)
                     return
+                if deadline and exclude_queue:
+                    atomic(
+                        attempt / "infrastructure_error.json",
+                        {
+                            "error": "Collector deadline exhausted outside confirmed model queue time",
+                            "action_execution_uncertain": True,
+                            "status": status,
+                        },
+                    )
                 if row := terminal_failure(attempt, deadline=deadline, job=job):
                     names = [
                         "result.json",
@@ -638,6 +740,32 @@ def collect(args: argparse.Namespace, batch: Path) -> None:
                 except (OSError, ValueError, KeyError, StopIteration) as error:
                     atomic(attempt / "INVALID.json", {**status, "error": str(error)})
                     print(f"Invalid {output.name}: {error}", flush=True)
+                    if code == 0 and (
+                        row := completed_without_training_trace(attempt, str(error))
+                    ):
+                        names = [
+                            "result.json",
+                            "states.json",
+                            "rollout.json",
+                            *[p.name for p in attempt.glob("transcript_*.json")],
+                        ]
+                        hashes = {
+                            name: hashlib.sha256(
+                                (attempt / name).read_bytes()
+                            ).hexdigest()
+                            for name in names
+                            if (attempt / name).exists()
+                        }
+                        atomic(
+                            attempt / "EVALUATED.json",
+                            {"outcome": row, "status": status, "hashes": hashes},
+                        )
+                        with LOCK:
+                            outcomes.append(row)
+                            atomic(
+                                batch / "outcomes-index.json", {"episodes": outcomes}
+                            )
+                        break
 
             else:
                 with LOCK:
@@ -655,43 +783,86 @@ def collect(args: argparse.Namespace, batch: Path) -> None:
                 if gate is not None and not gate.exists():
                     failed_before_gate.set()
 
-    with concurrent.futures.ThreadPoolExecutor(max_workers=len(slots)) as pool:
-        futures = [pool.submit(worker, index, gpu) for index, gpu in enumerate(slots)]
-        try:
-            while not all(future.done() for future in futures):
+    def drain_pending():
+        with concurrent.futures.ThreadPoolExecutor(max_workers=len(slots)) as pool:
+            futures = [
+                pool.submit(worker, index, gpu) for index, gpu in enumerate(slots)
+            ]
+            try:
+                while not all(future.done() for future in futures):
+                    for future in futures:
+                        if future.done() and future.exception() is not None:
+                            future.result()
+                    if gate is not None and not gate.exists():
+                        if failed_before_gate.is_set():
+                            raise RuntimeError(
+                                "an environment failed before the shared start barrier"
+                            )
+                        with LOCK:
+                            ready = [
+                                path
+                                for path in current_attempts.values()
+                                if (path / "READY.json").exists()
+                            ]
+                        if len(ready) == waiting:
+                            atomic(
+                                gate,
+                                {
+                                    "released_at": time.time(),
+                                    "ready": len(ready),
+                                    "attempts": [str(path) for path in ready],
+                                },
+                            )
+                    time.sleep(0.2)
                 for future in futures:
-                    if future.done() and future.exception() is not None:
-                        future.result()
-                if gate is not None and not gate.exists():
-                    if failed_before_gate.is_set():
-                        raise RuntimeError(
-                            "an environment failed before the shared start barrier"
-                        )
-                    with LOCK:
-                        ready = [
-                            path
-                            for path in current_attempts.values()
-                            if (path / "READY.json").exists()
-                        ]
-                    if len(ready) == waiting:
-                        atomic(
-                            gate,
-                            {
-                                "released_at": time.time(),
-                                "ready": len(ready),
-                                "attempts": [str(path) for path in ready],
-                            },
-                        )
-                time.sleep(0.2)
-            for future in futures:
-                future.result()
-        except BaseException:
-            STOP.set()
-            raise
+                    future.result()
+            except BaseException:
+                STOP.set()
+                raise
+
+    drain_pending()
+    pause_reason = None
+    if pilot and not STOP.is_set():
+        pilot_names = {job_name(job, args.prompt, args.workflow) for job in pilot}
+        pilot_rows = [
+            row for row in outcomes if Path(row["directory"]).parent.name in pilot_names
+        ]
+        moved = 0
+        for row in pilot_rows:
+            result_path = Path(row["directory"]) / "result.json"
+            if result_path.is_file() and json.loads(result_path.read_text()).get(
+                "env_steps", 0
+            ):
+                moved += 1
+        native_successes = sum(row["success"] for row in pilot_rows)
+        if not moved:
+            pause_reason = "pilot_no_measured_motion"
+        elif (
+            any(job["environment"] == "libero" for job in pilot)
+            and not native_successes
+        ):
+            pause_reason = "libero_pilot_no_native_success"
+        atomic(
+            batch / "pilot-result.json",
+            {
+                "expected": len(pilot),
+                "normal_outcomes": len(pilot_rows),
+                "infrastructure_errors": len(pilot) - len(pilot_rows),
+                "episodes_with_motion": moved,
+                "native_successes": native_successes,
+                "passed": pause_reason is None,
+                "pause_reason": pause_reason,
+            },
+        )
+        if pause_reason is None:
+            for gpu, work in deferred:
+                pending[gpu].put(work)
+            drain_pending()
     atomic(
         batch / "state.json",
         {
-            "status": "paused" if STOP.is_set() else "finished",
+            "status": "paused" if STOP.is_set() or pause_reason else "finished",
+            "pause_reason": pause_reason,
             "expected": len(jobs),
             "valid": len(records),
             "evaluated": len(outcomes),
@@ -702,7 +873,11 @@ def collect(args: argparse.Namespace, batch: Path) -> None:
             "finished_at": time.time(),
         },
     )
-    if not STOP.is_set() and len(outcomes) + len(exhausted) != len(jobs):
+    if (
+        not STOP.is_set()
+        and not pause_reason
+        and len(outcomes) + len(exhausted) != len(jobs)
+    ):
         raise RuntimeError("Some episodes failed audit; all attempts are retained")
 
 
@@ -742,6 +917,10 @@ def build_parser() -> tuple[argparse.ArgumentParser, argparse.ArgumentParser]:
     collection.add_argument("batch_dir")
     collection.add_argument("--jobs", required=True)
     collection.add_argument("--seeds", type=seed_values)
+    collection.add_argument(
+        "--pilot-jobs",
+        help="Subset of --jobs evaluated before releasing the remaining jobs",
+    )
     collection.add_argument("--gpus", required=True)
     collection.add_argument("--per-gpu", type=int, default=1)
     collection.add_argument(
@@ -756,27 +935,9 @@ def build_parser() -> tuple[argparse.ArgumentParser, argparse.ArgumentParser]:
         default=None,
         help="SAM RPC deadline including queue time; default 120 seconds.",
     )
-    collection.add_argument("--workflow", choices=WORKFLOWS, default=None)
     collection.add_argument("--world-cord", choices=("base", "general"), default=None)
-    collection.add_argument("--action-mode", choices=("single", "batch"), default=None)
-    collection.add_argument(
-        "--perception-mode",
-        choices=("single", "batch"),
-        default=None,
-        help="single tools or episode-only observe graph.",
-    )
-    collection.add_argument(
-        "--max-observe-calls",
-        type=int,
-        default=None,
-        help="Total observe subcall limit (default 8).",
-    )
-    collection.add_argument(
-        "--observe-concurrency",
-        type=int,
-        default=None,
-        help="Independent observe calls in flight (default 8).",
-    )
+    collection.add_argument("--position-unit", choices=("m", "cm"), default=None)
+    collection.add_argument("--action-mode", choices=("batch",), default=None)
     collection.add_argument("--max-actions-per-call", type=int, default=None)
     collection.add_argument("--reasoning-history", type=int, default=None)
     collection.add_argument("--image-history", type=int, default=None)
@@ -792,7 +953,15 @@ def build_parser() -> tuple[argparse.ArgumentParser, argparse.ArgumentParser]:
     collection.add_argument(
         "--thinking", "--reasoning", dest="no_thinking", action="store_false"
     )
-    collection.set_defaults(no_thinking=None)
+    collection.set_defaults(
+        no_thinking=None,
+        workflow="episode",
+        prompt="simple",
+        observation_mode="adaptive",
+        perception_mode="single",
+        max_observe_calls=8,
+        observe_concurrency=8,
+    )
     collection.add_argument("--max-turns", type=int, default=None)
     collection.add_argument("--max-tokens", type=int, default=None)
     collection.add_argument("--context-window", type=int, default=None)
@@ -812,18 +981,27 @@ def build_parser() -> tuple[argparse.ArgumentParser, argparse.ArgumentParser]:
     collection.add_argument("--repetition-penalty", type=float, default=None)
     collection.add_argument("--max-episode-steps", type=int, default=None)
     collection.add_argument("--planner-timeout-s", type=int, default=None)
-    collection.add_argument("--observation-mode", choices=CONFIGS, default=None)
     collection.add_argument(
         "--start-barrier",
         action="store_true",
         help="Wait until every pending environment is resident before requesting the model",
     )
-    collection.add_argument("--prompt", choices=PROMPT_VARIANTS, default=None)
     collection.add_argument(
         "--endpoints", help="Comma-separated local OpenAI base URLs"
     )
+    collection.add_argument(
+        "--endpoint-assignment",
+        choices=("job", "slot"),
+        default="job",
+        help="Assign endpoints round-robin by manifest order or concurrent worker slot",
+    )
     collection.add_argument("--infrastructure-retries", type=int, default=1)
-    collection.add_argument("--episode-timeout", type=int, default=14400)
+    collection.add_argument(
+        "--episode-timeout",
+        type=int,
+        default=14400,
+        help="Worker deadline in seconds, excluding confirmed waiting for model admission",
+    )
     collection.add_argument(
         "--start-interval",
         type=float,

@@ -153,26 +153,25 @@ def test_native_camera_backprojection_accepts_sapien_extrinsic_shape(
     )
 
 
-def test_paired_plans_transform_tcp_to_native_eef_and_hold_both_grippers(tmp_path):
+def test_arm_plan_transforms_tcp_to_eef_and_holds_unselected_targets(tmp_path):
     primitive = twin_primitives(tmp_path)
-    result = primitive.move_to("left", [0.1, 0.2, 0.5], other_xyz=[0.2, -0.2, 0.6])
+    result = primitive.move_to("left", [0.1, 0.2, 0.5])
     assert result.data["status"] == "reached"
     np.testing.assert_allclose(primitive.env.plans[0][1][:3], [0.1, 0.2, 0.4])
-    np.testing.assert_allclose(primitive.env.plans[1][1][:3], [0.2, -0.2, 0.5])
+    assert len(primitive.env.plans) == 1
     actions = primitive.env.chunks[0]
-    assert actions.shape == (5, 14)
+    assert actions.shape == (3, 14)
     np.testing.assert_allclose(actions[:, [6, 13]], 1)
     np.testing.assert_allclose(actions[-1, :6], 1)
-    np.testing.assert_allclose(actions[-1, 7:13], 1)
+    np.testing.assert_allclose(actions[:, 7:13], 0)
     assert primitive.native_success() is False
-    assert primitive.finish().data["success"] is False
 
 
-def test_failed_second_plan_executes_neither_arm(tmp_path):
+def test_failed_plan_executes_no_motion(tmp_path):
     primitive = twin_primitives(tmp_path, failed_arm="right")
-    result = primitive.move_to("left", [0.1, 0.2, 0.5], other_xyz=[0.2, -0.2, 0.6])
+    result = primitive.move_to("right", [0.2, -0.2, 0.6])
     assert result.data["reason"] == "plan_failed"
-    assert len(primitive.env.plans) == 2
+    assert len(primitive.env.plans) == 1
     assert primitive.env.chunks == [] and primitive.env_steps == 0
 
 
@@ -211,13 +210,13 @@ def test_measured_gripper_state_does_not_report_the_command_as_measurement(tmp_p
     assert result.data["grippers"]["left"]["opening"] == 0.4
 
 
-def test_gripper_pair_leaves_arm_targets_unchanged(tmp_path):
+def test_gripper_leaves_arm_targets_and_other_gripper_unchanged(tmp_path):
     primitive = twin_primitives(tmp_path)
-    primitive.set_gripper("right", 0.2, other_opening=0.5)
+    primitive.set_gripper("right", 0.2)
     actions = primitive.env.chunks[0]
     np.testing.assert_allclose(actions[:, :6], 0)
     np.testing.assert_allclose(actions[:, 7:13], 0)
-    np.testing.assert_allclose(actions[-1, [6, 13]], [0.5, 0.2])
+    np.testing.assert_allclose(actions[-1, [6, 13]], [1, 0.2])
 
 
 def test_arm_labels_project_measured_tcp_into_the_named_camera(tmp_path):

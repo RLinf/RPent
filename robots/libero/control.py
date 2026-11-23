@@ -18,6 +18,8 @@ from __future__ import annotations
 
 import numpy as np
 
+from rpent.robots.components.am_contracts import AMControlSpec
+
 
 class ControlObservation:
     """Transparent native-env wrapper exposing a picklable robot-state property."""
@@ -92,7 +94,7 @@ class ControlObservation:
         return kind, max(surfaces, key=lambda point: point[2])
 
     def _general_state(self, native, robot, arm) -> dict:
-        """Read the mounted base, support surface and pad midpoint from MuJoCo."""
+        """Read the installed base and support surface from compiled geometry."""
         sim = native.sim
         if self._coordinate_calibration is None:
             base = sim.model.body_name2id(robot.robot_model.root_body)
@@ -100,19 +102,10 @@ class ControlObservation:
             self._coordinate_calibration = {
                 "base_xyz": sim.data.body_xpos[base].copy(),
                 "base_rotation": sim.data.body_xmat[base].reshape(3, 3).copy(),
+                "tcp": "grip_site",
                 f"{kind}_top_xyz": np.asarray(surface, dtype=float).copy(),
             }
-        gripper = robot.gripper[arm]
-        pads = []
-        for side in ("left_fingerpad", "right_fingerpad"):
-            names = gripper.important_geoms[side]
-            if len(names) != 1:
-                raise ValueError("general requires one collision pad per Panda finger")
-            pads.append(sim.data.geom_xpos[sim.model.geom_name2id(names[0])])
-        return {
-            "coordinate_calibration": self._coordinate_calibration,
-            "pad_tcp_xyz": np.mean(pads, axis=0),
-        }
+        return {"coordinate_calibration": self._coordinate_calibration}
 
     @property
     def rpent_control_state(self) -> dict:
@@ -155,6 +148,8 @@ class ControlObservation:
             "xyz": native.sim.data.site_xpos[site].copy(),
             "rotation": site_rotation,
             "body_to_site_rotation": body_rotation.T @ site_rotation,
+            "wrist_to_site_in_site": site_rotation.T
+            @ (native.sim.data.site_xpos[site] - native.sim.data.body_xpos[body]),
             "control_to_world_rotation": origin.copy(),
             "input_min": np.asarray(controller.input_min).copy(),
             "input_max": np.asarray(controller.input_max).copy(),
@@ -195,8 +190,6 @@ def controlled_env_type(*, world_cord="base", coordinate_calibration=False):
 
     return ControlledLiberoEnv
 
-
-from rpent.robots.components.am_contracts import AMControlSpec
 
 # Values use LIBERO's native OSC scaling and gripper convention. Model
 # adapters restore this representation before handing actions to the env.

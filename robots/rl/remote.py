@@ -30,6 +30,7 @@ from typing import Any
 
 from pydantic_core import to_jsonable_python
 
+from robots.rl.contracts import EPISODE_CONTRACT_VERSION
 from rpent.session import EnvState
 from rpent.tools import ToolResult
 from rpent.tools.toolkit import Toolkit
@@ -42,11 +43,12 @@ logger = get_logger("rl_remote")
 REMOTE_OPTION_DEFAULTS = {
     "workflow": "episode",
     "world_cord": "base",
+    "position_unit": "m",
     "reasoning": True,
     "observation_mode": "adaptive",
     "prompt": "simple",
     "image_size": 1024,
-    "action_mode": "single",
+    "action_mode": "batch",
     "max_actions_per_call": 3,
     "reasoning_history": -1,
     "image_history": -1,
@@ -74,11 +76,8 @@ def remote_options(task: dict) -> dict:
     for name, default in REMOTE_OPTION_DEFAULTS.items():
         if type(options[name]) is not type(default):
             raise ValueError(f"invalid remote workflow option {name}")
-    if (
-        options["workflow"] not in {"episode", "pear"}
-        or options["observation_mode"] != "adaptive"
-    ):
-        raise ValueError("remote toolkit supports adaptive episode or pear only")
+    if options["workflow"] != "episode" or options["observation_mode"] != "adaptive":
+        raise ValueError("remote toolkit supports adaptive episode only")
     if options["perception_mode"] != "single":
         raise ValueError("remote toolkit supports single perception only")
     if (
@@ -87,6 +86,9 @@ def remote_options(task: dict) -> dict:
     ):
         raise ValueError("invalid remote image size or prompt variant")
     validate_coordinates(task["environment"], options["world_cord"])
+    from robots.rl.units import PositionUnits
+
+    PositionUnits(options["position_unit"])
     validate_image_size(
         task["environment"], options["world_cord"], options["image_size"]
     )
@@ -120,6 +122,7 @@ def source_digest() -> str:
         "robots/libero",
         "robots/robocasa",
         "robots/robotwin",
+        "robots/robodojo",
         "rpent/tools",
         "rpent/session",
         "rpent/utils/rpc",
@@ -218,7 +221,7 @@ class ToolkitWorker(RpcFacade):
         self.toolkit, self.release, self.config = toolkit, release, config
         self.exchange = ArtifactExchange(Path(config["output_dir"]))
         self._next_call = 0
-        self._closed = False
+        self._final_outcome: dict[str, Any] | None = None
         self._initial = toolkit.initial_observation()
         self._rpc.update(
             {
@@ -233,6 +236,7 @@ class ToolkitWorker(RpcFacade):
         """Return a small identity handshake before transferring native artifacts."""
         return {
             "task": self.config["task"],
+            "episode_contract_version": EPISODE_CONTRACT_VERSION,
             "max_episode_steps": self.config["max_episode_steps"],
             "workflow_options": {
                 name: (
@@ -254,13 +258,18 @@ class ToolkitWorker(RpcFacade):
 
     def observe(self) -> dict:
         """Transfer the initial observation under an already renewable lease."""
-        if self._closed:
+        if self._final_outcome is not None:
             raise ValueError("session is closed")
         return self._pack(self._initial)
 
-    def _pack(
-        self, result: ToolResult | None = None, *, solved: bool | None = None
-    ) -> dict:
+    def _outcome(self) -> dict[str, Any]:
+        return {
+            "solved": self.toolkit.solved(),
+            "completion_result": self.toolkit.completion_result(),
+            "infrastructure_error": getattr(self.toolkit, "infrastructure_error", None),
+        }
+
+    def _pack(self, result: ToolResult | None = None) -> dict:
         result = result or ToolResult()
         return {
             "data": result.data,
@@ -268,26 +277,33 @@ class ToolkitWorker(RpcFacade):
             "images": [
                 base64.b64encode(image).decode("ascii") for image in result.images
             ],
-            "solved": self.toolkit.solved() if solved is None else solved,
-            "completion_result": self.toolkit.completion_result(),
+            **(
+                self._final_outcome
+                if self._final_outcome is not None
+                else self._outcome()
+            ),
             "workflow_stats": self.toolkit.workflow_stats,
             "files": self.exchange.collect(),
         }
 
     def execute(self, call_id: int, name: str, arguments: dict) -> dict:
         """Execute each numbered call at most once; uncertain calls are not replayed."""
-        if self._closed or type(call_id) is not int or call_id != self._next_call:
+        if (
+            self._final_outcome is not None
+            or type(call_id) is not int
+            or call_id != self._next_call
+        ):
             raise ValueError("closed session or out-of-order/replayed tool call")
         self._next_call += 1
         return self._pack(self.toolkit.execute_tool(name, arguments))
 
     def finish(self) -> dict:
-        """Flush native video/state before the manager releases this worker."""
-        if not self._closed:
-            self._final_solved = self.toolkit.solved()
+        """Read the native verdict before shutdown and send the flushed artifacts."""
+        if self._final_outcome is None:
+            outcome = self._outcome()
             self.release.close()
-            self._closed = True
-        return self._pack(solved=self._final_solved)
+            self._final_outcome = outcome
+        return self._pack()
 
     def _builtin_dispatch(self, method: str, args: tuple, kwargs: dict) -> Any:
         if method == "rl.cancel":
@@ -322,6 +338,7 @@ class RemoteToolkit(Toolkit):
     """Keep the planner local while the original toolkit executes on its backend."""
 
     planner_builtin_tools = False
+    api_environment_context = False
 
     def __init__(
         self,
@@ -348,18 +365,22 @@ class RemoteToolkit(Toolkit):
             )
         for name, value in options.items():
             setattr(self, name, value)
-        self.snapshot = None
+        from robots.rl.units import PositionUnits
+
+        self.units = PositionUnits(self.position_unit)
         self.workflow_stats = {}
         self._call_lock = threading.Lock()
         self._call_id = 0
         self._stopped = threading.Event()
         self._session = None
         self._solved = False
+        self.infrastructure_error = None
         self._completion = None
         self._transport_error = None
         self._heartbeat = None
         if owner_id is None:
             owner_id = os.environ.get("RPENT_REMOTE_OWNER_ID")
+        request = {**request, "episode_contract_version": EPISODE_CONTRACT_VERSION}
         open_kwargs = {"request": request}
         if owner_id is not None:
             open_kwargs["owner_id"] = owner_id
@@ -368,6 +389,10 @@ class RemoteToolkit(Toolkit):
         try:
             if owner_id is not None and metadata.get("owner_id") != owner_id:
                 raise ValueError("remote toolkit attempt owner does not match")
+            if metadata.get("episode_contract_version") != EPISODE_CONTRACT_VERSION:
+                raise ValueError(
+                    "remote episode contract version differs from the planner"
+                )
             if metadata["source_digest"] != source_digest():
                 raise ValueError(
                     "remote toolkit source differs from the planner checkout"
@@ -387,41 +412,23 @@ class RemoteToolkit(Toolkit):
                 )
                 if (
                     coordinates.get("world_cord") != "general"
-                    or coordinates.get("tcp") != "finger_pad_midpoint"
+                    or coordinates.get("tcp")
+                    not in {"grip_site", "native_grasp_tcp", "calibrated_grasp_tcp"}
+                    or coordinates.get("contract_version") != "episode_coordinates_v2"
                     or coordinates.get(height) is None
                 ):
                     raise ValueError(
                         "remote general toolkit lacks matching base, support surface and TCP calibration"
                     )
-            from robots.rl.contracts import coordinate_definition, strict_tool
-            from robots.rl.toolkit import (
-                action_batch_definition,
-                primitive_definitions,
-                primitive_owner,
-            )
+            from robots.rl.toolkit import episode_tools
 
-            environment = request["task"]["environment"]
-            owner = primitive_owner(environment, self.world_cord)
-            definitions = list(
-                primitive_definitions(
-                    owner,
-                    workflow=self.workflow,
-                    action_mode=self.action_mode,
-                    perception_mode=self.perception_mode,
-                )
-            )
-            if self.action_mode == "batch":
-                definitions.append(
-                    action_batch_definition(
-                        self, self.max_actions_per_call, environment
-                    )
-                )
-            for definition in definitions:
-                definition = strict_tool(
-                    coordinate_definition(definition, self.world_cord),
-                    image_size=self.image_size,
-                    cameras=getattr(owner, "cameras", ("agentview", "wrist")),
-                )
+            for definition in episode_tools(
+                self,
+                request["task"]["environment"],
+                self.world_cord,
+                self.units,
+                self.max_actions_per_call,
+            ):
                 self.add_tool(definition.with_handler(self._handler(definition.name)))
             if metadata["tools"] != declarations(self):
                 raise ValueError("remote toolkit declarations differ from the planner")
@@ -434,6 +441,7 @@ class RemoteToolkit(Toolkit):
                             "pid",
                             "boot_id",
                             "source_digest",
+                            "episode_contract_version",
                             "task",
                             "max_episode_steps",
                             "workflow_options",
@@ -473,6 +481,7 @@ class RemoteToolkit(Toolkit):
         transferred = ArtifactExchange.receive(self._output, payload["files"])
         self.state.reload()
         self._solved = payload["solved"]
+        self.infrastructure_error = payload.get("infrastructure_error")
         self._completion = payload.get("completion_result")
         self.workflow_stats = payload["workflow_stats"]
         trace = self._output / "remote-transfer.jsonl"

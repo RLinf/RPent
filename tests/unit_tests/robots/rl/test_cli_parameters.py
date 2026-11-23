@@ -130,6 +130,8 @@ def test_official_thinking_defaults_are_explicit(monkeypatch):
     assert s["extra_body"]["min_p"] == 0
     assert s["extra_body"]["repetition_penalty"] == 1
     assert s["extra_body"]["chat_template_kwargs"]["enable_thinking"] is True
+    assert s["extra_body"]["chat_template_kwargs"]["reasoning_effort"] == "xhigh"
+    assert "openai_reasoning_effort" not in s
 
 
 def test_cli_overrides_reach_actual_http_wire_and_window(tmp_path, monkeypatch):
@@ -282,7 +284,7 @@ def test_configurable_message_window_keeps_pairs_and_zero_disables_trigger():
         ("--max-tokens", "8192"),
         ("--compaction-max-messages", "0"),
         ("--compaction-keep-messages", "20"),
-        ("--perception-mode", "batch"),
+        ("--position-unit", "cm"),
         ("--sam3-timeout-s", "600"),
     ],
 )
@@ -306,7 +308,7 @@ def test_batch_manifest_pins_generation_and_window(tmp_path, monkeypatch, flag, 
             signal.signal(sig, handler)
 
 
-def test_observe_cli_defaults_and_child_options(tmp_path):
+def test_episode_cli_defaults_and_unit_forwarding(tmp_path):
     from robots.rl.robot_spec import _parse_config, get_robot_spec
     from rpent.cli.main import _build_argparser
 
@@ -316,42 +318,36 @@ def test_observe_cli_defaults_and_child_options(tmp_path):
         [
             "--robot",
             "rl",
-            "--workflow",
-            "episode",
             "--suite",
             "libero_object",
             "--task",
             "0",
-            "--perception-mode",
-            "batch",
-            "--max-observe-calls",
-            "5",
-            "--observe-concurrency",
-            "2",
+            "--world-cord",
+            "general",
+            "--position-unit",
+            "cm",
         ]
     )
     config = _parse_config(args)
-    assert config.prompt_vars["perception_mode"] == "batch"
-    assert config.prompt_vars["max_observe_calls"] == 5
-    assert config.task_desc["observe_concurrency"] == 2
+    assert config.prompt_vars["position_unit"] == "cm"
+    assert config.task_desc["world_cord"] == "general"
     batch_options = batch_args(
-        tmp_path,
-        "--perception-mode",
-        "batch",
-        "--max-observe-calls",
-        "5",
-        "--observe-concurrency",
-        "2",
+        tmp_path, "--world-cord", "general", "--position-unit", "cm"
     )
     batch.resolve_run_options(batch_options)
     flags = batch.episode_options(batch_options)
-    assert flags[flags.index("--perception-mode") + 1] == "batch"
-    assert flags[flags.index("--max-observe-calls") + 1] == "5"
-    assert flags[flags.index("--observe-concurrency") + 1] == "2"
+    assert flags[flags.index("--position-unit") + 1] == "cm"
+    assert flags[flags.index("--world-cord") + 1] == "general"
+    for removed in (
+        "--workflow",
+        "--prompt",
+        "--observation-mode",
+        "--perception-mode",
+    ):
+        assert removed not in flags
     default = batch_args(tmp_path)
     batch.resolve_run_options(default)
-    assert default.perception_mode == "single"
-    assert default.max_observe_calls == default.observe_concurrency == 8
+    assert default.position_unit == "m" and default.world_cord == "base"
 
 
 @pytest.mark.parametrize(
@@ -367,9 +363,8 @@ def test_observe_cli_defaults_and_child_options(tmp_path):
     ],
 )
 def test_observe_cli_rejects_inapplicable_settings_before_launch(tmp_path, options):
-    args = batch_args(tmp_path, *options)
-    with pytest.raises(ValueError):
-        batch.resolve_run_options(args)
+    with pytest.raises(SystemExit):
+        batch_args(tmp_path, *options)
     assert not (tmp_path / "batch").exists()
 
 
@@ -379,11 +374,11 @@ def test_launcher_budget_defaults_apply_to_every_batch(tmp_path, monkeypatch):
     args = batch_args(tmp_path)
     batch.resolve_run_options(args)
     assert args.max_tokens == 32768
-    assert args.max_turns == 80
+    assert args.max_turns == 100
     assert args.compaction_keep_messages == 10
     flags = batch.episode_options(args)
     assert flags[flags.index("--max-tokens") + 1] == "32768"
-    assert flags[flags.index("--max-turns") + 1] == "80"
+    assert flags[flags.index("--max-turns") + 1] == "100"
     assert flags[flags.index("--compaction-keep-messages") + 1] == "10"
 
 
@@ -442,8 +437,6 @@ def test_trainer_episode_recording_is_explicit(tmp_path, record):
         str(tmp_path),
         "--request",
         str(tmp_path / "request.json"),
-        "--workflow",
-        "episode",
         "--simulator",
         "libero",
         "--action-mode",
@@ -458,10 +451,8 @@ def test_trainer_episode_recording_is_explicit(tmp_path, record):
     assert list(tmp_path.iterdir()) == []
 
 
-def test_pear_batch_pins_frame_and_reasoning_and_forwards_both(tmp_path):
-    args = batch_args(
-        tmp_path, "--workflow", "pear", "--world-cord", "general", "--no-reasoning"
-    )
+def test_episode_batch_pins_frame_and_reasoning_and_forwards_both(tmp_path):
+    args = batch_args(tmp_path, "--world-cord", "general", "--no-reasoning")
     batch.resolve_run_options(args)
     assert args.world_cord == "general" and args.no_thinking
     flags = batch.episode_options(args)

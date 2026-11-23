@@ -9,6 +9,14 @@ from dataclasses import replace
 
 from rpent.tools import Tool
 
+EPISODE_CONTRACT_VERSION = 2
+CAMERAS = {
+    "libero": ("agentview", "wrist"),
+    "robocasa": ("agentview", "agentview_right", "wrist"),
+    "robotwin": ("head", "left_wrist", "right_wrist"),
+    "robodojo": ("cam_head", "cam_left_wrist", "cam_right_wrist"),
+}
+
 
 def _present(name, kind):
     return {"required": [name], "properties": {name: {"type": kind}}}
@@ -75,9 +83,7 @@ def complete_schema_alternatives(schema):
     return schema
 
 
-def strict_tool(
-    declaration: Tool, *, image_size: int, latest: bool = False, cameras=()
-):
+def strict_tool(declaration: Tool, *, cameras=()):
     """Keep the public call shape while expressing mutually exclusive queries."""
     schema = deepcopy(declaration.input_schema)
 
@@ -118,7 +124,6 @@ def strict_tool(
                 items={
                     "type": "integer",
                     "minimum": 0,
-                    "maximum": image_size if name == "box" else image_size - 1,
                 },
             )
     if (
@@ -129,15 +134,14 @@ def strict_tool(
         properties["camera"]["enum"] = [
             *cameras,
             *(["all"] if declaration.name == "view_env" else []),
-            *([None] if declaration.name == "back_project" else []),
+            *([None] if declaration.name in {"segment", "back_project"} else []),
         ]
     if declaration.name == "segment":
         text, point = _present("prompt", "string"), _present("point", "array")
         text["properties"]["point"] = {"type": "null"}
         point["properties"]["prompt"] = {"type": "null"}
-        if not latest:
-            point["required"].append("step")
-            point["properties"]["step"] = {"type": "integer"}
+        point["required"].append("step")
+        point["properties"]["step"] = {"type": "integer"}
         schema["oneOf"] = [text, point]
     elif declaration.name == "back_project":
         branches = []
@@ -148,9 +152,8 @@ def strict_tool(
                     branch["properties"][other] = {"type": "null"}
             if name == "mask_id":
                 branch["properties"]["camera"] = {"type": "null"}
-                if not latest:
-                    branch["properties"]["step"] = {"type": "null"}
-            elif not latest:
+                branch["properties"]["step"] = {"type": "null"}
+            else:
                 branch["required"].append("step")
                 branch["properties"]["step"] = {"type": "integer"}
             if name == "pixel":
@@ -165,7 +168,7 @@ def validate_relations(name: str, arguments: dict) -> None:
     box = arguments.get("box")
     if box is not None and (box[0] >= box[2] or box[1] >= box[3]):
         raise ValueError("box must have row_min < row_max and col_min < col_max")
-    z = arguments.get("z_range_m")
+    z = arguments.get("z_range_m", arguments.get("z_range_cm"))
     if z is not None and z[0] > z[1]:
         raise ValueError("z_range_m must be [low,high] with low <= high")
 
@@ -181,25 +184,12 @@ def validate_options(
     world_cord="base",
 ):
     """Reject unsupported non-default options before allocating a simulator."""
-    if action_mode not in {"single", "batch"} or max_actions < 1:
-        raise ValueError(
-            "action-mode must be single/batch and max-actions-per-call >= 1"
-        )
-    if workflow == "pear" and action_mode != "single":
-        raise ValueError("pear requires one move_to or set_gripper call per reply")
+    if action_mode != "batch" or not 1 <= max_actions <= 3:
+        raise ValueError("episode requires batch actions with a limit of 1..3")
     if reasoning < -1 or images < -1:
         raise ValueError("history limits must be -1 or a nonnegative integer")
-    supported = (
-        environment == "libero" and workflow in {"episode", "episode_image", "pear"}
-    ) or (
-        environment in {"robotwin", "robocasa"} and workflow == "episode" and world_cord == "general"
-    )
-    if not supported and (
-        action_mode != "single" or reasoning != -1 or images != -1 or max_actions != 3
-    ):
-        raise ValueError(
-            "action/history options require LIBERO or RoboTwin/RoboCasa general episode"
-        )
+    if workflow != "episode":
+        raise ValueError("only episode is supported")
 
 
 def validate_image_size(environment: str, world_cord: str, image_size: int) -> None:
@@ -219,16 +209,10 @@ def validate_image_size(environment: str, world_cord: str, image_size: int) -> N
 
 def validate_perception_options(workflow, mode="single", max_calls=8, concurrency=8):
     """Keep graph perception opt-in and confined to episode workflows."""
-    if mode not in {"single", "batch"}:
-        raise ValueError("perception-mode must be single or batch")
-    if max_calls < 1 or concurrency < 1:
-        raise ValueError("max-observe-calls and observe-concurrency must be positive")
-    if workflow != "episode" and (
-        mode != "single" or max_calls != 8 or concurrency != 8
-    ):
-        raise ValueError("observe options require --workflow episode")
-    if mode == "single" and (max_calls != 8 or concurrency != 8):
-        raise ValueError("observe limits require --perception-mode batch")
+    if workflow != "episode" or mode != "single":
+        raise ValueError("episode exposes only view_env, segment and back_project")
+    if max_calls != 8 or concurrency != 8:
+        raise ValueError("batch perception options are no longer supported")
 
 
 def argument_hint(name: str, environment: str = "libero") -> str:
@@ -254,8 +238,13 @@ def validate_coordinates(environment: str, world_cord: str) -> None:
     """Reject unsupported frames before starting a simulator."""
     if world_cord not in {"base", "general"}:
         raise ValueError("world_cord must be base or general")
-    if world_cord == "general" and environment not in {"libero", "robotwin", "robocasa"}:
-        raise ValueError("general coordinates currently support LIBERO, RoboTwin and RoboCasa")
+    if world_cord == "general" and environment not in {
+        "libero",
+        "robotwin",
+        "robocasa",
+        "robodojo",
+    }:
+        raise ValueError("general coordinates require a supported simulator")
 
 
 def coordinate_definition(declaration, world_cord: str):
@@ -274,9 +263,12 @@ def coordinate_definition(declaration, world_cord: str):
             return re.sub(
                 r"\bworld(?:-frame)?\b",
                 "general frame",
-                value.replace("grip_site", "finger-pad TCP").replace(
-                    "grip-site", "finger-pad TCP"
-                ),
+                value.replace(
+                    " In episode_image only the final two-camera observation is returned.",
+                    "",
+                )
+                .replace("grip_site", "native grasp TCP")
+                .replace("grip-site", "native grasp TCP"),
             )
         return value
 

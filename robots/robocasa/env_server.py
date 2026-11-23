@@ -252,7 +252,7 @@ class RoboCasaEnvFacade(MainThreadServeMixin, BaseEnvFacade):
         return self._support_surface_cache
 
     def coordinate_calibration(self):
-        """Measure the arm mount, grip site, finger pads, jaws, and support surface."""
+        """Measure the arm mount, native grip site, jaw axes and support surface."""
         model, data = self.env.sim.model, self.env.sim.data
         robot = self.env.robots[0]
         mount = model.site_name2id("mobilebase0_center")
@@ -260,13 +260,8 @@ class RoboCasaEnvFacade(MainThreadServeMixin, BaseEnvFacade):
         if int(model.site_bodyid[mount]) != int(support):
             raise ValueError("Panda mounting centre is not on the lifting support")
         gripper = robot.gripper["right"]
-        pads = []
-        for side in ("left_fingerpad", "right_fingerpad"):
-            names = gripper.important_geoms[side]
-            if len(names) != 1:
-                raise ValueError("general requires one collision pad per Panda finger")
-            pads.append(data.geom_xpos[model.geom_name2id(names[0])])
         site = robot.eef_site_id["right"]
+        hand = model.body_name2id(robot.robot_model.eef_name["right"])
         site_rotation = (
             np.asarray(data.site_xmat[site], dtype=np.float64).reshape(3, 3).copy()
         )
@@ -282,6 +277,7 @@ class RoboCasaEnvFacade(MainThreadServeMixin, BaseEnvFacade):
         kind, surface, source = self._support_surface()
         return {
             "coordinate_calibration": {
+                "tcp": "grip_site",
                 "base_xyz": np.asarray(data.site_xpos[mount], dtype=np.float64).copy(),
                 "base_rotation": np.asarray(data.body_xmat[support], dtype=np.float64)
                 .reshape(3, 3)
@@ -301,9 +297,10 @@ class RoboCasaEnvFacade(MainThreadServeMixin, BaseEnvFacade):
             "lift_m": float(
                 data.qpos[model.get_joint_qpos_addr("mobilebase0_joint_torso_height")]
             ),
-            "pad_tcp_xyz": np.mean(pads, axis=0),
             "site_xyz": np.asarray(data.site_xpos[site], dtype=np.float64).copy(),
             "site_rotation": site_rotation,
+            "wrist_to_site_in_site": site_rotation.T
+            @ (data.site_xpos[site] - data.body_xpos[hand]),
             "jaw_slide_axes_site": np.asarray(jaw_axes, dtype=np.float64),
         }
 

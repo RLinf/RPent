@@ -16,11 +16,13 @@
 
 from __future__ import annotations
 
+import argparse
 import base64
 import contextlib
 import hashlib
 import json
 import threading
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -32,6 +34,44 @@ from rpent.memory import MemoryManager
 from rpent.utils.rpc import RpcError, RpcFacade
 from rpent.utils.rpc.http_rpc import HttpRpcClient, HttpRpcServer
 from tests.unit_tests.robots.rl.test_libero_rl_contracts import FakeEnv, make_toolkit
+
+
+@pytest.mark.parametrize("environment", ["libero", "robotwin", "robocasa", "robodojo"])
+def test_episode_runtime_request_is_accepted_by_its_remote_manager(
+    tmp_path, environment
+):
+    from robots.rl.robot_spec import get_robot_spec
+
+    parser = argparse.ArgumentParser()
+    spec = get_robot_spec()
+    spec.add_cli_args(parser, False)
+    task_args = (
+        ["--suite", "libero_object", "--task", "9", "--libero-type", "pro"]
+        if environment == "libero"
+        else ["--task-name", "native_task"]
+    )
+    args = parser.parse_args(
+        [
+            "--simulator",
+            environment,
+            "--remote-toolkit-endpoint",
+            "http://localhost:28490",
+            "--cuda-device",
+            "0",
+            "--seed",
+            "1",
+            "--world-cord",
+            "base" if environment == "libero" else "general",
+            *task_args,
+        ]
+    )
+    args.output_dir = tmp_path
+    _, runtime = spec.init_runtime(
+        args, tmp_path, NullDashboardEventSink(), {"env", "sam3"}
+    )
+    request = runtime["remote_request"]
+    validate_request(request, {0})
+    assert ("layout" in request["task"]) == (environment == "robodojo")
 
 
 class Bridge(RpcFacade):
@@ -83,6 +123,16 @@ class Bridge(RpcFacade):
 
 @pytest.fixture
 def connected(tmp_path, monkeypatch, request):
+    # The worker is an in-process fake, including its Linux host identity.
+    # Keep the HTTP contract test runnable on non-Linux development machines.
+    read_text = Path.read_text
+
+    def host_identity(path, *args, **kwargs):
+        if path == Path("/proc/sys/kernel/random/boot_id"):
+            return "d831e11e-b157-46fb-a341-b276fc7d3e46\n"
+        return read_text(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "read_text", host_identity)
     monkeypatch.setattr(tools, "IMAGE_SIZE", 32)
     from rpent.utils import templates
 
@@ -90,7 +140,7 @@ def connected(tmp_path, monkeypatch, request):
         templates, "default_variables", lambda: {"output_dir": "/offline/output"}
     )
     options = getattr(request, "param", {})
-    if options.get("world_cord") == "general" or options.get("workflow") == "pear":
+    if options.get("world_cord") == "general":
         from tests.unit_tests.robots.rl.test_coordinates import CalibratedEnv
 
         env = CalibratedEnv([1, -2, 0.5], 0.4, success_below_z=1.45)
@@ -146,9 +196,11 @@ def test_remote_preserves_native_tools_observations_and_original_bytes(connected
     client = connected.connect()
     assert remote.declarations(client) == remote.declarations(connected.toolkit)
     assert client.initial_observation().data["state"]["step"] == 0
-    invalid = client.execute_tool("move_to", {"xyz": "bad"})
+    from tests.unit_tests.robots.rl.test_libero_rl_contracts import execute_item
+
+    invalid = execute_item(client, "move_to", {"xyz": "bad"})
     assert invalid.is_error and connected.bridge.calls == ["rl.observe"]
-    moved = client.execute_tool("move_to", {"xyz": [0.1, -0.2, 0.9]})
+    moved = execute_item(client, "move_to", {"xyz": [0.1, -0.2, 0.9]})
     # Native success terminates this fixture before the requested pose settles.
     assert moved.data["status"] == "partial"
     assert moved.data["reason"] == "terminated"
@@ -191,7 +243,6 @@ def test_remote_batch_has_identical_contract_and_never_executes_invalid_list(con
             "view_env",
             "segment",
             "back_project",
-            "finish",
         }
         assert client.reasoning_history == 3 and client.image_history == 1
         invalid = client.execute_tool(
@@ -227,7 +278,10 @@ def test_response_loss_cannot_become_a_tool_error_and_replay_the_action(connecte
     client = connected.connect()
     connected.bridge.fail_after_action = True
     with pytest.raises(RuntimeError, match="outcome is uncertain"):
-        client.execute_tool("move_to", {"xyz": [0.1, -0.2, 0.9]})
+        client.execute_tool(
+            "execute_actions",
+            {"actions": [{"action": "move_to", "xyz": [0.1, -0.2, 0.9]}]},
+        )
     count = len(connected.env.actions)
     with pytest.raises(RuntimeError, match="outcome is uncertain"):
         client.execute_tool("move_to", {"xyz": [0.1, -0.2, 1.0]})
@@ -292,6 +346,30 @@ def test_worker_rejects_replayed_out_of_order_and_closed_calls(connected):
         worker.execute(1, "view_env", {})
 
 
+def test_worker_finishes_without_querying_the_closed_simulator(connected, monkeypatch):
+    simulator_open = True
+    terminal = {"status": "completed", "success": False, "truncated": True}
+
+    def completion_result():
+        if not simulator_open:
+            raise ConnectionRefusedError("native simulator has closed")
+        return terminal
+
+    def close_simulator():
+        nonlocal simulator_open
+        simulator_open = False
+
+    monkeypatch.setattr(connected.toolkit, "completion_result", completion_result)
+    connected.worker.release.callback(close_simulator)
+    client = connected.connect()
+    client.close()
+    assert connected.bridge.released and not simulator_open
+    assert client.completion_result() == terminal
+    assert client.solved() is False
+    assert (connected.output / "rollout.json").is_file()
+    assert connected.worker.finish()["completion_result"] == terminal
+
+
 @pytest.mark.parametrize(
     "path", ["../outside.png", "/outside.png", "nested/../../outside.png"]
 )
@@ -340,6 +418,7 @@ def test_manager_rejects_tasks_outside_its_native_resource_contract(changes):
         "task": {"environment": "robotwin", "task_name": "adjust_bottle", "seed": 1},
         "gpu": 0,
         "max_episode_steps": 10000,
+        "episode_contract_version": 2,
         **changes,
     }
     with pytest.raises(ValueError):
@@ -368,6 +447,7 @@ def test_manager_validates_workflow_options_before_starting_a_worker(bad):
         },
         "gpu": 0,
         "max_episode_steps": 10000,
+        "episode_contract_version": 2,
     }
     with pytest.raises(ValueError):
         validate_request(request, {0})
@@ -385,6 +465,7 @@ def test_manager_capacity_includes_reserved_initializations_and_cleanup(tmp_path
         "task": {"environment": "robotwin", "task_name": "adjust_bottle", "seed": 1},
         "gpu": 0,
         "max_episode_steps": 10000,
+        "episode_contract_version": 2,
     }
     try:
         with pytest.raises(RuntimeError, match="slots are full"):
@@ -401,6 +482,7 @@ def _owned_request():
         "task": {"environment": "robotwin", "task_name": "adjust_bottle", "seed": 1},
         "gpu": 0,
         "max_episode_steps": 10000,
+        "episode_contract_version": 2,
     }
 
 
@@ -872,7 +954,7 @@ def test_manager_control_calls_respond_while_bulk_replies_are_pending(tmp_path):
 
 @pytest.mark.parametrize(
     "connected",
-    [{"world_cord": "general"}, {"workflow": "pear", "world_cord": "general"}],
+    [{"world_cord": "general"}, {"world_cord": "general", "position_unit": "cm"}],
     indirect=True,
 )
 def test_remote_general_converts_once_and_carries_native_completion(connected):
@@ -881,20 +963,26 @@ def test_remote_general_converts_once_and_carries_native_completion(connected):
     client = connected.connect()
     np.testing.assert_allclose(
         client.initial_observation().data["state"]["pose"]["xyz"],
-        connected.toolkit._robot_state()["pose"]["xyz"],
+        connected.toolkit.units.payload(connected.toolkit._robot_state())["pose"][
+            "xyz"
+        ],
     )
-    if client.workflow == "episode":
-        measured = client.execute_tool("segment", {"prompt": "cube"})
-        assert measured.data["top_z_m"] == pytest.approx(1, abs=1e-4)
-    else:
-        assert {tool.name for tool in client.list_tools()} == {"move_to", "set_gripper"}
-        assert connected.env.depth_calls == 0
-    moved = client.execute_tool("move_to", {"xyz": [0.1, -0.2, 0.9]})
+    scale = 100 if client.position_unit == "cm" else 1
+    measured = client.execute_tool("segment", {"prompt": "cube", "step": 0})
+    suffix = client.position_unit
+    assert measured.data[f"top_z_{suffix}"] == pytest.approx(scale, abs=0.01)
+    moved = client.execute_tool(
+        "execute_actions",
+        {
+            "actions": [
+                {"action": "move_to", "xyz": [v * scale for v in [0.1, -0.2, 0.9]]}
+            ]
+        },
+    )
     np.testing.assert_allclose(
-        moved.data["pose"]["xyz"], connected.toolkit._robot_state()["pose"]["xyz"]
+        moved.data["results"][0]["pose"]["xyz"],
+        np.asarray(connected.toolkit._robot_state()["pose"]["xyz"]) * scale,
     )
-    if client.workflow == "pear":
-        assert client.completion_result()["success"] is True
     client.close()
 
 

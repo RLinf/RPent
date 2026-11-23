@@ -24,7 +24,7 @@
 | `RPENT_SAM3_ENDPOINT` | 未设置 | 已启动的共享 SAM3 endpoint |
 | `RPENT_PROMPT` | `simple` | `simple`、`base`、`base_gripper`、`base_gripper_camera` |
 | `RPENT_REASONING_EFFORT` | Qwen3.8 为 `xhigh`，其他模型为 `none` | `none` 不发送 effort 等级，仍启用 thinking |
-| `RPENT_MAX_TURNS` | `80` | 单条轨迹的模型请求数 |
+| `RPENT_MAX_TURNS` | `100` | 单条轨迹的模型请求数 |
 | `RPENT_MAX_EPISODE_STEPS` | `10000` | 仿真步预算 |
 | `RPENT_MAX_TOKENS` | `32768` | 每次请求的输出预算，包含 thinking |
 | `RPENT_CONTEXT_WINDOW` | `262144` | 规划器上下文预算 |
@@ -37,7 +37,7 @@
 
 Thinking 采样参数为 temperature 1.0、top-p 0.95、top-k 20。复现 SFT checkpoint
 评测的 penalty 时，显式设置 `RPENT_PRESENCE_PENALTY=0` 和
-`RPENT_REPETITION_PENALTY=1.0`。`--observation-mode adaptive` 仍可使用，
+`RPENT_REPETITION_PENALTY=1.0`。四环境使用固定 episode 接口，
 image/text 模式会被拒绝。`run.sh` 的其他参数会直接传给 `rpent`。
 
 ## 批量采集、保存与恢复
@@ -51,14 +51,14 @@ python tools/rl/run_batch.py run "$RPENT_DATA_ROOT/rollouts/new-run" --jobs tool
 清单每行形如 `adaptive libero_object 0 0`。`panel40.txt` 包含
 `libero_object`、`libero_goal`、`libero_spatial`、`libero_10` 各自的 task 0–9。
 环境并发应结合仿真显存及初始化负载设置，模型服务并发是独立的限制。
+仿真器冷启动耗时较长时，可设置 `RPENT_ENV_STARTUP_TIMEOUT_S`。
+默认 300 秒，仅用于等待原生仿真服务启动。
 
 | Batch 参数 | 默认值 | 含义 |
 | --- | --- | --- |
 | `--jobs` | 必填 | JSON 任务清单或 LIBERO 四字段清单 |
 | `--seeds` | 使用清单的 seed | 逗号分隔的 seed 或区间，例如 `0,3-66` |
 | `--gpus`、`--per-gpu` | GPU 必填，每 GPU 1 个 worker | 环境 GPU 和每卡 worker 数 |
-| `--prompt` | `simple` | 整批使用一个 prompt 变体 |
-| `--workflow` | `episode` | episode / episode_image / zap_turn / zap_episode / zap_subtask |
 | `--no-thinking` | 关闭 | 整批禁用 Qwen thinking，并将该设置写入 manifest |
 | `--image_size` | `1024` | VLM 图片边长：1024 / 512 / 256；原始感知始终1024 |
 | `--start-barrier` | 关闭 | 所有待跑环境驻留后统一放行首个请求 |
@@ -139,17 +139,16 @@ uv pip install --no-index --no-deps wheelhouse-sglang/*.whl
 
 ## 将 planner 与仿真器部署在不同机器
 
-Adaptive episode 支持让 planner 与模型服务部署在一起，将原生仿真器、
-动作内部控制循环和共享 SAM3 留在后端机器。两端须使用相同的控制和工具源码、
-任务 prompt，并均安装 planner 环境。后端额外准备独立的原生仿真环境和资产，
-按前文设置 `RPENT_ROBOCASA_PYTHON`、`RPENT_ROBOTWIN_PYTHON`、
-`ROBOTWIN_ASSETS_PATH` 和 `RPENT_RLINF_ROOT`。
+Planner 和 toolkit 后端使用同一版本的 RPent。在 RL 环境安装
+`requirements/episode-planner.txt`，在各后端按[安装指南](INSTALL_zh.md)
+准备该仿真器的依赖和资产。RoboTwin 需要在后端设置
+`ROBOTWIN_ASSETS_PATH`。管理器用自身的 Python 解释器启动 toolkit worker。
 
 后端先启动共享 SAM3，再启动工具管理器。GPU 容量包含初始化中的 episode，
 须根据该机器的真实驻留容量测试设置：
 
 ```bash
-python -m robots.rl.remote_manager \
+python -m robots.rl.remote_manager --simulator robocasa \
   --output-dir /path/to/new-backend-run \
   --gpu-slots 0:4,1:6 --max-initializing-per-gpu 2 \
   --sam3-endpoint http://127.0.0.1:8112 --port 28090
@@ -161,7 +160,7 @@ python -m robots.rl.remote_manager \
 export RPENT_REMOTE_TOOLKIT_ENDPOINT=http://127.0.0.1:28090
 unset RPENT_SAM3_ENDPOINT
 bash tools/rl/run.sh --simulator robocasa --task-name PickPlaceCounterToCabinet \
-  --split target --seed 1 --workflow episode --cuda-device 1
+  --split target --seed 1 --cuda-device 1
 ```
 
 这里的 `--cuda-device` 指向后端 GPU。后端负责环境和 SAM3 连接，不要再传
@@ -180,10 +179,9 @@ bash tools/rl/run.sh --simulator robocasa --task-name PickPlaceCounterToCabinet 
 ## RLinf 与 SFT
 
 RLinf 的独立环境和 `run_train.sh` 配置见它自己的
-`examples/agent/rpent/README.md`。将 `tools.rpent.python` 指向这个 RPent
-venv 的解释器，并将相同 LIBERO/SAM3 路径传给 episode 子进程。
-子进程还需要 RPent 对应的 CUDA/EGL 环境，不能使用 RL 环境的 `PYTHONPATH`
-或 Torch/NVIDIA 库路径替代。SGLang 始终在独立环境中运行。
+`examples/agent/rpent/README.md`。将 `tools.rpent.python` 指向 planner
+解释器，将 `tools.rpent.remote_toolkit_endpoint` 指向仿真后端管理器。
+仿真依赖、资产和 SAM3 地址在后端配置。
 
 轨迹编码和多模态 SFT 见 `ms-swift/examples/rpent/README.md`。
 训练数据须保留压缩后实际请求、原始图片字节及顺序、可见历史 thinking，
@@ -215,14 +213,7 @@ PY
 原生下载器会在下载前询问；不需要下载 demonstration 数据集。迁移资产时保留
 包内原有场景和配置文件。仅设置 `ROBOCASA_ASSETS_PATH` 不会重定向该版本的读取路径。
 
-五种工作流、SAM3 池与固定任务对比见 [工作流指南](WORKFLOWS_zh.md)。
-
-模型启动器启用缓存上报。八副本 SAM3、单副本等待指标和长历史缓存调优见[工作流性能配置](WORKFLOWS_zh.md#模型前缀缓存诊断)。
-
-## Episode 感知列表
-
-`--workflow episode --perception-mode batch` 将独立感知替换为 observe，
-由 source 推导依赖，独立节点并行。[CLI、示例、ID 与返回说明](OBSERVE_zh.md)。
+坐标、单位和动作契约见[统一 episode 指南](../../docs/source-zh/rst_source/simulators/rl.rst)。
 
 ## SAM3 排队时限
 

@@ -48,8 +48,9 @@ def test_robotwin_episode_tools_report_and_execute_in_the_same_frame(
         "coordinate_calibration": mounting_calibration(
             [-0.3, -0.65, 0.78], [0.3, -0.65, 0.78], [0, 0, 0.74]
         ),
-        "pad_tcp_xyz": [0.02, 0, 0.4],
-        "native_tcp_to_pad": {"left": offset, "right": offset},
+        "tool_rotation_to_native": {
+            arm: np.eye(3).tolist() for arm in ("left", "right")
+        },
     }
     native_call = env._client.call
     pad_deflection = {"left": np.zeros(3), "right": np.zeros(3)}
@@ -86,13 +87,12 @@ def test_robotwin_episode_tools_report_and_execute_in_the_same_frame(
     )
     initial = toolkit.initial_observation().data
     left = initial["state"]["left"]["pose"]
-    np.testing.assert_allclose(left["xyz"], [0.65, -0.02, -0.38])
-    assert initial["coordinates"]["tcp"] == "finger_pad_midpoint"
+    np.testing.assert_allclose(left["xyz"], [0.65, 0, -0.38])
+    assert initial["coordinates"]["tcp"] == "native_grasp_tcp"
     assert {tool.name for tool in toolkit.list_tools()} == {
         "view_env",
         "segment",
         "back_project",
-        "finish",
         "execute_actions",
     }
     images = toolkit.execute_tool("view_env", {"camera": "all"})
@@ -107,34 +107,34 @@ def test_robotwin_episode_tools_report_and_execute_in_the_same_frame(
     )
     assert invalid_height.is_error
 
-    move = {
-        "action": "move_to",
-        "arm": "left",
-        "xyz": [0.67, -0.02, -0.38],
-        "other_xyz": [0.68, -0.02, -0.38],
-    }
-    invalid = toolkit.execute_tool(
-        "execute_actions", {"actions": [move, {"action": "set_gripper", "opening": 0}]}
+    move = {"action": "move_to", "arm": "left", "xyz": [0.67, 0, -0.38]}
+    move_right = {"action": "move_to", "arm": "right", "xyz": [0.68, 0, -0.38]}
+    grip = {"action": "set_gripper", "arm": "right", "opening": 1}
+    for invalid in (
+        {"actions": [move, {"action": "set_gripper", "opening": 0}]},
+        {"actions": [{**move, "other_xyz": move_right["xyz"]}]},
+        {"actions": [move] * 4},
+    ):
+        assert toolkit.execute_tool("execute_actions", invalid).is_error
+        assert not env.plans
+    result = toolkit.execute_tool(
+        "execute_actions", {"actions": [move, move_right, grip]}
     )
-    assert invalid.is_error and not env.plans
-    too_long = toolkit.execute_tool("execute_actions", {"actions": [move] * 4})
-    assert too_long.is_error and not env.plans
-    grip = {"action": "set_gripper", "arm": "right", "opening": 1, "other_opening": 1}
-    result = toolkit.execute_tool("execute_actions", {"actions": [move, grip]})
-    assert result.data["executed_count"] == 2
+    assert result.data["executed_count"] == 3
     assert result.data["results"][0]["status"] == "reached"
+    assert [arm for arm, _ in env.plans] == ["left", "right"]
     np.testing.assert_allclose(env.plans[0][1][:3], [0, 0.02, 0.3], atol=1e-9)
     np.testing.assert_allclose(env.plans[1][1][:3], [0, 0.03, 0.3], atol=1e-9)
     np.testing.assert_allclose(
-        result.data["final_state"]["right"]["pose"]["xyz"], move["other_xyz"]
+        result.data["final_state"]["right"]["pose"]["xyz"], move_right["xyz"]
     )
+    assert not result.images
     env.failed_arm = "right"
-    pad_deflection["right"][1] = 0.012
-    stopped = toolkit.execute_tool("execute_actions", {"actions": [move, grip]})
+    stopped = toolkit.execute_tool("execute_actions", {"actions": [move_right, grip]})
     assert stopped.data["executed_count"] == 1
     assert stopped.data["stop_reason"] == "plan_failed"
     np.testing.assert_allclose(
-        stopped.data["final_state"]["right"]["pose"]["xyz"], [0.692, -0.02, -0.38]
+        stopped.data["final_state"]["right"]["pose"]["xyz"], move_right["xyz"]
     )
     env.failed_arm = None
     pad_deflection["right"][1] = 0
@@ -147,13 +147,13 @@ def test_robotwin_episode_tools_report_and_execute_in_the_same_frame(
         ]
     native_step = env.chunk_step
 
-    def step_and_displace_pad(actions, *, action_type):
+    def step_and_displace_tcp(actions, *, action_type):
         result = native_step(actions, action_type=action_type)
-        pad_deflection["right"][1] = 0.012
+        env.last_info["robot_state"]["right_tcp_pose"][1] += 0.012
         return result
 
-    env.chunk_step = step_and_displace_pad
-    stopped = toolkit.execute_tool("execute_actions", {"actions": [move, grip]})
+    env.chunk_step = step_and_displace_tcp
+    stopped = toolkit.execute_tool("execute_actions", {"actions": [move_right, grip]})
     assert stopped.data["executed_count"] == 1
     assert stopped.data["stop_reason"] == "not_at_target"
 
@@ -175,4 +175,20 @@ def test_finger_pad_reference_uses_opposed_faces():
     np.testing.assert_allclose(
         finger_contact_centres(near_jaw, far_jaw),
         [[0.065, 0.02, 0], [0.065, -0.02, 0]],
+    )
+
+
+def test_collision_calibration_applies_mesh_scale_before_local_pose():
+    from robots.robotwin.general import _collision_vertices
+
+    local = np.array([[0, -1, 0, 10], [1, 0, 0, 20], [0, 0, 1, 30], [0, 0, 0, 1]])
+    shape = SimpleNamespace(
+        vertices=[[0, 0, 0], [1, 0, 0], [0, 1, 0], [0, 0, 1]],
+        scale=np.array([2, 3, 4]),
+        get_local_pose=lambda: SimpleNamespace(to_transformation_matrix=lambda: local),
+    )
+    link = SimpleNamespace(get_collision_shapes=lambda: [shape])
+    np.testing.assert_allclose(
+        _collision_vertices(link),
+        [[10, 20, 30], [10, 22, 30], [7, 20, 30], [10, 20, 34]],
     )

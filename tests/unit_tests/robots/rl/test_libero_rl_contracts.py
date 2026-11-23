@@ -37,7 +37,7 @@ OPEN_GAP = 0.08
 SIZE = 32
 NEAR, FAR = 0.01, 10.0
 GRIPPER_DOWN = np.array([[1.0, 0, 0], [0, -1, 0], [0, 0, -1]])
-ALL_TOOLS = {"move_to", "set_gripper", "view_env", "segment", "back_project", "finish"}
+ALL_TOOLS = {"execute_actions", "view_env", "segment", "back_project"}
 
 
 class FakeEnv:
@@ -166,6 +166,17 @@ def make_toolkit(
     )
 
 
+def execute_item(toolkit, name, arguments):
+    from rpent.tools import ToolResult
+
+    result = toolkit.execute_tool(
+        "execute_actions", {"actions": [{"action": name, **arguments}]}
+    )
+    if result.is_error or not result.data["results"]:
+        return result
+    return ToolResult(data=result.data["results"][0], images=result.images)
+
+
 def test_adaptive_exposes_the_complete_tool_set(tmp_path) -> None:
     toolkit = make_toolkit(tmp_path, "adaptive")
     assert {definition.name for definition in toolkit.list_tools()} == ALL_TOOLS
@@ -175,7 +186,7 @@ def test_adaptive_exposes_the_complete_tool_set(tmp_path) -> None:
 def test_adaptive_returns_images_only_from_view_env(tmp_path) -> None:
     toolkit = make_toolkit(tmp_path, "adaptive")
     opening = toolkit.initial_observation()
-    moved = toolkit.execute_tool("move_to", {"xyz": [0.1, -0.2, 0.95]})
+    moved = execute_item(toolkit, "move_to", {"xyz": [0.1, -0.2, 0.95]})
     segmented = toolkit.execute_tool("segment", {"prompt": "cube"})
     assert opening.data["task"] == "put the cube in the bowl"
     assert opening.data["state"]["step"] == 0
@@ -183,7 +194,9 @@ def test_adaptive_returns_images_only_from_view_env(tmp_path) -> None:
     assert "mask_id" in segmented.data and "found" not in segmented.data
     view = toolkit.execute_tool("view_env", {})
     assert len(view.images) == 2
-    assert set(view.data) == {"step", "images"}
+    assert view.data["camera"] == "all"
+    assert view.data["position_unit"] == "m"
+    assert view.data["capture_frame_version"] == view.data["frame_version"] == 0
     toolkit.close()
     rollout = json.loads((tmp_path / "run" / "rollout.json").read_text())
     assert rollout["images_sent"] == 2
@@ -218,8 +231,8 @@ def test_pure_translation_and_pure_rotation_hold_the_other_pose_part(tmp_path) -
     toolkit = make_toolkit(tmp_path, "adaptive")
     start = toolkit.initial_observation().data["state"]["pose"]
 
-    moved = toolkit.execute_tool("move_to", {"xyz": [0.2, -0.1, 0.9]}).data
-    turned = toolkit.execute_tool("move_to", {"orientation_rpy": [2.8, 0.3, 1.2]}).data
+    moved = execute_item(toolkit, "move_to", {"xyz": [0.2, -0.1, 0.9]}).data
+    turned = execute_item(toolkit, "move_to", {"orientation_rpy": [2.8, 0.3, 1.2]}).data
 
     assert moved["status"] == turned["status"] == "reached"
     assert moved["pose"]["xyz"] == pytest.approx([0.2, -0.1, 0.9], abs=0.006)
@@ -241,6 +254,10 @@ def test_pure_translation_and_pure_rotation_hold_the_other_pose_part(tmp_path) -
         "position_error_m",
         "rotation_error_rad",
         "env_steps",
+        "frame_version",
+        "start_frame_version",
+        "action",
+        "index",
     }
 
 
@@ -248,9 +265,9 @@ def test_closing_on_an_object_reports_and_keeps_the_measured_opening(tmp_path) -
     env = FakeEnv(block_gap=0.04)
     toolkit = make_toolkit(tmp_path, "adaptive", env=env)
 
-    closed = toolkit.execute_tool("set_gripper", {"opening": 0.0}).data
+    closed = execute_item(toolkit, "set_gripper", {"opening": 0.0}).data
     actions_before_lift = len(env.actions)
-    lifted = toolkit.execute_tool("move_to", {"xyz": [0.1, -0.2, 1.1]}).data
+    lifted = execute_item(toolkit, "move_to", {"xyz": [0.1, -0.2, 1.1]}).data
 
     assert closed["status"] == "partial"
     assert closed["reason"] == "blocked"
@@ -263,8 +280,8 @@ def test_closing_on_an_object_reports_and_keeps_the_measured_opening(tmp_path) -
 def test_reopening_after_a_squeezed_grasp_is_not_reported_blocked(tmp_path) -> None:
     toolkit = make_toolkit(tmp_path, "adaptive", env=FakeEnv(block_gap=0.04))
 
-    toolkit.execute_tool("set_gripper", {"opening": 0.0})
-    opened = toolkit.execute_tool("set_gripper", {"opening": 1.0}).data
+    execute_item(toolkit, "set_gripper", {"opening": 0.0})
+    opened = execute_item(toolkit, "set_gripper", {"opening": 1.0}).data
 
     assert opened["status"] == "reached"
     assert opened["opening"] == pytest.approx(1.0, abs=0.01)
@@ -273,7 +290,7 @@ def test_reopening_after_a_squeezed_grasp_is_not_reported_blocked(tmp_path) -> N
 def test_residual_jitter_within_tolerance_counts_as_reached(tmp_path) -> None:
     toolkit = make_toolkit(tmp_path, "adaptive", env=FakeEnv(jitter_m=0.0015))
 
-    moved = toolkit.execute_tool("move_to", {"xyz": [0.1, -0.2, 0.9]}).data
+    moved = execute_item(toolkit, "move_to", {"xyz": [0.1, -0.2, 0.9]}).data
 
     assert moved["status"] == "reached"
     assert moved["pose"]["xyz"] == pytest.approx([0.1, -0.2, 0.9], abs=0.004)
@@ -282,7 +299,7 @@ def test_residual_jitter_within_tolerance_counts_as_reached(tmp_path) -> None:
 def test_rejected_requests_reuse_the_latest_observation(tmp_path) -> None:
     toolkit = make_toolkit(tmp_path, "adaptive")
 
-    rejected = toolkit.execute_tool("move_to", {})
+    rejected = execute_item(toolkit, "move_to", {})
 
     assert rejected.is_error and "No tool executed" in rejected.to_text()
     assert rejected.images == []
@@ -292,21 +309,17 @@ def test_rejected_requests_reuse_the_latest_observation(tmp_path) -> None:
 def test_environment_success_ends_motion_and_refuses_later_actions(tmp_path) -> None:
     toolkit = make_toolkit(tmp_path, "adaptive", env=FakeEnv(success_below_z=0.95))
 
-    moved = toolkit.execute_tool("move_to", {"xyz": [0.1, -0.2, 0.9]}).data
-    refused = toolkit.execute_tool("set_gripper", {"opening": 1.0}).data
-    finished = toolkit.execute_tool("finish", {}).data
+    moved = execute_item(toolkit, "move_to", {"xyz": [0.1, -0.2, 0.9]}).data
+    refused = execute_item(toolkit, "set_gripper", {"opening": 1.0}).data
+    finished = toolkit.completion_result()
 
     assert moved["status"] == "partial"
     assert moved["reason"] == "terminated"
     assert moved["terminated"] is True
-    assert refused["error"] == "episode_ended"
-    assert refused["step"] == moved["step"]
-    assert finished == {
-        "_finish": True,
-        "success": True,
-        "terminated": True,
-        "truncated": False,
-    }
+    assert refused["executed_count"] == 0
+    assert refused["stop_reason"] == "terminated"
+    assert toolkit.state.latest_step == moved["step"]
+    assert finished == {"status": "completed", "success": True, "truncated": False}
     assert toolkit.solved()
 
 
@@ -326,7 +339,15 @@ def test_segment_and_back_project_share_steps_boxes_and_masks(tmp_path) -> None:
     assert found["top_z_m"] == pytest.approx(1.0, abs=1e-3)
     assert found["size_xyz_m"][2] == pytest.approx(0.0, abs=1e-3)
     assert found["axis_yaw"] == pytest.approx(0.0, abs=1e-3)
-    assert by_mask == {"step": 0, "world_xyz": found["world_xyz"]}
+    assert by_mask["world_xyz"] == found["world_xyz"]
+    for field in (
+        "camera",
+        "step",
+        "position_unit",
+        "frame_version",
+        "capture_frame_version",
+    ):
+        assert by_mask[field] == found[field]
     assert by_box["world_xyz"] == pytest.approx(found["world_xyz"])
     assert by_pixel["world_xyz"][2] == pytest.approx(1.0, abs=1e-3)
     for rejected in (
@@ -413,37 +434,19 @@ def test_prompts_carry_only_the_interface_contract(variant) -> None:
     assert "exactly one tool call" in system
 
 
-def test_prompt_variants_nest_from_simple_to_camera() -> None:
-    def render(variant):
-        return prompt_bundle.system_prompt(
-            {"observation_mode": "adaptive", "prompt": variant}
-        )
-
-    simple = render("simple")
-    assert simple == prompt_bundle.system_prompt({"observation_mode": "adaptive"})
+def test_only_fixed_simple_prompt_is_supported() -> None:
+    simple = prompt_bundle.system_prompt({"prompt": "simple"})
+    assert simple == prompt_bundle.system_prompt({})
     assert "Images are supplied only through view_env" in simple
-    base, gripper, camera = (
-        render("base"),
-        render("base_gripper"),
-        render("base_gripper_camera"),
-    )
-    assert base.startswith(simple) and prompt_bundle.BASE in base
-    assert gripper.startswith(base) and prompt_bundle.GRIPPER in gripper
-    assert camera.startswith(gripper) and prompt_bundle.CAMERA in camera
-    assert {"agentview", "wrist", "[row, col]"} <= {
-        w for w in ("agentview", "wrist", "[row, col]") if w in camera
-    }
-    with pytest.raises(ValueError, match="unknown prompt variant"):
-        render("fancy")
+    for old in ("base", "base_gripper", "base_gripper_camera", "fancy"):
+        with pytest.raises(ValueError, match="fixed prompt"):
+            prompt_bundle.system_prompt({"prompt": old})
 
 
 @pytest.mark.parametrize(
     "environment,workflow",
     [
         ("libero", "episode"),
-        ("libero", "zap_turn"),
-        ("libero", "zap_episode"),
-        ("libero", "zap_subtask"),
         ("robocasa", "episode"),
         ("robotwin", "episode"),
     ],
@@ -474,9 +477,9 @@ def test_unsupported_zap_fails_before_accessing_native_runtime(environment, tmp_
     args = argparse.Namespace(
         env=environment, workflow="zap_turn", observation_mode="adaptive"
     )
-    with pytest.raises(ValueError, match="does not support --workflow zap_turn"):
+    with pytest.raises(ValueError, match="supports only episode"):
         robot_spec.get_robot_spec().parse_config(args)
-    with pytest.raises(ValueError, match="does not support --workflow zap_turn"):
+    with pytest.raises(ValueError, match="supports only episode"):
         RLToolkit(
             runtime_kwargs={},
             dashboard_events=NullDashboardEventSink(),
@@ -489,25 +492,26 @@ def test_unsupported_zap_fails_before_accessing_native_runtime(environment, tmp_
     assert not (tmp_path / "run").exists()
 
 
-def test_prompt_variant_reaches_the_prompt_variables() -> None:
+def test_fixed_prompt_reaches_the_prompt_variables() -> None:
     args = argparse.Namespace(
         suite="libero_goal",
         task=1,
         seed=0,
         observation_mode="adaptive",
-        prompt="base_gripper",
+        prompt="simple",
         output_dir=None,
     )
     config = robot_spec.get_robot_spec().parse_config(args)
     assert config.prompt_vars == {
         "observation_mode": "adaptive",
-        "prompt": "base_gripper",
+        "prompt": "simple",
         "environment": "libero",
         "workflow": "episode",
         "world_cord": "base",
+        "position_unit": "m",
         "reasoning": True,
         "image_size": 1024,
-        "action_mode": "single",
+        "action_mode": "batch",
         "max_actions_per_call": 3,
         "reasoning_history": -1,
         "image_history": -1,
@@ -515,7 +519,7 @@ def test_prompt_variant_reaches_the_prompt_variables() -> None:
         "max_observe_calls": 8,
         "observe_concurrency": 8,
     }
-    assert config.task_desc["prompt"] == "base_gripper"
+    assert config.task_desc["prompt"] == "simple"
 
 
 @pytest.mark.parametrize(
@@ -555,24 +559,31 @@ def test_planner_sees_only_the_robot_tools(tmp_path) -> None:
 
     from rpent.planner.api_loop import ApiAgentLoop
 
-    seen: dict[str, set[str]] = {}
+    requests = []
 
     async def stream(messages, info):
-        seen["tools"] = {tool.name for tool in info.function_tools}
-        yield {0: DeltaToolCall(name="finish", json_args="{}")}
+        requests.append(
+            {tool.name for tool in [*info.function_tools, *info.output_tools]}
+        )
+        yield {
+            0: DeltaToolCall(
+                name="execute_actions",
+                json_args='{"actions":[{"action":"move_to","xyz":[0.1,-0.2,0.9]}]}',
+            )
+        }
 
-    toolkit = make_toolkit(tmp_path, "adaptive")
+    toolkit = make_toolkit(tmp_path, "adaptive", env=FakeEnv(success_below_z=0.95))
     try:
-        ApiAgentLoop(
+        result = ApiAgentLoop(
             model=FunctionModel(stream_function=stream),
             dashboard_events=NullDashboardEventSink(),
             compaction=None,
             sequential_tools=True,
         ).solve(system_prompt="s", user_message="u", toolkit=toolkit, max_turns=2)
+        assert result.finish_result["success"]
     finally:
         toolkit.close()
-    assert "read_image" not in seen["tools"]
-    assert ALL_TOOLS - {"finish"} <= seen["tools"]
+    assert requests == [ALL_TOOLS]
 
 
 def test_rollouts_serialise_tool_calls() -> None:
@@ -712,68 +723,25 @@ def test_runtime_reports_a_server_that_exits_before_announcing(tmp_path):
 
 
 @pytest.mark.parametrize(
-    "workflow,expected",
-    [
-        ("episode", ALL_TOOLS),
-        (
-            "zap_turn",
-            {"move_to", "set_gripper", "change_query", "update_todo", "finish"},
-        ),
-        ("zap_episode", {"move_to", "set_gripper", "change_query", "finish"}),
-        (
-            "zap_subtask",
-            {"move_to", "set_gripper", "change_query", "update_todo", "finish"},
-        ),
-    ],
+    "workflow", ["episode_image", "pear", "zap_turn", "zap_episode", "zap_subtask"]
 )
-def test_four_workflow_tool_sets_and_automatic_action_views(
-    tmp_path, workflow, expected
-):
-    from types import SimpleNamespace
-
-    class AutoSam(FakeSam3):
-        def segment_queries(self, raw, queries):
-            return [[self.segment(raw, text_prompt=query)] for query in queries]
-
-    env = FakeEnv()
-    env._client = SimpleNamespace(call=lambda method: {"max_episode_steps": 10000})
-    toolkit = RLToolkit(
-        runtime_kwargs={"env": env, "sam3_client": AutoSam(bar_mask())},
-        dashboard_events=NullDashboardEventSink(),
-        memory=MemoryManager(tmp_path / "memory"),
-        observation_mode="adaptive",
-        output_dir=tmp_path / "run",
-        workflow=workflow,
-    )
-    assert {item.name for item in toolkit.list_tools()} == expected
-    if workflow != "episode":
-        changed = toolkit.execute_tool("change_query", {"queries": ["cube"]})
-        assert len(changed.images) == (0 if workflow == "zap_turn" else 2)
-    moved = toolkit.execute_tool("move_to", {"xyz": [0.1, -0.2, 0.95]})
-    gripped = toolkit.execute_tool("set_gripper", {"opening": 0.8})
-    if workflow in {"zap_episode", "zap_subtask"}:
-        for result in (moved, gripped):
-            assert len(result.images) == 2
-            assert result.data["observation"]["step"] == result.data["step"]
-            assert result.data["observation"]["perception"][0]["objects"]
-        assert "observation" not in toolkit.snapshot.last_result["result"]
-    else:
-        assert moved.images == gripped.images == []
-    toolkit.close()
+def test_removed_workflows_fail_before_creating_environment(tmp_path, workflow):
+    with pytest.raises(ValueError, match="supports only episode"):
+        make_toolkit(tmp_path, "adaptive", workflow=workflow)
+    assert not (tmp_path / "run").exists()
 
 
 @pytest.mark.parametrize("size", [512, 256])
 def test_display_pixel_uses_original_native_depth(tmp_path, monkeypatch, size):
-    from robots.rl.images import native_pixel
+    from robots.rl.images import map_pixel
 
     monkeypatch.setattr(tools, "IMAGE_SIZE", 1024)
-    toolkit = make_toolkit(tmp_path, "adaptive")
-    toolkit.image_size = size
+    toolkit = make_toolkit(tmp_path, "adaptive", image_size=size)
     toolkit.initial_observation()
     view = toolkit.execute_tool("view_env", {})
     assert view.data["images"][0]["size"] == [size, size]
     point = [size // 2 - 1, size // 2 - 1]
-    mapped = native_pixel(point, size)
+    mapped = map_pixel(point, (size, size), (1024, 1024))
     expected = toolkit.state.load("agentview_world.npz", step=0)[mapped[0], mapped[1]]
     result = toolkit.execute_tool("back_project", {"pixel": point, "step": 0})
     np.testing.assert_allclose(result.data["world_xyz"], expected, atol=0.0001)

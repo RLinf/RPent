@@ -25,7 +25,7 @@ Its listener is local (`127.0.0.1`). The planner and server both default to a
 | `RPENT_SAM3_ENDPOINT` | Unset | Existing shared SAM3 endpoint |
 | `RPENT_PROMPT` | `simple` | `simple`, `base`, `base_gripper`, `base_gripper_camera` |
 | `RPENT_REASONING_EFFORT` | `xhigh` for Qwen3.8; `none` otherwise | `none` omits the effort tier while thinking stays enabled |
-| `RPENT_MAX_TURNS` | `80` | Model requests per episode |
+| `RPENT_MAX_TURNS` | `100` | Model requests per episode |
 | `RPENT_MAX_EPISODE_STEPS` | `10000` | Simulator-step budget |
 | `RPENT_MAX_TOKENS` | `32768` | Output-token budget per request, including thinking |
 | `RPENT_CONTEXT_WINDOW` | `262144` | Planner context budget |
@@ -39,7 +39,7 @@ Its listener is local (`127.0.0.1`). The planner and server both default to a
 Thinking sampling is temperature 1.0, top-p 0.95, top-k 20. To reproduce the
 SFT-checkpoint evaluation penalties, explicitly export
 `RPENT_PRESENCE_PENALTY=0` and `RPENT_REPETITION_PENALTY=1.0`.
-`--observation-mode adaptive` remains accepted; image/text modes are rejected.
+The four simulators use the fixed episode interface; no observation-mode selector is exposed.
 Other arguments to `run.sh` pass through to `rpent`.
 
 ## Batch collection, saving and recovery
@@ -54,14 +54,14 @@ A jobs line is `adaptive libero_object 0 0`. `panel40.txt` contains task 0–9
 from each of `libero_object`, `libero_goal`, `libero_spatial`, `libero_10`.
 Choose environment concurrency for the available simulator memory and startup
 load; the model-service concurrency is a separate limit.
+Set `RPENT_ENV_STARTUP_TIMEOUT_S` for simulator hosts with long cold starts.
+It defaults to 300 seconds and applies while the native server is starting.
 
 | Batch argument | Default | Meaning |
 | --- | --- | --- |
 | `--jobs` | Required | JSON tasks or the four-field LIBERO manifest |
 | `--seeds` | Manifest seeds | Comma-separated seeds/ranges, e.g. `0,3-66` |
 | `--gpus`, `--per-gpu` | GPUs required; 1 worker/GPU | Environment GPUs and worker count per GPU |
-| `--prompt` | `simple` | One prompt variant for the batch |
-| `--workflow` | `episode` | episode / episode_image / zap_turn / zap_episode / zap_subtask |
 | `--no-thinking` | off | Disable Qwen thinking for the whole batch; recorded in its manifest |
 | `--image_size` | `1024` | VLM width/height: 1024 / 512 / 256; native perception stays1024 |
 | `--start-barrier` | Off | Admit model requests after all pending environments are resident |
@@ -151,18 +151,17 @@ separate from active training processes.
 
 ## Planner and simulator on separate hosts
 
-Adaptive episode can place the planner beside the model servers and keep
-native simulators, motion loops and shared SAM3 on a backend host. Both ends
-must use identical control/tool source and workflow prompts. Install the planner
-environment on both hosts; install the isolated native simulators and assets
-on the backend, configuring `RPENT_ROBOCASA_PYTHON`, `RPENT_ROBOTWIN_PYTHON`,
-`ROBOTWIN_ASSETS_PATH` and the RLinf adapter as described in [installation](INSTALL.md).
+Use the same RPent checkout for the planner and toolkit backend. Install
+`requirements/episode-planner.txt` in the RL runtime. On each backend, install
+that simulator's requirements and assets, following [the installation guide](INSTALL.md).
+For RoboTwin, set `ROBOTWIN_ASSETS_PATH` in the backend's environment. The
+manager starts its toolkit workers with its own Python interpreter.
 
 Start shared SAM3 on the backend, then its toolkit manager. GPU capacities
 include initializing episodes; choose them from a real resident-capacity test:
 
 ```bash
-python -m robots.rl.remote_manager \
+python -m robots.rl.remote_manager --simulator robocasa \
   --output-dir /path/to/new-backend-run \
   --gpu-slots 0:4,1:6 --max-initializing-per-gpu 2 \
   --sam3-endpoint http://127.0.0.1:8112 --port 28090
@@ -175,7 +174,7 @@ before running the planner. On the planner host:
 export RPENT_REMOTE_TOOLKIT_ENDPOINT=http://127.0.0.1:28090
 unset RPENT_SAM3_ENDPOINT
 bash tools/rl/run.sh --simulator robocasa --task-name PickPlaceCounterToCabinet \
-  --split target --seed 1 --workflow episode --cuda-device 1
+  --split target --seed 1 --cuda-device 1
 ```
 
 Here `--cuda-device` selects a backend GPU. The backend owns both the env and
@@ -198,11 +197,10 @@ ready worker is released after five minutes, preserving its files.
 ## RLinf and SFT
 
 Use RLinf's `examples/agent/rpent/README.md` for its own environment and
-`run_train.sh` configuration. Set `tools.rpent.python` to this RPent venv's
-interpreter and pass the same LIBERO/SAM3 paths to its episode subprocesses.
-Those subprocesses need the RPent CUDA/EGL environment; an RL environment's
-`PYTHONPATH` or Torch/NVIDIA library paths cannot substitute for it.
-SGLang serving remains in its separate environment.
+`run_train.sh` configuration. Set `tools.rpent.python` to the planner
+interpreter and `tools.rpent.remote_toolkit_endpoint` to the simulator's
+toolkit manager. Configure the simulator libraries, assets and SAM3 endpoint
+on the backend.
 
 An RLinf configuration using this checkout must point its episode module to
 `robots.rl.rl_episode`; a configuration pointing to `robots.libero_rl.rl_episode`
@@ -238,15 +236,7 @@ The native downloader asks before downloading. No demonstration dataset is
 required. Keep the existing bundled scene/configuration files when relocating
 assets. `ROBOCASA_ASSETS_PATH` alone does not redirect this package version.
 
-See the [workflow guide](WORKFLOWS.md) for all five modes, SAM3 pooling and the fixed-panel comparison.
-
-The model launcher enables cache reporting. For eight-worker SAM3 deployment, per-worker wait metrics and long-history cache tuning, see [workflow performance configuration](WORKFLOWS.md#model-prefix-cache-diagnostics).
-
-## Episode observation lists
-
-`--workflow episode --perception-mode batch` replaces standalone perception
-with `observe(calls=[...])`. Sources define dependencies; independent nodes run
-concurrently. [CLI, examples, source IDs and outputs](OBSERVE.md).
+Coordinate, unit and action contracts are documented in the [episode guide](../../docs/source-en/rst_source/simulators/rl.rst).
 
 ## SAM3 queue deadline
 

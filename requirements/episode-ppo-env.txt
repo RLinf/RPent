@@ -1,4 +1,2 @@
-# Compatibility entry for the shared planner/simulator environment.
-# The paired RLinf checkout is selected by the offline package build.
+# LIBERO simulation profile for the remote episode backend.
 -r libero-rl.txt
-ray==2.58.0

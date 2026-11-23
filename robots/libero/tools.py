@@ -128,7 +128,11 @@ class LiberoPrimitives:
             self.model.reset()
         self.set_obs(obs)
         self.reset_info = info
-        self._vla_rng = np.random.default_rng(self._vla_seed) if self._vla_seed is not None else None
+        self._vla_rng = (
+            np.random.default_rng(self._vla_seed)
+            if self._vla_seed is not None
+            else None
+        )
         return self._last_obs, info
 
     def _step_env(self, action) -> None:

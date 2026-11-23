@@ -28,7 +28,7 @@ import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[4]
 ROBOT_HELP_CASES = [
-    ("rl", ("--simulator", "--workflow", "--task-name")),
+    ("rl", ("--simulator", "--world-cord", "--position-unit", "--task-name")),
     ("libero", ("--suite", "--task", "--libero-type")),
     ("robocasa", ("--task-name", "--split", "--hi-res")),
     ("robotwin", ("--task-name", "--task-config", "--robotwin-assets-path")),

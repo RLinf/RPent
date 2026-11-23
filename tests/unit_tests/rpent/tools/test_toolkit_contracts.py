@@ -95,7 +95,12 @@ def test_toolkit_and_common_tools_require_memory() -> None:
         common.CommonTools(memory=None)
 
 
-def test_toolkit_registers_common_specs_as_fresh_copies(tmp_path: Path) -> None:
+def test_toolkit_registers_common_specs_as_fresh_copies(
+    tmp_path: Path, monkeypatch
+) -> None:
+    from rpent.utils import logging
+
+    monkeypatch.setattr(logging, "_output_dir", tmp_path)
     original = common.CommonTools.list_dir
     original_schema = original.input_schema
     toolkit = _ContractToolkit(tmp_path / "state")

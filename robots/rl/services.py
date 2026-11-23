@@ -34,6 +34,9 @@ logger = get_logger("rl_services")
 def main() -> None:
     """Start local services with the caller's interpreter and clean them up together."""
     parser = argparse.ArgumentParser(description=__doc__)
+    from robots.rl.contracts import CAMERAS
+
+    parser.add_argument("--simulator", choices=tuple(CAMERAS), default="libero")
     parser.add_argument("--gpus", default="0,1,2,3,4,5,6,7")
     parser.add_argument("--envs-per-gpu", type=int, default=3)
     parser.add_argument("--max-initializing-per-gpu", type=int, default=2)
@@ -122,6 +125,8 @@ def main() -> None:
             "backend",
             "robots.rl.remote_manager",
             [
+                "--simulator",
+                args.simulator,
                 "--output-dir",
                 str(args.output_dir / "episodes"),
                 "--gpu-slots",

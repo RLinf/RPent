@@ -135,16 +135,16 @@ def test_runtime_paths_are_relocatable_and_explicit_values_win(
 
 
 @pytest.mark.parametrize(
-    "simulator,workflow,task_args",
+    "simulator,task_args",
     [
-        ("libero", "episode", ["--suite", "libero_object", "--task", "0"]),
-        ("libero", "zap_turn", ["--suite", "libero_object", "--task", "0"]),
-        ("robocasa", "episode", ["--task-name", "PickPlaceCounterToCabinet"]),
-        ("robotwin", "episode", ["--task-name", "click_alarmclock"]),
+        ("libero", ["--suite", "libero_object", "--task", "0"]),
+        ("robocasa", ["--task-name", "PickPlaceCounterToCabinet"]),
+        ("robotwin", ["--task-name", "click_alarmclock"]),
+        ("robodojo", ["--task-name", "put_bottles_into_dustbin"]),
     ],
 )
-def test_single_episode_launcher_preserves_the_selected_simulator_and_workflow(
-    tmp_path, simulator, workflow, task_args
+def test_single_episode_launcher_preserves_the_selected_simulator(
+    tmp_path, simulator, task_args
 ):
     executable = tmp_path / "rpent"
     executable.write_text(
@@ -160,8 +160,6 @@ def test_single_episode_launcher_preserves_the_selected_simulator_and_workflow(
             str(SCRIPTS / "run.sh"),
             "--simulator",
             simulator,
-            "--workflow",
-            workflow,
             *task_args,
         ],
         env={
@@ -179,9 +177,7 @@ def test_single_episode_launcher_preserves_the_selected_simulator_and_workflow(
     argv = request["argv"]
     assert argv[argv.index("--robot") + 1] == "rl"
     assert argv[argv.index("--simulator") + 1] == simulator
-    assert [argv[i + 1] for i, x in enumerate(argv[:-1]) if x == "--workflow"][
-        -1
-    ] == workflow
+    assert not {"--workflow", "--prompt", "--observation-mode"}.intersection(argv)
     assert "--libero-type" not in argv
     assert request["libero_type"] == "standard"
 

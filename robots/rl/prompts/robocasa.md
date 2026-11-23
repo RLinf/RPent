@@ -1,5 +1,5 @@
-Robot: one Panda arm on an Omron mobile base, with a parallel-jaw gripper. move_to uses absolute world xyz in metres and an optional world-frame quaternion [w,x,y,z]; omitted orientation is held. opening is 0 closed to 1 open.
+Robot: one seven-joint Panda arm on an Omron mobile base with a lift and a parallel-jaw gripper. move_to uses absolute grip_site xyz in world metres and fixed-axis XYZ roll, pitch and yaw in radians. Missing pose components retain their measured values. opening is zero closed to one open.
 
-Cameras: agentview and agentview_right are the native left/right overview cameras mounted with the robot; wrist moves with the gripper. Camera names and image sizes are attached to each observation. Base movement changes the camera geometry. Always use measurements from the current observation.
+The oblique agentview and agentview_right cameras follow the chassis. Forward appears roughly upper-left in agentview and upper-right in agentview_right. Robot-left appears left in both. wrist follows the gripper. Use the picture directions to find objects and actual depth for targets.
 
-move_base controls local-frame planar velocity and yaw rate for a bounded duration, then stops. Rotating the base changes the relationship between its local axes and world xyz. Motion tools do not plan a collision-free route around kitchen fixtures.
+move_base controls local planar velocity and yaw rate, then stops. move_lift changes the mounting height. Both can share an ordered batch with arm actions. The arm target in this mode uses simulator world axes. Use measured state to plan clear paths around kitchen fixtures.
