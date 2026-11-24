@@ -45,6 +45,7 @@ from pydantic_core import to_jsonable_python
 
 from rpent.dashboard.events import RunStartedEvent, TranscriptEvent, UsageEvent
 from rpent.dashboard.state import DashboardState
+from rpent.evaluation.usage import TokenLedger
 from rpent.planner.api_loop import ApiAgentLoop
 from rpent.prompt.api import API_PLANNER_INSTRUCTIONS, render_environment_context
 from rpent.session import EnvState, Payload
@@ -123,6 +124,7 @@ def solve(tmp_path, model, toolkit=None, events=None, **kwargs):
         if key in kwargs
     }
     planner = ApiAgentLoop(model=model, dashboard_events=events, **config)
+    planner.token_ledger = kwargs.pop("token_ledger", None)
     result = planner.solve(
         system_prompt=ROBOT_PROMPT,
         user_message="Do the task.",
@@ -169,7 +171,12 @@ def user_texts(messages):
 def test_finish_returns_transcript_for_rpent_without_step_files(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     model = TestModel(call_tools=[], custom_output_args=FINISH_ARGS)
-    result, toolkit, _ = solve(tmp_path, model)
+    ledger = TokenLedger()
+    result, toolkit, _ = solve(tmp_path, model, token_ledger=ledger)
+    rows = ledger.to_dict()["entries"]
+    assert len(rows) == result.stats["turns_used"] == 1
+    assert rows[0]["input_tokens"] == result.stats["total_input_tokens"] > 0
+    assert rows[0]["granularity"] == "request"
     assert result.error is None
     assert result.finish_result == {"_finish": True, **FINISH_ARGS}
     assert toolkit.calls == [("finish", FINISH_ARGS)]

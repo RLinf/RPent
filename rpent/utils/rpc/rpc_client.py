@@ -23,7 +23,22 @@ from __future__ import annotations
 
 import atexit
 import uuid
+from collections.abc import Callable
+from contextvars import ContextVar
 from typing import Any
+
+# The model caller supplies an observer scoped to its own request. A transport
+# reports ambiguity at the boundary, even if its caller later retries or recovers.
+unconfirmed_rpc_observer: ContextVar[Callable[[str, str], None] | None] = ContextVar(
+    "unconfirmed_rpc_observer", default=None
+)
+
+
+def report_unconfirmed_rpc(method: str, cause: str) -> None:
+    """Notify the active caller when a submitted RPC lacks a completion reply."""
+    observer = unconfirmed_rpc_observer.get()
+    if observer is not None:
+        observer(method, cause)
 
 
 class RpcError(RuntimeError):
@@ -87,8 +102,12 @@ class RpcClient:
 def check_response(response: Any, method: str) -> Any:
     """Validate RPC response envelope; raise ``RpcError`` on failure, return result."""
     if not isinstance(response, dict):
+        report_unconfirmed_rpc(method, "invalid_response_envelope")
         raise RpcError(method, f"bad response type: {type(response).__name__}")
-    if not response.get("ok"):
+    if type(response.get("ok")) is not bool:
+        report_unconfirmed_rpc(method, "invalid_response_envelope")
+        raise RpcError(method, "response envelope requires a boolean ok field")
+    if not response["ok"]:
         raise RpcError(
             method,
             str(response.get("error", "<no error message>")),

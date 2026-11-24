@@ -247,6 +247,8 @@ def _resolve_dashboard(args: argparse.Namespace) -> DashboardSpec:
 
 
 def get_robot_spec() -> RobotSpec:
+    from robots.robotwin.evaluation import RoboTwinTrial
+
     return RobotSpec(
         name="robotwin",
         prompts=PromptBundle(system=system_prompt, user=user_prompt),
@@ -258,6 +260,7 @@ def get_robot_spec() -> RobotSpec:
         supports_exploration=True,
         validate_args=validate_options,
         prepare_memory=prepare_memory,
+        create_evaluation_trial=RoboTwinTrial,
     )
 
 
@@ -348,6 +351,12 @@ def _add_cli_args(parser: argparse.ArgumentParser, use_dashboard: bool) -> None:
         ),
     )
     parser.add_argument(
+        "--trial-wall-s",
+        type=float,
+        default=None,
+        help="Wall-clock seconds available for an evaluation episode, starting when its input is ready.",
+    )
+    parser.add_argument(
         "--robotwin-assets-path",
         default=os.environ.get("ROBOTWIN_ASSETS_PATH"),
         help=("Path to the RoboTwin asset snapshot. Defaults to ROBOTWIN_ASSETS_PATH."),
@@ -363,6 +372,11 @@ def _add_cli_args(parser: argparse.ArgumentParser, use_dashboard: bool) -> None:
 
 
 def _parse_config(args: argparse.Namespace) -> RunConfig:
+    wall = getattr(args, "trial_wall_s", None)
+    if wall is not None and not (0 < wall < float("inf")):
+        raise ValueError("--trial-wall-s must be positive and finite")
+    if getattr(args, "max_episode_steps", 10000) <= 0:
+        raise ValueError("--max-episode-steps must be positive")
     if not args.task_name:
         raise ValueError("--task-name is required")
     am = select_am(args, "robotwin")

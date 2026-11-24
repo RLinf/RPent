@@ -68,6 +68,7 @@ class RoboCasaVLAFacade(BaseVLAFacade):
         from rldx.data.embodiment_tags import EmbodimentTag
         from rldx.eval.rollout_policy import create_rldx_sim_policy
 
+        self._checkpoint = str(model_path)
         self.policy = create_rldx_sim_policy(
             model_path,
             EmbodimentTag.GENERAL_EMBODIMENT,
@@ -100,6 +101,7 @@ class RoboCasaVLAFacade(BaseVLAFacade):
         return {
             "video_delta_indices": self._vdi.tolist(),
             "hist_maxlen": self._hist_maxlen,
+            "checkpoint": self._checkpoint,
         }
 
     def predict(self, obs_dict, options, *, session_id):

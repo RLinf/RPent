@@ -124,6 +124,25 @@ def test_standard_evaluation_rebinds_language_from_seed_table():
     assert info["instruction_source"] == "evaluation_seed_table"
 
 
+def test_frozen_episode_rejects_delayed_actions_after_seal_and_after_reset():
+    env = _FakeEnv(actual_seed=7, instruction="Use the native instruction.")
+    env.episode_status = lambda: {"eval_success": False}
+    facade = RoboTwinEnvFacade(env, metadata={"seed": 7})
+    _, reset_info = facade.reset()
+    old = reset_info["episode_id"]
+    assert facade.seal_episode(old) == {
+        "episode_id": old,
+        "sealed": True,
+        "episode_status": {"eval_success": False},
+    }
+    with pytest.raises(RuntimeError, match="sealed or replaced"):
+        facade.chunk_step(np.zeros((3, 14)), episode_id=old)
+    _, next_reset = facade.reset()
+    assert old != next_reset["episode_id"]
+    with pytest.raises(RuntimeError, match="sealed or replaced"):
+        facade.step(np.zeros(14), episode_id=old)
+
+
 def test_seed_outside_evaluation_table_keeps_native_language():
     env = _FakeEnv(actual_seed=999999, instruction="native custom language")
     facade = RoboTwinEnvFacade(

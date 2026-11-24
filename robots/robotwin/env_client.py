@@ -17,7 +17,7 @@
 from __future__ import annotations
 
 from collections import deque
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
@@ -32,6 +32,9 @@ from robots.robotwin.robot_spec import (
 from rpent.robots.components.env_client_base import BaseEnvClient
 from rpent.utils.rpc import RpcClient
 
+if TYPE_CHECKING:
+    from robots.robotwin.evaluation import RoboTwinTrial
+
 
 class RoboTwinEnvClient(BaseEnvClient):
     """Client for one standard RLinf ``RoboTwinEnv`` instance."""
@@ -41,6 +44,7 @@ class RoboTwinEnvClient(BaseEnvClient):
     def __init__(self, client: RpcClient, *, expected_meta: dict[str, Any]):
         self._qpos_history: deque[np.ndarray] = deque(maxlen=QPOS_HISTORY_CAPACITY)
         self._history_complete = False
+        self.active_trial: RoboTwinTrial | None = None
         self.terminated = False
         self.truncated = False
         self._expected_seed = int(expected_meta["seed"])
@@ -50,6 +54,34 @@ class RoboTwinEnvClient(BaseEnvClient):
         self.execution_capabilities = (
             dict(execution) if isinstance(execution, dict) else {}
         )
+
+    def seal_episode(self) -> bool:
+        """Confirm the EnvServer has fenced this episode and drained its actions."""
+        episode_id = self.last_reset_info.get("episode_id")
+        if not episode_id:
+            return False
+        status = self._client.call(
+            "env.seal_episode",
+            kwargs={"episode_id": episode_id},
+            timeout_s=ROBOTWIN_STATE_CHANGE_TIMEOUT_S,
+        )
+        if status.get("episode_id") != episode_id or status.get("sealed") is not True:
+            raise RuntimeError("missing RoboTwin executor-stop acknowledgement")
+        if self.active_trial is not None:
+            self.active_trial.observe(status)
+        return True
+
+    def _trial_options(self, *, chunk: bool = False) -> dict[str, Any]:
+        if self.active_trial is None:
+            return {}
+        remaining = self.active_trial.admit_action()
+        episode_id = self.last_reset_info.get("episode_id")
+        if not episode_id:
+            return {}
+        options = {"episode_id": episode_id}
+        if chunk and remaining is not None:
+            options["remaining_s"] = remaining
+        return options
 
     @staticmethod
     def _require_result_tuple(result: Any, size: int, method: str) -> tuple:
@@ -85,6 +117,7 @@ class RoboTwinEnvClient(BaseEnvClient):
         status = info.get("episode_status")
         if not isinstance(status, dict):
             raise TypeError(f"episode_status must be a mapping, got {status!r}")
+        status.setdefault("eval_success", None)
         missing = [key for key in ROBOTWIN_STATUS_KEYS if key not in status]
         if missing:
             raise ValueError(f"episode_status is missing {missing}: {status!r}")
@@ -124,6 +157,8 @@ class RoboTwinEnvClient(BaseEnvClient):
 
     def reset(self) -> tuple[dict[str, Any], dict[str, Any]]:
         """Reset to the TaskRun seed and validate the native result."""
+        if self.active_trial is not None and not self.active_trial.finished:
+            raise RuntimeError("Cannot reset an active RoboTwin evaluation trial")
         self._history_complete = False
         result = self._client.call("env.reset", timeout_s=self._TIMEOUT_S["env.reset"])
         observation, info = self._require_result_tuple(result, 2, "env.reset")
@@ -136,6 +171,7 @@ class RoboTwinEnvClient(BaseEnvClient):
             raise ValueError(f"reset did not use the requested seed: {info!r}")
         if not isinstance(info.get("instruction"), str):
             raise TypeError("reset instruction must be a string")
+        self.active_trial = None
         self.last_obs = observation
         self.last_reset_info = dict(info)
         self.last_info = info
@@ -165,12 +201,14 @@ class RoboTwinEnvClient(BaseEnvClient):
         result = self._client.call(
             "env.step",
             args=(flat,),
-            kwargs={"action_type": action_type},
+            kwargs={"action_type": action_type, **self._trial_options()},
             timeout_s=ROBOTWIN_STATE_CHANGE_TIMEOUT_S,
         )
         result = self._require_result_tuple(result, 5, "env.step")
         _, _, terminated, truncated, info = result
         self._require_episode_status(info)
+        if self.active_trial is not None:
+            self.active_trial.observe(info)
         self.last_obs = result[0]
         self.last_info = info
         self.terminated |= bool(np.asarray(terminated).any())
@@ -203,12 +241,17 @@ class RoboTwinEnvClient(BaseEnvClient):
             kwargs={
                 "action_type": action_type,
                 "return_all_frames": return_all_frames,
+                **self._trial_options(chunk=True),
             },
             timeout_s=ROBOTWIN_STATE_CHANGE_TIMEOUT_S,
         )
         result = self._require_result_tuple(result, 5, "env.chunk_step")
         _, _, terminated, truncated, info = result
         self._require_episode_status(info)
+        if self.active_trial is not None:
+            self.active_trial.observe(info)
+            if info.get("executed_actions") == 0:
+                self.active_trial.remaining()
         n_executed = info.get("executed_actions")
         if (
             isinstance(n_executed, bool)

@@ -212,7 +212,8 @@ Use ``--memory-dir`` to select a compatible local corpus; HF memory is unsupport
 ``wam_act(prompt=None, max_chunks=1)`` replaces the Pi0.5 tools and executes one
 to four chunks with fresh observations. The worker's ``chunk_size`` metadata
 declares the number of actions per chunk. A prompt override applies to
-that call only. Chunk budgets do not specify where to stop inside a chunk.
+that call only. In a measured VLA or WAM episode, the executor checks each
+native control step and drops the rest of the chunk on success or truncation.
 
 View Results
 ------------
@@ -220,6 +221,18 @@ View Results
 The terminal shows server startup, planner conversation, and tool calls. After the run, inspect ``episode.mp4``, ``transcript_*.json``, and ``run.log`` in the output directory; see :ref:`run-output-files` for default paths and step artifacts.
 
 Inspect the final state with ``view_env_state(step=-1)``. Its top-level ``terminated`` value is the native success result; ``finish`` ends planning. See :doc:`../guides/dashboard` for live monitoring.
+
+Automatic evaluations also write ``metrics/<run_id>/episode_metrics.json``.
+To measure the action model directly, run:
+
+.. code-block:: bash
+
+   python -m robots.libero.direct_eval --suite libero_object_swap --task 2 --seed 0 \
+      --am-backend pi05 --max-episode-steps 280 --output-dir runs/libero-pro
+
+Compare native success, elapsed time and token usage using :ref:`episode-metrics-summary`. Use the same LIBERO variant, suite, task ID, seed and budgets for each method. A remote
+environment must return an episode ID at reset to verify these metrics and
+enforce ``--trial-wall-s``. Runs against older workers are marked unresolved.
 
 .. _libero-exploration:
 

@@ -16,6 +16,7 @@
 
 from __future__ import annotations
 
+import json
 from contextlib import nullcontext
 from copy import deepcopy
 from functools import partial
@@ -363,6 +364,7 @@ def facade(monkeypatch):
     ):
         monkeypatch.delenv(name, raising=False)
     facade = RoboCasaEnvFacade.__new__(RoboCasaEnvFacade)
+    facade._episode_id = None
     facade.env = _Backend()
     facade.cameras = DEFAULT_CAMS
     facade.camera_h = facade.camera_w = 4
@@ -584,3 +586,126 @@ def test_robocasa_failed_step_keeps_prior_steps_and_ends_prediction_scope(
         (2, 3),
     ]
     assert [item["action_id"] for item in selected["rejected"]] == [recovered.action_id]
+
+
+def test_measured_episode_fences_reset_delayed_actions_and_handle_reuse(facade):
+    _, initial = facade.reset_trial(max_steps=1)
+    first = initial["episode_id"]
+    for reset in (facade.reset, facade.reset_trial):
+        with pytest.raises(RuntimeError, match="seal"):
+            reset()
+    with pytest.raises(ValueError, match="replaced"):
+        facade.step(np.zeros(12))
+    _, _, _, info = facade.step(np.zeros(12), episode_id=first)
+    assert info["evaluation"]["success"] is False
+    assert info["evaluation"]["exhausted"]
+    assert len(facade.env.executed) == 1
+    assert facade.seal_episode(first)["sealed"]
+    with pytest.raises(ValueError, match="sealed"):
+        facade.step(np.zeros(12), episode_id=first)
+    _, second = facade.reset_trial()
+    assert second["episode_id"] != first
+    with pytest.raises(ValueError, match="replaced"):
+        facade.seal_episode(first)
+    with pytest.raises(ValueError, match="replaced"):
+        facade.check_success(episode_id=first)
+    with pytest.raises(ValueError, match="replaced"):
+        facade.get_task_progress(episode_id=first)
+
+
+def test_native_exception_and_failed_reset_do_not_invent_terminal_verdict(facade):
+    facade.get_task_language = lambda: None
+    with pytest.raises(ValueError, match="instruction"):
+        facade.reset_trial()
+    facade.get_task_language = lambda: "Open the drawer"
+    _, initial = facade.reset_trial()
+    facade.env.fail_at = 1
+    with pytest.raises(RuntimeError, match="native step failed"):
+        facade.step(np.zeros(12), episode_id=initial["episode_id"])
+    assert facade.seal_episode(initial["episode_id"])["success"] is None
+
+
+def test_measured_step_observes_existing_native_checks_without_replaying_them(facade):
+    calls = []
+    native_results = iter([False, True])
+
+    def predicate():
+        calls.append(1)
+        return next(native_results)
+
+    facade.env._check_success = predicate
+    _, initial = facade.reset_trial()
+
+    def native_step(action):
+        assert facade.env._check_success()
+        return facade.env.obs, -0.2, False, {}
+
+    facade.env.step = native_step
+    _, _, _, info = facade.step(np.zeros(12), episode_id=initial["episode_id"])
+    assert info["evaluation"]["success"] is True
+    assert facade.seal_episode(initial["episode_id"])["native_success_age_s"] >= 0
+    assert len(calls) == 2
+    assert facade.env._check_success is predicate
+
+
+def test_status_progress_and_last_step_do_not_replay_stateful_judge(facade):
+    tick = 0
+
+    def stateful_judge():
+        nonlocal tick
+        tick += 1
+        progress_count = tick
+        return progress_count >= 3
+
+    facade.env._check_success = stateful_judge
+    _, initial = facade.reset_trial(max_steps=1)
+    episode_id = initial["episode_id"]
+    for _ in range(3):
+        assert facade.check_success(episode_id=episode_id) is False
+        assert facade.get_task_progress(episode_id=episode_id)["progress_count"] == 1
+
+    def native_step(action):
+        facade.env._check_success()
+        return facade.env.obs, 1.0, False, {}
+
+    facade.env.step = native_step
+    _, _, _, info = facade.step(np.zeros(12), episode_id=episode_id)
+    assert info["evaluation"]["exhausted"] and not info["evaluation"]["success"]
+    assert facade.check_success(episode_id=episode_id) is False
+    assert facade.get_task_progress(episode_id=episode_id)["progress_count"] == 2
+    assert facade.seal_episode(episode_id)["success"] is False
+    assert tick == 2
+
+
+@pytest.mark.parametrize("budget", [None, 2])
+def test_older_worker_can_run_an_agent_but_cannot_verify_an_episode(
+    facade, make_server_and_client, tmp_path, budget
+):
+    from robots.robocasa.evaluation import RoboCasaTrial
+
+    del facade._rpc["env.reset_trial"]
+    args = SimpleNamespace(
+        seed=0,
+        task_name="OpenDrawer",
+        split="target",
+        planner="api",
+        model="test",
+        max_episode_steps=budget,
+    )
+    trial = RoboCasaTrial(args, SimpleNamespace(output_dir=tmp_path))
+    with make_server_and_client(facade, "socket") as rpc:
+        env = RoboCasaEnvClient(rpc, expected_meta=facade._meta)
+        runtime = {"env_client": env}
+        if budget is None:
+            assert trial.start(runtime) is runtime
+            env.reset()
+            env.step(np.zeros(12))
+            assert len(facade.env.executed) == 1
+        else:
+            with pytest.raises(ValueError, match="max-episode-steps"):
+                trial.start(runtime)
+        trial.finalize()
+    record = json.loads(trial.trial.path.read_text())
+    assert record["status"] == "unresolved"
+    assert record["stop_reason"] == "unsupported_environment_protocol"
+    assert record["native_verdict"] is None and record["timing"]["run_s"] is None

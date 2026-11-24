@@ -146,6 +146,7 @@ def get_robot_spec() -> RobotSpec:
     Tool schemas, handlers, server lifecycle, and the MCP allowlist live on
     the LIBERO toolkit (see :func:`get_toolkit`).
     """
+    from robots.libero.evaluation import LiberoTrial
     from robots.libero.memory import prepare_memory, validate_options
 
     return RobotSpec(
@@ -157,6 +158,7 @@ def get_robot_spec() -> RobotSpec:
         add_cli_args=_add_cli_args,
         parse_config=_parse_config,
         init_runtime=_init_runtime,
+        create_evaluation_trial=LiberoTrial,
         resolve_dashboard=_resolve_dashboard,
         flywheel=FLYWHEEL_CONFIG,
         supports_exploration=True,
@@ -223,6 +225,11 @@ def _add_cli_args(parser: argparse.ArgumentParser, use_dashboard: bool) -> None:
         help="HF memory: auto selects by model; explicit versions override. Effort describes memory generation only.",
     )
     parser.add_argument("--max-episode-steps", type=int, default=10000)
+    parser.add_argument(
+        "--trial-wall-s",
+        type=float,
+        help="Evaluation wall-clock budget after admitting the initial observation.",
+    )
     add_cuda_device_arg(parser)
     add_am_args(parser, platform="libero")
     parser.add_argument(
@@ -315,6 +322,11 @@ def _parse_config(args: argparse.Namespace) -> RunConfig:
     optional so the dashboard could fill them; this is where we enforce
     they're set now that any overrides have been applied.
     """
+    wall = getattr(args, "trial_wall_s", None)
+    if wall is not None and not (0 < wall < float("inf")):
+        raise ValueError("--trial-wall-s must be positive and finite")
+    if getattr(args, "max_episode_steps", 10000) <= 0:
+        raise ValueError("--max-episode-steps must be positive")
     if not args.suite:
         raise ValueError("--suite is required")
     if args.task is None:
@@ -373,7 +385,7 @@ def _parse_config(args: argparse.Namespace) -> RunConfig:
         else default_memory_dir
     )
     local_eval = not explore and memory_profile == "local"
-    if local_eval and wam is None:
+    if local_eval and wam is None and not getattr(args, "direct_eval", False):
         if planner == "flash":
             from robots.libero.memory import replay_directory
 

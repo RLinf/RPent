@@ -20,9 +20,11 @@ import argparse
 import json
 import os
 import sys
+import time
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
+from uuid import uuid4
 
 import numpy as np
 
@@ -96,6 +98,9 @@ class RoboTwinEnvFacade(BaseEnvFacade):
     def __init__(self, env: Any, *, metadata: dict[str, Any]):
         self._env = env
         self._metadata = dict(metadata)
+        self._episode_id: str | None = None
+        self._sealed = False
+        self._native_success_at: float | None = None
         super().__init__()
 
     def _strip_single_env_value(self, value: Any, name: str) -> Any:
@@ -143,6 +148,7 @@ class RoboTwinEnvFacade(BaseEnvFacade):
 
     def _register_rpc(self) -> None:
         super()._register_rpc()
+        self._rpc["env.seal_episode"] = self.seal_episode
         self._rpc["env.plan_arm_path"] = self.plan_arm_path
 
     def get_action_spec(self) -> dict[str, Any]:
@@ -174,14 +180,49 @@ class RoboTwinEnvFacade(BaseEnvFacade):
                 self._env.set_task_language(published, env_id=0)
                 instruction_source = "evaluation_seed_table"
         instruction = self._env.get_task_language(0)
+        self._episode_id = uuid4().hex
+        self._sealed = False
+        self._native_success_at = None
+        info["episode_id"] = self._episode_id
         info["requested_seed"] = seed
         info["instruction"] = instruction
         info["instruction_source"] = instruction_source
         return self._strip_single_env_observation(observation), info
 
+    def _check_episode(self, episode_id: str | None) -> None:
+        if self._sealed or (episode_id is not None and episode_id != self._episode_id):
+            raise RuntimeError("RoboTwin episode was sealed or replaced")
+
+    def seal_episode(self, episode_id: str) -> dict[str, Any]:
+        """Fence delayed actions after the RPC writer lock drains the active call."""
+        if not episode_id or episode_id != self._episode_id:
+            raise ValueError("RoboTwin episode was replaced")
+        self._sealed = True
+        return self._stamp_success(
+            {
+                "episode_id": episode_id,
+                "sealed": True,
+                "episode_status": self._env.episode_status(),
+            }
+        )
+
+    def _stamp_success(self, info: dict[str, Any]) -> dict[str, Any]:
+        event = info.pop("_native_success_at", None)
+        if event is not None and self._native_success_at is None:
+            self._native_success_at = event
+        if self._native_success_at is not None:
+            # Send a duration; server and runner monotonic clock origins may differ.
+            info["native_success_age_s"] = time.monotonic() - self._native_success_at
+        return info
+
     def step(
-        self, action, *, action_type: RoboTwinActionType = "qpos"
+        self,
+        action,
+        *,
+        action_type: RoboTwinActionType = "qpos",
+        episode_id: str | None = None,
     ) -> tuple[Any, Any, Any, Any, dict[str, Any]]:
+        self._check_episode(episode_id)
         expected_dim = 14 if action_type == "qpos" else 16
         array = np.asarray(action, dtype=np.float64)
         if array.shape != (expected_dim,):
@@ -198,7 +239,7 @@ class RoboTwinEnvFacade(BaseEnvFacade):
             self._strip_single_signal(reward, "reward"),
             bool(self._strip_single_signal(terminated, "terminated")),
             bool(self._strip_single_signal(truncated, "truncated")),
-            info,
+            self._stamp_success(info),
         )
 
     def chunk_step(
@@ -207,7 +248,10 @@ class RoboTwinEnvFacade(BaseEnvFacade):
         *,
         action_type: RoboTwinActionType = "qpos",
         return_all_frames: bool = False,
+        episode_id: str | None = None,
+        remaining_s: float | None = None,
     ) -> tuple[Any, Any, Any, Any, dict[str, Any]]:
+        self._check_episode(episode_id)
         expected_dim = 14 if action_type == "qpos" else 16
         array = np.asarray(actions, dtype=np.float64)
         if array.ndim != 2 or array.shape[0] < 1 or array.shape[1] != expected_dim:
@@ -218,7 +262,14 @@ class RoboTwinEnvFacade(BaseEnvFacade):
             raise ValueError("RoboTwin common actions must contain only finite values")
         observation_list, rewards, terminated, truncated, info_list = (
             self._env.chunk_step(
-                array, action_type=action_type, return_all_frames=return_all_frames
+                array,
+                action_type=action_type,
+                return_all_frames=return_all_frames,
+                **(
+                    {"trial_deadline": time.monotonic() + remaining_s}
+                    if remaining_s is not None
+                    else {}
+                ),
             )
         )
         if len(observation_list) != 1 or len(info_list) != 1:
@@ -239,7 +290,7 @@ class RoboTwinEnvFacade(BaseEnvFacade):
             np.asarray(rewards)[0],
             np.asarray(terminated, dtype=bool)[0],
             np.asarray(truncated, dtype=bool)[0],
-            info_list[0],
+            self._stamp_success(info_list[0]),
         )
 
     def render_camera(self, camera_name: str, depth: bool = False) -> Any:

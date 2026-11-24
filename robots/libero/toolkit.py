@@ -305,7 +305,17 @@ class LiberoToolkit(Toolkit):
             policy_kind=self._policy_kind,
             **runtime_kwargs,
         )
-        primitives.reset()
+        if (
+            self._mode == "evaluation"
+            and getattr(env, "active_trial", None) is not None
+            and runtime_kwargs.get("token_ledger") is not None
+        ):
+            # The evaluator bound the reset observation before toolkit construction.
+            primitives.set_obs(env.last_obs)
+            if self._policy_kind == "wam":
+                primitives.model.reset()
+        else:
+            primitives.reset()
         primitives.start_recording()
         self._action_frame_cursor = primitives.recorded_frame_count()
         record = libero_tools.dump_state(primitives, self._state, log=None)

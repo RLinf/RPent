@@ -41,6 +41,7 @@ from rpent.dashboard.events import (
 )
 from rpent.dashboard.interaction import DashboardInteractionPort, DashboardMessage
 from rpent.dashboard.planner_control import PlannerInteractionControl
+from rpent.evaluation.usage import TokenLedger
 from rpent.planner.base import (
     REASONING_EFFORTS,
     Planner,
@@ -49,6 +50,7 @@ from rpent.planner.base import (
     add_mcp_prefix,
     cancel_and_wait,
     execute_tool,
+    remaining_planner_time,
     strip_mcp_prefix,
 )
 from rpent.planner.check import redact_secrets
@@ -95,7 +97,7 @@ class ClaudeCodePlanner(Planner):
         self._repo_root = str(repo_root) if repo_root else str(get_repo_root())
         self._model = model
         self._allowed_tools = allowed_tools
-        self._timeout_s = timeout_s
+        self.timeout_s = timeout_s
         self._max_budget_usd = max_budget_usd
         self._extra_dirs = extra_dirs or []
         self._output_path = Path(output_path) if output_path else None
@@ -145,7 +147,9 @@ class ClaudeCodePlanner(Planner):
 
         artifacts = AgentArtifacts("claude_agent_sdk", self._output_path)
         recorder = _Recorder(
-            max_turns=max_turns, dashboard_events=self._dashboard_events
+            max_turns=max_turns,
+            dashboard_events=self._dashboard_events,
+            token_ledger=self.token_ledger,
         )
         terminal = TerminalInteraction(input_queue) if input_queue is not None else None
         interaction = terminal if terminal is not None else dashboard_interaction
@@ -219,13 +223,15 @@ class ClaudeCodePlanner(Planner):
                 # Human-supervised terminal sessions have no wall-clock cap.
                 await asyncio.wait_for(
                     driver.run(prompt),
-                    timeout=None if terminal is not None else self._timeout_s,
+                    timeout=None
+                    if terminal is not None
+                    else remaining_planner_time(self.timeout_s, self.trial_deadline),
                 )
                 error = recorder.error or driver.error
                 if error:
                     write_jsonl(raw, {"type": "error", "message": error})
             except asyncio.TimeoutError:
-                error = f"Claude Agent SDK timed out after {self._timeout_s}s"
+                error = f"Claude Agent SDK timed out after {self.timeout_s}s"
                 write_jsonl(raw, {"type": "timeout", "message": error})
             except Exception as exc:
                 error = redact_secrets(f"{type(exc).__name__}: {exc}")
@@ -241,6 +247,7 @@ class ClaudeCodePlanner(Planner):
                 output.write(f"\n[cc-planner] {error}\n")
                 logger.info("[cc-planner] %s", error)
 
+        recorder.flush_pending_usage()
         return artifacts.result(
             finish_result=recorder.finish_result,
             final_response=None,
@@ -365,6 +372,7 @@ class _ClaudeSessionDriver:
         if not self._turn_done.is_set():
             raise RuntimeError("Cannot submit while a Claude turn is active")
         self._turn_done.clear()
+        self._recorder.query_pending = True
         try:
             await self._client.query(text)
         except BaseException:
@@ -424,6 +432,11 @@ class _Recorder:
     max_turns: int
     dashboard_events: DashboardEventSink
     turns: int = 0
+    token_ledger: TokenLedger | None = None
+    pending_usage: dict[str, Any] = field(default_factory=dict)
+    final_usage: dict[str, Any] = field(default_factory=dict)
+    usage_status: str = "completed"
+    query_pending: bool = False
     _seen_assistant_ids: set[str] = field(default_factory=set)
     tool_calls: int = 0
     tool_names: dict[str, str] = field(default_factory=dict)
@@ -496,6 +509,18 @@ class _Recorder:
 
     def _assistant(self, message: Any) -> str:
         self._add_usage(get_field(message, "usage"))
+        if self.token_ledger is not None:
+            message_id = (
+                get_field(message, "message_id")
+                or get_field(message, "uuid")
+                or uuid4().hex
+            )
+            raw = get_field(message, "usage")
+            if raw or message_id not in self.pending_usage:
+                self.pending_usage[message_id] = (
+                    get_field(message, "model") or "unknown",
+                    raw or {},
+                )
         lines: list[str] = []
         if get_field(message, "parent_tool_use_id") is None:
             # One Claude response may arrive as multiple messages with the same ID.
@@ -589,6 +614,17 @@ class _Recorder:
     def _result(self, message: Any) -> str:
         if usage := get_field(message, "usage"):
             self._set_usage(usage)
+        if self.token_ledger is not None:
+            by_model = get_field(message, "model_usage")
+            if by_model or usage:
+                # The SDK result is authoritative across the session. Publish
+                # one view, retaining per-model attribution when available.
+                self.pending_usage.clear()
+                self.final_usage = by_model or {"unknown": usage}
+                self.usage_status = (
+                    "failed" if get_field(message, "is_error") else "completed"
+                )
+                self.query_pending = False
         if cost := get_field(message, "total_cost_usd"):
             self.total_cost_usd = float(cost)
         suppress = self.suppress_next_result_error
@@ -614,6 +650,50 @@ class _Recorder:
         return " ".join(p for p in parts if p) + usage_line + "\n"
 
     # -- usage helpers ----------------------------------------------------
+
+    def flush_pending_usage(self) -> None:
+        """Save deduplicated assistant evidence for an interrupted SDK session."""
+        if self.token_ledger is None:
+            return
+        for model, raw in self.final_usage.items():
+            self._record_usage(
+                f"claude-session-{model}", model, raw, "session", self.usage_status
+            )
+        if self.query_pending:
+            # A failed or interrupted turn may have incurred usage beyond the
+            # assistant messages delivered by the SDK.
+            self._record_usage(
+                "unfinished-query", "unknown", {}, "session", "unconfirmed"
+            )
+        for request_id, (model, raw) in self.pending_usage.items():
+            self._record_usage(request_id, model, raw, "request", "unconfirmed")
+        self.pending_usage.clear()
+
+    def _record_usage(
+        self,
+        request_id: str,
+        model: str,
+        raw: dict[str, Any],
+        granularity: str,
+        status: str,
+    ) -> None:
+        plain = raw.get("input_tokens", raw.get("inputTokens"))
+        read = raw.get("cache_read_input_tokens", raw.get("cacheReadInputTokens"))
+        write = raw.get(
+            "cache_creation_input_tokens", raw.get("cacheCreationInputTokens")
+        )
+        self.token_ledger.record_usage(
+            request_id=request_id,
+            model=model,
+            module="planner",
+            stage="online_unattributed",
+            provider="claude_code",
+            granularity=granularity,
+            status=status,
+            input_tokens=None if plain is None else plain + (read or 0) + (write or 0),
+            output_tokens=raw.get("output_tokens", raw.get("outputTokens")),
+            raw_usage=raw,
+        )
 
     def _add_usage(self, usage: Any) -> None:
         if not isinstance(usage, dict):

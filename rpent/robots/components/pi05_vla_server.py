@@ -223,6 +223,7 @@ class Pi05VLAFacade(BaseVLAFacade):
         if embodiment == "dual_franka" and not (repo_id or norm_stats_path):
             raise ValueError("dual_franka requires repo_id or norm_stats_path")
         self._embodiment = embodiment
+        self._checkpoint = model_path
         super().__init__()
 
         from rlinf.models.embodiment.openpi import get_model
@@ -258,7 +259,7 @@ class Pi05VLAFacade(BaseVLAFacade):
 
     def get_status(self) -> dict:
         """Return prediction chunk length for client-side action validation."""
-        return {"action_chunk": self._action_chunk}
+        return {"action_chunk": self._action_chunk, "checkpoint": self._checkpoint}
 
     def get_model_meta(self) -> dict:
         """Return YAM policy identity separately from framework readiness."""

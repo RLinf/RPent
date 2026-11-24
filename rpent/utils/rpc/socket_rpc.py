@@ -34,7 +34,7 @@ import tempfile
 from typing import Any, Callable
 
 from rpent.utils.logging import get_logger
-from rpent.utils.rpc.rpc_client import RpcClient, check_response
+from rpent.utils.rpc.rpc_client import RpcClient, check_response, report_unconfirmed_rpc
 from rpent.utils.rpc.rpc_facade import make_error_response
 
 logger = get_logger("socket_rpc")
@@ -113,8 +113,12 @@ class SocketRpcClient(RpcClient):
         ) as sock:
             sock.settimeout(request_timeout_s)
             with sock.makefile("rwb") as f:
-                _write_frame(f, payload)
-                response = _read_frame(f)
+                try:
+                    _write_frame(f, payload)
+                    response = _read_frame(f)
+                except (OSError, EOFError, pickle.UnpicklingError) as exc:
+                    report_unconfirmed_rpc(method, type(exc).__name__)
+                    raise
         return check_response(response, method)
 
 

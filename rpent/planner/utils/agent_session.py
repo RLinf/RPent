@@ -29,7 +29,7 @@ from rpent.cli.tui import next_user_line
 from rpent.dashboard.events import DashboardEventSink, TranscriptEvent
 from rpent.dashboard.interaction import DashboardInteractionPort, DashboardMessage
 from rpent.dashboard.planner_control import PlannerInteractionControl
-from rpent.planner.base import cancel_and_wait
+from rpent.planner.base import cancel_and_wait, remaining_planner_time
 from rpent.planner.utils.agent_runtime import AgentArtifacts, write_jsonl
 from rpent.planner.utils.http_mcp_server import HttpMcpServer
 from rpent.tools import ToolResult
@@ -167,6 +167,7 @@ async def run_agent(
     events: DashboardEventSink,
     create_session: Callable[..., Any],
     timeout_s: float,
+    trial_deadline: float | None = None,
     label: str,
     input_queue: queue.Queue[str | None] | None,
     interaction: DashboardInteractionPort | None,
@@ -248,11 +249,14 @@ async def run_agent(
             session = create_session(url, control, emit_event)
             if terminal is not None:
                 reader = asyncio.create_task(terminal.read_input())
+            remaining = remaining_planner_time(timeout_s, trial_deadline)
+            if remaining <= 0:
+                raise asyncio.TimeoutError
             session_task = asyncio.create_task(session.run(prompt))
             finish_waiter = asyncio.create_task(finished.wait())
             done, _ = await asyncio.wait(
                 (session_task, finish_waiter),
-                timeout=timeout_s,
+                timeout=remaining,
                 return_when=asyncio.FIRST_COMPLETED,
             )
             if not done:

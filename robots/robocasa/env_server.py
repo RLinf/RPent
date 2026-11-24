@@ -19,6 +19,8 @@ import inspect
 import os
 import re
 import sys
+import time
+from uuid import uuid4
 
 import numpy as np
 
@@ -70,6 +72,33 @@ def _split_kwargs(split):
     raise ValueError('split must be {None,"all","pretrain","target"}')
 
 
+def _evaluate_with_progress(predicate):
+    """Keep scalar diagnostic locals from the native evaluator's actual call."""
+    captured = {}
+    code = getattr(predicate, "__code__", None)
+
+    def trace(frame, event, arg):
+        if frame.f_code is not code:
+            return None
+        if event == "return":
+            for key, value in frame.f_locals.items():
+                if isinstance(value, (bool, np.bool_)):
+                    captured[key] = bool(value)
+                elif isinstance(value, (int, np.integer)):
+                    captured[key] = int(value)
+                elif isinstance(value, (float, np.floating)):
+                    captured[key] = round(float(value), 4)
+        return trace
+
+    previous = sys.gettrace()
+    try:
+        sys.settrace(trace)
+        value = predicate()
+    finally:
+        sys.settrace(previous)
+    return value, captured
+
+
 class RoboCasaEnvFacade(MainThreadServeMixin, BaseEnvFacade):
     """Wraps the raw robosuite env and exposes ONLY basic calls via RPC.
 
@@ -93,6 +122,9 @@ class RoboCasaEnvFacade(MainThreadServeMixin, BaseEnvFacade):
         import robosuite
         from robosuite.controllers import load_composite_controller_config
 
+        self._episode_id = None
+        self._sealed = False
+        self._native_success_at = None
         self.task_name = task_name
         self.split = split
         self.seed = seed
@@ -130,6 +162,8 @@ class RoboCasaEnvFacade(MainThreadServeMixin, BaseEnvFacade):
     def _register_rpc(self):
         """Register all RPC methods."""
         super()._register_rpc()
+        self._rpc["env.reset_trial"] = self.reset_trial
+        self._rpc["env.seal_episode"] = self.seal_episode
         self._rpc["env.check_success"] = self.check_success
         self._rpc["env.get_camera_transform"] = self.get_camera_transform
         self._rpc["env.grasp_contact"] = self.grasp_contact
@@ -204,6 +238,8 @@ class RoboCasaEnvFacade(MainThreadServeMixin, BaseEnvFacade):
         # (random.seed + np.random.seed + robosuite env.rng/seed) BEFORE reset. Lets the
         # hybrid run on the IDENTICAL reset layouts fullshot was scored on (true paired
         # comparison). The eval formula: episode_seed = (run_seed + env_idx)*100000 + episode_id.
+        if self._episode_id is not None and not self._sealed:
+            raise RuntimeError("seal the active RoboCasa evaluation before resetting")
         rs_env = os.environ.get("RLDX_RESET_SEED")
         if rs_env:
             import random
@@ -215,19 +251,104 @@ class RoboCasaEnvFacade(MainThreadServeMixin, BaseEnvFacade):
                 self.env.seed = sd
             if hasattr(self.env, "rng"):
                 self.env.rng = np.random.default_rng(sd)
+        self._episode_id = None
+        self._sealed = False
+        self._native_success_at = None
         return self.env.reset()
 
-    def step(self, flat_action):
+    def reset_trial(self, *, max_steps=None):
+        """Bind the reset used by the policy to one server-side action lease."""
+        if max_steps is not None and (type(max_steps) is not int or max_steps < 1):
+            raise ValueError("max_steps must be a positive integer")
+        obs = self.reset()
+        instruction = self.get_task_language()
+        if not isinstance(instruction, str) or not instruction.strip():
+            raise ValueError("RoboCasa reset did not provide a task instruction")
+        success, self._predicate_progress = _evaluate_with_progress(
+            self.env._check_success
+        )
+        self._native_success_at = time.monotonic() if success else None
+        self._native_known = True
+        self._steps = 0
+        self._max_steps = max_steps
+        # RoboCasa's native predicate can update task state. Observe the calls
+        # already made by the simulator, including those made by its reward.
+        # Keep their return values intact and avoid inferring success from reward.
+        predicate = self.env._check_success
+        self._prior_instance_predicate = vars(self.env).get("_check_success")
+
+        def observed_predicate():
+            value, self._predicate_progress = _evaluate_with_progress(predicate)
+            self._native_observed_in_step = True
+            if value and self._native_success_at is None:
+                self._native_success_at = time.monotonic()
+            return value
+
+        self.env._check_success = observed_predicate
+        self._episode_id = uuid4().hex
+        return obs, {**self._trial_status(), "instruction": instruction}
+
+    def _trial_status(self):
+        status = {
+            "episode_id": self._episode_id,
+            "sealed": self._sealed,
+            "exhausted": self._max_steps is not None and self._steps >= self._max_steps,
+            "success": True
+            if self._native_success_at is not None
+            else (False if self._native_known else None),
+        }
+        if self._native_success_at is not None:
+            status["native_success_age_s"] = time.monotonic() - self._native_success_at
+        return status
+
+    def seal_episode(self, episode_id):
+        """Fence delayed actions on the same main-thread queue that executes steps."""
+        if not episode_id or episode_id != self._episode_id:
+            raise ValueError("RoboCasa episode was replaced")
+        if not self._sealed:
+            if self._prior_instance_predicate is None:
+                del self.env._check_success
+            else:
+                self.env._check_success = self._prior_instance_predicate
+            self._sealed = True
+        return self._trial_status()
+
+    def step(self, flat_action, *, episode_id=None):
         """flat_action: np.ndarray[12] = [eef_pos(3), eef_rot(3), gripper(1),
         base_motion(4), control_mode(1)] in the PandaOmron composite layout."""
+        if episode_id != self._episode_id or self._sealed:
+            raise ValueError("RoboCasa episode was replaced or sealed")
+        if episode_id and (
+            self._native_success_at is not None or self._trial_status()["exhausted"]
+        ):
+            raise ValueError("RoboCasa episode is already terminal")
         a = np.asarray(flat_action, dtype=np.float64).reshape(-1)
         assert a.shape[0] == self.env.action_dim, (
             f"action dim {a.shape[0]} != env.action_dim {self.env.action_dim}"
         )
-        obs, reward, done, info = self.env.step(a)
+        if episode_id:
+            self._native_observed_in_step = False
+        try:
+            obs, reward, done, info = self.env.step(a)
+            if episode_id:
+                self._steps += 1
+                if not self._native_observed_in_step:
+                    # A backend without an in-step evaluator still needs one sample.
+                    self.env._check_success()
+        except Exception:
+            if episode_id:
+                # A native step may fail after moving the robot.
+                self._native_known = False
+            raise
+        if episode_id:
+            info = {**info, "evaluation": self._trial_status()}
         return obs, reward, done, info
 
-    def check_success(self):
+    def check_success(self, *, episode_id=None):
+        if episode_id != self._episode_id:
+            raise ValueError("RoboCasa episode was replaced")
+        if self._episode_id:
+            return self._native_success_at is not None
         return bool(self.env._check_success())
 
     def render_camera(self, camera_name, height, width, depth):
@@ -352,11 +473,14 @@ class RoboCasaEnvFacade(MainThreadServeMixin, BaseEnvFacade):
             out.append("(_check_success extraction failed: %s)" % ex)
         return "\n\n".join(out)[:9000]
 
-    def get_task_progress(self):
+    def get_task_progress(self, *, episode_id=None):
         """Return the progress dict for this task."""
+        # Unmeasured exploration evaluates the live predicate. During a trial,
+        # use locals captured from the native call, as some predicates mutate state.
+        if episode_id != self._episode_id:
+            raise ValueError("RoboCasa episode was replaced")
         env = self.env
         prog = {}
-        code = type(env)._check_success.__code__
         try:
             src = inspect.getsource(type(env)._check_success)
             # capture both `self.attr` AND dotted `self.fixture._attr` paths used in the
@@ -384,37 +508,15 @@ class RoboCasaEnvFacade(MainThreadServeMixin, BaseEnvFacade):
                     prog[key] = round(float(obj), 4)
         except Exception:
             pass
-        # trace ONE read-only call of _check_success; grab its return-frame locals
-        captured = {}
-
-        def _tracer(frame, event, arg):
-            if event == "call" and frame.f_code is code:
-
-                def _local(f, e, a):
-                    if e == "return":
-                        captured.update(f.f_locals)
-                    return _local
-
-                return _local
-            return None
-
-        old = sys.gettrace()
-        try:
-            sys.settrace(_tracer)
-            env._check_success()
-        except Exception:
-            pass
-        finally:
-            sys.settrace(old)
-        for k, v in captured.items():
-            if k == "self" or k in prog:
-                continue
-            if isinstance(v, (bool, np.bool_)):
-                prog[k] = bool(v)
-            elif isinstance(v, (int, np.integer)):
-                prog[k] = int(v)
-            elif isinstance(v, (float, np.floating)):
-                prog[k] = round(float(v), 4)
+        if self._episode_id:
+            captured = self._predicate_progress
+        else:
+            try:
+                _, captured = _evaluate_with_progress(env._check_success)
+            except Exception:
+                captured = {}
+        for key, value in captured.items():
+            prog.setdefault(key, value)
         return prog
 
     def close(self):

@@ -18,12 +18,15 @@ from __future__ import annotations
 import base64
 import io
 import math
+from contextlib import nullcontext
+from copy import copy
 from dataclasses import dataclass
 from typing import Any, Literal
 
 import imageio.v2 as imageio
 import numpy as np
 
+from rpent.evaluation.usage import TokenLedger
 from rpent.utils.rpc import RpcClient
 
 
@@ -49,9 +52,27 @@ class MolmoClient:
     ) -> None:
         if point_mode not in ("manipulation", "native"):
             raise ValueError("point_mode must be manipulation or native")
+        self._ledger: TokenLedger | None = None
         self._client = client
         self._timeout_s = timeout_s
         self._point_mode = point_mode
+
+    def for_trial(self, ledger: TokenLedger) -> MolmoClient:
+        """Return a run-scoped view of this stateless inference client."""
+        client = copy(self)
+        client._ledger = ledger
+        return client
+
+    def _inference(self, method: str, **kwargs):
+        usage = (
+            self._ledger.unmetered_call(
+                model="molmo", module="perception", stage="execution"
+            )
+            if self._ledger is not None
+            else nullcontext()
+        )
+        with usage:
+            return self._client.call(method, **kwargs)
 
     def ground(
         self,
@@ -81,7 +102,7 @@ class MolmoClient:
         # Keep existing Flash requests compatible with the default RPC contract.
         if self._point_mode != "manipulation":
             kwargs["point_mode"] = self._point_mode
-        payload = self._client.call(
+        payload = self._inference(
             "molmo.ground",
             kwargs=kwargs,
             timeout_s=self._timeout_s,
@@ -90,7 +111,7 @@ class MolmoClient:
 
     def verify(self, image: bytes, query: str | None, *, isolated: bool = False) -> str:
         """Return the local model's answer for a candidate identity image."""
-        payload = self._client.call(
+        payload = self._inference(
             "molmo.verify",
             kwargs={
                 "image_base64": base64.b64encode(image).decode("ascii"),
