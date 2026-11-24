@@ -43,12 +43,9 @@ import sys
 import time
 from collections.abc import Callable
 from dataclasses import asdict
+from importlib.util import find_spec
 from pathlib import Path
 
-from rpent.cli.tui import (
-    start_first_prompt_resolver,
-    start_interactive_reader,
-)
 from rpent.dashboard.events import (
     NullDashboardEventSink,
     RunStartedEvent,
@@ -63,8 +60,30 @@ from rpent.planner.base import (
 )
 from rpent.planner.check import EXTERNALLY_CONFIGURED_PLANNERS
 from rpent.robots import enumerate_robots, get_robot_spec, get_toolkit
-from rpent.session.planner_capture import end_planner_task, start_planner_task
 from rpent.utils.logging import get_logger, init_output_dir
+
+# The ``rpent`` console script ships with the core wheel, but a run needs the
+# planner layer.
+_PLANNER_CORE_MODULE = "pydantic_ai"
+
+
+def _missing_planner_module() -> str | None:
+    """Return the planner-layer module this environment lacks, if any.
+
+    Probe it explicitly instead of importing planner modules at module import
+    time, so ``--help`` and argument validation work in a core-only environment
+    and every planner import stays at its use site. ``pydantic_ai`` is the one
+    module every run needs, because ``build_planner`` imports it; an optional
+    package (``--tui``, MCP) or a backend that is missing fails at its own
+    import, which names it.
+    """
+    try:
+        found = find_spec(_PLANNER_CORE_MODULE) is not None
+    except ModuleNotFoundError:
+        # A meta-path finder reports a blocked module the same way.
+        found = False
+    return None if found else _PLANNER_CORE_MODULE
+
 
 logger = get_logger("agent")
 
@@ -371,6 +390,18 @@ def _start_continuation_session(
 
 def main() -> int:
     parser = _build_argparser()
+    help_requested = "-h" in sys.argv or "--help" in sys.argv
+    # A run needs the planner layer; ``--help`` stays available because it
+    # never needs a robot.
+    missing_planner = _missing_planner_module()
+    if missing_planner is not None and not help_requested:
+        print(
+            "the rpent CLI needs the planner layer, which this environment does "
+            f"not provide (missing {missing_planner!r}); install it with "
+            '`pip install "rpent[planner]"`',
+            file=sys.stderr,
+        )
+        return 1
     # Two-phase argparse: first grab --robot / --env / --dashboard so we know
     # which robot's flags to add and whether to make its required flags optional.
     early, _ = parser.parse_known_args()
@@ -383,10 +414,18 @@ def main() -> int:
         logger.warning("--env is deprecated and will be removed; use --robot instead")
         early.robot_name = early.env_name
     if early.robot_name is None:
-        if "-h" not in sys.argv and "--help" not in sys.argv:
+        if not help_requested:
             parser.error("--robot is required")
     else:
-        robot_spec = get_robot_spec(early.robot_name)
+        try:
+            robot_spec = get_robot_spec(early.robot_name)
+        except ImportError as exc:
+            print(
+                f"cannot load robot {early.robot_name!r}: {exc}. Its environment "
+                "installs the packages it imports",
+                file=sys.stderr,
+            )
+            return 1
         robot_spec.add_cli_args(parser, use_dashboard=early.dashboard)
     parser.add_argument(
         "-h",
@@ -537,6 +576,11 @@ def main() -> int:
     input_queue: "queue.Queue[str | None] | None" = None
     await_first_prompt: "Callable[[], str | None] | None" = None
     if args.tui and not native_cli:
+        from rpent.cli.tui import (
+            start_first_prompt_resolver,
+            start_interactive_reader,
+        )
+
         input_queue = queue.Queue()
         queued_help = (
             "Claude Code/Codex/Gemini: messages queue until the current turn completes.\n"
@@ -684,6 +728,11 @@ def main() -> int:
                     return True
 
                 operator_input.bind_verdict(accept_verdict)
+            from rpent.session.planner_capture import (
+                end_planner_task,
+                start_planner_task,
+            )
+
             task_state = None
             result = None
             finish_result = None

@@ -592,7 +592,7 @@ def test_cli_direct_verdict_finalizes_and_merges_only_without_errors(
         handlers["line"] = kwargs["line_handler"]
         input_queue.put("test task")
 
-    monkeypatch.setattr(cli, "start_interactive_reader", reader)
+    monkeypatch.setattr("rpent.cli.tui.start_interactive_reader", reader)
 
     class Planner:
         def solve(self, *, toolkit, input_queue, **kwargs):

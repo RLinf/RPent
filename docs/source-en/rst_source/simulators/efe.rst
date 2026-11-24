@@ -112,12 +112,12 @@ Prerequisites on the Linux host:
       export RPENT_ROOT=/absolute/path/to/RPent
       export EFE_ROOT=/absolute/path/to/embodied-first-exam
       uv sync --project "$EFE_ROOT" --python 3.12
-      uv pip install --python "$EFE_ROOT/.venv/bin/python" -e "$RPENT_ROOT"
+      uv pip install --python "$EFE_ROOT/.venv/bin/python" -e "$RPENT_ROOT[planner]"
       docker info
       uv run --project "$EFE_ROOT" harbor --version
       test -f "$RPENT_ROOT/robots/efe/harbor_agent.py"
 
-   - ``uv pip install ... -e "$RPENT_ROOT"`` is only needed for manual host runs (``rpent --robot efe``); Harbor trials build and install RPent inside the task container automatically.
+   - ``uv pip install ... -e "$RPENT_ROOT[planner]"`` is only needed for manual host runs (``rpent --robot efe``); Harbor trials build and install RPent inside the task container automatically, including the planner extra.
    - Verify that ``docker info`` succeeds, ``harbor --version`` reports ``0.23.0``, and ``test -f`` exits with ``0``.
 
 3. Select the example AutoBio centrifuge task and configure model credentials:
