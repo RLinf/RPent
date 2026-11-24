@@ -100,15 +100,12 @@ class LocalTurn:
                     self.finish_response = response.model_dump(
                         mode="json", by_alias=True
                     )
-        # The SDK reports an MCP call as a separate server and bare tool name;
-        # RPent's completion is detected from that pair, not from the name.
         yield {
             "method": "item/completed",
             "payload": {
                 "item": {
                     "type": "mcpToolCall",
-                    "server": "rpent",
-                    "tool": "finish",
+                    "tool": "mcp__rpent__finish",
                     "status": "completed",
                     "arguments": self.finish_arguments,
                     "result": self.finish_response,

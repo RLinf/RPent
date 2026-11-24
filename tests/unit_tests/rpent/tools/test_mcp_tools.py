@@ -12,787 +12,650 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+"""Offline contract tests for Toolkit-backed external MCP tool integration."""
+
 from __future__ import annotations
 
 import asyncio
 import base64
 import json
+import socket
+import threading
 import time
-from collections.abc import Callable
-from contextlib import asynccontextmanager
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
 import pytest
+import uvicorn
 from mcp import types
+from mcp.server.lowlevel import Server
+from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
+from pydantic_ai.messages import BinaryContent
 
 from rpent.dashboard.events import NullDashboardEventSink
 from rpent.memory.manager import MemoryManager
+from rpent.planner.api_loop import _HarnessToolkit
+from rpent.planner.claude_code import _build_rpent_server
+from rpent.planner.gemini_cli import _write_settings as write_gemini_settings
 from rpent.planner.utils.http_mcp_server import HttpMcpServer
-from rpent.session import EnvState, Payload
-from rpent.tools import Toolkit, ToolResult, mcp_tools
-from rpent.tools import tool as declare_tool
-from rpent.tools.base import MAX_TOOL_TEXT_BYTES
+from rpent.robots.base import get_toolkit
+from rpent.robots.robot_spec import RunConfig
+from rpent.session import EnvState
+from rpent.tools.base import MAX_TOOL_TEXT_BYTES, ToolResult, tool
+from rpent.tools.mcp_tools import (
+    call_timeout_s,
+    list_remote_tools,
+    mcp_tool_name,
+)
+from rpent.tools.toolkit import Toolkit
 from rpent.utils.logging import init_output_dir
 from rpent.utils.mcp_servers import McpServerSpec
 
+# Minimal valid 1x1 PNG.
+_PNG_BYTES = base64.b64decode(
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="
+)
 
-class FakeToolkit:
-    """Minimal Toolkit surface used by ``register_mcp_tools``."""
 
-    def __init__(self, existing: tuple[str, ...] = ()) -> None:
-        self.tools: dict[str, Any] = {
-            name: SimpleNamespace(name=name) for name in existing
+def _free_port() -> int:
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.bind(("127.0.0.1", 0))
+        return int(sock.getsockname()[1])
+
+
+@contextmanager
+def _running_mcp_server(
+    tools: list[types.Tool],
+    handler: Callable[[str, dict[str, Any], dict[str, str]], Any],
+    *,
+    page_size: int | None = None,
+) -> Iterator[tuple[str, list[dict[str, str]]]]:
+    """Start a real local streamable-HTTP MCP server on a background thread."""
+    mcp_app = Server("external-test", version="0.1.0")
+    received_headers: list[dict[str, str]] = []
+
+    if page_size is not None:
+
+        async def _list_paginated(
+            req: types.ListToolsRequest | None,
+        ) -> types.ServerResult:
+            cursor = req.params.cursor if req and req.params else None
+            start = int(cursor) if cursor is not None else 0
+            chunk = tools[start : start + page_size]
+            next_cursor = (
+                str(start + page_size) if start + page_size < len(tools) else None
+            )
+            return types.ServerResult(
+                types.ListToolsResult(tools=chunk, nextCursor=next_cursor)
+            )
+
+        mcp_app.request_handlers[types.ListToolsRequest] = _list_paginated
+    else:
+
+        @mcp_app.list_tools()
+        async def _list() -> list[types.Tool]:
+            return list(tools)
+
+    @mcp_app.call_tool(validate_input=False)
+    async def _call(name: str, arguments: dict[str, Any]) -> Any:
+        return await handler(name, arguments or {}, dict(received_headers[-1]))
+
+    session_manager = StreamableHTTPSessionManager(
+        app=mcp_app,
+        stateless=True,
+        json_response=True,
+    )
+
+    async def asgi_app(scope: dict[str, Any], receive: Any, send: Any) -> None:
+        if scope["type"] == "lifespan":
+            while True:
+                event = await receive()
+                if event["type"] == "lifespan.startup":
+                    async with session_manager.run():
+                        await send({"type": "lifespan.startup.complete"})
+                        shutdown = await receive()
+                        if shutdown["type"] != "lifespan.shutdown":
+                            break
+                        await send({"type": "lifespan.shutdown.complete"})
+                    break
+                if event["type"] == "lifespan.shutdown":
+                    await send({"type": "lifespan.shutdown.complete"})
+                    break
+            return
+        if scope["type"] == "http":
+            headers = {
+                k.decode("latin1").lower(): v.decode("latin1")
+                for k, v in scope.get("headers", ())
+            }
+            received_headers.append(headers)
+            await session_manager.handle_request(scope, receive, send)
+
+    port = _free_port()
+    config = uvicorn.Config(
+        asgi_app,
+        host="127.0.0.1",
+        port=port,
+        log_level="error",
+        access_log=False,
+        lifespan="on",
+    )
+    server = uvicorn.Server(config)
+    thread = threading.Thread(target=server.run, daemon=True)
+    thread.start()
+    deadline = time.monotonic() + 10.0
+    while not server.started and time.monotonic() < deadline:
+        time.sleep(0.02)
+    assert server.started, "local MCP test server failed to start"
+    try:
+        yield f"http://127.0.0.1:{port}/mcp/", received_headers
+    finally:
+        server.should_exit = True
+        thread.join(timeout=5.0)
+
+
+class _RecordingToolkit(Toolkit):
+    """Minimal Toolkit tracking get_env_state calls for tests."""
+
+    def __init__(self, tmp_path: Path) -> None:
+        init_output_dir(tmp_path / "out")
+        memory_dir = tmp_path / "memory"
+        memory_dir.mkdir(parents=True, exist_ok=True)
+        state = EnvState(tmp_path / "state")
+        super().__init__(
+            dashboard_events=NullDashboardEventSink(),
+            state=state,
+            memory=MemoryManager(root=memory_dir),
+        )
+        self.env_state_calls: list[dict[str, Any]] = []
+        self.add_tool(self.robot_step)
+
+    @tool
+    def robot_step(self, label: str) -> ToolResult:
+        """Execute a dummy robot action."""
+        return ToolResult(data={"moved": label})
+
+    def get_env_state(
+        self,
+        *,
+        command: dict[str, Any],
+        result: dict[str, Any],
+        elapsed_s: float,
+    ) -> ToolResult:
+        self.env_state_calls.append(
+            {"command": command, "result": result, "elapsed_s": elapsed_s}
+        )
+        return ToolResult(data={"step": len(self.env_state_calls), "arm": "idle"})
+
+
+def test_default_zero_code_registration_returns_remote_payload_directly(
+    tmp_path: Path,
+) -> None:
+    seen_args: list[dict[str, Any]] = []
+    tools = [
+        types.Tool(
+            name="read_power",
+            description="Read power meter.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "unit": {"type": "string", "enum": ["W", "kW"]},
+                    "include_png": {"type": "boolean"},
+                },
+                "required": ["unit"],
+                "additionalProperties": False,
+            },
+        ),
+        types.Tool(
+            name="list_outlets",
+            description="List power outlets.",
+            inputSchema={"type": "object", "properties": {}},
+        ),
+    ]
+
+    async def handle(
+        name: str, arguments: dict[str, Any], headers: dict[str, str]
+    ) -> types.CallToolResult:
+        seen_args.append(arguments)
+        assert headers.get("authorization") == "Bearer lab-token"
+        content: list[Any] = [
+            types.TextContent(type="text", text=f"{name}: 42 {arguments['unit']}")
+        ]
+        if arguments.get("include_png"):
+            content.append(
+                types.ImageContent(
+                    type="image",
+                    data=base64.b64encode(_PNG_BYTES).decode("ascii"),
+                    mimeType="image/png",
+                )
+            )
+        return types.CallToolResult(
+            content=content,
+            structuredContent={"watts": 42},
+        )
+
+    with _running_mcp_server(tools, handle) as (url, _):
+        toolkit = _RecordingToolkit(tmp_path)
+        spec = McpServerSpec(
+            name="power",
+            url=url,
+            headers={"Authorization": "Bearer lab-token"},
+        )
+        registered = toolkit.add_mcp_servers((spec,))
+        assert registered == ("power__read_power", "power__list_outlets")
+
+        # Default sync_with_robot=False skips get_env_state and returns the
+        # remote text, structured content, and PNG directly.
+        res = toolkit.execute_tool(
+            "power__read_power", {"unit": "W", "include_png": True}
+        )
+        assert not res.is_error
+        assert res.data == {
+            "text": "read_power: 42 W",
+            "structured_content": {"watts": 42},
+        }
+        assert res.images == [_PNG_BYTES]
+        assert toolkit.env_state_calls == []
+        assert seen_args == [{"unit": "W", "include_png": True}]
+
+        # Omitted optional parameter is not forwarded as null; undeclared
+        # arguments are rejected when additionalProperties is false.
+        res2 = toolkit.execute_tool("power__read_power", {"unit": "kW"})
+        assert not res2.is_error
+        assert seen_args[-1] == {"unit": "kW"}
+        bad = toolkit.execute_tool(
+            "power__read_power", {"unit": "W", "unknown": "extra"}
+        )
+        assert bad.is_error
+        assert "bad arguments" in bad.data["error"]
+
+
+def test_sync_with_robot_captures_observation_and_preserves_remote_result(
+    tmp_path: Path,
+) -> None:
+    tools = [
+        types.Tool(
+            name="set_dock",
+            description="Toggle charging dock.",
+            inputSchema={
+                "type": "object",
+                "properties": {"enabled": {"type": "boolean"}},
+                "required": ["enabled"],
+            },
+        ),
+        types.Tool(
+            name="fail_dock",
+            description="Fail dock command.",
+            inputSchema={"type": "object", "properties": {}},
+        ),
+    ]
+
+    async def handle(
+        name: str, arguments: dict[str, Any], headers: dict[str, str]
+    ) -> types.CallToolResult:
+        del headers
+        if name == "fail_dock":
+            return types.CallToolResult(
+                content=[types.TextContent(type="text", text="interlock open")],
+                isError=True,
+            )
+        return types.CallToolResult(
+            content=[
+                types.TextContent(type="text", text=f"dock={arguments['enabled']}"),
+                types.ImageContent(
+                    type="image",
+                    data=base64.b64encode(_PNG_BYTES).decode("ascii"),
+                    mimeType="image/png",
+                ),
+            ]
+        )
+
+    with _running_mcp_server(tools, handle) as (url, _):
+        toolkit = _RecordingToolkit(tmp_path)
+        spec = McpServerSpec(
+            name="dock",
+            url=url,
+            tools=("set_dock", "fail_dock"),
+            sync_with_robot=True,
+        )
+        registered = toolkit.add_mcp_servers((spec,))
+        assert registered == ("dock__set_dock", "dock__fail_dock")
+
+        ok = toolkit.execute_tool("dock__set_dock", {"enabled": True})
+        assert not ok.is_error
+        assert ok.data == {
+            "step": 1,
+            "arm": "idle",
+            "tool_result": {"text": "dock=True"},
+        }
+        assert ok.images == [_PNG_BYTES]
+        assert len(toolkit.env_state_calls) == 1
+        assert toolkit.env_state_calls[0]["command"] == {
+            "action": "dock__set_dock",
+            "enabled": True,
         }
 
-    def list_tools(self) -> list[Any]:
-        return list(self.tools.values())
-
-    def add_tool(self, tool: Any) -> None:
-        self.tools[tool.name] = tool
-
-
-def _remote_tool(
-    name: str,
-    *,
-    description: str = "",
-    read_only: bool = False,
-    schema: dict[str, Any] | None = None,
-) -> SimpleNamespace:
-    return SimpleNamespace(
-        name=name,
-        description=description,
-        inputSchema=schema or {"type": "object", "properties": {}},
-        annotations=SimpleNamespace(readOnlyHint=read_only),
-    )
+        err = toolkit.execute_tool("dock__fail_dock", {})
+        assert err.is_error
+        assert err.data["step"] == 2
+        assert err.data["error"] == "interlock open"
 
 
-@pytest.fixture
-def spec() -> McpServerSpec:
-    return McpServerSpec(
-        name="facility",
-        url="https://facility.example/mcp",
-    )
-
-
-def _registered(
-    monkeypatch: pytest.MonkeyPatch,
-    spec: McpServerSpec,
-    result: Any = None,
-    *,
-    name: str = "status",
-    call: Callable[..., Any] | None = None,
-    toolkit: Any = None,
-) -> Any:
-    """Register one remote tool that answers with ``result`` and return it.
-
-    ``call`` replaces the fake remote call when the test inspects the forwarded
-    arguments; ``toolkit`` registers on a real Toolkit instead of the fake one.
-    """
-    monkeypatch.setattr(
-        mcp_tools, "list_remote_tools", lambda server: [_remote_tool(name)]
-    )
-    monkeypatch.setattr(
-        mcp_tools, "_call_remote_tool", call or (lambda srv, tool, arguments: result)
-    )
-    target = toolkit if toolkit is not None else FakeToolkit()
-    mcp_tools.register_mcp_tools(target, (spec,), tools={"facility": [name]})
-    return next(tool for tool in target.list_tools() if tool.name == name)
-
-
-def test_registers_named_tools_with_remote_schemas(
-    monkeypatch: pytest.MonkeyPatch, spec: McpServerSpec
+def test_explicit_add_mcp_tools_skips_auto_registration_duplicate(
+    tmp_path: Path,
 ) -> None:
-    remote = [
-        _remote_tool("set_scene", description="Change the lights."),
-        _remote_tool("unused"),
+    tools = [
+        types.Tool(name="a", description="A", inputSchema={"type": "object"}),
+        types.Tool(name="b", description="B", inputSchema={"type": "object"}),
     ]
-    monkeypatch.setattr(mcp_tools, "list_remote_tools", lambda server: remote)
-    toolkit = FakeToolkit()
 
-    registered = mcp_tools.register_mcp_tools(
-        toolkit, (spec,), tools={"facility": ["set_scene"]}
-    )
+    async def handle(
+        name: str, arguments: dict[str, Any], headers: dict[str, str]
+    ) -> types.CallToolResult:
+        del arguments, headers
+        return types.CallToolResult(content=[types.TextContent(type="text", text=name)])
 
-    assert registered == ("set_scene",)
-    tool = toolkit.tools["set_scene"]
-    assert tool.name == "set_scene"
-    assert tool.description == "Change the lights."
-    assert tool.input_schema == {"type": "object", "properties": {}}
-    assert "unused" not in toolkit.tools
+    with _running_mcp_server(tools, handle) as (url, _):
+        toolkit = _RecordingToolkit(tmp_path)
+        spec = McpServerSpec(name="lab", url=url)
+        first = toolkit.add_mcp_tools(
+            (spec,), tools={"lab": ["a"]}, sync_with_robot=True
+        )
+        assert first == ("lab__a",)
+        # Automatic attachment skips servers already registered by the robot.
+        assert toolkit.add_mcp_servers((spec,)) == ()
+        names = {t.name for t in toolkit.list_tools()}
+        assert "lab__a" in names
+        assert "lab__b" not in names
 
 
-def test_coordinated_tools_ignore_the_server_read_only_hint(
-    monkeypatch: pytest.MonkeyPatch, spec: McpServerSpec
+def test_missing_tool_or_unknown_server_raises_clear_error(tmp_path: Path) -> None:
+    tools = [
+        types.Tool(name="ping", description="Ping", inputSchema={"type": "object"})
+    ]
+
+    async def handle(
+        name: str, arguments: dict[str, Any], headers: dict[str, str]
+    ) -> types.CallToolResult:
+        del name, arguments, headers
+        return types.CallToolResult(content=[types.TextContent(type="text", text="ok")])
+
+    with _running_mcp_server(tools, handle) as (url, _):
+        toolkit = _RecordingToolkit(tmp_path)
+        bad_spec = McpServerSpec(name="lab", url=url, tools=("missing_tool",))
+        with pytest.raises(
+            ValueError, match="did not expose tool\\(s\\).*missing_tool"
+        ):
+            toolkit.add_mcp_servers((bad_spec,))
+        with pytest.raises(ValueError, match="undeclared server"):
+            toolkit.add_mcp_tools((), tools={"lab": ["ping"]})
+
+
+def test_get_toolkit_auto_registers_run_config_mcp_servers(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    # A third-party server that annotates a side-effecting tool as read-only
-    # must not let it bypass the exclusive admission and observation capture
-    # that coordinated registration exists to guarantee.
-    monkeypatch.setattr(
-        mcp_tools,
-        "list_remote_tools",
-        lambda server: [
-            _remote_tool("get_battery", read_only=True),
-            _remote_tool("dock", read_only=False),
-        ],
-    )
-    toolkit = FakeToolkit()
+    tools = [
+        types.Tool(name="read_temp", description="Temp", inputSchema={"type": "object"})
+    ]
 
-    mcp_tools.register_mcp_tools(
-        toolkit, (spec,), tools={"facility": ["get_battery", "dock"]}
-    )
-
-    assert toolkit.tools["get_battery"].readonly is False
-    assert toolkit.tools["dock"].readonly is False
-
-
-def test_handler_calls_the_remote_tool_and_renders_its_result(
-    monkeypatch: pytest.MonkeyPatch, spec: McpServerSpec
-) -> None:
-    calls: list[tuple[str, str, dict[str, Any]]] = []
-
-    def call(server: McpServerSpec, name: str, arguments: dict[str, Any]) -> Any:
-        calls.append((server.name, name, arguments))
-        return SimpleNamespace(
-            content=[SimpleNamespace(type="text", text="ok")],
-            structuredContent={"level": 2},
-            isError=False,
+    async def handle(
+        name: str, arguments: dict[str, Any], headers: dict[str, str]
+    ) -> types.CallToolResult:
+        del name, arguments, headers
+        return types.CallToolResult(
+            content=[types.TextContent(type="text", text="23.5 C")]
         )
 
-    tool = _registered(monkeypatch, spec, call=call)
+    with _running_mcp_server(tools, handle) as (url, _):
+        fake_robot = SimpleNamespace(
+            get_toolkit=lambda **kwargs: _RecordingToolkit(tmp_path)
+        )
+        monkeypatch.setattr("rpent.robots.base._resolve_robot", lambda name: fake_robot)
+        config = RunConfig(
+            recipe_tag="run",
+            output_dir=tmp_path,
+            prompt_vars={},
+            task_desc={},
+            mcp_servers=(McpServerSpec(name="sensor", url=url),),
+        )
+        tk = get_toolkit("fake", config=config)
+        assert "sensor__read_temp" in {t.name for t in tk.list_tools()}
+        assert tk.execute_tool("sensor__read_temp", {}).data == {"text": "23.5 C"}
 
-    result = tool.handler(detail="high")
 
-    assert result.data == {"text": "ok", "structured_content": {"level": 2}}
-    assert calls == [("facility", "status", {"detail": "high"})]
-
-
-def test_a_registered_tool_bounds_what_the_toolkit_records(
-    monkeypatch: pytest.MonkeyPatch, spec: McpServerSpec
+def test_external_mcp_tools_work_across_all_online_planner_adapters(
+    tmp_path: Path,
 ) -> None:
-    # The handler's payload is what the Toolkit persists, so a remote server
-    # must not be able to grow the trajectory or a Dashboard step past the
-    # same bound a local tool result has.
-    oversized = "x" * (MAX_TOOL_TEXT_BYTES + 1000)
-    tool = _registered(
-        monkeypatch,
-        spec,
-        SimpleNamespace(
+    tools = [
+        types.Tool(
+            name="read_meter",
+            description="Read meter.",
+            inputSchema={"type": "object", "properties": {}},
+        ),
+        types.Tool(
+            name="finish",
+            description="External finish tool that must not shadow RPent finish.",
+            inputSchema={"type": "object", "properties": {}},
+        ),
+    ]
+
+    async def handle(
+        name: str, arguments: dict[str, Any], headers: dict[str, str]
+    ) -> types.CallToolResult:
+        del arguments, headers
+        return types.CallToolResult(
             content=[
-                SimpleNamespace(type="text", text=oversized),
-                # Server-controlled metadata is persisted too.
-                types.ResourceLink(
-                    type="resource_link",
-                    name="log",
-                    uri="https://docs.example/log",
-                    description=oversized,
+                types.TextContent(type="text", text=f"remote:{name}"),
+                types.ImageContent(
+                    type="image",
+                    data=base64.b64encode(_PNG_BYTES).decode("ascii"),
+                    mimeType="image/png",
                 ),
-            ],
-            structuredContent={"rows": oversized},
-            isError=False,
-        ),
-        name="dump",
-    )
-
-    result = tool.handler()
-
-    assert result.data["text"].endswith("\n[truncated]")
-    assert len(result.data["text"].encode("utf-8")) <= MAX_TOOL_TEXT_BYTES
-    # Large structured content and block metadata are kept as capped JSON text;
-    # small values stay data (see the "ok" / metadata tests above).
-    for key in ("content", "structured_content"):
-        assert result.data[key].endswith("\n[truncated]")
-        assert len(result.data[key].encode("utf-8")) <= MAX_TOOL_TEXT_BYTES
-
-
-def test_every_png_block_becomes_a_tool_result_image(
-    monkeypatch: pytest.MonkeyPatch, spec: McpServerSpec
-) -> None:
-    blobs = [b"\x89PNG\r\n\x1a\nfirst", b"\x89PNG\r\n\x1a\nsecond"]
-    images = [
-        SimpleNamespace(
-            type="image",
-            mimeType="image/png",
-            data=base64.b64encode(blob).decode("ascii"),
+            ]
         )
-        for blob in blobs
-    ]
-    tool = _registered(
-        monkeypatch,
-        spec,
-        SimpleNamespace(
-            content=[SimpleNamespace(type="text", text="captured"), *images],
-            structuredContent=None,
-            isError=False,
-        ),
-        name="snapshot",
-    )
 
-    result = tool.handler()
+    with _running_mcp_server(tools, handle) as (url, _):
+        toolkit = _RecordingToolkit(tmp_path)
+        toolkit.add_mcp_servers((McpServerSpec(name="power", url=url),))
+        tool_name = mcp_tool_name("power", "read_meter")
+        external_finish = mcp_tool_name("power", "finish")
 
-    assert result.images == blobs
-    assert result.data == {"text": "captured"}
+        # 1. API planner (_HarnessToolkit) respects images and --no-images.
+        harness_with_img = _HarnessToolkit(
+            toolkit,
+            dashboard_events=NullDashboardEventSink(),
+            no_images=False,
+        )
+        ctx = SimpleNamespace(tool_call_id="call-1")
+        out = asyncio.run(harness_with_img.call(tool_name, ctx))
+        assert json.loads(out.return_value[0]) == {"text": "remote:read_meter"}
+        assert isinstance(out.return_value[1], BinaryContent)
 
+        harness_no_img = _HarnessToolkit(
+            toolkit,
+            dashboard_events=NullDashboardEventSink(),
+            no_images=True,
+        )
+        out_no_img = asyncio.run(harness_no_img.call(tool_name, ctx))
+        assert "--no-images" in out_no_img.return_value[1]
 
-def test_non_png_images_do_not_embed_base64(
-    monkeypatch: pytest.MonkeyPatch, spec: McpServerSpec
-) -> None:
-    block = SimpleNamespace(
-        type="image",
-        mimeType="image/jpeg",
-        data="jpegdata",
-        model_dump=lambda **kwargs: {
-            "type": "image",
-            "mimeType": "image/jpeg",
-            "data": "jpegdata",
-        },
-    )
-    tool = _registered(
-        monkeypatch,
-        spec,
-        SimpleNamespace(content=[block], structuredContent=None, isError=False),
-        name="snapshot",
-    )
+        # External finish does not collide with RPent's finish output tool.
+        finish_out = asyncio.run(harness_with_img.call(external_finish, ctx))
+        assert json.loads(finish_out.return_value[0]) == {"text": "remote:finish"}
+        assert harness_with_img.finish_result is None
 
-    result = tool.handler()
+        # 2. Claude Code SDK bridge exposes the prefixed tool on server "rpent".
+        captured_sdk_tools: dict[str, Any] = {}
 
-    assert result.images == []
-    assert result.data == {
-        "content": [
-            {
-                "type": "image",
-                "mimeType": "image/jpeg",
-                "notice": "only text and image/png content is forwarded to the model",
+        class _FakeSdk:
+            @staticmethod
+            def tool(name: str, description: str, schema: dict[str, Any]):
+                del description, schema
+
+                def decorate(fn):
+                    captured_sdk_tools[name] = fn
+                    return fn
+
+                return decorate
+
+            @staticmethod
+            def create_sdk_mcp_server(name: str, version: str, tools: list[Any]):
+                return {"name": name, "version": version, "tools": tools}
+
+        _build_rpent_server(_FakeSdk(), toolkit=toolkit)
+        assert tool_name in captured_sdk_tools
+        claude_res = asyncio.run(captured_sdk_tools[tool_name]({}))
+        assert not claude_res.get("isError")
+        assert "remote:read_meter" in claude_res["content"][0]["text"]
+
+        # 3. Codex & Gemini CLI share HttpMcpServer; Gemini settings allowlist it.
+        http_server = HttpMcpServer(toolkit)
+        http_url = http_server.start()
+        try:
+            exposed = {
+                t.name
+                for t in list_remote_tools(McpServerSpec(name="bridge", url=http_url))
             }
-        ]
-    }
-
-
-@pytest.mark.parametrize("payload", ["abc", "AAAA@@@@"])
-def test_invalid_base64_image_keeps_the_text_result(
-    monkeypatch: pytest.MonkeyPatch, spec: McpServerSpec, payload: str
-) -> None:
-    tool = _registered(
-        monkeypatch,
-        spec,
-        SimpleNamespace(
-            content=[
-                SimpleNamespace(type="text", text="captured"),
-                SimpleNamespace(type="image", mimeType="image/png", data=payload),
-            ],
-            structuredContent=None,
-            isError=False,
-        ),
-        name="snapshot",
-    )
-
-    result = tool.handler()
-
-    assert result.images == []
-    assert result.data == {"text": "captured"}
-
-
-def test_binary_and_resource_blocks_keep_only_metadata() -> None:
-    result = types.CallToolResult(
-        content=[
-            types.AudioContent(type="audio", data="YXVkaW8=", mimeType="audio/wav"),
-            types.EmbeddedResource(
-                type="resource",
-                resource=types.BlobResourceContents(
-                    uri="https://docs.example/archive",
-                    blob="YmluYXJ5",
-                    mimeType="application/octet-stream",
-                ),
-            ),
-            types.EmbeddedResource(
-                type="resource",
-                resource=types.TextResourceContents(
-                    uri="https://docs.example/notes",
-                    text="not forwarded",
-                    mimeType="text/plain",
-                ),
-            ),
-        ],
-        isError=False,
-    )
-
-    payload = mcp_tools.result_payload(result)
-
-    # Trajectory saving dumps this payload with a strict json.dump.
-    json.dumps(payload)
-    audio, resource, notes = payload["content"]
-    assert audio == {
-        "type": "audio",
-        "mimeType": "audio/wav",
-        "notice": "only text and image/png content is forwarded to the model",
-    }
-    assert resource["resource"]["uri"] == "https://docs.example/archive"
-    assert "blob" not in resource["resource"]
-    assert notes["resource"]["uri"] == "https://docs.example/notes"
-    assert "text" not in notes["resource"]
-
-
-def test_optional_arguments_are_not_forwarded_as_null(
-    monkeypatch: pytest.MonkeyPatch, spec: McpServerSpec
-) -> None:
-    schema = {
-        "type": "object",
-        "properties": {
-            "detail": {"type": "string"},
-            "level": {"type": "integer"},
-            "modes": {"type": "array", "items": {"type": "string"}},
-        },
-        "required": ["detail"],
-    }
-    monkeypatch.setattr(
-        mcp_tools,
-        "list_remote_tools",
-        lambda server: [_remote_tool("status", schema=schema)],
-    )
-    calls: list[dict[str, Any]] = []
-    monkeypatch.setattr(
-        mcp_tools,
-        "_call_remote_tool",
-        lambda server, name, arguments: (
-            calls.append(arguments)
-            or SimpleNamespace(content=[], structuredContent=None, isError=False)
-        ),
-    )
-    toolkit = FakeToolkit()
-    mcp_tools.register_mcp_tools(toolkit, (spec,), tools={"facility": ["status"]})
-    tool = toolkit.tools["status"]
-
-    parameters = tool.args_schema.model_validate({"detail": "high"}, strict=True)
-    tool.handler(
-        **{name: getattr(parameters, name) for name in type(parameters).model_fields}
-    )
-
-    assert tool.input_schema == schema
-    assert calls == [{"detail": "high"}]
-
-
-def test_required_arguments_are_validated_locally() -> None:
-    args = mcp_tools._args_model(
-        "status",
-        {
-            "type": "object",
-            "properties": {"detail": {"type": "string"}},
-            "required": ["detail"],
-        },
-    )
-
-    with pytest.raises(ValueError):
-        args.model_validate({}, strict=True)
-
-
-def test_error_results_surface_as_errors() -> None:
-    result = SimpleNamespace(
-        content=[SimpleNamespace(type="text", text="door is locked")],
-        structuredContent=None,
-        isError=True,
-    )
-
-    assert mcp_tools.result_payload(result) == {
-        "text": "door is locked",
-        "error": "door is locked",
-    }
-
-
-def test_rejects_undeclared_server(spec: McpServerSpec) -> None:
-    with pytest.raises(ValueError, match="undeclared server"):
-        mcp_tools.register_mcp_tools(
-            FakeToolkit(), (spec,), tools={"missing": ["status"]}
-        )
-
-
-def test_rejects_unknown_remote_tool(
-    monkeypatch: pytest.MonkeyPatch, spec: McpServerSpec
-) -> None:
-    monkeypatch.setattr(
-        mcp_tools, "list_remote_tools", lambda server: [_remote_tool("status")]
-    )
-
-    with pytest.raises(ValueError, match=r"did not expose tool\(s\) \['dock'\]"):
-        mcp_tools.register_mcp_tools(
-            FakeToolkit(), (spec,), tools={"facility": ["dock"]}
-        )
-
-
-@pytest.mark.parametrize("remote_name", ["finish", "Finish"])
-def test_rejects_name_already_registered_on_the_toolkit(
-    monkeypatch: pytest.MonkeyPatch, spec: McpServerSpec, remote_name: str
-) -> None:
-    # Compared case-insensitively, so an external ``Finish`` cannot shadow the
-    # toolkit's ``finish``.
-    monkeypatch.setattr(
-        mcp_tools, "list_remote_tools", lambda server: [_remote_tool(remote_name)]
-    )
-
-    with pytest.raises(ValueError, match="already registered"):
-        mcp_tools.register_mcp_tools(
-            FakeToolkit(existing=("finish",)),
-            (spec,),
-            tools={"facility": [remote_name]},
-        )
-
-
-def test_rejects_the_same_name_from_two_servers(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setattr(
-        mcp_tools, "list_remote_tools", lambda server: [_remote_tool("status")]
-    )
-
-    with pytest.raises(ValueError, match="already registered"):
-        mcp_tools.register_mcp_tools(
-            FakeToolkit(),
-            (
-                McpServerSpec(name="one", url="https://one.example/mcp"),
-                McpServerSpec(name="two", url="https://two.example/mcp"),
-            ),
-            tools={"one": ["status"], "two": ["status"]},
-        )
-
-
-def test_additional_properties_follow_the_remote_schema() -> None:
-    permissive = mcp_tools._args_model(
-        "status", {"type": "object", "properties": {"detail": {"type": "string"}}}
-    )
-    strict = mcp_tools._args_model(
-        "status",
-        {
-            "type": "object",
-            "properties": {"detail": {"type": "string"}},
-            "additionalProperties": False,
-        },
-    )
-
-    # The remote server stays the authority unless it forbids extra keys.
-    assert permissive.model_validate(
-        {"detail": "high", "bogus": 1}, strict=True
-    ).model_dump(exclude_unset=True) == {"detail": "high", "bogus": 1}
-    with pytest.raises(ValueError):
-        strict.model_validate({"detail": "high", "bogus": 1}, strict=True)
-
-
-def test_reserved_property_names_survive_a_strict_schema() -> None:
-    # ``model_dump`` repeats a BaseModel member, ``schema`` shadows a deprecated
-    # one, and ``_id``/``model_config`` cannot be fields at all. All of them are
-    # legal arguments for the remote server, so none may abort registration.
-    schema = {
-        "type": "object",
-        "properties": {
-            "_id": {"type": "string"},
-            "model_config": {"type": "string"},
-            "schema": {"type": "string"},
-            "model_dump": {"type": "string"},
-        },
-        "required": ["_id"],
-        "additionalProperties": False,
-    }
-    args = mcp_tools._args_model("lookup", schema)
-    arguments = {
-        "_id": "abc",
-        "model_config": "x",
-        "schema": "public",
-        "model_dump": "payload",
-    }
-
-    assert args.model_validate(arguments, strict=True).model_dump() == arguments
-    with pytest.raises(ValueError, match="undeclared argument"):
-        args.model_validate({"_id": "abc", "bogus": 1}, strict=True)
-
-
-@pytest.mark.parametrize(
-    "property_schema, accepted, rejected",
-    [
-        ({"type": ["string", "null"]}, ["high", None], [1]),
-        ({"type": ["integer", "string"]}, [3, "three"], [1.5]),
-        ({"type": "string", "enum": ["low", "high"]}, ["high"], ["medium"]),
-        ({"type": "array", "items": {"type": "string"}}, [["a", "b"]], [[1]]),
-    ],
-)
-def test_argument_types_follow_the_remote_schema(
-    property_schema: dict[str, Any],
-    accepted: list[Any],
-    rejected: list[Any],
-) -> None:
-    args = mcp_tools._args_model(
-        "status",
-        {
-            "type": "object",
-            "properties": {"value": property_schema},
-            "required": ["value"],
-        },
-    )
-
-    for value in accepted:
-        args.model_validate({"value": value}, strict=True)
-    for value in rejected:
-        with pytest.raises(ValueError):
-            args.model_validate({"value": value}, strict=True)
-
-
-class _ListSession:
-    """MCP session whose ``tools/list`` answer comes from ``page``."""
-
-    def __init__(self, page: Callable[[str | None], Any]) -> None:
-        self.page = page
-        self.cursors: list[str | None] = []
-
-    async def list_tools(self, cursor: str | None = None) -> Any:
-        self.cursors.append(cursor)
-        return self.page(cursor)
-
-
-def _serve_list(monkeypatch: pytest.MonkeyPatch, session: Any) -> Any:
-    """Make ``list_remote_tools`` talk to ``session`` instead of a server."""
-    monkeypatch.setattr(
-        mcp_tools, "_run_remote", lambda server, action: asyncio.run(action(session))
-    )
-    return session
-
-
-def test_tools_list_follows_server_pagination(
-    monkeypatch: pytest.MonkeyPatch, spec: McpServerSpec
-) -> None:
-    pages = {
-        None: SimpleNamespace(tools=[_remote_tool("first")], nextCursor="page-2"),
-        "page-2": SimpleNamespace(tools=[_remote_tool("second")], nextCursor=None),
-    }
-    session = _serve_list(monkeypatch, _ListSession(pages.__getitem__))
-
-    assert [tool.name for tool in mcp_tools.list_remote_tools(spec)] == [
-        "first",
-        "second",
-    ]
-    assert session.cursors == [None, "page-2"]
-
-
-def test_a_repeated_cursor_ends_pagination(
-    monkeypatch: pytest.MonkeyPatch, spec: McpServerSpec
-) -> None:
-    session = _serve_list(
-        monkeypatch,
-        _ListSession(
-            lambda cursor: SimpleNamespace(
-                tools=[_remote_tool("only")], nextCursor="page-2"
+            assert tool_name in exposed
+            settings_path = write_gemini_settings(
+                tmp_path / "gemini",
+                mcp_url=http_url,
+                max_turns=5,
+                tool_names=(t.name for t in toolkit.list_tools()),
             )
-        ),
-    )
+            settings = json.loads(settings_path.read_text())
+            assert f"mcp_rpent_{tool_name}" in settings["tools"]["core"]
+        finally:
+            http_server.stop()
 
-    # The second page repeats its own cursor; pagination must stop there
-    # instead of requesting it forever.
-    assert [tool.name for tool in mcp_tools.list_remote_tools(spec)] == [
-        "only",
-        "only",
+
+def test_cancel_active_and_wait_interrupts_inflight_mcp_call_promptly(
+    tmp_path: Path,
+) -> None:
+    started = threading.Event()
+    tools = [
+        types.Tool(
+            name="slow_op",
+            description="Blocks for a long time.",
+            inputSchema={"type": "object", "properties": {}},
+        )
     ]
-    assert session.cursors == [None, "page-2"]
 
-
-def test_tools_list_gives_up_after_the_request_deadline(
-    monkeypatch: pytest.MonkeyPatch, spec: McpServerSpec
-) -> None:
-    monkeypatch.setenv("MCP_CALL_TIMEOUT_S", "0.05")
-
-    class EndlessSession:
-        async def list_tools(self, cursor: str | None = None) -> Any:
-            await asyncio.sleep(0.01)
-            return SimpleNamespace(tools=[], nextCursor=f"{cursor or 'page-0'}+1")
-
-    _serve_list(monkeypatch, EndlessSession())
-
-    with pytest.raises(TimeoutError, match="tools/list did not finish"):
-        mcp_tools.list_remote_tools(spec)
-
-
-def test_call_timeout_defaults_to_sixty_seconds(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.delenv("MCP_CALL_TIMEOUT_S", raising=False)
-    assert mcp_tools.call_timeout_s() == 60.0
-
-    monkeypatch.setenv("MCP_CALL_TIMEOUT_S", "5")
-    assert mcp_tools.call_timeout_s() == 5.0
-
-
-@pytest.mark.parametrize("raw", ["abc", "0", "-1"])
-def test_call_timeout_rejects_invalid_values(
-    monkeypatch: pytest.MonkeyPatch, raw: str
-) -> None:
-    monkeypatch.setenv("MCP_CALL_TIMEOUT_S", raw)
-
-    with pytest.raises(ValueError, match="MCP_CALL_TIMEOUT_S"):
-        mcp_tools.call_timeout_s()
-
-
-class _ServerToolkit(Toolkit):
-    """Toolkit whose state capture answers, so a real server can return results."""
-
-    def get_env_state(self, *, command, result, elapsed_s):  # noqa: ANN001
-        return ToolResult(data={"observed": True})
-
-
-def _toolkit(root: Path) -> Toolkit:
-    state = EnvState(root)
-    state.start_task(instruction="Sense.", config=Payload("test", {}))
-    return _ServerToolkit(
-        dashboard_events=NullDashboardEventSink(),
-        state=state,
-        memory=MemoryManager(root / "memory"),
-    )
-
-
-def test_closing_a_session_does_not_terminate_it_on_the_server(
-    monkeypatch: pytest.MonkeyPatch, spec: McpServerSpec
-) -> None:
-    opened: list[dict[str, Any]] = []
-
-    class FakeSession:
-        def __init__(self, read: Any, write: Any, read_timeout_seconds: Any = None):
-            self.read = read
-            self.write = write
-            self.read_timeout_seconds = read_timeout_seconds
-
-        async def __aenter__(self) -> FakeSession:
-            return self
-
-        async def __aexit__(self, *exc_info: Any) -> bool:
-            return False
-
-        async def initialize(self) -> None:
-            return None
-
-    @asynccontextmanager
-    async def fake_client(url: str, headers: Any = None, **kwargs: Any):
-        opened.append({"url": url, "headers": headers, **kwargs})
-        yield object(), object(), None
-
-    monkeypatch.setattr(mcp_tools, "_mcp_client", lambda: (FakeSession, fake_client))
-
-    async def action(session: Any) -> str:
-        return "done"
-
-    assert asyncio.run(mcp_tools.run_remote(spec, action)) == "done"
-    # The transport's DELETE waits for the server to finish the in-flight call,
-    # so a timed-out call would otherwise keep running for the tool's runtime.
-    assert opened[0]["terminate_on_close"] is False
-
-
-def test_registered_tool_deadline_ends_a_slow_call(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    monkeypatch.setenv("MCP_CALL_TIMEOUT_S", "0.2")
-    init_output_dir(tmp_path / "log")
-    server_toolkit = _toolkit(tmp_path)
-
-    @declare_tool(readonly=True)
-    def slow_sense() -> ToolResult:
-        time.sleep(3)
-        return ToolResult(data={"observed": True})
-
-    server_toolkit.add_tool(slow_sense)
-    server = HttpMcpServer(server_toolkit)
-    registered = _toolkit(tmp_path)
-    try:
-        url = server.start()
-        mcp_tools.register_mcp_tools(
-            registered,
-            (McpServerSpec(name="facility", url=url),),
-            tools={"facility": ["slow_sense"]},
-        )
-        started = time.monotonic()
-        result = registered.execute_tool("slow_sense", {})
-        elapsed = time.monotonic() - started
-    finally:
-        server.stop()
-        server_toolkit.close()
-        registered.close()
-
-    assert "Timed out" in result.data["error"]
-    assert elapsed < 3
-
-
-def test_registered_tool_reaches_a_real_server(tmp_path: Path) -> None:
-    init_output_dir(tmp_path / "log")
-    server_toolkit = _toolkit(tmp_path)
-    received: list[str] = []
-
-    @declare_tool(readonly=True)
-    def get_level(label: str) -> ToolResult:
-        received.append(label)
-        return ToolResult(data={"label": label})
-
-    server_toolkit.add_tool(get_level)
-    server = HttpMcpServer(server_toolkit)
-    registered = _toolkit(tmp_path)
-    try:
-        url = server.start()
-        mcp_tools.register_mcp_tools(
-            registered,
-            (McpServerSpec(name="facility", url=url),),
-            tools={"facility": ["get_level"]},
-        )
-        result = registered.execute_tool("get_level", {"label": "high"})
-    finally:
-        server.stop()
-        server_toolkit.close()
-        registered.close()
-
-    assert received == ["high"]
-    assert not result.is_error
-
-
-def test_registered_tool_forwards_arguments_the_schema_admits(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, spec: McpServerSpec
-) -> None:
-    """The remote schema, not the local model, decides which keys reach it."""
-    init_output_dir(tmp_path / "log")
-    registered = _toolkit(tmp_path)
-    sent: list[dict[str, Any]] = []
-
-    def call(server, name, arguments):  # noqa: ANN001
-        sent.append(arguments)
-        return SimpleNamespace(content=[], isError=False, structuredContent=None)
-
-    try:
-        # A schema without declared properties is how most servers express a
-        # free form request; every argument the model sends is valid under it.
-        _registered(monkeypatch, spec, name="set_level", call=call, toolkit=registered)
-        result = registered.execute_tool("set_level", {"level": "high", "fade_s": 2})
-    finally:
-        registered.close()
-
-    assert sent == [{"level": "high", "fade_s": 2}]
-    assert not result.is_error
-
-
-def test_rejects_registering_from_a_server_the_planner_attaches_whole() -> None:
-    with pytest.raises(ValueError, match="planner_tools is '\\*'"):
-        mcp_tools.register_mcp_tools(
-            FakeToolkit(),
-            (
-                McpServerSpec(
-                    name="facility",
-                    url="https://facility.example/mcp",
-                    planner_tools="*",
-                ),
-            ),
-            tools={"facility": ["dock"]},
+    async def handle(
+        name: str, arguments: dict[str, Any], headers: dict[str, str]
+    ) -> types.CallToolResult:
+        del name, arguments, headers
+        started.set()
+        await asyncio.sleep(10.0)
+        return types.CallToolResult(
+            content=[types.TextContent(type="text", text="done")]
         )
 
+    with _running_mcp_server(tools, handle) as (url, _):
+        toolkit = _RecordingToolkit(tmp_path)
+        toolkit.add_mcp_servers((McpServerSpec(name="slow", url=url),))
 
-def test_rejects_registering_a_tool_the_planner_also_attaches() -> None:
-    with pytest.raises(ValueError, match="also attached to the planner"):
-        mcp_tools.register_mcp_tools(
-            FakeToolkit(),
-            (
-                McpServerSpec(
-                    name="facility",
-                    url="https://facility.example/mcp",
-                    planner_tools=("read_power_meter", "dock"),
-                ),
-            ),
-            tools={"facility": ["dock"]},
+        result_box: dict[str, ToolResult] = {}
+
+        def worker() -> None:
+            result_box["result"] = toolkit.execute_tool("slow__slow_op", {})
+
+        thread = threading.Thread(target=worker)
+        thread.start()
+        assert started.wait(timeout=5.0)
+
+        t0 = time.monotonic()
+        toolkit.cancel_active_and_wait()
+        elapsed = time.monotonic() - t0
+        thread.join(timeout=5.0)
+
+        assert elapsed < 3.0
+        assert result_box["result"].data["code"] == "tool_cancelled"
+        assert result_box["result"].data["interrupted"] is True
+
+
+def test_timeout_pagination_reserved_fields_and_payload_bounds(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    tools = [
+        types.Tool(
+            name="page_one",
+            description="Tool 1",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "model_dump": {"type": "string"},
+                    "_private": {"type": "integer"},
+                    "nullable": {"type": ["string", "null"]},
+                },
+            },
+        ),
+        types.Tool(
+            name="page_two",
+            description="Tool 2",
+            inputSchema={"type": "object", "properties": {}},
+        ),
+        types.Tool(
+            name="hang",
+            description="Hangs",
+            inputSchema={"type": "object", "properties": {}},
+        ),
+    ]
+
+    async def handle(
+        name: str, arguments: dict[str, Any], headers: dict[str, str]
+    ) -> types.CallToolResult:
+        del headers
+        if name == "hang":
+            await asyncio.sleep(5.0)
+            return types.CallToolResult(content=[])
+        if name == "page_one":
+            return types.CallToolResult(
+                content=[
+                    types.TextContent(type="text", text=json.dumps(arguments)),
+                    types.ImageContent(
+                        type="image",
+                        data=base64.b64encode(b"jpegbytes").decode("ascii"),
+                        mimeType="image/jpeg",
+                    ),
+                ]
+            )
+        return types.CallToolResult(
+            content=[
+                types.TextContent(type="text", text="x" * (MAX_TOOL_TEXT_BYTES + 100))
+            ]
         )
+
+    with _running_mcp_server(tools, handle, page_size=1) as (url, _):
+        toolkit = _RecordingToolkit(tmp_path)
+        spec = McpServerSpec(name="paged", url=url)
+        registered = toolkit.add_mcp_servers((spec,))
+        assert registered == ("paged__page_one", "paged__page_two", "paged__hang")
+
+        # Reserved pydantic field names and nullable types forward intact;
+        # non-PNG image blocks keep metadata without raw base64 payload.
+        res1 = toolkit.execute_tool(
+            "paged__page_one",
+            {"model_dump": "ok", "_private": 7, "nullable": None},
+        )
+        assert json.loads(res1.data["text"]) == {
+            "model_dump": "ok",
+            "_private": 7,
+            "nullable": None,
+        }
+        assert res1.images == []
+        assert res1.data["content"][0]["mimeType"] == "image/jpeg"
+        assert "data" not in res1.data["content"][0]
+
+        # Oversized text is capped to MAX_TOOL_TEXT_BYTES.
+        res2 = toolkit.execute_tool("paged__page_two", {})
+        assert len(res2.data["text"].encode("utf-8")) <= MAX_TOOL_TEXT_BYTES
+        assert res2.data["text"].endswith("[truncated]")
+
+        # MCP_CALL_TIMEOUT_S bounds hanging remote calls.
+        monkeypatch.setenv("MCP_CALL_TIMEOUT_S", "0.3")
+        assert call_timeout_s() == 0.3
+        res3 = toolkit.execute_tool("paged__hang", {})
+        assert res3.is_error

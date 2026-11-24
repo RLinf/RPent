@@ -20,7 +20,7 @@ import asyncio
 import os
 import queue
 from abc import ABC, abstractmethod
-from collections.abc import Callable, Collection
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -34,16 +34,13 @@ from rpent.utils.config import (
     get_memory_dir,
     get_repo_root,
 )
-from rpent.utils.mcp_servers import ALL_TOOLS, RPENT_SERVER_NAME
 
 if TYPE_CHECKING:
     from pydantic_ai.models import Model
 
-    from rpent.utils.mcp_servers import McpServerSpec
-
 #: MCP namespace prefix for RPent tools (``mcp__<server>__<tool>``).
-#: Toolkits expose plain tool names; the MCP-based planners add this prefix.
-MCP_TOOL_PREFIX = f"mcp__{RPENT_SERVER_NAME}__"
+#: Toolkits expose plain tool names; planners add/strip this prefix.
+MCP_TOOL_PREFIX = "mcp__rpent__"
 REASONING_EFFORTS = ("none", "low", "medium", "high", "xhigh")
 CODEX_SANDBOX_CHOICES = ("read-only", "workspace-write", "full-access")
 
@@ -58,6 +55,11 @@ def add_mcp_prefix(name: str) -> str:
     if name.startswith(MCP_TOOL_PREFIX):
         return name
     return f"{MCP_TOOL_PREFIX}{name}"
+
+
+def strip_mcp_prefix(name: str) -> str:
+    """Return the bare tool name, dropping the MCP namespace if present."""
+    return name.removeprefix(MCP_TOOL_PREFIX)
 
 
 def _normalize_google_endpoint(
@@ -121,25 +123,6 @@ async def execute_tool(toolkit: Toolkit, name: str, arguments: dict) -> ToolResu
         finally:
             await _wait_for_cleanup(worker)
         raise
-
-
-def display_tool_name(name: str) -> str:
-    """Return a transcript-friendly tool name.
-
-    RPent's own tools drop the ``mcp__rpent__`` namespace (``finish``); a tool
-    from an external server keeps a short ``<server>:<tool>`` tag so the
-    transcript shows which server answered. Non-MCP names pass through. This is
-    display only: finish detection uses the toolkit's verdict
-    (``claude_code``) or the SDK's ``server`` field (``codex``), so an external
-    server's ``finish`` tool is never mistaken for RPent's.
-    """
-    if name.startswith(MCP_TOOL_PREFIX):
-        return name[len(MCP_TOOL_PREFIX) :]
-    rest = name.removeprefix("mcp__")
-    if rest != name and "__" in rest:
-        server, tool = rest.split("__", 1)
-        return f"{server}:{tool}"
-    return name
 
 
 class PlannerResult:
@@ -276,104 +259,6 @@ def build_api_model(model: str | None, base_url: str | None = None) -> "Model":
     return infer_model(model, provider_factory=_provider_factory)
 
 
-def check_planner_mcp_support(
-    planner_type: str, mcp_servers: tuple["McpServerSpec", ...]
-) -> str | None:
-    """Return an error when ``planner_type`` cannot attach planner servers.
-
-    ``flash`` and ``gemini_cli`` reject planner-attached servers instead of
-    dropping them. The CLI reports that before starting the runtime, so a
-    guaranteed configuration error does not boot the environment first; the
-    backends repeat the check for callers that build them directly.
-
-    Args:
-        planner_type: The backend about to run.
-        mcp_servers: Servers available to this run.
-
-    Returns:
-        The error message, or ``None`` when the backend can attach them.
-    """
-    names = [server.name for server in mcp_servers if server.planner_tools is not None]
-    if not names or planner_type not in ("flash", "gemini_cli"):
-        return None
-    return (
-        f"{planner_type} cannot attach external MCP servers; remove "
-        f"planner_tools from mcp_servers {', '.join(names)} or use another planner"
-    )
-
-
-def check_planner_mcp_servers(
-    mcp_servers: tuple["McpServerSpec", ...],
-    *,
-    local_names: Collection[str] | None = None,
-) -> str | None:
-    """Return an error message when a server attached to the planner fails.
-
-    A declared server is part of the run: the episode must end with a planner
-    error instead of continuing without it. Every backend consults this before
-    its first model request, because the SDKs and CLIs differ in how (and
-    whether) they report a failed MCP connection. The check also resolves
-    ``env_http_headers``, so an unset variable fails here, and verifies that a
-    named ``planner_tools`` entry is actually exposed.
-
-    Args:
-        mcp_servers: Servers available to this run.
-        local_names: Tool names the caller already exposes, for a backend that
-            joins names as ``<server>_<tool>``. The check then rejects a joined
-            name another server or an RPent tool already uses, instead of
-            leaving the collision to the model provider. ``None`` for a
-            backend that namespaces tools itself.
-
-    Returns:
-        ``None`` when every server attached to the planner answered and
-        exposed its declared tools, otherwise a message naming the first
-        failure.
-    """
-    from rpent.tools.mcp_tools import list_remote_tools
-
-    owners: dict[str, str] = {}
-    for spec in mcp_servers:
-        if spec.planner_tools is None:
-            continue
-        try:
-            exposed = {tool.name for tool in list_remote_tools(spec)}
-        except Exception as exc:  # noqa: BLE001 - reported, not raised
-            return f"mcp_servers.{spec.name}: {type(exc).__name__}: {exc}"
-        if spec.planner_tools == ALL_TOOLS:
-            wanted = exposed
-        else:
-            missing = sorted(set(spec.planner_tools) - exposed)
-            if missing:
-                # Same contract as Toolkit registration: a named tool the server
-                # does not expose is a configuration error, not an empty
-                # toolset the model silently does without.
-                return (
-                    f"mcp_servers.{spec.name} did not expose tool(s) {missing}; "
-                    f"available: {sorted(exposed) or 'none'}"
-                )
-            wanted = set(spec.planner_tools)
-        if local_names is None:
-            continue
-        for tool in sorted(wanted):
-            # ``api`` joins with a single underscore, which is not injective.
-            joined = f"{spec.name}_{tool}"
-            if joined in local_names:
-                return (
-                    f"mcp_servers.{spec.name}.{tool}: tool name {joined!r} is "
-                    "already an RPent tool; api joins the server and tool "
-                    "names with an underscore"
-                )
-            owner = owners.get(joined)
-            if owner is not None:
-                return (
-                    f"tool name {joined!r} is produced by both {owner} and "
-                    f"mcp_servers.{spec.name}.{tool}; api joins the server and "
-                    "tool names with an underscore"
-                )
-            owners[joined] = f"mcp_servers.{spec.name}.{tool}"
-    return None
-
-
 def build_planner(
     planner_type: str,
     *,
@@ -391,19 +276,8 @@ def build_planner(
     dashboard_events: DashboardEventSink,
     no_images: bool = False,
     interactive: bool = False,
-    mcp_servers: tuple["McpServerSpec", ...] = (),
 ) -> Planner:
-    """Build a planner for the given backend, resolving credentials from env vars.
-
-    ``mcp_servers`` are external streamable-HTTP MCP servers available to this
-    run (shared plus robot-declared). Only specs with ``planner_tools`` set are
-    attached: servers reserved for the robot's Toolkit are skipped here
-    because the model must reach those tools through a coordinated
-    first-class tool instead.
-    """
-    planner_servers = tuple(
-        server for server in mcp_servers if server.planner_tools is not None
-    )
+    """Build a planner for the given backend, resolving credentials from env vars."""
     # Imports are deferred to avoid a circular import: api_loop / claude_code /
     # codex / gemini_cli all import from this module (PlannerResult).
 
@@ -422,7 +296,6 @@ def build_planner(
             no_images=no_images,
             timeout_s=api_timeout_s,
             interactive=interactive,
-            mcp_servers=planner_servers,
         )
     if planner_type == "claude_code":
         from rpent.planner.claude_code import ClaudeCodePlanner
@@ -443,7 +316,6 @@ def build_planner(
             output_path=Path(output_dir) / f"claude_{recipe_tag}.txt",
             dashboard_events=dashboard_events,
             reasoning_effort=reasoning_effort,
-            mcp_servers=planner_servers,
         )
     if planner_type == "codex":
         from rpent.planner.codex import CodexPlanner
@@ -466,7 +338,6 @@ def build_planner(
             dashboard_events=dashboard_events,
             reasoning_effort=reasoning_effort,
             sandbox=codex_sandbox,
-            mcp_servers=planner_servers,
         )
     if planner_type == "gemini_cli":
         from rpent.planner.gemini_cli import GeminiCliPlanner
@@ -486,7 +357,6 @@ def build_planner(
             output_path=Path(output_dir) / f"gemini_{recipe_tag}.txt",
             dashboard_events=dashboard_events,
             reasoning_effort=reasoning_effort,
-            mcp_servers=planner_servers,
         )
     if planner_type == "flash":
         from rpent.planner.flash import FlashPlanner
@@ -494,6 +364,5 @@ def build_planner(
         return FlashPlanner(
             recipe_tag=recipe_tag,
             robot_name=robot_name,
-            mcp_servers=planner_servers,
         )
     raise ValueError(f"unknown planner_type: {planner_type}")

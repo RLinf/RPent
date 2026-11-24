@@ -52,10 +52,9 @@ class RunConfig:
     task_desc: dict[str, Any]
     enable_direct_action: bool = False
     #: External MCP servers available to this run. The robot contributes the
-    #: ``mcp_servers`` section of its own config; the CLI appends servers from
-    #: the shared MCP config before planning. Planners attach only specs with
-    #: ``planner_tools`` set, while the robot's Toolkit may register
-    #: coordinated tools from the rest. Empty when no server is declared.
+    #: ``mcp_servers`` section of its own config; the CLI merges in servers from
+    #: ``--mcp-config``, and ``get_toolkit`` registers them on the robot's
+    #: :class:`~rpent.tools.toolkit.Toolkit`. Empty when no server is declared.
     mcp_servers: tuple["McpServerSpec", ...] = ()
 
 

@@ -12,6 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+"""Offline contract tests for external MCP server configuration parsing."""
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -19,300 +21,188 @@ from pathlib import Path
 import pytest
 
 from rpent.utils.mcp_servers import (
+    ALL_TOOLS,
+    REDACTED_VALUE,
     McpServerSpec,
     load_mcp_config,
     merge_mcp_servers,
     parse_mcp_servers,
     public_spec,
-    request_headers,
 )
 
 
-def test_absent_section_yields_no_specs() -> None:
-    assert parse_mcp_servers(None) == ()
+def test_parse_defaults_to_all_tools_and_unsynced() -> None:
+    specs = parse_mcp_servers({"power": {"url": "http://127.0.0.1:8765/mcp"}})
+    assert specs == (
+        McpServerSpec(
+            name="power",
+            url="http://127.0.0.1:8765/mcp",
+            headers={},
+            tools=ALL_TOOLS,
+            sync_with_robot=False,
+        ),
+    )
 
 
-def test_parses_url_headers_and_planner_tool_modes() -> None:
+def test_parse_resolves_env_headers_tools_and_sync_flag(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("POWER_TOKEN", "s3cr3t")
     specs = parse_mcp_servers(
         {
-            "facility": {"url": "https://mcp.example/mcp"},
-            "kb": {
-                "url": "http://127.0.0.1:8765/mcp",
-                "headers": {"Authorization": "Bearer token"},
-                "planner_tools": ["search", "fetch"],
-            },
-            "all": {"url": "https://all.example/mcp", "planner_tools": "*"},
+            "power-1": {
+                "url": "https://power.example/mcp",
+                "headers": {"Authorization": "Bearer ${oc.env:POWER_TOKEN}"},
+                "tools": ["read_power_meter", "read_power_meter", "read_temp"],
+                "sync_with_robot": True,
+            }
         }
     )
-
     assert specs == (
-        McpServerSpec(name="facility", url="https://mcp.example/mcp"),
         McpServerSpec(
-            name="kb",
-            url="http://127.0.0.1:8765/mcp",
-            headers={"Authorization": "Bearer token"},
-            planner_tools=("search", "fetch"),
-        ),
-        McpServerSpec(
-            name="all",
-            url="https://all.example/mcp",
-            planner_tools="*",
+            name="power-1",
+            url="https://power.example/mcp",
+            headers={"Authorization": "Bearer s3cr3t"},
+            tools=("read_power_meter", "read_temp"),
+            sync_with_robot=True,
         ),
     )
 
 
-def test_omitted_planner_tools_keeps_the_server_out_of_the_planner_layer() -> None:
-    (spec,) = parse_mcp_servers({"facility": {"url": "https://mcp.example/mcp"}})
-
-    assert spec.planner_tools is None
-
-
-def test_parses_env_http_headers() -> None:
-    (spec,) = parse_mcp_servers(
-        {
-            "facility": {
-                "url": "https://mcp.example/mcp",
-                "env_http_headers": {"Authorization": "FACILITY_TOKEN"},
+def test_parse_unset_env_header_raises(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("MISSING_MCP_TOKEN", raising=False)
+    with pytest.raises(ValueError, match="MISSING_MCP_TOKEN"):
+        parse_mcp_servers(
+            {
+                "power": {
+                    "url": "https://power.example/mcp",
+                    "headers": {"Authorization": "Bearer ${oc.env:MISSING_MCP_TOKEN}"},
+                }
             }
-        }
-    )
-
-    assert spec.env_http_headers == {"Authorization": "FACILITY_TOKEN"}
+        )
 
 
-def test_parse_resolves_a_robot_config_like_the_shared_file(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setenv("FACILITY_TOKEN", "secret")
-
-    (spec,) = parse_mcp_servers(
-        {
-            "facility": {
-                "url": "https://facility.example/mcp",
-                "headers": {"Authorization": "Bearer ${oc.env:FACILITY_TOKEN}"},
-            }
-        }
-    )
-
-    assert spec.headers == {"Authorization": "Bearer secret"}
-
-
-def test_public_spec_keeps_no_credential_from_the_url_or_headers() -> None:
-    spec = McpServerSpec(
-        name="web",
-        url="https://web.example/mcp?token=secret#secret-fragment",
-        headers={"Authorization": "Bearer secret"},
-    )
-
-    public = public_spec(spec)
-
-    assert public["url"] == "https://web.example/mcp?<redacted>#<redacted>"
-    assert public["headers"] == {"Authorization": "<redacted>"}
-    assert "secret" not in repr(public)
+@pytest.mark.parametrize(
+    ("name", "expected"),
+    [
+        ("", "server name"),
+        ("_power", "server name"),
+        ("power_", "trailing '_'"),
+        ("lab__power", "without '__'"),
+        ("lab.power", "server name"),
+        ("rpent", "reserved"),
+    ],
+)
+def test_spec_rejects_invalid_server_names(name: str, expected: str) -> None:
+    with pytest.raises(ValueError, match=expected):
+        McpServerSpec(name=name, url="http://127.0.0.1:8765/mcp")
 
 
-def test_construction_rejects_a_spec_no_backend_could_use() -> None:
-    for values in (
-        {"name": "rpent", "url": "https://web.example/mcp"},
-        {"name": "a__b", "url": "https://web.example/mcp"},
-        {"name": "docs\n", "url": "https://web.example/mcp"},
-        {"name": "bad name", "url": "https://web.example/mcp"},
-        {"name": "power_", "url": "https://web.example/mcp"},
-        {"name": "web", "url": "ftp://web.example/mcp"},
-        {"name": "web", "url": "https://user:pass@web.example/mcp"},
-    ):
-        with pytest.raises(ValueError, match=r"mcp_servers\."):
-            McpServerSpec(**values)
+@pytest.mark.parametrize(
+    ("url", "expected"),
+    [
+        ("stdio://power", "http\\(s\\) URL"),
+        ("http://", "hostname"),
+        ("https:///mcp", "hostname"),
+        ("https://user:pass@power.example/mcp", "must not embed credentials"),
+        ("https://:pass@power.example/mcp", "must not embed credentials"),
+        ("https://user@power.example/mcp", "must not embed credentials"),
+    ],
+)
+def test_spec_rejects_invalid_urls(url: str, expected: str) -> None:
+    with pytest.raises(ValueError, match=expected):
+        McpServerSpec(name="power", url=url)
 
 
-def test_rejects_non_mapping_section() -> None:
-    with pytest.raises(ValueError, match="must be a mapping"):
-        parse_mcp_servers(["web"])
+@pytest.mark.parametrize(
+    ("raw_tools", "expected"),
+    [
+        ([], "must not be empty"),
+        ("read_power", "must be '\\*' or a list"),
+        (["*"], "write '\\*' rather than a list"),
+        ([""], "non-empty strings"),
+        ([123], "non-empty strings"),
+        (42, "must be '\\*' or a list"),
+    ],
+)
+def test_parse_rejects_invalid_tools(raw_tools: object, expected: str) -> None:
+    with pytest.raises(ValueError, match=expected):
+        parse_mcp_servers(
+            {"power": {"url": "http://127.0.0.1:8765/mcp", "tools": raw_tools}}
+        )
 
 
-def test_parse_surfaces_construction_errors_with_the_section_path() -> None:
-    with pytest.raises(ValueError, match=r"mcp_servers\.web\.url must be an http"):
-        parse_mcp_servers({"web": {"url": "ftp://example/mcp"}})
-
-
-def test_rejects_unknown_keys() -> None:
+def test_parse_rejects_unknown_keys_and_non_bool_sync() -> None:
     with pytest.raises(ValueError, match="unknown key"):
-        parse_mcp_servers({"web": {"url": "https://example/mcp", "command": "x"}})
-
-
-def test_rejects_non_string_headers() -> None:
-    with pytest.raises(ValueError, match=r"mcp_servers\.web\.headers"):
-        parse_mcp_servers({"web": {"url": "https://example/mcp", "headers": {"A": 1}}})
-
-
-def test_rejects_string_planner_tools_other_than_wildcard() -> None:
-    with pytest.raises(ValueError, match=r"mcp_servers\.web\.planner_tools"):
-        parse_mcp_servers(
-            {"web": {"url": "https://example/mcp", "planner_tools": "search"}}
-        )
-
-
-def test_rejects_empty_planner_tools_list() -> None:
-    with pytest.raises(ValueError, match="must not be empty"):
-        parse_mcp_servers({"web": {"url": "https://example/mcp", "planner_tools": []}})
-
-
-def test_rejects_wildcard_inside_planner_tools_list() -> None:
-    with pytest.raises(ValueError, match="rather than a list"):
-        parse_mcp_servers(
-            {"web": {"url": "https://example/mcp", "planner_tools": ["*"]}}
-        )
-
-
-def test_rejects_header_in_both_header_maps() -> None:
-    with pytest.raises(ValueError, match="both 'headers' and 'env_http_headers'"):
         parse_mcp_servers(
             {
-                "web": {
-                    "url": "https://example/mcp",
-                    "headers": {"Authorization": "Bearer literal"},
-                    "env_http_headers": {"Authorization": "WEB_TOKEN"},
+                "power": {
+                    "url": "http://127.0.0.1:8765/mcp",
+                    "planner_tools": ["read_power"],
                 }
             }
         )
-
-
-def test_rejects_case_variant_header_in_both_header_maps() -> None:
-    with pytest.raises(ValueError, match="both 'headers' and 'env_http_headers'"):
+    with pytest.raises(ValueError, match="sync_with_robot must be a boolean"):
         parse_mcp_servers(
-            {
-                "web": {
-                    "url": "https://example/mcp",
-                    "headers": {"Authorization": "Bearer literal"},
-                    "env_http_headers": {"authorization": "WEB_TOKEN"},
-                }
-            }
+            {"power": {"url": "http://127.0.0.1:8765/mcp", "sync_with_robot": "yes"}}
+        )
+    with pytest.raises(ValueError, match="headers values must be strings"):
+        parse_mcp_servers(
+            {"power": {"url": "http://127.0.0.1:8765/mcp", "headers": {"X-Id": 1}}}
         )
 
 
-def test_request_headers_resolves_environment_references(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setenv("WEB_TOKEN", "Bearer resolved")
-    spec = McpServerSpec(
-        name="web",
-        url="https://example/mcp",
-        headers={"X-Client": "robot"},
-        env_http_headers={"Authorization": "WEB_TOKEN"},
-    )
-
-    assert request_headers(spec) == {
-        "X-Client": "robot",
-        "Authorization": "Bearer resolved",
-    }
-
-
-def test_request_headers_rejects_unset_environment_variable(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.delenv("WEB_TOKEN", raising=False)
-    spec = McpServerSpec(
-        name="web",
-        url="https://example/mcp",
-        env_http_headers={"Authorization": "WEB_TOKEN"},
-    )
-
-    with pytest.raises(ValueError, match=r"mcp_servers\.web.*WEB_TOKEN"):
-        request_headers(spec)
-
-
-def test_merge_rejects_duplicate_shared_and_robot_names() -> None:
-    robot = (McpServerSpec(name="web", url="https://robot.example/mcp"),)
-    shared = (McpServerSpec(name="web", url="https://shared.example/mcp"),)
-
-    with pytest.raises(ValueError, match="duplicate MCP server name 'web'"):
-        merge_mcp_servers(robot, shared)
-
-
-def test_merge_preserves_order() -> None:
-    robot = (McpServerSpec(name="mine", url="https://robot.example/mcp"),)
-    shared = (
-        McpServerSpec(name="lights", url="https://lights.example/mcp"),
-        McpServerSpec(name="docs", url="https://docs.example/mcp"),
-    )
-
-    assert [spec.name for spec in merge_mcp_servers(robot, shared)] == [
-        "mine",
-        "lights",
-        "docs",
-    ]
-
-
-def test_load_mcp_config_reads_only_the_mcp_section(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    monkeypatch.setenv("FACILITY_TOKEN", "secret")
-    path = tmp_path / "mcp.yaml"
-    path.write_text(
-        "label: lab-a\n"
+def test_load_mcp_config_reads_only_mcp_servers_section(tmp_path: Path) -> None:
+    config = tmp_path / "mcp.yaml"
+    config.write_text(
+        "other_section:\n"
+        "  ignored: ${oc.env:DOES_NOT_EXIST_OK}\n"
         "mcp_servers:\n"
-        "  lights:\n"
-        "    url: https://lights.example/mcp\n"
-        "    headers:\n"
-        "      Authorization: Bearer ${oc.env:FACILITY_TOKEN}\n"
-        "    planner_tools: [set_scene]\n"
-        "  dock:\n"
-        "    url: https://dock.example/mcp\n"
+        "  power:\n"
+        "    url: http://127.0.0.1:8765/mcp\n"
+        "    tools: [read_power_meter]\n"
     )
-
-    assert load_mcp_config(path) == (
-        McpServerSpec(
-            name="lights",
-            url="https://lights.example/mcp",
-            headers={"Authorization": "Bearer secret"},
-            planner_tools=("set_scene",),
-        ),
-        McpServerSpec(name="dock", url="https://dock.example/mcp"),
-    )
+    assert load_mcp_config(None) == ()
+    specs = load_mcp_config(config)
+    assert len(specs) == 1
+    assert specs[0].name == "power"
+    assert specs[0].tools == ("read_power_meter",)
 
 
-def test_load_mcp_config_ignores_unresolved_values_outside_the_section(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    monkeypatch.delenv("VLA_CKPT", raising=False)
-    path = tmp_path / "mcp.yaml"
-    path.write_text(
-        "vla:\n"
-        "  checkpoint: ${oc.env:VLA_CKPT}\n"
-        "mcp_servers:\n"
-        "  dock:\n"
-        "    url: https://dock.example/mcp\n"
-    )
-
-    assert load_mcp_config(path) == (
-        McpServerSpec(name="dock", url="https://dock.example/mcp"),
-    )
-
-
-def test_load_mcp_config_rejects_unresolved_value_in_the_section(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    monkeypatch.delenv("WEB_TOKEN", raising=False)
-    path = tmp_path / "mcp.yaml"
-    path.write_text(
-        "mcp_servers:\n"
-        "  web:\n"
-        "    url: https://web.example/mcp\n"
-        "    headers:\n"
-        "      Authorization: Bearer ${oc.env:WEB_TOKEN}\n"
-    )
-
-    with pytest.raises(ValueError, match="WEB_TOKEN"):
-        load_mcp_config(path)
-
-
-def test_load_mcp_config_without_section_yields_no_specs(tmp_path: Path) -> None:
-    path = tmp_path / "mcp.yaml"
-    path.write_text("label: lab-a\n")
-
-    assert load_mcp_config(path) == ()
-
-
-def test_load_mcp_config_rejects_missing_file(tmp_path: Path) -> None:
+def test_load_mcp_config_rejects_missing_or_non_mapping(tmp_path: Path) -> None:
     with pytest.raises(ValueError, match="MCP config not found"):
         load_mcp_config(tmp_path / "missing.yaml")
+
+    bad = tmp_path / "list.yaml"
+    bad.write_text("- item1\n- item2\n")
+    with pytest.raises(ValueError, match="must be a mapping"):
+        load_mcp_config(bad)
+
+
+def test_merge_mcp_servers_rejects_duplicates() -> None:
+    a = McpServerSpec(name="power", url="http://127.0.0.1:8765/mcp")
+    b = McpServerSpec(name="dock", url="http://127.0.0.1:8766/mcp")
+    assert merge_mcp_servers((a,), (b,)) == (a, b)
+    with pytest.raises(ValueError, match="duplicate MCP server name 'power'"):
+        merge_mcp_servers((a,), (a,))
+
+
+def test_public_spec_redacts_headers_and_url_query_fragment() -> None:
+    spec = McpServerSpec(
+        name="power",
+        url="https://power.example/mcp?token=secret#frag",
+        headers={"Authorization": "Bearer secret", "X-Team": "lab"},
+        tools=("read_power_meter",),
+        sync_with_robot=True,
+    )
+    recorded = public_spec(spec)
+    assert recorded == {
+        "name": "power",
+        "url": f"https://power.example/mcp?{REDACTED_VALUE}#{REDACTED_VALUE}",
+        "headers": {
+            "Authorization": REDACTED_VALUE,
+            "X-Team": REDACTED_VALUE,
+        },
+        "tools": ("read_power_meter",),
+        "sync_with_robot": True,
+    }

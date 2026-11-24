@@ -12,23 +12,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""External MCP servers RPent may consume.
+"""External streamable-HTTP MCP server configuration.
 
-MCP is only the transport. Where a server's tools appear depends on whether
-the control loop must coordinate with the device:
-
-* Tools the model can call at any time are attached to the planners. They are
-  listed under ``planner_tools``; ``api``, ``claude_code`` and ``codex``
-  consume that field.
-* Tools that must be ordered against robot actions, a safety interlock, or the
-  observation stream are registered on the robot's Toolkit with
-  :meth:`~rpent.tools.toolkit.Toolkit.add_mcp_tools`. Planner adapters then
-  expose them like any Toolkit tool: ``claude_code`` and ``codex`` add the
-  ``mcp__rpent__`` prefix, while ``api`` uses the tool's own name. A robot must
-  opt in; configuration alone never registers a tool on the Toolkit.
-
-A server can supply both kinds: list the independent tools under
-``planner_tools`` and register the rest in robot code.
+External MCP servers are registered on the robot's :class:`~rpent.tools.toolkit.Toolkit`
+so every online planner (``api``, ``claude_code``, ``codex``, and ``gemini_cli``)
+exposes the same tools, timeouts, capture, and filtering rules.
 
 Configuration comes from two places:
 
@@ -39,15 +27,15 @@ Configuration comes from two places:
   the result on :class:`~rpent.robots.robot_spec.RunConfig`; the CLI merges
   both sources at run time.
 
-Only streamable-HTTP servers are supported: a spec carries a ``url`` and
-optional headers, no stdio ``command``. :func:`parse_mcp_servers` resolves YAML
-interpolation (``${oc.env:...}``) for either source, so this module is a pure
-validator with no network access.
+Only streamable-HTTP servers are supported: a spec carries a ``url``, optional
+``headers``, optional ``tools`` selection (defaulting to ``"*"``), and optional
+``sync_with_robot`` (defaulting to ``False``). :func:`parse_mcp_servers`
+resolves YAML interpolation (``${oc.env:...}``) for either source, so this
+module is a pure validator with no network access.
 """
 
 from __future__ import annotations
 
-import os
 import re
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
@@ -55,20 +43,21 @@ from pathlib import Path
 from typing import Any, Literal
 from urllib.parse import urlsplit, urlunsplit
 
-#: Server name RPent uses for its own in-process toolkit server. An external
-#: server must not reuse it: the ``mcp__<server>__<tool>`` namespace and the
-#: per-backend server maps would otherwise collide.
+#: Server name RPent uses for its own in-process toolkit server.
 RPENT_SERVER_NAME = "rpent"
 
-#: The ``planner_tools`` value that admits every tool the server exposes.
+#: The ``tools`` value that exposes every tool the server advertises.
 ALL_TOOLS = "*"
 
-#: Allowed server names: the token between ``mcp__`` and ``__<tool>``.
+#: Allowed server names: the prefix in ``<server>__<tool>``.
 _NAME_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]*$")
 
-#: Tool selection for the planner. ``None`` keeps the server out of the
-#: planner; the robot's Toolkit may still register its tools.
-PlannerTools = tuple[str, ...] | Literal["*"] | None
+#: Tool selection for one MCP server. ``"*"`` exposes every tool on the server;
+#: a tuple exposes only those tool names.
+ToolSelection = tuple[str, ...] | Literal["*"]
+
+#: Placeholder for a credential in serialized run configuration.
+REDACTED_VALUE = "<redacted>"
 
 
 @dataclass(frozen=True)
@@ -76,37 +65,30 @@ class McpServerSpec:
     """One external streamable-HTTP MCP server.
 
     Attributes:
-        name: Server name, also its namespace in ``mcp__<name>__<tool>``.
+        name: Server name, used as the ``<name>__<tool>`` prefix on ``Toolkit``.
         url: Streamable-HTTP endpoint (``http://`` or ``https://``). A URL with
-            a user name or password is rejected, and task records drop its
+            a user name or password is rejected, and task records redact its
             query and fragment.
-        headers: Optional literal request headers. The ``claude_code`` and
-            ``codex`` backends pass these through child-process arguments,
-            where other local users can read them.
-        env_http_headers: Header name to environment-variable name. Values are
-            read when the server is used, keeping secrets out of generated
-            config and out of the child-process arguments.
-        planner_tools: ``"*"`` attaches every tool to the planners; a tuple
-            attaches only those names; ``None`` does not attach the server to
-            the planners at all. Only the planners consume this field.
-            ``api`` and ``codex`` expose exactly the named tools;
-            ``claude_code`` mounts the whole server and uses the tuple as its
-            auto-approved set, so the server's other tools stay visible to the
-            model.
-
-    Construction validates the name and URL, so every consumer receives a spec
-    whose ``mcp__<name>__<tool>`` namespace is usable and whose endpoint RPent
-    can reach.
+        headers: Optional HTTP request headers. Values stay in-process (never
+            passed on child-process command lines) and are redacted in task
+            records.
+        tools: ``"*"`` (default) exposes every tool the server advertises; a
+            tuple exposes only those named tools.
+        sync_with_robot: When ``False`` (default), tools run concurrently with
+            other read-only tools and return the remote payload directly without
+            triggering ``get_env_state``. When ``True``, tools run exclusively
+            alongside robot actions, trigger post-action observation capture,
+            and preserve their remote payload under ``tool_result``.
     """
 
     name: str
     url: str
     headers: dict[str, str] = field(default_factory=dict)
-    env_http_headers: dict[str, str] = field(default_factory=dict)
-    planner_tools: PlannerTools = None
+    tools: ToolSelection = ALL_TOOLS
+    sync_with_robot: bool = False
 
     def __post_init__(self) -> None:
-        """Reject a spec no backend could use."""
+        """Reject a spec no consumer could use safely."""
         where = f"mcp_servers.{self.name}"
         if (
             not isinstance(self.name, str)
@@ -117,8 +99,7 @@ class McpServerSpec:
             raise ValueError(
                 f"{where}: server name must match {_NAME_PATTERN.pattern} "
                 "without '__' or a trailing '_' (it becomes the "
-                "mcp__<server>__<tool> namespace, and a trailing '_' makes "
-                "that name ambiguous)"
+                "<server>__<tool> tool prefix)"
             )
         if self.name == RPENT_SERVER_NAME:
             raise ValueError(
@@ -133,27 +114,21 @@ class McpServerSpec:
                 f"servers are supported (got {self.url!r})"
             )
         try:
-            userinfo = urlsplit(self.url).username
+            parts = urlsplit(self.url)
         except ValueError as exc:
             raise ValueError(f"{where}.url is not a valid URL: {exc}") from exc
-        if userinfo is not None:
+        if not parts.hostname:
+            raise ValueError(f"{where}.url must include a hostname (got {self.url!r})")
+        if parts.username is not None or parts.password is not None:
             raise ValueError(
-                f"{where}.url must not embed credentials; use headers or "
-                "env_http_headers"
+                f"{where}.url must not embed credentials; pass them in 'headers'"
             )
-        # HTTP header names are case-insensitive, so ``Authorization`` in one
-        # map and ``authorization`` in the other describe the same header.
-        literal = {name.casefold(): name for name in self.headers}
-        overlap = sorted(
-            literal[name.casefold()]
-            for name in self.env_http_headers
-            if name.casefold() in literal
-        )
-        if overlap:
+        if not isinstance(self.sync_with_robot, bool):
             raise ValueError(
-                f"{where}: header(s) {overlap} are set in both 'headers' and "
-                "'env_http_headers'"
+                f"{where}.sync_with_robot must be a boolean; got "
+                f"{type(self.sync_with_robot).__name__}"
             )
+        object.__setattr__(self, "tools", _parse_tools(self.tools, where))
 
 
 def parse_mcp_servers(
@@ -162,8 +137,7 @@ def parse_mcp_servers(
     """Validate an ``mcp_servers`` section into specs.
 
     YAML interpolation (``${oc.env:...}``) is resolved here, so a shared config
-    and a robot's own config behave the same: a header value written that way
-    holds the environment variable's value when the section is parsed.
+    and a robot's own config behave the same.
 
     Args:
         raw: The ``mcp_servers`` mapping from a shared or robot config, or
@@ -174,8 +148,7 @@ def parse_mcp_servers(
 
     Raises:
         ValueError: On a malformed section, naming the offending server and
-            field. Validation is shape-only: a non-HTTP URL, a reserved or
-            invalid name, non-string headers, or an unreadable tool list.
+            field. Validation is shape-only and performs no network requests.
     """
     if raw is None:
         return ()
@@ -189,21 +162,17 @@ def parse_mcp_servers(
     except Exception as exc:
         raise ValueError(f"invalid mcp_servers section: {exc}") from exc
 
-    specs: list[McpServerSpec] = []
-    for name, value in resolved.items():
-        specs.append(_parse_one(str(name), value))
-    return tuple(specs)
+    return tuple(_parse_one(str(name), value) for name, value in resolved.items())
 
 
 def load_mcp_config(
     path: str | Path | None,
 ) -> tuple[McpServerSpec, ...]:
-    """Load the ``mcp_servers`` section of a shared MCP config.
+    """Load the ``mcp_servers`` section of a shared MCP config YAML file.
 
-    The file is a YAML mapping; only its ``mcp_servers`` key is consumed, so
-    it can carry unrelated settings. :func:`parse_mcp_servers` resolves
-    ``${oc.env:...}`` in that section; other sections may keep unresolved
-    references because RPent does not read them.
+    Only the ``mcp_servers`` key is consumed, so the file may carry unrelated
+    settings. :func:`parse_mcp_servers` resolves ``${oc.env:...}`` inside that
+    section only.
 
     Args:
         path: Path to the shared config, or ``None`` when ``--mcp-config`` was
@@ -243,9 +212,7 @@ def merge_mcp_servers(
     """Concatenate spec groups, rejecting duplicate server names.
 
     Raises:
-        ValueError: If two groups declare the same server name. The shared
-            config and a robot's config must not silently shadow each other,
-            and a duplicate would collide in the MCP tool namespace.
+        ValueError: If two groups declare the same server name.
     """
     merged: list[McpServerSpec] = []
     seen: set[str] = set()
@@ -262,44 +229,19 @@ def merge_mcp_servers(
     return tuple(merged)
 
 
-def request_headers(spec: McpServerSpec) -> dict[str, str]:
-    """Return the request headers for one server, resolving env references.
-
-    Raises:
-        ValueError: If a referenced environment variable is unset.
-    """
-    headers = dict(spec.headers)
-    for name, env_name in spec.env_http_headers.items():
-        value = os.environ.get(env_name)
-        if value is None:
-            raise ValueError(
-                f"mcp_servers.{spec.name}.env_http_headers.{name}: environment "
-                f"variable {env_name!r} is not set"
-            )
-        headers[name] = value
-    return headers
-
-
-#: Placeholder for a credential in serialized run configuration.
-REDACTED_VALUE = "<redacted>"
-
-
 def public_spec(spec: McpServerSpec) -> dict[str, Any]:
-    """Return a serializable view of a spec that omits credentials.
+    """Return a serializable view of a spec with credentials redacted.
 
-    Parsing resolves ``${oc.env:...}`` in ``headers``, so the values may be
-    credentials, and a URL query is another place servers accept a token. Task
-    records keep the run configuration, and that payload is written to
-    ``task.json`` and the Dashboard task record, so only header names, the
-    endpoint without its query and fragment, and the environment-variable
-    names are kept.
+    Task records persist run configuration in ``task.json`` and Dashboard
+    records, so header values and URL queries/fragments are replaced with
+    :data:`REDACTED_VALUE`.
     """
     return {
         "name": spec.name,
         "url": _recorded_url(spec.url),
         "headers": dict.fromkeys(spec.headers, REDACTED_VALUE),
-        "env_http_headers": dict(spec.env_http_headers),
-        "planner_tools": spec.planner_tools,
+        "tools": spec.tools,
+        "sync_with_robot": spec.sync_with_robot,
     }
 
 
@@ -315,31 +257,28 @@ def _recorded_url(url: str) -> str:
 
 
 def _parse_one(name: str, value: Any) -> McpServerSpec:
-    """Validate one ``mcp_servers.<name>`` entry.
-
-    The spec validates its own name, URL, and header overlap.
-    """
+    """Validate one ``mcp_servers.<name>`` entry."""
     where = f"mcp_servers.{name}"
     if not isinstance(value, Mapping):
         raise ValueError(f"{where} must be a mapping with a 'url'")
 
-    unknown = sorted(
-        set(value) - {"url", "headers", "env_http_headers", "planner_tools"}
-    )
+    valid_keys = {"url", "headers", "tools", "sync_with_robot"}
+    unknown = sorted(set(value) - valid_keys)
     if unknown:
         raise ValueError(
-            f"{where}: unknown key(s) {unknown}. Valid keys: "
-            "['env_http_headers', 'headers', 'planner_tools', 'url']."
+            f"{where}: unknown key(s) {unknown}. Valid keys: {sorted(valid_keys)}."
         )
+
+    raw_sync = value.get("sync_with_robot", False)
+    if not isinstance(raw_sync, bool):
+        raise ValueError(f"{where}.sync_with_robot must be a boolean; got {raw_sync!r}")
 
     return McpServerSpec(
         name=name,
         url=value.get("url"),
         headers=_parse_headers(value.get("headers"), f"{where}.headers"),
-        env_http_headers=_parse_env_http_headers(
-            value.get("env_http_headers"), f"{where}.env_http_headers"
-        ),
-        planner_tools=_parse_planner_tools(value.get("planner_tools"), where),
+        tools=_parse_tools(value.get("tools"), where),
+        sync_with_robot=raw_sync,
     )
 
 
@@ -355,49 +294,27 @@ def _parse_headers(raw: Any, where: str) -> dict[str, str]:
     return {str(key): str(val) for key, val in raw.items()}
 
 
-def _parse_env_http_headers(raw: Any, where: str) -> dict[str, str]:
-    """Validate an ``env_http_headers`` mapping (header to env var name)."""
-    if raw is None:
-        return {}
-    if not isinstance(raw, Mapping):
-        raise ValueError(f"{where} must be a mapping of header to env var name")
-    invalid = sorted(
-        key for key, val in raw.items() if not isinstance(val, str) or not val.strip()
-    )
-    if invalid:
-        raise ValueError(
-            f"{where} values must be non-empty environment variable names; "
-            f"got {invalid}"
-        )
-    return {str(key): str(val) for key, val in raw.items()}
-
-
-def _parse_planner_tools(raw: Any, where: str) -> PlannerTools:
-    """Validate ``planner_tools`` (``"*"``, a list of names, or omitted)."""
-    if raw is None:
-        return None
-    if raw == ALL_TOOLS:
+def _parse_tools(raw: Any, where: str) -> ToolSelection:
+    """Validate ``tools`` (``"*"``, a non-empty list of names, or omitted)."""
+    if raw is None or raw == ALL_TOOLS:
         return ALL_TOOLS
     if isinstance(raw, str):
         raise ValueError(
-            f"{where}.planner_tools must be {ALL_TOOLS!r} or a list of tool "
-            f"names; got {raw!r}"
+            f"{where}.tools must be {ALL_TOOLS!r} or a list of tool names; got {raw!r}"
         )
     if not isinstance(raw, Sequence):
-        raise ValueError(
-            f"{where}.planner_tools must be {ALL_TOOLS!r} or a list of tool names"
-        )
+        raise ValueError(f"{where}.tools must be {ALL_TOOLS!r} or a list of tool names")
     invalid = [item for item in raw if not isinstance(item, str) or not item]
     if invalid:
-        raise ValueError(f"{where}.planner_tools entries must be non-empty strings")
+        raise ValueError(f"{where}.tools entries must be non-empty strings")
     if ALL_TOOLS in raw:
         raise ValueError(
-            f"{where}.planner_tools: write {ALL_TOOLS!r} rather than a list "
+            f"{where}.tools: write {ALL_TOOLS!r} rather than a list "
             "containing it; a list names individual tools"
         )
     if not raw:
         raise ValueError(
-            f"{where}.planner_tools must not be empty; omit it to keep the "
-            "server out of the planner"
+            f"{where}.tools must not be empty; omit it or use {ALL_TOOLS!r} "
+            "to expose every tool on the server"
         )
     return tuple(dict.fromkeys(str(item) for item in raw))

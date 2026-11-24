@@ -141,10 +141,10 @@ def test_save_failure_is_logged_without_replacing_execution_error(
 def test_task_config_snapshot_redacts_mcp_header_values(tmp_path) -> None:
     spec = McpServerSpec(
         name="facility",
-        url="https://facility.example/mcp",
+        url="https://facility.example/mcp?token=secret",
         headers={"Authorization": "Bearer secret"},
-        env_http_headers={"X-Key": "FACILITY_KEY"},
-        planner_tools=("read_power_meter",),
+        tools=("read_power_meter",),
+        sync_with_robot=True,
     )
     run_config = RunConfig(
         recipe_tag="run",
@@ -158,19 +158,18 @@ def test_task_config_snapshot_redacts_mcp_header_values(tmp_path) -> None:
         {"planner": "api", "shared_mcp_servers": (spec,)}, run_config
     )
 
-    assert "Bearer secret" not in json.dumps(to_jsonable_python(config))
+    dumped = json.dumps(to_jsonable_python(config))
+    assert "Bearer secret" not in dumped
+    assert "token=secret" not in dumped
     redacted = {"Authorization": "<redacted>"}
     assert config["run"]["mcp_servers"][0]["headers"] == redacted
     assert config["arguments"]["shared_mcp_servers"][0]["headers"] == redacted
-    # Names, URLs, and tool selection stay, so the record still describes the
-    # run; only the values that may be credentials are gone.
-    assert config["run"]["mcp_servers"][0]["env_http_headers"] == {
-        "X-Key": "FACILITY_KEY"
-    }
-    assert config["run"]["mcp_servers"][0]["planner_tools"] == ("read_power_meter",)
+    assert config["run"]["mcp_servers"][0]["url"] == (
+        "https://facility.example/mcp?<redacted>"
+    )
+    assert config["run"]["mcp_servers"][0]["tools"] == ("read_power_meter",)
+    assert config["run"]["mcp_servers"][0]["sync_with_robot"] is True
 
-    # A run without external MCP servers keeps the trajectory shape from before
-    # the feature existed.
     bare = task_config_snapshot(
         {"planner": "api", "shared_mcp_servers": ()},
         RunConfig(

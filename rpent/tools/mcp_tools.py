@@ -12,17 +12,20 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Expose selected external MCP tools as first-class Toolkit tools.
+"""Bridge external streamable-HTTP MCP servers onto :class:`Toolkit`.
 
-Tools that must be ordered against robot actions do not belong with the
-planner: the model must not be able to call a charging dock or safety
-interlock out of band. A robot registers them through
-:meth:`~rpent.tools.toolkit.Toolkit.add_mcp_tools`; they then behave like local
-tools, including exclusive execution and observation capture.
+Every external MCP tool is registered on the robot's :class:`Toolkit` under
+``<server>__<tool>``, so all online planners (``api``, ``claude_code``,
+``codex``, and ``gemini_cli``) share one transport, timeout, cancellation,
+filtering, and capture path.
 
-Registration is explicit on purpose. The shared config can declare a server
-and reserve its tools by omitting ``planner_tools``, but only robot code that
-knows how to coordinate with the device registers them here.
+By default (``sync_with_robot=False``), remote tools register with
+``readonly=True``: they run without locking out other read-only tools and return
+their remote text, structured data, and PNG images directly to the model.
+Setting ``sync_with_robot=True`` registers them with ``readonly=False`` and
+``preserve_result=True`` so they serialize against robot actions, trigger
+``get_env_state`` observation capture, and keep their remote payload under
+``tool_result``.
 """
 
 from __future__ import annotations
@@ -30,6 +33,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import builtins
+import contextlib
 import json
 import os
 import threading
@@ -40,9 +44,14 @@ from typing import Any, Literal, Optional, Union
 from pydantic import BaseModel, ConfigDict, create_model, model_validator
 
 from rpent.tools.base import MAX_TOOL_TEXT_BYTES, Tool, ToolResult
-from rpent.tools.toolkit import Toolkit
+from rpent.tools.toolkit import (
+    ToolCancelled,
+    Toolkit,
+    _ToolOperation,
+    current_tool_operation,
+)
 from rpent.utils.logging import get_logger
-from rpent.utils.mcp_servers import ALL_TOOLS, McpServerSpec, request_headers
+from rpent.utils.mcp_servers import ALL_TOOLS, McpServerSpec
 
 logger = get_logger("mcp_tools")
 
@@ -62,29 +71,68 @@ _JSON_TYPES: dict[str, Any] = {
 }
 
 
+def mcp_tool_name(server_name: str, tool_name: str) -> str:
+    """Build the injective ``<server>__<tool>`` Toolkit name for a remote tool."""
+    return f"{server_name}__{tool_name}"
+
+
+def register_mcp_servers(
+    toolkit: Toolkit,
+    servers: Sequence[McpServerSpec],
+) -> tuple[str, ...]:
+    """Register every unattached server in ``servers`` onto ``toolkit``.
+
+    Servers already registered via :func:`register_mcp_tools` are skipped so a
+    robot integration can customize one server while still accepting shared
+    servers from ``--mcp-config``.
+
+    Args:
+        toolkit: The robot Toolkit receiving the tools.
+        servers: Validated server specs, usually ``RunConfig.mcp_servers``.
+
+    Returns:
+        The registered ``<server>__<tool>`` names, in declaration order.
+    """
+    registered: list[str] = []
+    taken = {name.casefold() for name in toolkit._tools}
+    for spec in servers:
+        if spec.name in toolkit._registered_mcp_servers:
+            continue
+        registered.extend(
+            _register_server(
+                toolkit,
+                spec,
+                selected=None if spec.tools == ALL_TOOLS else spec.tools,
+                sync_with_robot=spec.sync_with_robot,
+                taken=taken,
+            )
+        )
+    return tuple(registered)
+
+
 def register_mcp_tools(
     toolkit: Toolkit,
     servers: Sequence[McpServerSpec],
     *,
     tools: Mapping[str, Sequence[str]],
+    sync_with_robot: bool | None = None,
 ) -> tuple[str, ...]:
     """Register selected remote tools from ``servers`` on ``toolkit``.
 
     Args:
         toolkit: The robot Toolkit receiving the tools.
-        servers: Candidate specs, usually ``RunConfig.mcp_servers`` (shared
-            plus robot-declared).
-        tools: Server name to the remote tool names this robot registers.
-            Servers that are not listed are ignored.
+        servers: Candidate specs, usually ``RunConfig.mcp_servers``.
+        tools: Server name to the remote tool names to register. Servers not
+            listed are ignored.
+        sync_with_robot: Override ``spec.sync_with_robot`` for these tools when
+            not ``None``.
 
     Returns:
-        The registered tool names, in the order given.
+        The registered ``<server>__<tool>`` tool names, in the order given.
 
     Raises:
-        ValueError: On an unknown server or tool name, a name that already
-            belongs to the toolkit or another registered server (compared
-            case-insensitively, so an external ``Finish`` cannot shadow the
-            toolkit's ``finish``), or a tool the planner also attaches.
+        ValueError: On an unknown server or tool name, or a name that collides
+            case-insensitively with an existing tool.
     """
     by_name = {server.name: server for server in servers}
     unknown_servers = sorted(set(tools) - set(by_name))
@@ -96,62 +144,86 @@ def register_mcp_tools(
         )
 
     registered: list[str] = []
-    taken = {tool.name.casefold() for tool in toolkit.list_tools()}
+    taken = {name.casefold() for name in toolkit._tools}
     for server_name, names in tools.items():
         spec = by_name[server_name]
-        # A coordinated tool must not also be attached to the planner: the
-        # planner would bypass the execution ordering and observation capture
-        # that are the reason to register it.
-        if spec.planner_tools == ALL_TOOLS:
-            raise ValueError(
-                f"cannot register MCP tool(s) {sorted(names)} from {server_name!r}: "
-                "planner_tools is '*', so every tool is also attached to the "
-                "planner; list only the independent tools under planner_tools "
-                "and register the coordinated ones"
+        sync = spec.sync_with_robot if sync_with_robot is None else sync_with_robot
+        registered.extend(
+            _register_server(
+                toolkit,
+                spec,
+                selected=tuple(dict.fromkeys(names)),
+                sync_with_robot=sync,
+                taken=taken,
             )
-        overlap = sorted(set(names) & set(spec.planner_tools or ()))
-        if overlap:
-            raise ValueError(
-                f"cannot register MCP tool(s) {overlap} from {server_name!r}: they "
-                "are also attached to the planner by planner_tools"
-            )
-        # Fail at toolkit construction, not on the first tool call.
-        request_headers(spec)
-        remote = {tool.name: tool for tool in list_remote_tools(spec)}
-        missing = [name for name in names if name not in remote]
-        if missing:
-            raise ValueError(
-                f"mcp_servers.{server_name} did not expose tool(s) {missing}; "
-                f"available: {sorted(remote) or 'none'}"
-            )
-        for name in names:
-            if name.casefold() in taken:
-                raise ValueError(
-                    f"cannot register MCP tool {name!r} from {server_name!r}: the "
-                    "tool name is already registered by the toolkit or another "
-                    "server"
-                )
-            tool = remote[name]
-            toolkit.add_tool(_registered_tool(spec, tool))
-            taken.add(name.casefold())
-            registered.append(name)
+        )
     return tuple(registered)
 
 
-def _registered_tool(spec: McpServerSpec, tool: Any) -> Tool:
+def _register_server(
+    toolkit: Toolkit,
+    spec: McpServerSpec,
+    *,
+    selected: Sequence[str] | None,
+    sync_with_robot: bool,
+    taken: set[str],
+) -> list[str]:
+    """Discover and register tools from one server onto ``toolkit``."""
+    discovered = list_remote_tools(spec)
+    remote = {tool.name: tool for tool in discovered}
+    if selected is None:
+        names = [tool.name for tool in discovered]
+    else:
+        missing = [name for name in selected if name not in remote]
+        if missing:
+            raise ValueError(
+                f"mcp_servers.{spec.name} did not expose tool(s) {missing}; "
+                f"available: {sorted(remote) or 'none'}"
+            )
+        names = list(selected)
+
+    registered: list[str] = []
+    for remote_name in names:
+        published_name = mcp_tool_name(spec.name, remote_name)
+        if published_name.casefold() in taken:
+            raise ValueError(
+                f"cannot register MCP tool {published_name!r} from {spec.name!r}: "
+                "the tool name is already registered on this toolkit"
+            )
+        toolkit.add_tool(
+            _registered_tool(
+                spec,
+                remote[remote_name],
+                published_name=published_name,
+                sync_with_robot=sync_with_robot,
+            )
+        )
+        taken.add(published_name.casefold())
+        registered.append(published_name)
+
+    toolkit._registered_mcp_servers.add(spec.name)
+    return registered
+
+
+def _registered_tool(
+    spec: McpServerSpec,
+    tool: Any,
+    *,
+    published_name: str,
+    sync_with_robot: bool,
+) -> Tool:
     """Wrap one remote tool descriptor as a native Toolkit declaration."""
     schema = tool.inputSchema or {"type": "object", "properties": {}}
     return Tool(
-        name=tool.name,
+        name=published_name,
         description=tool.description or "",
-        args_schema=_args_model(tool.name, schema),
+        args_schema=_args_model(published_name, schema),
         handler=_make_handler(spec, tool.name),
         _input_schema=schema,
-        # Coordinated tools run exclusively and capture an observation after
-        # the call. The server's ``readOnlyHint`` is advisory; a third-party
-        # server that marks a side-effecting device tool read-only must not be
-        # able to bypass the ordering this registration exists to provide.
-        readonly=False,
+        # The server's advisory readOnlyHint is ignored; callers control robot
+        # serialization explicitly through sync_with_robot.
+        readonly=not sync_with_robot,
+        preserve_result=sync_with_robot,
     )
 
 
@@ -167,8 +239,6 @@ def _args_model(name: str, schema: dict[str, Any]) -> type[BaseModel]:
     Properties pydantic reserves cannot become model fields; see
     :func:`_can_be_a_field`. They are accepted as extras and forwarded
     unchanged, leaving their type and required checks to the server.
-    Undeclared arguments are therefore rejected by a validator rather than
-    ``extra="forbid"``, which would reject those properties too.
     """
     required = set(schema.get("required") or ())
     properties = schema.get("properties") or {}
@@ -205,23 +275,15 @@ def _args_model(name: str, schema: dict[str, Any]) -> type[BaseModel]:
 def _can_be_a_field(name: str) -> bool:
     """Whether ``create_model`` can declare ``name`` as a field.
 
-    Pydantic refuses names that repeat a ``BaseModel`` member (``model_dump``,
-    ``model_validate``) and drops names starting with an underscore or naming
-    the config slot; other base attributes, such as ``schema`` and ``copy``,
-    only warn. All of these are still valid arguments for the remote server,
-    so they are accepted as extras instead of declared fields.
+    Pydantic reserves ``BaseModel`` members (``model_dump``, ``model_validate``,
+    ``schema``, ``copy``) and leading underscores. Those arguments stay valid
+    for the remote server and are forwarded as extras instead.
     """
     return not name.startswith("_") and not hasattr(BaseModel, name)
 
 
 def _argument_annotation(schema: Any) -> Any:
-    """Map a JSON-Schema property onto the annotation Toolkit validates.
-
-    ``null`` becomes ``Optional`` and a ``type`` list becomes a ``Union`` so
-    arguments the remote schema allows are not rejected locally. Nested shapes
-    stay permissive: the remote server owns their validation, and the model
-    already sees the original schema.
-    """
+    """Map a JSON-Schema property onto the annotation Toolkit validates."""
     if not isinstance(schema, dict):
         return Any
     if schema.get("enum"):
@@ -258,16 +320,7 @@ def _make_handler(spec: McpServerSpec, name: str) -> Callable[..., ToolResult]:
 
 
 async def _list_tools(session: Any) -> list[Any]:
-    """Fetch every page of ``tools/list`` within one request deadline.
-
-    ``tools/list`` returns one page per request; the SDK does not follow
-    ``nextCursor`` for the caller. Toolkit registration and the planner's
-    startup check both need the complete list, so a tool on a later page must
-    not be reported as missing. Each page is bounded by
-    ``MCP_CALL_TIMEOUT_S``, and that deadline also bounds the whole exchange:
-    a server that keeps returning new cursors cannot hold start-up. A repeated
-    cursor is treated as the end of the list.
-    """
+    """Fetch every page of ``tools/list`` within one request deadline."""
     deadline = call_timeout_s()
 
     async def collect() -> list[Any]:
@@ -293,22 +346,6 @@ def list_remote_tools(spec: McpServerSpec) -> list[Any]:
     return _run_remote(spec, _list_tools)
 
 
-async def list_remote_tools_async(spec: McpServerSpec) -> list[Any]:
-    """Async form of :func:`list_remote_tools` for the planner."""
-    return await run_remote(spec, _list_tools)
-
-
-async def call_remote_tool_async(
-    spec: McpServerSpec, name: str, arguments: dict[str, Any]
-) -> Any:
-    """Call one remote tool from an event loop and return the MCP result."""
-
-    async def call(session: Any) -> Any:
-        return await session.call_tool(name, arguments)
-
-    return await run_remote(spec, call)
-
-
 def _call_remote_tool(spec: McpServerSpec, name: str, arguments: dict[str, Any]) -> Any:
     """Call one remote tool and return the MCP result object."""
 
@@ -319,14 +356,7 @@ def _call_remote_tool(spec: McpServerSpec, name: str, arguments: dict[str, Any])
 
 
 def _mcp_client() -> tuple[Any, Any]:
-    """Import the MCP client lazily, so importing ``rpent`` stays light.
-
-    ``mcp`` is a core dependency; this is an import-cost choice, not an
-    optional install. ``streamablehttp_client`` is the SDK's deprecated
-    spelling; its replacement, ``streamable_http_client``, takes headers only
-    through a pre-built ``httpx.AsyncClient`` and drops ``sse_read_timeout``,
-    so the idle-event-stream guard would need a hand-rolled client here.
-    """
+    """Import the MCP client lazily so importing ``rpent`` stays light."""
     from mcp import ClientSession
     from mcp.client.streamable_http import streamablehttp_client
 
@@ -334,13 +364,7 @@ def _mcp_client() -> tuple[Any, Any]:
 
 
 def call_timeout_s() -> float:
-    """Return the response deadline for one MCP request.
-
-    The HTTP transport's connect timeout and the SSE idle read timeout do not
-    bound a request: a server that keeps sending keep-alives, or that ends the
-    event stream without an event id, leaves the pending request open forever.
-    The session deadline is what makes cancellation and cleanup terminate.
-    """
+    """Return the response deadline for one MCP request."""
     raw = os.environ.get("MCP_CALL_TIMEOUT_S")
     if raw is None:
         return DEFAULT_CALL_TIMEOUT_S
@@ -356,12 +380,7 @@ def call_timeout_s() -> float:
 
 
 def _exception_group_types() -> tuple[type[BaseException], ...]:
-    """Return the exception-group types task groups raise on this Python.
-
-    ``BaseExceptionGroup`` is a builtin from Python 3.11. On Python 3.10 the
-    transports raise the ``exceptiongroup`` backport bundled with anyio, so
-    the builtin name alone would not match — or even exist.
-    """
+    """Return the exception-group types task groups raise on this Python."""
     builtin_group = getattr(builtins, "BaseExceptionGroup", None)
     if builtin_group is not None:
         return (builtin_group,)
@@ -376,71 +395,87 @@ _EXCEPTION_GROUP_TYPES = _exception_group_types()
 
 
 def _leaf_error(exc: BaseException) -> BaseException:
-    """Return the single exception wrapped by transport task groups.
-
-    Closing the SDK's transport after a failed request wraps the real error in
-    nested ``ExceptionGroup``s. Unwrapping a single-cause group keeps the
-    message the model and the planner error report show (a timeout, a refused
-    connection) instead of ``unhandled errors in a TaskGroup``.
-    """
+    """Unwrap single-cause transport ``ExceptionGroup`` wrappers."""
     while isinstance(exc, _EXCEPTION_GROUP_TYPES) and len(exc.exceptions) == 1:
         exc = exc.exceptions[0]
     return exc
 
 
 async def run_remote(
-    spec: McpServerSpec, action: Callable[[Any], Awaitable[Any]]
+    spec: McpServerSpec,
+    action: Callable[[Any], Awaitable[Any]],
+    *,
+    operation: _ToolOperation | None = None,
 ) -> Any:
-    """Run one action on a fresh MCP session.
+    """Run one action on a fresh MCP session with timeout and cancellation.
 
-    Each call opens its own session and bounds every request — ``initialize``,
-    ``tools/list``, and ``tools/call`` — by ``MCP_CALL_TIMEOUT_S`` (60 seconds
-    by default). Toolkit cancellation is cooperative and the handler has no
-    checkpoint while the remote call is in flight, so this deadline is also
-    the bound on how long ``Toolkit.cancel_active_and_wait`` waits for an
-    registered tool.
-
-    The session is closed without terminating it on the server. The transport's
-    ``DELETE`` handshake waits for the server to finish the in-flight request,
-    so a server that streams a tool's response for its whole runtime would hold
-    a timed-out call for that runtime — the deadline would bound the error
-    message but not the call. RPent never reuses a session, and servers expire
-    idle ones on their own.
-
-    The transports close a failed session inside an anyio task group, which
-    reports the real error as a nested ``ExceptionGroup``; it is unwrapped here
-    so callers see the timeout or refused connection instead of the group.
+    Each call opens its own session and bounds ``initialize``, ``tools/list``,
+    and ``tools/call`` by ``MCP_CALL_TIMEOUT_S`` (60 seconds by default). The
+    session closes with ``terminate_on_close=False`` so timed-out or cancelled
+    calls return immediately instead of waiting on a remote ``DELETE``
+    handshake. When ``operation`` is provided, ``Toolkit.cancel_active_and_wait``
+    cancels the active asyncio task immediately.
     """
+    if operation is not None and operation.cancel_event.is_set():
+        raise ToolCancelled("tool operation interrupted")
+
     ClientSession, streamablehttp_client = _mcp_client()
-    headers = request_headers(spec) or None
+    headers = dict(spec.headers) or None
     timeout = timedelta(seconds=call_timeout_s())
+    # Keep the HTTP read timeout slightly above ClientSession's deadline so
+    # ClientSession raises a single timeout error instead of racing with
+    # httpx.ReadTimeout inside anyio's TaskGroup, while allowing
+    # MCP_CALL_TIMEOUT_S values above mcp's 300 s default.
+    sse_read_timeout = timeout + timedelta(seconds=5)
+
+    loop = asyncio.get_running_loop()
+    task = asyncio.current_task(loop)
+    unregister: Callable[[], None] | None = None
+    if operation is not None and task is not None:
+
+        def _request_cancel() -> None:
+            with contextlib.suppress(RuntimeError):
+                loop.call_soon_threadsafe(task.cancel)
+
+        unregister = operation.on_cancel(_request_cancel)
+
     try:
         async with streamablehttp_client(
-            spec.url, headers=headers, terminate_on_close=False
-        ) as (
-            read,
-            write,
-            _,
-        ):
+            spec.url,
+            headers=headers,
+            timeout=timeout,
+            sse_read_timeout=sse_read_timeout,
+            terminate_on_close=False,
+        ) as (read, write, _):
             async with ClientSession(
                 read, write, read_timeout_seconds=timeout
             ) as session:
                 await session.initialize()
                 return await action(session)
+    except asyncio.CancelledError:
+        if operation is not None and operation.cancel_event.is_set():
+            raise ToolCancelled("tool operation interrupted") from None
+        raise
     except _EXCEPTION_GROUP_TYPES as exc:
+        if operation is not None and operation.cancel_event.is_set():
+            raise ToolCancelled("tool operation interrupted") from None
         raise _leaf_error(exc) from None
+    finally:
+        if unregister is not None:
+            unregister()
 
 
 def _run_remote(spec: McpServerSpec, action: Callable[[Any], Awaitable[Any]]) -> Any:
     """Run :func:`run_remote` to completion from synchronous toolkit code.
 
-    Tool handlers execute on planner worker threads, where ``asyncio.run`` is
-    safe. If a handler is ever invoked from a thread that already owns a loop,
-    the action runs on a short-lived helper thread instead of failing.
+    Captures the active :class:`_ToolOperation` before running (including when
+    marshalled to a helper thread from an already-running event loop) so
+    cancellation interrupts in-flight requests cleanly.
     """
+    operation = current_tool_operation()
 
     def run() -> Any:
-        return asyncio.run(run_remote(spec, action))
+        return asyncio.run(run_remote(spec, action, operation=operation))
 
     try:
         asyncio.get_running_loop()
@@ -464,14 +499,7 @@ def _run_remote(spec: McpServerSpec, action: Callable[[Any], Awaitable[Any]]) ->
 
 
 def result_images(result: Any) -> list[bytes]:
-    """Decode PNG image blocks into RPent's image payload.
-
-    RPent's planners advertise ``ToolResult.images`` as PNG, so only
-    ``image/png`` blocks are forwarded as native images. Line breaks are
-    removed before decoding; a payload that is still not valid base64 is
-    dropped instead of failing the whole call, so the text of the same result
-    still reaches the model.
-    """
+    """Decode ``image/png`` blocks into RPent's image payload."""
     images: list[bytes] = []
     for block in result.content or []:
         if (
@@ -488,22 +516,7 @@ def result_images(result: Any) -> list[bytes]:
 
 
 def cap_result_text(text: str, limit: int = MAX_TOOL_TEXT_BYTES) -> str:
-    """Bound one external text part the way local tools bound their payloads.
-
-    Local results reach the model through ``ToolResult.to_text``, which encodes
-    ASCII-only, so its limit is both characters and bytes. External text is not
-    encoded, so the cap applies to the UTF-8 bytes; otherwise non-ASCII text
-    could grow several times larger than the local bound. Without the cap one
-    verbose server can exceed the model context and leave the transcript and
-    Dashboard payloads unbounded.
-
-    Args:
-        text: The text to bound.
-        limit: UTF-8 bytes this part may use. A caller forwarding several parts
-            of one result passes what the earlier parts left of the limit, so
-            the result is bounded as a whole; the transcript path caps each
-            part on its own.
-    """
+    """Bound an external text payload to ``limit`` UTF-8 bytes."""
     encoded = text.encode("utf-8")
     if len(encoded) <= limit:
         return text
@@ -523,10 +536,8 @@ def _bounded_json(value: Any) -> Any:
 
 
 def _block_metadata(block: Any) -> dict[str, Any]:
-    """Describe a result block RPent does not forward, without its payload."""
+    """Describe a non-forwarded result block without its raw payload."""
     metadata = block.model_dump(mode="json", exclude_none=True)
-    # ``data`` (image, audio), ``blob`` (binary resource), and ``text`` (text
-    # resource) are the payloads that were not forwarded.
     for mapping in (metadata, metadata.get("resource")):
         if isinstance(mapping, dict):
             for key in ("data", "blob", "text"):
@@ -536,18 +547,7 @@ def _block_metadata(block: Any) -> dict[str, Any]:
 
 
 def result_payload(result: Any) -> dict[str, Any]:
-    """Render an MCP tool result as RPent's serializable result dict.
-
-    Text and PNG images are the content RPent forwards; PNG blocks travel
-    through ``ToolResult.images``. Every other block keeps only its metadata:
-    its body (base64 data, or a resource's text) would otherwise reach the
-    model as truncated text, and pydantic URL objects would break trajectory
-    serialization.
-
-    The payload is what a Toolkit tool returns, and the Toolkit records it in
-    the trajectory and the Dashboard, so text and structured content are
-    bounded here: a remote server must not decide how much RPent persists.
-    """
+    """Render an MCP tool result as RPent's bounded, serializable result dict."""
     texts: list[str] = []
     blocks: list[dict[str, Any]] = []
     for block in result.content or []:
@@ -567,8 +567,6 @@ def result_payload(result: Any) -> dict[str, Any]:
     if result.structuredContent is not None:
         payload["structured_content"] = _bounded_json(result.structuredContent)
     if result.isError:
-        # The planner raises this text as a retry and the transcript records
-        # it, so it needs the same bound as forwarded text.
         payload["error"] = cap_result_text(
             payload.get("text") or "MCP tool reported an error"
         )

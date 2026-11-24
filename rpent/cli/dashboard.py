@@ -37,7 +37,6 @@ from rpent.evaluation import RunFinalizationContext
 from rpent.memory import MemoryManager
 from rpent.planner.base import (
     build_planner,
-    check_planner_mcp_support,
     is_recoverable_agent_error,
 )
 from rpent.robots import get_toolkit
@@ -64,13 +63,6 @@ def run_dashboard_session(
     parser: argparse.ArgumentParser,
 ) -> int:
     """Run one long-lived Dashboard Session with sequential fresh TaskRuns."""
-    # A shared config is loaded once for the whole session, so reject a planner
-    # that cannot attach its servers here instead of failing every task.
-    unsupported = check_planner_mcp_support(
-        args.planner, getattr(args, "shared_mcp_servers", ())
-    )
-    if unsupported:
-        parser.error(unsupported)
     if robot_spec.resolve_dashboard is None:
         parser.error(f"robot {robot_spec.name!r} does not support Dashboard control")
     try:
@@ -226,9 +218,6 @@ def _run_dashboard_task(
         robot_spec.parse_config(task_args),
         getattr(task_args, "shared_mcp_servers", ()),
     )
-    unsupported = check_planner_mcp_support(task_args.planner, run_config.mcp_servers)
-    if unsupported:
-        raise ValueError(unsupported)
     from rpent.memory.loading import prepare_run_memory
 
     prepare_run_memory(task_args, robot_spec, run_config)
@@ -370,7 +359,6 @@ def _run_dashboard_task(
                         claude_code_max_budget_usd=args.claude_code_max_budget_usd,
                         dashboard_events=state,
                         no_images=args.no_images,
-                        mcp_servers=run_config.mcp_servers,
                     )
                     result = planner.solve(
                         system_prompt=system_prompt,

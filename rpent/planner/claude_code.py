@@ -31,7 +31,7 @@ import queue
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import Any
 from uuid import uuid4
 
 from rpent.dashboard.events import (
@@ -48,9 +48,8 @@ from rpent.planner.base import (
     _wait_for_cleanup,
     add_mcp_prefix,
     cancel_and_wait,
-    check_planner_mcp_servers,
-    display_tool_name,
     execute_tool,
+    strip_mcp_prefix,
 )
 from rpent.planner.check import redact_secrets
 from rpent.planner.utils.agent_runtime import AgentArtifacts, short_json, write_jsonl
@@ -63,11 +62,7 @@ from rpent.session.env_capture import ToolCallCapture
 from rpent.tools import Toolkit, ToolResult
 from rpent.utils.config import get_repo_root
 from rpent.utils.logging import get_logger, init_output_dir
-from rpent.utils.mcp_servers import ALL_TOOLS, RPENT_SERVER_NAME
 from rpent.utils.templates import substitute
-
-if TYPE_CHECKING:
-    from rpent.utils.mcp_servers import McpServerSpec
 
 logger = get_logger("claude")
 
@@ -94,7 +89,6 @@ class ClaudeCodePlanner(Planner):
         extra_dirs: list[str] | None = None,
         output_path: str | Path | None = None,
         reasoning_effort: str = "none",
-        mcp_servers: tuple["McpServerSpec", ...] = (),
     ):
         """Initialize the Claude Agent SDK backend."""
         self._output_dir = str(output_dir)
@@ -106,7 +100,6 @@ class ClaudeCodePlanner(Planner):
         self._extra_dirs = extra_dirs or []
         self._output_path = Path(output_path) if output_path else None
         self._dashboard_events = dashboard_events
-        self._mcp_servers = mcp_servers
         if reasoning_effort not in REASONING_EFFORTS:
             raise ValueError(f"unsupported reasoning effort: {reasoning_effort}")
         self._reasoning_effort = reasoning_effort
@@ -126,8 +119,6 @@ class ClaudeCodePlanner(Planner):
             raise ValueError(
                 "input_queue and dashboard_interaction cannot be used together"
             )
-        if error := check_planner_mcp_servers(self._mcp_servers):
-            return PlannerResult(error=error, stop_reason="planner_error")
         prompt = f"{system_prompt}\n\n{user_message}" if system_prompt else user_message
         return asyncio.run(
             self._solve_async(
@@ -278,8 +269,6 @@ class ClaudeCodePlanner(Planner):
         allowed.extend(
             add_mcp_prefix(declaration.name) for declaration in toolkit.list_tools()
         )
-        external_servers, external_allowed = _external_mcp_config(self._mcp_servers)
-        allowed.extend(external_allowed)
 
         thinking = {"type": "disabled"} if self._reasoning_effort == "none" else None
         effort = None if self._reasoning_effort == "none" else self._reasoning_effort
@@ -292,13 +281,12 @@ class ClaudeCodePlanner(Planner):
             tools=builtins or None,
             allowed_tools=list(dict.fromkeys(allowed)),
             mcp_servers={
-                RPENT_SERVER_NAME: _build_rpent_server(
+                "rpent": _build_rpent_server(
                     sdk,
                     toolkit=toolkit,
                     on_tool_result=on_tool_result,
                     run_id=run_id,
                 ),
-                **external_servers,
             },
             add_dirs=[self._output_dir, *self._extra_dirs],
             # Ignore user/project .claude configuration; RPent owns the loop.
@@ -537,7 +525,7 @@ class _Recorder:
                     )
             elif block_kind == "ToolUseBlock":
                 tool_id = str(get_field(block, "id", ""))
-                name = display_tool_name(str(get_field(block, "name", "tool")))
+                name = strip_mcp_prefix(str(get_field(block, "name", "tool")))
                 self.tool_names[tool_id] = name
                 tool_input = get_field(block, "input", {}) or {}
                 lines.append(f"[tool->] {name}: {short_json(tool_input, limit=500)}\n")
@@ -659,49 +647,6 @@ class _Recorder:
 # ---------------------------------------------------------------------------
 
 
-def _external_mcp_config(
-    mcp_servers: tuple["McpServerSpec", ...],
-) -> tuple[dict[str, Any], list[str]]:
-    """Render MCP servers attached to the planner for the SDK and its allowlist.
-
-    Each spec becomes an SDK streamable-HTTP entry. ``allowed_tools`` is an
-    allowlist, so every tool the model may call must be named: a spec that
-    lists ``planner_tools`` yields ``mcp__<server>__<tool>`` per name; a spec
-    that admits all tools yields the server-level ``mcp__<server>`` rule. A
-    server with ``planner_tools`` unset is registered by the robot's Toolkit
-    and is skipped here. The SDK still mounts the whole server, so the
-    list controls auto-approval, not what the model can see; use one server
-    entry per permission boundary when that distinction matters.
-
-    The SDK serializes these entries onto the ``claude`` child process's
-    command line, where other local users can read them. Env-backed headers
-    therefore carry only ``${VAR}``: the CLI, which inherits RPent's
-    environment, expands the value after the command line is parsed.
-
-    Returns:
-        ``(mcp_servers_entries, allowed_tool_names)``.
-    """
-    servers: dict[str, Any] = {}
-    allowed: list[str] = []
-    for server in mcp_servers:
-        if server.planner_tools is None:
-            continue
-        entry: dict[str, Any] = {"type": "http", "url": server.url}
-        headers = dict(server.headers)
-        for name, env_name in server.env_http_headers.items():
-            headers[name] = f"${{{env_name}}}"
-        if headers:
-            entry["headers"] = headers
-        servers[server.name] = entry
-        if server.planner_tools == ALL_TOOLS:
-            allowed.append(f"mcp__{server.name}")
-        else:
-            allowed.extend(
-                f"mcp__{server.name}__{tool}" for tool in server.planner_tools
-            )
-    return servers, allowed
-
-
 def _build_rpent_server(
     sdk: Any,
     *,
@@ -742,9 +687,7 @@ def _build_rpent_server(
         run_tool.__name__ = f"rpent_{name}"
         sdk_tools.append(sdk.tool(name, description, input_schema)(run_tool))
 
-    server = sdk.create_sdk_mcp_server(
-        name=RPENT_SERVER_NAME, version="0.1.0", tools=sdk_tools
-    )
+    server = sdk.create_sdk_mcp_server(name="rpent", version="0.1.0", tools=sdk_tools)
     return server
 
 

@@ -72,5 +72,9 @@ def get_robot_spec(name: str) -> RobotSpec:
 
 
 def get_toolkit(name: str, **kwargs) -> Toolkit:
-    """Build the robot toolkit (common tools + robot-specific tools)."""
-    return _resolve_robot(name).get_toolkit(**kwargs)
+    """Build the robot toolkit and attach configured external MCP servers."""
+    toolkit = _resolve_robot(name).get_toolkit(**kwargs)
+    config = kwargs.get("config")
+    if config is not None and config.mcp_servers:
+        toolkit.add_mcp_servers(config.mcp_servers)
+    return toolkit

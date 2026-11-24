@@ -1200,20 +1200,23 @@ def test_shared_mcp_servers_reject_collision_with_robot_config(tmp_path: Path) -
         cli._with_shared_mcp_servers(run_config, shared)
 
 
-def test_cli_rejects_planner_servers_for_a_backend_that_cannot_attach_them(
+def test_cli_loads_mcp_config_and_merges_with_robot_servers(
     monkeypatch: pytest.MonkeyPatch,
-    capsys: pytest.CaptureFixture[str],
     tmp_path: Path,
 ) -> None:
     cli = _cli_module()
-
-    started = False
+    shared = tmp_path / "mcp.yaml"
+    shared.write_text(
+        "mcp_servers:\n"
+        "  power:\n"
+        "    url: http://127.0.0.1:8765/mcp\n"
+        "    tools: [read_power_meter]\n"
+    )
+    captured_configs: list[RunConfig] = []
 
     def add_cli_args(parser, use_dashboard: bool) -> None:
         del use_dashboard
         parser.add_argument("--suite", default="s")
-        parser.add_argument("--task", type=int, default=0)
-        parser.add_argument("--seed", type=int, default=0)
 
     def parse_config(args) -> RunConfig:
         del args
@@ -1222,21 +1225,16 @@ def test_cli_rejects_planner_servers_for_a_backend_that_cannot_attach_them(
             output_dir=tmp_path / "out",
             prompt_vars={},
             task_desc={},
-            mcp_servers=(
-                McpServerSpec(
-                    name="power",
-                    url="https://power.example/mcp",
-                    planner_tools=("read_power_meter",),
-                ),
-            ),
+            mcp_servers=(McpServerSpec(name="dock", url="http://127.0.0.1:8766/mcp"),),
         )
 
-    def init_runtime(*args: Any) -> tuple[list[Any], dict[str, Any]]:
-        nonlocal started
-        started = True
-        return [], {}
+    def fake_get_toolkit(name: str, **kwargs: Any) -> Any:
+        del name
+        captured_configs.append(kwargs["config"])
+        raise RuntimeError("stop after toolkit capture")
 
     monkeypatch.setattr(cli, "enumerate_robots", lambda: ("libero",))
+    monkeypatch.setattr(cli, "get_toolkit", fake_get_toolkit)
     monkeypatch.setattr(
         cli,
         "get_robot_spec",
@@ -1244,67 +1242,13 @@ def test_cli_rejects_planner_servers_for_a_backend_that_cannot_attach_them(
             name=name,
             add_cli_args=add_cli_args,
             parse_config=parse_config,
-            init_runtime=init_runtime,
-            run_flash=object(),
+            init_runtime=lambda *args: ([], {}),
+            prepare_memory=None,
+            prepare_prompt_vars=None,
+            prompts=SimpleNamespace(render=lambda *args, **kwargs: "prompt"),
             validate_args=None,
             resolve_dashboard=None,
-            supports_exploration=False,
-            supports_human_interactive_exploration=False,
-            is_real_robot=False,
-        ),
-    )
-    monkeypatch.setattr(
-        sys,
-        "argv",
-        ["rpent", "--robot", "libero", "--planner", "flash", "--suite", "s"],
-    )
-
-    with pytest.raises(SystemExit) as exc:
-        cli.main()
-
-    assert exc.value.code == 2
-    assert "flash cannot attach external MCP servers" in capsys.readouterr().err
-    assert started is False
-
-
-def test_dashboard_rejects_shared_planner_servers_before_starting(
-    monkeypatch: pytest.MonkeyPatch,
-    capsys: pytest.CaptureFixture[str],
-    tmp_path: Path,
-) -> None:
-    cli = _cli_module()
-
-    shared = tmp_path / "mcp.yaml"
-    shared.write_text(
-        "mcp_servers:\n"
-        "  power:\n"
-        "    url: https://power.example/mcp\n"
-        "    planner_tools: [read_power_meter]\n"
-    )
-    resolved = False
-
-    def resolve_dashboard(args):
-        nonlocal resolved
-        resolved = True
-        return {"runtime_components": []}
-
-    monkeypatch.setattr(cli, "enumerate_robots", lambda: ("libero",))
-    monkeypatch.setattr(
-        cli,
-        "get_robot_spec",
-        lambda name: SimpleNamespace(
-            name=name,
-            add_cli_args=lambda parser, use_dashboard: None,
-            parse_config=lambda args: RunConfig(
-                recipe_tag="run",
-                output_dir=tmp_path / "out",
-                prompt_vars={},
-                task_desc={},
-            ),
-            init_runtime=lambda *args: ([], {}),
-            run_flash=object(),
-            validate_args=None,
-            resolve_dashboard=resolve_dashboard,
+            finalize_run=None,
             supports_exploration=False,
             supports_human_interactive_exploration=False,
             is_real_robot=False,
@@ -1318,20 +1262,18 @@ def test_dashboard_rejects_shared_planner_servers_before_starting(
             "--robot",
             "libero",
             "--planner",
-            "flash",
-            "--dashboard",
+            "gemini_cli",
+            "--memory-profile",
+            "local",
             "--mcp-config",
             str(shared),
         ],
     )
 
-    with pytest.raises(SystemExit) as exc:
-        cli.main()
-
-    assert exc.value.code == 2
-    assert "flash cannot attach external MCP servers" in capsys.readouterr().err
-    # The session must not start only to fail every task with the same error.
-    assert resolved is False
+    assert cli.main() == 1
+    assert len(captured_configs) == 1
+    assert [spec.name for spec in captured_configs[0].mcp_servers] == ["dock", "power"]
+    assert captured_configs[0].mcp_servers[1].tools == ("read_power_meter",)
 
 
 def test_cli_rejects_a_missing_mcp_config(

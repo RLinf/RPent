@@ -70,11 +70,10 @@ def task_config_snapshot(
     """Build the task record's config payload for one run.
 
     The payload is written to ``task.json`` and the Dashboard task record, so
-    MCP header values are replaced with a placeholder: parsing resolves
-    ``${oc.env:...}`` in ``headers``, and the result may be a credential.
-    Header names, URLs, and ``planner_tools`` are kept. Empty server lists are
-    omitted, so a run that configures no external MCP servers records no
-    server fields.
+    MCP header values and URL queries/fragments are replaced with a
+    placeholder. Server names, sanitized URLs, ``tools``, and
+    ``sync_with_robot`` are kept. Empty server lists are omitted, so a run
+    without external MCP servers records no server fields.
     """
     config = dict(arguments)
     shared_servers = [

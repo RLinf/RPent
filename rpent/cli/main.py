@@ -59,7 +59,6 @@ from rpent.planner.base import (
     CODEX_SANDBOX_CHOICES,
     REASONING_EFFORTS,
     build_planner,
-    check_planner_mcp_support,
     is_recoverable_agent_error,
 )
 from rpent.planner.check import EXTERNALLY_CONFIGURED_PLANNERS
@@ -216,10 +215,8 @@ def _build_argparser() -> argparse.ArgumentParser:
     ap.add_argument(
         "--mcp-config",
         default=None,
-        help="Path to a shared MCP config YAML. Its mcp_servers section is "
-        "merged into every run; servers that set planner_tools are attached "
-        "to the planner, and the rest are left for the robot's toolkit to "
-        "register with Toolkit.add_mcp_tools.",
+        help="Path to an MCP config YAML file. Its mcp_servers section is "
+        "registered on the robot's toolkit for every run.",
     )
 
     # other config
@@ -366,7 +363,6 @@ def _start_continuation_session(
     prompt_vars,
     session_number: int,
     session_max: int,
-    mcp_servers=(),
 ):
     """Build a fresh planner and prompts for an exploration handoff."""
     logger.info("=== handing off to agent %d/%d ===", session_number, session_max)
@@ -385,7 +381,6 @@ def _start_continuation_session(
         dashboard_events=dashboard_events,
         no_images=args.no_images,
         interactive=args.tui,
-        mcp_servers=mcp_servers,
     )
     system_prompt = prompt_bundle.render(
         "system",
@@ -534,12 +529,6 @@ def main() -> int:
         )
     except (OSError, ValueError) as exc:
         parser.error(str(exc))
-    # Reject a backend that cannot attach these servers before the runtime
-    # starts; the planner would otherwise report it only after the environment
-    # and model services are up.
-    unsupported = check_planner_mcp_support(args.planner, run_config.mcp_servers)
-    if unsupported:
-        parser.error(unsupported)
     recipe_tag = run_config.recipe_tag
     output_dir = run_config.output_dir
     prompt_vars = run_config.prompt_vars
@@ -571,7 +560,6 @@ def main() -> int:
         dashboard_events=dashboard_events,
         no_images=args.no_images,
         interactive=args.tui,
-        mcp_servers=run_config.mcp_servers,
     )
     prompt_bundle = robot_spec.prompts
     prompt_vars = {**prompt_vars, "output_dir": output_dir}
@@ -691,7 +679,6 @@ def main() -> int:
                     prompt_vars=prompt_vars,
                     session_number=session_number,
                     session_max=sessions,
-                    mcp_servers=run_config.mcp_servers,
                 )
             state_output_dir = output_dir
             if getattr(args, "explore", False):

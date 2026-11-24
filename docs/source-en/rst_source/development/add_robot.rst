@@ -338,12 +338,18 @@ filenames rather than maintaining a parallel observation index.
 the toolkit passes verbatim to your primitives' ``__init__`` — typically
 ``{"env": MyEnvClient(...), "model": VLAClient(...), ...}``.
 
-If the control loop must coordinate with a device exposed by an MCP server,
-register the selected tools on the Toolkit instead of attaching the server to a
-planner. Tools served through the planner bypass the Toolkit's execution
-ordering and observation capture, which a coordinated device needs.
-``get_toolkit`` receives the run's ``config``, so it can register tools from both
-shared and robot servers:
+External MCP Tools
+~~~~~~~~~~~~~~~~~~
+
+RPent automatically registers external MCP servers from ``--mcp-config`` and
+``RunConfig.mcp_servers`` on the returned ``Toolkit`` under
+``<server>__<tool>`` names (see :ref:`external-mcp-servers`). Every online
+planner (``api``, ``claude_code``, ``codex``, and ``gemini_cli``) exposes those
+tools through the same ``Toolkit`` bridge.
+
+When a robot integration needs programmatic control over specific servers—for
+example, to pin a subset of tools or force ``sync_with_robot=True`` inside
+``get_toolkit``—call :meth:`~rpent.tools.toolkit.Toolkit.add_mcp_tools`:
 
 .. code-block:: python
 
@@ -355,48 +361,17 @@ shared and robot servers:
                root=config.prompt_vars.get("memory_dir") or get_memory_dir("myrobot"),
            ),
        )
-       # power is declared in the shared MCP config and must provide these
-       # names, or toolkit construction raises ValueError before the first call.
        toolkit.add_mcp_tools(
            config.mcp_servers,
-           tools={"power": ["set_charging_dock", "read_battery"]},
+           tools={"dock": ["set_charging_dock", "read_battery"]},
+           sync_with_robot=True,
        )
        return toolkit
 
-Registration lists the server's tools when the toolkit is built, so the server
-must be reachable then; a name it does not provide raises ``ValueError`` before
-the first call. Remote input schemas keep their shape, but their text goes
-through the same ``{{...}}`` substitution as locally declared tools.
-Registered tools run exclusively and take part in observation capture like local
-tools; the server's ``readOnlyHint`` is not trusted for this, because ordering
-the tool with robot actions is the reason to register it. ``claude_code`` and
-``codex`` show them as ``mcp__rpent__<name>``; ``api`` uses their own names.
-Tools that need no coordination belong under ``planner_tools``; see
-:ref:`external-mcp-servers`. A server that only the Toolkit uses leaves
-``planner_tools`` unset, which keeps it out of the planner, including its
-startup check.
-
-As with local action tools, a successful call returns the captured observation
-rather than the remote payload. Surface anything the model must see through
-``get_env_state``; a failed call still merges the server's error into that
-observation. The ``api`` planner returns an error from a ``planner_tools`` call
-as a retryable tool error instead. MCP does not distinguish argument errors
-from device faults, so a call that is not safe to repeat belongs here.
-
-One server can supply both the planner and the Toolkit: list the independent
-tools under ``planner_tools`` and register the coordinated ones here. A tool can
-be attached in only one place; registering a name that ``planner_tools`` also
-attaches raises ``ValueError``. ``claude_code`` mounts every planner-attached
-server whole, so keep servers that carry coordinated tools out of
-``planner_tools`` entirely (:ref:`external-mcp-servers`).
-
-The MCP client behind Toolkit registration adds two limits:
-
-- A registered call runs synchronously and cannot be cancelled mid-flight.
-  Cancelling a run waits for the call, bounded by the request deadline; see
-  :ref:`external-mcp-servers`.
-- Only ``image/png`` blocks become native images. Other block types arrive as
-  metadata without their payload.
+Servers registered explicitly through ``add_mcp_tools`` are skipped by automatic
+attachment so they are never duplicated. Setting ``sync_with_robot=True``
+serializes calls against robot actions, runs ``get_env_state``, and preserves
+the remote response under ``tool_result``.
 
 Conventions Worth Keeping
 -------------------------
@@ -444,14 +419,11 @@ validates those fields and returns a
 - ``task_desc`` — robot-specific dict of task-identifying fields, written into
   the transcript JSON record verbatim (LIBERO:
   ``{"suite": ..., "task": ..., "seed": ...}``).
-- ``mcp_servers`` — optional tuple of MCP servers this robot contributes,
-  parsed from the robot config's ``mcp_servers`` section with
-  :func:`~rpent.utils.mcp_servers.parse_mcp_servers`. The CLI merges in the
-  shared MCP config, so leave it empty when the robot owns none. Server names
-  must be unique across the shared and robot configs.
-  Only specs with ``planner_tools`` reach a planner; coordination-dependent
-  tools are registered through
-  :meth:`~rpent.tools.toolkit.Toolkit.add_mcp_tools`. See
+- ``mcp_servers`` — optional tuple of MCP servers this robot contributes
+  (for example, parsed from a robot config file's ``mcp_servers`` section with
+  :func:`~rpent.utils.mcp_servers.parse_mcp_servers`). The CLI merges in
+  servers from ``--mcp-config`` and ``get_toolkit`` registers them on the
+  robot's ``Toolkit``. Server names must be unique across both sources. See
   :ref:`external-mcp-servers`.
 
 .. code-block:: python

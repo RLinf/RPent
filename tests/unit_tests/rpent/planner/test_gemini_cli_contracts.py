@@ -451,31 +451,3 @@ def test_simultaneous_interactive_channels_are_rejected(tmp_path: Path) -> None:
             input_queue=object(),
             dashboard_interaction=object(),
         )
-
-
-def test_external_mcp_servers_end_the_run_instead_of_being_dropped(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    from rpent.utils.mcp_servers import McpServerSpec
-
-    # Nothing may launch the CLI: the run has to stop before the agent starts.
-    monkeypatch.setattr(
-        session_module, "run_agent", Mock(side_effect=AssertionError("launched"))
-    )
-    planner = GeminiCliPlanner(
-        output_dir=str(tmp_path),
-        dashboard_events=NullDashboardEventSink(),
-        mcp_servers=(
-            McpServerSpec(name="web", url="https://web.example/mcp", planner_tools="*"),
-        ),
-    )
-
-    result = planner.solve(
-        system_prompt="",
-        user_message="task",
-        toolkit=Mock(),
-        max_turns=2,
-    )
-
-    assert result.stop_reason == "planner_error"
-    assert result.error is not None and "web" in result.error
