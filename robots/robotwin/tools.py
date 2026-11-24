@@ -380,7 +380,7 @@ def dump_observation(
         for view_name, view in observation["views"].items():
             for field in ("rgb", "depth", "world_xyz", "camera_meta"):
                 if field in view:
-                    env_state.save(
+                    env_state.save_async(
                         _artifact_name(view_name, field),
                         view[field],
                         step=recorded_step,

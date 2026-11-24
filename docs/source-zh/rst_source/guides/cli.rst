@@ -205,6 +205,8 @@ Claude Code 和 Codex 也可复用已有的 CLI 认证。Gemini CLI 使用自身
 
 下表以 LIBERO 为例。实际生成的文件取决于环境、录像和任务运行结果。
 
+LIBERO、RoboCasa365、RoboTwin、RoboDojo 和 RoboLab 在后台写入相机图像和数组。工具在运行中即可读取已采集的观测。直接读取文件的脚本应等本次运行结束，此时后台写入已完成。写入失败会记录在 ``run.log`` 中。
+
 .. list-table::
    :header-rows: 1
 

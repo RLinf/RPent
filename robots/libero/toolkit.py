@@ -70,7 +70,7 @@ class LiberoToolkit(Toolkit):
         if generic_tools and sam3 is None:
             raise ValueError("Generic localization requires a SAM3 client.")
         self._state_output_dir = Path(state_output_dir or get_output_dir())
-        state = EnvState(self._state_output_dir)
+        state = EnvState(self._state_output_dir, async_artifacts=True)
         super().__init__(
             dashboard_events=dashboard_events,
             state=state,
@@ -255,7 +255,7 @@ class LiberoToolkit(Toolkit):
                 frames = self._primitives.frame_slice(frame_start)
                 if frames:
                     candidate = f"action_{command['action']}.mp4"
-                    self._state.save(
+                    self._state.save_async(
                         candidate,
                         frames,
                         step=record.step_idx,

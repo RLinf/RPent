@@ -533,11 +533,11 @@ def dump_state(primitives, state, *, log: dict | None = None, perception=None):
         for camera, artifact in CAMERA_ARTIFACTS:
             color = (vision.get(camera) or {}).get("color")
             if color is not None:
-                if state.save(artifact, color, step=step_idx) is None:
+                if state.save_async(artifact, color, step=step_idx) is None:
                     raise OSError(f"could not save observation artifact: {artifact}")
         for view, fields in views.items():
             for field, value in fields.items():
                 artifact = artifact_name(view, field)
-                if state.save(artifact, value, step=step_idx) is None:
+                if state.save_async(artifact, value, step=step_idx) is None:
                     raise OSError(f"could not save observation artifact: {artifact}")
     return state.get(step_idx)

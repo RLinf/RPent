@@ -410,7 +410,9 @@ class _HarnessToolkit(FunctionToolset):
             state = self.toolkit.state
             record = state.get(step)
             path = state.artifact_path(name, step=record.step_idx)
-            if name not in record.artifacts or not path.is_file():
+            if name not in record.artifacts or not state.exists(
+                name, step=record.step_idx
+            ):
                 raise FileNotFoundError(
                     f"image artifact {name!r} is not available at step {step}"
                 )

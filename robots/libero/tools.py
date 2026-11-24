@@ -892,7 +892,7 @@ class LiberoPrimitives:
                 world_result = _mask_to_world(mask, world_map)
                 world_result["world_artifact"] = world_name
             overlay = _make_segment_overlay(state.load(image_name, step=nn), mask)
-            if overlay is not None and state.save(
+            if overlay is not None and state.save_async(
                 overlay_name,
                 overlay,
                 step=nn,
@@ -1111,7 +1111,7 @@ def _save_observation_artifacts(
     step_idx: int,
     raw: dict[str, Any],
 ) -> None:
-    env_state.save(
+    env_state.save_async(
         "agentview_policy.png",
         primitives._last_obs["main_images"],
         step=step_idx,
@@ -1152,7 +1152,7 @@ def _save_observation_artifacts(
             ci = np.asarray(ci)
             if ci.dtype != np.uint8:
                 ci = ci.astype(np.uint8)
-            env_state.save(
+            env_state.save_async(
                 "agentview.png",
                 ci[::-1],
                 step=step_idx,
@@ -1172,13 +1172,13 @@ def _save_observation_artifacts(
             # Pixels in agentview.png align with agentview_depth.npz and the
             # per-step agentview metadata saved with the record artifacts.
             d = _metric_depth(d, agentview_meta)[::-1]
-            env_state.save(
+            env_state.save_async(
                 "agentview_depth.npz",
                 d.astype(np.float32),
                 step=step_idx,
             )
             world = _world_from_depth(d, agentview_meta).astype(np.float32)
-            env_state.save(
+            env_state.save_async(
                 "agentview_world.npz",
                 world,
                 step=step_idx,
@@ -1195,7 +1195,7 @@ def _save_observation_artifacts(
             wimg = np.asarray(wimg)
             if wimg.dtype != np.uint8:
                 wimg = wimg.astype(np.uint8)
-            env_state.save(
+            env_state.save_async(
                 "wrist.png",
                 wimg[::-1],
                 step=step_idx,
@@ -1219,13 +1219,13 @@ def _save_observation_artifacts(
                 logger.warning("wrist camera meta missing; skipping wrist depth/world")
             else:
                 wdpt_metric = _metric_depth(wdpt_arr, wmeta)[::-1]
-                env_state.save(
+                env_state.save_async(
                     "wrist_depth.npz",
                     wdpt_metric.astype(np.float32),
                     step=step_idx,
                 )
                 world_w = _world_from_depth(wdpt_metric, wmeta).astype(np.float32)
-                env_state.save(
+                env_state.save_async(
                     "wrist_world.npz",
                     world_w,
                     step=step_idx,
@@ -1256,7 +1256,7 @@ def _save_observation_artifacts(
         meta_hi = primitives.env.get_camera_meta("agentview", 1024, 1024)
         if meta_hi is None:
             raise RuntimeError("agentview camera metadata missing")
-        env_state.save(
+        env_state.save_async(
             "agentview_high.png",
             np.asarray(rgb_hi)[::-1],
             step=step_idx,
@@ -1265,7 +1265,7 @@ def _save_observation_artifacts(
             _metric_depth(depth_hi, meta_hi)[::-1],
             meta_hi,
         ).astype(np.float16)
-        env_state.save(
+        env_state.save_async(
             "agentview_world_high.npz",
             world_hi,
             step=step_idx,
@@ -1283,7 +1283,7 @@ def _save_observation_artifacts(
         meta_wrist_hi = primitives.env.get_camera_meta("robot0_eye_in_hand", 1024, 1024)
         if meta_wrist_hi is None:
             raise RuntimeError("robot0_eye_in_hand camera metadata missing")
-        env_state.save(
+        env_state.save_async(
             "wrist_high.png",
             np.asarray(rgb_wrist_hi)[::-1],
             step=step_idx,
@@ -1292,7 +1292,7 @@ def _save_observation_artifacts(
             _metric_depth(depth_wrist_hi, meta_wrist_hi)[::-1],
             meta_wrist_hi,
         ).astype(np.float16)
-        env_state.save(
+        env_state.save_async(
             "wrist_world_high.npz",
             world_wrist_hi,
             step=step_idx,

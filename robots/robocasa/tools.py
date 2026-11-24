@@ -125,9 +125,11 @@ def _save_observation_artifacts(
         ),
     ):
         rgb, depth = env.render_camera(cam, depth=True)
-        env_state.save(image_name, rgb, step=step_idx)
-        env_state.save(depth_name, depth.astype(np.float32), step=step_idx)
-        env_state.save(world_name, env.world_map(cam).astype(np.float32), step=step_idx)
+        env_state.save_async(image_name, rgb, step=step_idx)
+        env_state.save_async(depth_name, depth.astype(np.float32), step=step_idx)
+        env_state.save_async(
+            world_name, env.world_map(cam).astype(np.float32), step=step_idx
+        )
         if cam not in primitives._cam_meta_cache or cam == "wrist":
             primitives._cam_meta_cache[cam] = env.get_camera_meta(cam)
         env_state.save(meta_name, primitives._cam_meta_cache[cam], step=step_idx)
@@ -135,8 +137,8 @@ def _save_observation_artifacts(
     # ---- hi-res agentview (SAM grounding / fine localize) ----
     if hi_res:
         hrgb, _ = env.render_camera("agentview", hi_res, hi_res, depth=True)
-        env_state.save("agentview_high.png", hrgb, step=step_idx)
-        env_state.save(
+        env_state.save_async("agentview_high.png", hrgb, step=step_idx)
+        env_state.save_async(
             "agentview_world_high.npz",
             env.world_map("agentview", hi_res, hi_res).astype(np.float16),
             step=step_idx,
@@ -145,12 +147,12 @@ def _save_observation_artifacts(
     # ---- navview: base-mounted forward-down floor camera (follows the base) ----
     nrgb, _ = env.render_camera("navview", depth=True)
     nworld = env.world_map("navview").astype(np.float32)
-    env_state.save("navview.png", nrgb, step=step_idx)
-    env_state.save("navview_world.npz", nworld, step=step_idx)
+    env_state.save_async("navview.png", nrgb, step=step_idx)
+    env_state.save_async("navview_world.npz", nworld, step=step_idx)
     floor = (nworld[:, :, 2] < 0.12) & (nworld[:, :, 2] > -0.2)
     overlay = nrgb.copy()
     overlay[floor] = [0, 255, 0]
-    env_state.save("navview_floor.png", overlay, step=step_idx)
+    env_state.save_async("navview_floor.png", overlay, step=step_idx)
 
 
 # ---- tool handlers (perception tools read the recorded EnvState) ----

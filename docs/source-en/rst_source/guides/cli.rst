@@ -243,6 +243,11 @@ Output Files
 
 The table uses LIBERO as an example. Files depend on the environment, recording, and run outcome.
 
+LIBERO, RoboCasa365, RoboTwin, RoboDojo, and RoboLab write camera and array
+artifacts in the background. Tools can read the captured observation during
+the run. File-based scripts should read the output after the run ends, when
+pending writes have finished. Write failures are logged in ``run.log``.
+
 .. list-table::
    :header-rows: 1
 

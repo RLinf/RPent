@@ -84,7 +84,9 @@ class RoboDojoToolkit(Toolkit):
         self._attempts_per_session = attempts_per_session
         if eval_fair and not getattr(primitives_kwargs.get("env"), "eval_fair", False):
             raise ValueError("eval-fair requires a mode-validated environment client")
-        state = EnvState(Path(state_output_dir or get_output_dir()))
+        state = EnvState(
+            Path(state_output_dir or get_output_dir()), async_artifacts=True
+        )
         super().__init__(
             dashboard_events=dashboard_events,
             state=state,

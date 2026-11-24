@@ -213,7 +213,7 @@ class DashboardState:
         self._frame_idx = -1
         self.env_state: EnvState | None = None
         self._state_step_offset = 0
-        self._action_video_paths: dict[int, Path] = {}
+        self._action_videos: dict[int, tuple[EnvState, str, int]] = {}
         self._accepting_input = False
         self._planner_activity: PlannerActivity = "starting"
         self._interrupt_requested = False
@@ -717,7 +717,7 @@ class DashboardState:
         self._frame_idx = -1
         self.env_state = None
         self._state_step_offset = 0
-        self._action_video_paths = {}
+        self._action_videos = {}
         self._accepting_input = False
         self._planner_activity = "starting"
         self._interrupt_requested = False
@@ -1055,9 +1055,10 @@ class DashboardState:
         with self._condition:
             self._timeline.append(item)
             if action_video is not None and self.env_state is not None:
-                self._action_video_paths[display_step] = self.env_state.artifact_path(
+                self._action_videos[display_step] = (
+                    self.env_state,
                     action_video,
-                    step=record.step_idx,
+                    record.step_idx,
                 )
             self._terminated = self._terminated or record.terminated
             self._truncated = self._truncated or record.truncated
@@ -1196,8 +1197,14 @@ class DashboardState:
 
     def action_video_path(self, step: int) -> Path | None:
         with self._lock:
-            path = self._action_video_paths.get(int(step))
-        return path if path is not None and path.exists() else None
+            video = self._action_videos.get(int(step))
+        if video is None:
+            return None
+        env_state, name, record_step = video
+        try:
+            return env_state.wait_artifact(name, step=record_step)
+        except FileNotFoundError:
+            return None
 
     def has_video(self) -> bool:
         with self._lock:

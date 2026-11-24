@@ -106,7 +106,9 @@ class RoboTwinToolkit(Toolkit):
     ):
         if mode not in {"evaluation", "exploration"}:
             raise ValueError(f"unsupported RoboTwin toolkit mode: {mode!r}")
-        state = EnvState(Path(state_output_dir or get_output_dir()))
+        state = EnvState(
+            Path(state_output_dir or get_output_dir()), async_artifacts=True
+        )
         super().__init__(
             dashboard_events=dashboard_events,
             state=state,
@@ -300,7 +302,7 @@ class RoboTwinToolkit(Toolkit):
         if self._dashboard_events.enabled:
             frames = self._primitives.frame_slice(frame_start)
             if frames:
-                self._state.save(
+                self._state.save_async(
                     f"action_{command['action']}.mp4",
                     frames,
                     step=record.step_idx,

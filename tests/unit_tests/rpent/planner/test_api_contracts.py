@@ -45,7 +45,7 @@ from pydantic_core import to_jsonable_python
 
 from rpent.dashboard.events import RunStartedEvent, TranscriptEvent, UsageEvent
 from rpent.dashboard.state import DashboardState
-from rpent.planner.api_loop import ApiAgentLoop
+from rpent.planner.api_loop import ApiAgentLoop, _HarnessToolkit
 from rpent.prompt.api import API_PLANNER_INSTRUCTIONS, render_environment_context
 from rpent.session import EnvState, Payload
 from rpent.tools import Toolkit, ToolResult, common
@@ -347,6 +347,29 @@ def image_state(tmp_path):
                 assert state.save(name, image) == name
     assert state.save("notes.json", {"position": 1}, step=0) == "notes.json"
     return state
+
+
+def test_read_image_returns_pending_png(tmp_path, monkeypatch):
+    state = EnvState(tmp_path, async_artifacts=True)
+    release = threading.Event()
+    write = state._write_artifact
+
+    def blocked_write(*args, **kwargs):
+        assert release.wait(timeout=5)
+        write(*args, **kwargs)
+
+    monkeypatch.setattr(state, "_write_artifact", blocked_write)
+    toolkit = SimpleNamespace(toolkit=SimpleNamespace(state=state), no_images=False)
+    try:
+        with state.record_step(state={}):
+            state.save_async("camera.png", np.zeros((4, 4, 3), dtype=np.uint8))
+        assert not state.artifact_path("camera.png").exists()
+        result = _HarnessToolkit._read_image(toolkit, "camera.png", -1)
+        assert result.return_value == {"artifact": "camera.png", "step": 0}
+        assert result.content[0].data == state.load_bytes("camera.png")
+    finally:
+        release.set()
+        state.close_artifacts()
 
 
 @pytest.mark.parametrize("no_images", [False, True])
