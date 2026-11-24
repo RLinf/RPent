@@ -87,7 +87,7 @@ def compile_resolution(
             for override in component.overrides:
                 # Manifests resolve overrides to absolute paths when they are
                 # loaded, so uv's working directory does not matter here.
-                command.extend(["--overrides", str(override)])
+                command.extend(["--override", str(override)])
         # Capture output so a resolution failure reports uv's reason (a missing
         # branch, an unreachable index) instead of only the command line. uv
         # discovers ``[tool.uv]`` from its working directory, so compile in the

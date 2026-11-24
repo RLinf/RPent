@@ -17,8 +17,8 @@
 import argparse
 from pathlib import Path
 
-from rpent.robots.components.fast_wam import USES_SESSIONS as USES_SESSIONS
-from rpent.robots.components.fast_wam.adapter import ADAPTERS as ADAPTERS
+from components.models.fast_wam import USES_SESSIONS as USES_SESSIONS
+from components.models.fast_wam.adapter import ADAPTERS as ADAPTERS
 
 OPTION_FIELDS = ("fast_wam_config", "fast_wam_dataset_stats")
 
@@ -29,7 +29,7 @@ def add_arguments(parser: argparse.ArgumentParser) -> None:
         "For local Fast-WAM deployment; both files below are required.\n"
         "Append to your platform/task/planner command (replace example paths):\n"
         "  --am-backend fast-wam --am-checkpoint /models/fast-wam.pt \\\n"
-        "    --am-python /envs/fast-wam/bin/python \\\n"
+        "    --am-python /installs/profiles/fast-wam/bin/python \\\n"
         "    --fast-wam-config /models/worker.yaml \\\n"
         "    --fast-wam-dataset-stats /models/dataset_stats.json",
     )

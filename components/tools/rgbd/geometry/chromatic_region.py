@@ -27,7 +27,7 @@ from scipy.ndimage import (
     label,
 )
 
-from toolkits.geometry.depth_foreground import local_depth_range
+from components.tools.rgbd.geometry.depth_foreground import local_depth_range
 
 # Hue is cyclic. These are ordinary sRGB hue angles, independent of the camera and object class.
 HUES = {
@@ -45,8 +45,8 @@ HUES = {
 def _rectangular_top(world, valid, mask, up):
     from scipy.spatial import ConvexHull, QhullError
 
-    from toolkits.geometry.geometry import _basis
-    from toolkits.geometry.rgbd_parts import _face
+    from components.tools.rgbd.geometry.geometry import _basis
+    from components.tools.rgbd.geometry.rgbd_parts import _face
 
     cloud = world[valid & mask]
     if len(cloud) < 30:
@@ -108,7 +108,9 @@ def _isolated_contour(cc, areas, jump, optical, valid, world, up):
             if not _rectangular_top(world[roi], valid[roi], mask, up):
                 continue
             if not isolated:
-                from toolkits.geometry.depth_foreground import nearby_support_height
+                from components.tools.rgbd.geometry.depth_foreground import (
+                    nearby_support_height,
+                )
 
                 region = cc == component
                 low, top = np.quantile(world[region] @ up, [0.002, 0.998])
@@ -162,7 +164,7 @@ def _top_footprint(world, valid, mask, up):
     """Rectangularity and side ratio of the resolved top, including its eroded edge."""
     from scipy.spatial import ConvexHull, QhullError
 
-    from toolkits.geometry.geometry import _basis
+    from components.tools.rgbd.geometry.geometry import _basis
 
     levels = world @ up
     top = np.quantile(levels[mask], 0.95)
@@ -208,7 +210,7 @@ def _top_footprint(world, valid, mask, up):
 
 def _has_flat_side(world, mask, up):
     """Distinguish a partly covered cuboid wall from a cut through a round object."""
-    from toolkits.geometry.geometry import _basis
+    from components.tools.rgbd.geometry.geometry import _basis
 
     axes = np.stack(_basis(up), axis=1)
     dr = world[2:, 1:-1] - world[:-2, 1:-1]
@@ -314,7 +316,9 @@ def unique_colored_box(observation, color, *, cube):
         if complete and not cube:
             # A colored stripe on a fixture may intersect a horizontal plane.
             # A freestanding block either occludes its surround or rises from support.
-            from toolkits.geometry.depth_foreground import nearby_support_height
+            from components.tools.rgbd.geometry.depth_foreground import (
+                nearby_support_height,
+            )
 
             isolated = outer.any() and np.quantile(optical[roi][outer], 0.25) > (
                 np.quantile(optical[roi][local], 0.75) + 0.012

@@ -114,7 +114,7 @@
    rpent-install install model-molmo --venv .venv-molmo
    rpent-install install model-openpi --venv .venv-openpi
 
-``infra-minimal`` 是核心环境：只有 RPent 及其自身依赖，不含任何机器人、仿真器或模型包，足以验证 CLI 和机器人发现。``infra-dev`` 再加上测试工具。``infra-unit_cpu`` 在测试工具之外再加一套 CPU Torch 构建的模型依赖，供单元测试使用。机器人环境覆盖受支持的真机和仿真器；平台准备、checkpoint 和资产见各仿真器或机器人页面。``sim-libero_plus`` 替代而不是叠加 ``sim-libero``：LIBERO-plus 要求 robosuite<1.5，两套包不能共用一个环境。
+``infra-minimal`` 是核心环境：只有 RPent 及其自身依赖，不含任何机器人、仿真器或模型包，足以验证 CLI 和机器人发现。``infra-dev`` 再加上测试工具。``infra-unit_cpu`` 在测试工具之外再加一套 CPU Torch 构建的模型依赖，供单元测试使用。机器人环境覆盖受支持的真机和仿真器；平台准备、checkpoint 和资产见各仿真器或机器人页面。``sim-libero_plus`` 替代而不是叠加 ``sim-libero``：LIBERO-plus 要求 robosuite<1.5，两套包不能共用一个环境。plus 环境承载环境服务，机器人侧从 ``robot-libero`` 环境运行并连接它（见 :doc:`../simulators/libero`）。
 
 环境诊断
 --------

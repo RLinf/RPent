@@ -1,0 +1,11 @@
+schema = 2
+name = "model-openpi"
+# The probe names the upstream distribution: the wrapper and RLinf's loader
+# import the Pi0.5 runtime lazily, so importing the wrapper would not prove the
+# packages a run needs are installed.
+probe = "openpi"
+python = ">=3.10,<3.13"
+
+dependencies = [
+  "rpent-openpi @ git+https://github.com/RLinf/openpi.git@a560f4dd8205b8423ecd4c8a0fabb5f54140b8a0",
+]

@@ -3,7 +3,7 @@
 Generic RGB-D Toolkit
 =====================
 
-Register the read-only tools in ``toolkits`` to let a planner look up 3D positions
+Register the read-only tools in ``components/tools/rgbd`` to let a planner look up 3D positions
 at image pixels, segment objects or measure their parts using recorded RGB-D
 observations.
 
@@ -91,7 +91,7 @@ Observation adapters and tool registration
 
 For a simulator or a real robot, implement ``get_observation(camera=..., step=...)``
 on the platform's observation adapter. The method returns a
-``toolkits.observation.GeometryObservation`` containing the RGB image and its
+``components.tools.rgbd.observation.GeometryObservation`` containing the RGB image and its
 3D data for that camera and step. The adapter can supply an
 aligned world XYZ map giving each pixel's surface coordinates in metres, or an
 aligned optical-axis depth map in metres together with the camera intrinsics
@@ -118,8 +118,8 @@ the example also registers ``geometry``.
 
    from functools import partial
 
-   from toolkits.back_project import back_project
-   from toolkits.segment import SegmentTool
+   from components.tools.rgbd.back_project import back_project
+   from components.tools.rgbd.segment import SegmentTool
 
    sample = back_project.with_handler(partial(back_project, observations=observations))
    toolkit.add_tool(sample)
@@ -127,7 +127,7 @@ the example also registers ``geometry``.
    toolkit.add_tool(masks.segment)
 
    if grounder is not None:
-       from toolkits.geometry.geometry_tool import GeometryTool
+       from components.tools.rgbd.geometry.geometry_tool import GeometryTool
 
        geometry = GeometryTool(
            observations=observations, state=state, segmenter=segmenter,

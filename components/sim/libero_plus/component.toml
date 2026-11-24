@@ -1,0 +1,26 @@
+schema = 2
+name = "sim-libero_plus"
+probe = "liberoplus"
+python = ">=3.10,<3.13"
+# LIBERO-plus is a separately packaged fork that RLinf imports as
+# ``liberoplus`` when ``LIBERO_TYPE`` is ``plus``. It replaces the standard and
+# PRO packages: it needs robosuite<1.5, which they cannot share. The
+# environment server and the robot slice are the ones ``sim-libero`` and
+# ``robot-libero`` own, so this component installs packages and no code.
+requires = ["infra-rlinf"]
+env_conflicts = [
+    "sim-libero",
+    "sim-robotwin",
+    "sim-robodojo",
+    "robot-franka",
+    "robot-dual_franka",
+    "robot-robotwin",
+]
+
+dependencies = [
+  "rlinf-liberoplus",
+  # MuJoCo 3.4+ changes LIBERO settling, misplacing objects and reducing
+  # task success; see https://github.com/RLinf/RLinf/issues/1460.
+  "mujoco==3.3.0",
+  "h5py",
+]

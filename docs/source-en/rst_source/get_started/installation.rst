@@ -209,7 +209,9 @@ those tools and a CPU Torch-built model stack for the unit suite. The robot
 environments cover the supported real robots and simulators; see each
 simulator or robot page for platform preparation, checkpoints, and assets.
 ``sim-libero_plus`` replaces ``sim-libero`` rather than adding to it: LIBERO-plus
-needs robosuite<1.5, so the two package sets cannot share an environment.
+needs robosuite<1.5, so the two package sets cannot share an environment. The
+plus environment hosts the environment service; the robot runs from
+``robot-libero`` and connects to it (see :doc:`../simulators/libero`).
 
 Diagnose an environment
 -----------------------

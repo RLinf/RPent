@@ -23,8 +23,8 @@ from types import ModuleType, SimpleNamespace
 import numpy as np
 import pytest
 
-from rpent.robots.components.apxinf_vla_server import ApxInfVLAFacade
-from rpent.robots.components.pi05_vla_client import Pi05VLAClient
+from components.models.apxinf.server import ApxInfVLAFacade
+from components.models.openpi.client import Pi05VLAClient
 from rpent.utils.daemon import pick_free_port
 from rpent.utils.rpc import RpcError, make_rpc_client, wait_for_ready
 
@@ -193,7 +193,7 @@ import rpent
 from rpent.cli.main import _build_argparser
 _build_argparser()
 sys.argv = ["apxinf_vla_server", "--help"]
-runpy.run_module("rpent.robots.components.apxinf_vla_server", run_name="__main__")
+runpy.run_module("components.models.apxinf.server", run_name="__main__")
 """
     result = subprocess.run(
         [sys.executable, "-c", code], capture_output=True, text=True

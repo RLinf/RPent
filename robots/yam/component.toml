@@ -1,0 +1,19 @@
+schema = 2
+name = "robot-yam"
+probe = "robots.yam"
+planner = true
+python = ">=3.11,<3.12"
+# The Pi0.5 policy runs in a separate environment
+# (`rpent-install install model-openpi`); this slice connects to it.
+# RLinf comes from the YAM guide's pinned checkout, whose revision
+# carries `rlinf.envs.real.yam`; the release `infra-rlinf` installs
+# does not. i2rt 1.1.2 requires click<8.2; huggingface-hub 2.x
+# requires click>=8.4.
+
+dependencies = [
+  "huggingface_hub>=0.24,<1",
+  "omegaconf>=2.3,<3",
+  "mujoco>=3.2,<4",
+  "pyrealsense2>=2.55,<3",
+  "imageio-ffmpeg",
+]

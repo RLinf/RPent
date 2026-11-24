@@ -15,7 +15,7 @@
 """Thin client wrapping the Pi0.5 VLA RPC server.
 
 The server lifecycle is the caller's responsibility: bring up
-``rpent.robots.components.pi05_vla_server`` (or any compatible ``vla.predict`` /
+``components.models.openpi.server`` (or any compatible ``vla.predict`` /
 ``healthz`` implementation) before constructing this client.
 
 Embodiment-specific obs encoding is dispatched by the ``_ENCODE_OBS`` registry.
@@ -28,7 +28,7 @@ from typing import Any
 
 import numpy as np
 
-from rpent.robots.components.am_client_base import BaseVLAClient
+from rpent.components.models.client import BaseVLAClient
 
 # ---------------------------------------------------------------------------
 # Obs encoder registry

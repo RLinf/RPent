@@ -1,0 +1,17 @@
+schema = 2
+name = "robot-robodojo"
+probe = "robots.robodojo"
+planner = true
+python = ">=3.11,<3.12"
+# RoboDojo pins its own RLinf fork and an Isaac Sim stack that breaks
+# the other simulator runtimes and the regular RLinf release. sim-robodojo
+# declares the package conflicts; this slice only names the slices that
+# cannot share one agent process.
+requires = ["sim-robodojo", "model-sam3", "model-openpi", "model-awomo05", "model-vpp2"]
+env_conflicts = ["robot-franka", "robot-dual_franka", "robot-robotwin"]
+overrides = ["requirements/robodojo-override.txt"]
+
+dependencies = [
+  "rlinf @ git+https://github.com/littleZ05/RLinf.git@91e0c6e361eff9371e2423a4183602481ae95ee5",
+  "pyarrow>=21.0.0,<26.0.0",
+]

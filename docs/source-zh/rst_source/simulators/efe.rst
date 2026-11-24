@@ -183,7 +183,7 @@ Linux 宿主机前置要求：
 ~~~~~~~~
 
 - **任务成功指标**：以 ``<trial_name>/result.json`` 中的 ``verifier_result.rewards.success`` 为准（源自 ``verifier/reward.json``）。支持重试的任务还会记录首次尝试的 ``first_success``，最终得分取最后一次尝试。
-- 规划器调用 ``finish(status="completed")`` 或 CLI 退出码为 ``0`` 仅代表进程正常结束，不代表任务成功。
+- 规划器调用 ``finish(status="completed")`` 不代表任务成功；CLI 退出码同样不是任务成功的判据：``0`` 表示 RPent 自身的判定接受该次运行，``1`` 表示拒绝，``75`` 表示未记录判定。任务成功仍以上面的原生评分为准。
 - 规划器用完时间预算时，Trial 仍会评分：适配器把预算耗尽当作正常结束，评分程序照常检查最后一次尝试的最终状态。
 
 批量运行 benchmark

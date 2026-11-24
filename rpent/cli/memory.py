@@ -21,7 +21,6 @@ import json
 from pathlib import Path
 
 from rpent.memory import MemoryManager
-from rpent.utils.config import get_memory_dir
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -29,8 +28,9 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--memory-dir",
         type=Path,
-        default=get_memory_dir("libero"),
-        help="Local corpus root (default: memory/libero).",
+        required=True,
+        help="Local corpus root, for example memory/<robot>. Point it at the "
+        "corpus of the robot or simulator you are maintaining.",
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
 

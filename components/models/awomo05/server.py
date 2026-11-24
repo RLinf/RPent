@@ -22,9 +22,9 @@ from pathlib import Path
 
 import numpy as np
 
-from robots.robodojo.access import ARX_X5_JOINT_FIELDS, validate_rgb
-from robots.robodojo.awomo05_client import REPLAN_STEPS
-from rpent.robots.components.am_facade_base import BaseVLAFacade
+from components.models.awomo05.client import REPLAN_STEPS
+from components.sim.robodojo.access import ARX_X5_JOINT_FIELDS, validate_rgb
+from rpent.components.models.facade import BaseVLAFacade
 
 
 def model_paths(model_path: str | Path | None) -> dict[str, Path]:

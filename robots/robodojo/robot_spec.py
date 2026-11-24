@@ -27,14 +27,14 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from robots.robodojo.prompt_bundle import system_prompt, user_prompt
+from rpent.components.models.backends import (
+    add_am_args,
+    select_am,
+)
 from rpent.dashboard.events import DashboardEventSink
 from rpent.dashboard.spec import DashboardSpec
 from rpent.evaluation import RunFinalizationContext, write_json_atomic
 from rpent.memory import MemoryManager
-from rpent.robots.components.am_runtime import (
-    add_am_args,
-    select_am,
-)
 from rpent.robots.prompt_bundle import PromptBundle
 from rpent.robots.robot_spec import RobotSpec, RunConfig
 from rpent.robots.runtime import stop_owned_daemons, try_spawn_server, try_wait_server
@@ -370,7 +370,7 @@ def _add_cli_args(parser: argparse.ArgumentParser, use_dashboard: bool) -> None:
 
 def _parse_config(args: argparse.Namespace) -> RunConfig:
     am = select_am(args, "robodojo")
-    from robots.robodojo import tasks as robodojo_tasks
+    from components.sim.robodojo import tasks as robodojo_tasks
 
     source_root = getattr(args, "source_root", None)
     err = robodojo_tasks.validate_task(args.task, source_root)
@@ -462,7 +462,7 @@ def _spawn_env_server(
         cmd=[
             sim_python,
             "-u",
-            str(get_repo_root() / "robots" / "robodojo" / "env_server.py"),
+            str(get_repo_root() / "components" / "sim" / "robodojo" / "env_server.py"),
             "--task",
             args.task,
             "--layout",
@@ -513,7 +513,7 @@ def _spawn_sam3_server(
         name="sam3_server",
         cmd=[
             sys.executable,
-            str(get_repo_root() / "rpent" / "robots" / "components" / "sam3_server.py"),
+            str(get_repo_root() / "components" / "models" / "sam3" / "server.py"),
             "--transport",
             "http",
             "--host",
@@ -544,7 +544,7 @@ def _spawn_model_server(
         [
             "-u",
             "-m",
-            f"robots.robodojo.{am.backend}_server",
+            f"components.models.{am.backend}.server",
             "--model-path",
             am.checkpoint,
             "--host",
@@ -572,20 +572,20 @@ def _init_runtime(
 ) -> tuple[list[ProcessDaemon], dict[str, Any]]:
     """Start default backend services or an explicitly requested component set."""
     _validate_args(args)
+    from components.models.sam3.client import Sam3Client
     from robots.robodojo.env_client import RoboDojoEnvClient
-    from rpent.robots.components.sam3_client import Sam3Client
 
     am = select_am(args, "robodojo")
     device = resolve_cuda_device(args, "env")
     if am.backend == "awomo05":
-        from robots.robodojo.awomo05_client import Awomo05Client as VLAClient
-        from robots.robodojo.awomo05_server import model_paths
+        from components.models.awomo05.client import Awomo05Client as VLAClient
+        from components.models.awomo05.server import model_paths
 
         rpc_options = {"enable_sessions": True}
         record_vpp2_history = False
     elif am.backend == "vpp2":
-        from robots.robodojo.vpp2_client import VPP2Client as VLAClient
-        from robots.robodojo.vpp2_server import model_paths
+        from components.models.vpp2.client import VPP2Client as VLAClient
+        from components.models.vpp2.server import model_paths
 
         rpc_options = {}
         record_vpp2_history = True

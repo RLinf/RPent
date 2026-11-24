@@ -16,7 +16,7 @@
 
 from __future__ import annotations
 
-from rpent.robots.components.am_client_base import BaseVLAClient
+from rpent.components.models.client import BaseVLAClient
 
 
 class RoboCasaVLAClient(BaseVLAClient):

@@ -18,7 +18,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from rpent.robots.components.env_client_base import BaseEnvClient
+from rpent.components.env.client import BaseEnvClient
 
 
 class RoboLabEnvClient(BaseEnvClient):

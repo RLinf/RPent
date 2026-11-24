@@ -19,19 +19,19 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
-from rpent.robots.components.molmo_client import MolmoResult
-from rpent.robots.components.sam3_client import Sam3Result
+from components.models.molmo.client import MolmoResult
+from components.models.sam3.client import Sam3Result
+from components.tools.rgbd.geometry.geometry_tool import GeometryTool
+from components.tools.rgbd.geometry.local_point_agent import LocalPointAgent
+from components.tools.rgbd.geometry.multiview import observe_with_alternatives
+from components.tools.rgbd.observation import GeometryObservation
 from rpent.session import EnvState
 from rpent.tools import ToolResult
-from toolkits.geometry.geometry_tool import GeometryTool
-from toolkits.geometry.local_point_agent import LocalPointAgent
-from toolkits.geometry.multiview import observe_with_alternatives
-from toolkits.observation import GeometryObservation
 
 
 def test_back_project_measures_declared_raster_without_claiming_identity():
-    from toolkits.back_project import back_project
-    from toolkits.observation import GeometryObservation
+    from components.tools.rgbd.back_project import back_project
+    from components.tools.rgbd.observation import GeometryObservation
 
     h, w = 24, 32
     rr, cc = np.indices((h, w))
@@ -85,7 +85,7 @@ def test_back_project_measures_declared_raster_without_claiming_identity():
 
 
 def test_text_segmentation_checks_the_positive_point_on_the_native_mask(tmp_path):
-    from toolkits.segment import SegmentTool
+    from components.tools.rgbd.segment import SegmentTool
 
     xyz = np.ones((6, 8, 3))
     state = EnvState(tmp_path)
@@ -169,7 +169,7 @@ def test_spatial_relation_checks_the_scene_and_the_isolated_target(
 
     from PIL import Image
 
-    from toolkits.geometry import target_identity
+    from components.tools.rgbd.geometry import target_identity
 
     if relation == "between":
         subject = "patterned black bowl"
@@ -477,7 +477,7 @@ def test_geometry_verifies_identity_and_reuses_evidence_only_within_a_step(tmp_p
 
 
 def test_back_project_uses_the_calibrated_frame_and_optical_depth():
-    from toolkits.back_project import back_project
+    from components.tools.rgbd.back_project import back_project
 
     pose = np.eye(4)
     pose[:3, 3] = [4.0, 2.0, 1.0]
@@ -501,8 +501,8 @@ def test_back_project_uses_the_calibrated_frame_and_optical_depth():
 
 
 def test_depth_dropouts_do_not_supply_face_or_rim_boundaries():
-    from toolkits.geometry.geometry import part_candidate_mask
-    from toolkits.geometry.measured_rectangle import observed_face
+    from components.tools.rgbd.geometry.geometry import part_candidate_mask
+    from components.tools.rgbd.geometry.measured_rectangle import observed_face
 
     mask = np.zeros((72, 88), bool)
     mask[15:56, 20:68] = True
@@ -551,7 +551,7 @@ def test_depth_dropouts_do_not_supply_face_or_rim_boundaries():
 
 
 def test_rim_depth_edges_use_only_adjacent_pixels_in_the_frame():
-    from toolkits.geometry.geometry import part_candidate_mask
+    from components.tools.rgbd.geometry.geometry import part_candidate_mask
 
     mask = np.ones((12, 18), bool)
     world = np.ones((*mask.shape, 3))
@@ -620,7 +620,7 @@ def test_plate_clipped_by_two_edges_needs_a_second_view(tmp_path, with_wrist):
 
 
 def test_part_measurements_keep_independent_fits_and_reject_inconsistent_ends():
-    from toolkits.geometry.geometry import ShapeFit, geometry_fields
+    from components.tools.rgbd.geometry.geometry import ShapeFit, geometry_fields
 
     circle = {"normal": [0, 0, 1], "radius": 0.035}
     rim = ShapeFit("circle", True, {**circle, "center": [0, 0, 0.1]})

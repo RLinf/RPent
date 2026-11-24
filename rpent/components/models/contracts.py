@@ -12,10 +12,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Shared physical observations/control and WAM RPC field declarations.
+"""Shared physical observations, control and requests, plus WAM RPC fields.
 
-VLA model payloads retain their native formats; physical observations can be
-consumed by either VLA clients or WAM adapters before model-specific encoding.
+VLA model payloads retain their native formats; physical observations and the
+requested execution identity can be consumed by either VLA clients or WAM
+adapters before model-specific encoding.
 """
 
 from collections.abc import Sequence
@@ -48,6 +49,16 @@ class AMControlSpec(TypedDict):
     action_type: str | None
 
 
+# --- AM request: physical observations and requested execution identity ---
+
+
+class AMRequest(AMObservation):
+    """Physical RGB and named state, with the execution identity the caller targets."""
+
+    embodiment: str
+    action_space: str
+
+
 # --- WAM connection: model metadata and input requirements ---
 
 
@@ -69,14 +80,12 @@ class WAMModelMeta(TypedDict):
     metadata: NotRequired[dict[str, Any]]
 
 
-# --- WAM request: physical observations and execution identity ---
+# --- WAM request: AM request plus a declared history input ---
 
 
-class WAMRequest(AMObservation):
-    """Physical RGB and named state, with the requested execution identity."""
+class WAMRequest(AMRequest):
+    """AM request plus the joint-target history a WAM worker's metadata declares."""
 
-    embodiment: str
-    action_space: str
     # Executed controller targets, oldest first; required when metadata declares it.
     joint_target_history: NotRequired[np.ndarray]
 

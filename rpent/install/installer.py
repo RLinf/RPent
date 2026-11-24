@@ -566,9 +566,10 @@ def _python_version(python: Path) -> str:
 #: the upstream distribution the component installs and has no roles; ``infra``
 #: components are always of that kind. A tool is either a process with a
 #: ``cli`` or a capability library that a robot slice registers, so only the
-#: roles the component ships are probed.
+#: roles the component ships are probed. The robot roles name the target slice
+#: skeleton first and the names the pre-migration slices still ship after it.
 ROLE_MODULES = {
-    "robot": ("robot_spec", "env_client"),
+    "robot": ("spec", "config", "adapter", "robot_spec", "env_client"),
     "sim": ("env_server",),
     "model": ("server",),
     "tool": ("cli",),

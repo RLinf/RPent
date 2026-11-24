@@ -6,7 +6,7 @@
 机器人入口
 ----------
 
-把包放到 ``robots/<robot>/`` 后，包的 ``__init__.py`` 会重导出 ``robot_spec.py`` 中实现的两个函数，供 ``main.py`` 调用：
+把包放到 ``robots/<robot>/`` 后，包的 ``__init__.py`` 会重导出 ``spec.py`` 中实现的两个函数（a_5 之前为 ``robot_spec.py``），供 ``main.py`` 调用：
 
 .. code-block:: python
 

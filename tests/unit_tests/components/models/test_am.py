@@ -21,9 +21,9 @@ from unittest.mock import Mock
 import numpy as np
 import pytest
 
-from rpent.robots.components import am_runtime
-from rpent.robots.components.am_client_base import BaseVLAClient, BaseWAMClient
-from rpent.robots.components.am_facade_base import BaseVLAFacade, BaseWAMFacade
+from rpent.components.models import backends as runtime
+from rpent.components.models.client import BaseVLAClient, BaseWAMClient
+from rpent.components.models.facade import BaseVLAFacade, BaseWAMFacade
 
 
 @pytest.mark.parametrize("option", ["--am-backend", "--vla-backend", "--wam-backend"])
@@ -34,13 +34,13 @@ def test_backend_aliases_preserve_supported_models(option):
         ("libero", "rlinf", "pi05"),
     ):
         parser = argparse.ArgumentParser()
-        am_runtime.add_am_args(parser, platform=platform)
+        runtime.add_am_args(parser, platform=platform)
         assert parser.parse_args([option, value]).am_backend == expected
 
 
 def test_robodojo_rejects_removed_policy_option(capsys):
     parser = argparse.ArgumentParser()
-    am_runtime.add_am_args(parser, platform="robodojo")
+    runtime.add_am_args(parser, platform="robodojo")
     with pytest.raises(SystemExit):
         parser.parse_args(["--policy-backend", "rlinf"])
     assert "unrecognized arguments: --policy-backend rlinf" in capsys.readouterr().err
@@ -72,6 +72,21 @@ def test_vla_dispatch_preserves_options_and_model_extensions(model_meta):
         facade.close()
 
 
+class _EchoFacade(BaseWAMFacade):
+    """Encode nothing and return the model's own result unchanged."""
+
+    def __init__(self, model_meta):
+        self.encoded = []
+        super().__init__(model_meta)
+
+    def encode(self, request):
+        self.encoded.append(request)
+        return request
+
+    def decode(self, result):
+        return result
+
+
 @pytest.fixture
 def worker():
     control = {
@@ -80,7 +95,7 @@ def worker():
         "action_schema": ["x", "y"],
         "action_type": None,
     }
-    facade = BaseWAMFacade(
+    facade = _EchoFacade(
         {
             "backend": "test",
             "checkpoint": "test",
@@ -89,8 +104,7 @@ def worker():
             "state_schema": {"joints": 2},
             "chunk_size": 3,
             "uses_sessions": False,
-        },
-        adapter=(lambda request: request, lambda result: result),
+        }
     )
     facade.predict_native = Mock(
         return_value={
@@ -205,13 +219,11 @@ def test_wrong_control_is_rejected_before_prediction(worker):
 def test_required_history_is_checked_before_encoding(worker, history):
     facade, client, _, request = worker
     facade.get_model_meta()["joint_target_history_shape"] = (4, 2)
-    encode = Mock()
-    facade._adapter = (encode, lambda result: result)
     if history is not None:
         request["joint_target_history"] = history
     with pytest.raises(ValueError, match="joint_target_history"):
         client.predict(request)
-    encode.assert_not_called()
+    assert facade.encoded == []
     facade.predict_native.assert_not_called()
 
 
@@ -261,9 +273,9 @@ def test_incompatible_uniwam_checkpoint_is_rejected_before_launch(
     config[section][key] = value
     path.write_text(json.dumps(config))
     parser = argparse.ArgumentParser()
-    am_runtime.add_am_args(parser, platform="robotwin")
+    runtime.add_am_args(parser, platform="robotwin")
     with pytest.raises(ValueError, match="UniWAM checkpoint requires"):
-        am_runtime.select_am(
+        runtime.select_am(
             parser.parse_args(["--am-backend", "uniwam", "--am-checkpoint", str(root)]),
             "robotwin",
         )
@@ -287,7 +299,7 @@ def test_worker_launch_and_external_options(
         (tmp_path / name).touch()
     (tmp_path / "python").chmod(0o755)
     parser = argparse.ArgumentParser()
-    am_runtime.add_am_args(parser, platform=platform)
+    runtime.add_am_args(parser, platform=platform)
     extra = (
         [
             "--predict-future",
@@ -340,12 +352,12 @@ def test_worker_launch_and_external_options(
     args.env_cuda_device = args.sam3_cuda_device = 0
     daemon, rpc = Mock(), Mock()
     factory = Mock(return_value=daemon)
-    monkeypatch.setattr(am_runtime, "ProcessDaemon", factory)
-    monkeypatch.setattr(am_runtime, "pick_free_port", lambda: 8116)
+    monkeypatch.setattr(runtime, "ProcessDaemon", factory)
+    monkeypatch.setattr(runtime, "pick_free_port", lambda: 8116)
     rpc_factory = Mock(return_value=rpc)
-    monkeypatch.setattr(am_runtime, "make_rpc_client", rpc_factory)
-    selected = am_runtime.select_am(args, platform)
-    assert am_runtime.start_wam_service(selected, tmp_path) == (daemon, rpc)
+    monkeypatch.setattr(runtime, "make_rpc_client", rpc_factory)
+    selected = runtime.select_am(args, platform)
+    assert runtime.start_wam_service(selected, tmp_path) == (daemon, rpc)
     rpc_factory.assert_called_once_with("http://127.0.0.1:8116", enable_sessions=False)
     command = factory.call_args.kwargs["cmd"]
     assert factory.call_args.kwargs["env_overrides"]["CUDA_VISIBLE_DEVICES"] == (
@@ -354,7 +366,7 @@ def test_worker_launch_and_external_options(
     assert command[:3] == [
         str(tmp_path / "python"),
         "-m",
-        f"rpent.robots.components.{am_runtime.WAM_BACKENDS[backend]}.server",
+        f"components.models.{runtime.WAM_BACKENDS[backend]}.server",
     ]
     assert command.count("--platform") == command.count("--checkpoint") == 1
     assert command[command.index("--checkpoint") + 1] == args.am_checkpoint
@@ -377,7 +389,7 @@ def test_worker_launch_and_external_options(
     rpc_factory.reset_mock()
     daemon.start.side_effect = RuntimeError("launch failed")
     with pytest.raises(RuntimeError, match="launch failed"):
-        am_runtime.start_wam_service(selected, tmp_path)
+        runtime.start_wam_service(selected, tmp_path)
     rpc_factory.assert_not_called()
     if backend != "cosmos3":
         args.am_checkpoint = str(tmp_path / "missing-checkpoint")
@@ -385,20 +397,20 @@ def test_worker_launch_and_external_options(
             "UniWAM resource directory" if backend == "uniwam" else "--am-checkpoint"
         )
         with pytest.raises(ValueError, match=message):
-            am_runtime.select_am(args, platform)
+            runtime.select_am(args, platform)
     args.am_endpoint = "http://localhost:8116"
     with pytest.raises(ValueError, match="configures local deployment"):
-        am_runtime.select_am(args, platform)
+        runtime.select_am(args, platform)
     args.am_checkpoint = args.am_python = args.am_root = args.am_cuda_device = None
     if backend != "uniwam":
         with pytest.raises(ValueError, match="configures local deployment"):
-            am_runtime.select_am(args, platform)
+            runtime.select_am(args, platform)
     external_args = parser.parse_args(
         ["--am-backend", backend, "--am-endpoint", "http://localhost:8116"]
     )
     factory.reset_mock()
-    assert am_runtime.start_wam_service(
-        am_runtime.select_am(external_args, platform), tmp_path
+    assert runtime.start_wam_service(
+        runtime.select_am(external_args, platform), tmp_path
     ) == (None, rpc)
     factory.assert_not_called()
     rpc_factory.assert_called_once_with("http://localhost:8116", enable_sessions=False)

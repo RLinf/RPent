@@ -534,7 +534,9 @@ def test_probe_command_isolates_the_environment(tmp_path):
     assert command[:3] == [str(tmp_path / "python"), "-I", "-c"]
     assert "robots.alpha.robot_spec" in command[3]
     assert "robots.alpha.env_client" in command[3]
-    assert "adapter" not in command[3]
+    # Without a source directory every role of the kind is probed, including
+    # the skeleton names a migrated slice ships.
+    assert "robots.alpha.adapter" in command[3]
 
 
 def test_probe_checks_the_role_modules_of_each_kind():
@@ -548,6 +550,9 @@ def test_probe_checks_the_role_modules_of_each_kind():
     )
     assert 'importlib.import_module("components.models.openpi.server")' in (
         probe_source("components.models.openpi", "model")
+    )
+    assert 'importlib.import_module("robots.alpha.spec")' in probe_source(
+        "robots.alpha", "robot"
     )
     # Infra components install a third-party package and own no roles.
     assert probe_source("rlinf", "infra") == "import rlinf\n"

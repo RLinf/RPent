@@ -24,7 +24,8 @@ from typing import Any
 
 import numpy as np
 
-from robots.robotwin.robot_spec import ROBOTWIN_CAMERA_NAMES, get_robot_spec
+from components.sim.robotwin.contracts import ROBOTWIN_CAMERA_NAMES
+from robots.robotwin.robot_spec import get_robot_spec
 from tests.e2e_tests.common import (
     ScriptedToolCall,
     array_summary,
@@ -220,7 +221,7 @@ class RoboTwinScenario:
         self.output_dir = prepare_suite(
             output_dir=output_dir,
             stack="robotwin",
-            extra="robotwin",
+            environment="robotwin",
             details={
                 "task": {
                     "task_name": self.args.task_name,

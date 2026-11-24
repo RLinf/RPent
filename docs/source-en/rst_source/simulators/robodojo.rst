@@ -92,7 +92,7 @@ cuRobo. From the RPent root, create an environment and install the dependencies:
    uv venv --python 3.11 .venv-robodojo
    source .venv-robodojo/bin/activate
    uv pip install -e ".[robodojo-sim,sam3]" --extra-index-url https://pypi.nvidia.com \
-     --override requirements/robodojo-override.txt
+     --override robots/robodojo/requirements/robodojo-override.txt
 
 .. dropdown:: Blackwell GPU installation
 
@@ -103,7 +103,7 @@ cuRobo. From the RPent root, create an environment and install the dependencies:
    .. code-block:: bash
 
       uv pip install -e ".[robodojo-sim,sam3]" --extra-index-url https://pypi.nvidia.com \
-        --override requirements/robodojo-override.txt \
+        --override robots/robodojo/requirements/robodojo-override.txt \
         --torch-backend=cu128
 
    If ``torch==2.7.0+cu126`` is already installed, uv considers it compatible
@@ -227,7 +227,7 @@ Set ``VPP2_MODEL_PATH`` to start this model automatically when running a task.
 
    .. code-block:: bash
 
-      python -m robots.robodojo.vpp2_server --model-path /path/to/vpp2 \
+      python -m components.models.vpp2.server --model-path /path/to/vpp2 \
         --host 127.0.0.1 --port 9201
 
    Add ``--am-endpoint socket://127.0.0.1:9201`` to the task command in the
@@ -280,7 +280,7 @@ Set ``AWOMO05_MODEL_PATH`` to start this model automatically when running a task
 
    .. code-block:: bash
 
-      python -m robots.robodojo.awomo05_server --model-path /path/to/awomo05 \
+      python -m components.models.awomo05.server --model-path /path/to/awomo05 \
         --host 127.0.0.1 --port 9205
 
    Add ``--am-endpoint socket://127.0.0.1:9205`` to the task command in the

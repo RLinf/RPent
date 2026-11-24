@@ -25,8 +25,8 @@ from typing import Any
 import pytest
 from PIL import Image
 
-from rpent.robots.components.molmo_client import MolmoClient
-from rpent.robots.components.molmo_server import (
+from components.models.molmo.client import MolmoClient
+from components.models.molmo.server import (
     MolmoFacade,
     MolmoResult,
     _parse_point,

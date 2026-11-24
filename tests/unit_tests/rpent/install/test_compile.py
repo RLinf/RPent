@@ -45,6 +45,20 @@ def test_the_default_root_must_be_a_checkout(tmp_path, monkeypatch, capsys):
     assert "is not an RPent checkout" in capsys.readouterr().err
 
 
+def test_a_named_root_must_carry_the_manifests(tmp_path, write_toml, capsys):
+    # Any Python project has a ``pyproject.toml``; only a checkout carries the
+    # manifests under ``components/`` or ``robots/``. ``--root`` has to be
+    # judged the same way as the default, or the installer reads an empty
+    # catalog without saying why.
+    write_toml("pyproject.toml", '[project]\nname = "other"\ndependencies = []\n')
+
+    with pytest.raises(SystemExit) as excinfo:
+        env_main(["--root", str(tmp_path), "list"])
+
+    assert excinfo.value.code == 2
+    assert "is not an RPent checkout" in capsys.readouterr().err
+
+
 def test_the_default_root_is_the_checkout_of_the_working_directory(
     tmp_path, monkeypatch, write_toml, capsys
 ):
@@ -167,7 +181,7 @@ def test_check_resolves_override_files_against_the_checkout(repo, fake_uv, write
     assert env_main(["--root", str(repo), "check", "robot-alpha", "--resolve"]) == 0
 
     arguments = _arguments(fake_uv)
-    value = arguments[arguments.index("--overrides") + 1]
+    value = arguments[arguments.index("--override") + 1]
     assert value == str(repo / "robots/alpha/requirements/override.txt")
     assert os.path.isabs(value)
 

@@ -230,10 +230,10 @@ robolab = [
 prerelease = "allow"
 
 # `robodojo-sim` needs eight overrides for its simulator stack; they live in
-# requirements/robodojo-override.txt so every other robot keeps resolving the
+# robots/robodojo/requirements/robodojo-override.txt so every other robot keeps resolving the
 # versions it was validated against. Pass them explicitly:
 #
-#   uv pip install -e ".[robodojo]" --override requirements/robodojo-override.txt
+#   uv pip install -e ".[robodojo]" --override robots/robodojo/requirements/robodojo-override.txt
 
 # Each robot extra pulls a separately pinned VLA runtime whose Torch,
 # Transformers, Tokenizers, or Diffusers versions are mutually incompatible.
@@ -332,14 +332,25 @@ where = ["."]
 # shared RGB-D tools.
 # components/ holds the install units: each component owns its code and its
 # manifest, and the installer discovers them from the checkout or the sdist.
-include = ["rpent*", "robots", "robots.*", "toolkits", "toolkits.*", "components", "components.*"]
+# The RGB-D toolkit lives in components/tools/rgbd, so the top level keeps no
+# toolkits package.
+include = ["rpent*", "robots", "robots.*", "components", "components.*"]
 exclude = ["tests*", "docs*", "examples*", "docker*"]
 
 [tool.setuptools.package-data]
 # Component manifests are runtime data: the installer reads them from the
-# checkout or the sdist, so a component's manifest ships beside its code.
+# checkout or the sdist, so a component's manifest ships beside its code, and
+# an override the manifest names ships with it. The other entries are files the
+# installed package opens by path: the dashboard frontend, the robot defaults,
+# the evaluation manifests, and RoboDojo's uv override.
 "*" = ["component.toml"]
-"robots.robodojo" = ["guides/*.md"]
+"components.sim.robotwin" = ["eval/*.json"]
+"robots.dual_franka" = ["config/*.yaml"]
+"robots.franka" = ["config/*.yaml"]
+"robots.libero" = ["guides/*.md"]
+"robots.robocasa" = ["eval/*.json"]
+"robots.robodojo" = ["guides/*.md", "requirements/*.txt"]
+"robots.robotwin" = ["guides/*.md"]
 "rpent.dashboard" = ["*.html", "static/*.css", "static/*.js"]
 "robots.yam" = ["config/*.yaml", "config/*.json", "guides/*.md"]
 

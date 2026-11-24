@@ -18,7 +18,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from rpent.robots.components.env_facade_base import BaseEnvFacade
+from rpent.components.env.facade import BaseEnvFacade
 from rpent.utils.rpc.main_thread_serve import MainThreadServeMixin
 
 

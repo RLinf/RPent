@@ -22,11 +22,10 @@ from string import Formatter
 
 import pytest
 
-from robots.robotwin.robot_spec import (
-    MODEL_SPEC,
+from components.models.lingbot.contracts import MODEL_SPEC, vla_runtime_contract
+from components.sim.robotwin.contracts import (
     ROBOTWIN_CAMERA_NAMES,
     env_runtime_contract,
-    vla_runtime_contract,
 )
 from rpent.robots import enumerate_robots, get_robot_spec
 from rpent.robots.robot_spec import RobotSpec, RunConfig

@@ -31,7 +31,7 @@ from rpent.dashboard.spec import DashboardSpec
 from rpent.evaluation import RunFinalizationContext, write_json_atomic
 from rpent.memory import MemoryManager
 from rpent.memory.source import prepare_explicit_source
-from rpent.robots.components.am_runtime import add_am_args, select_am
+from rpent.components.models.backends import add_am_args, select_am
 from rpent.robots.prompt_bundle import PromptBundle
 from rpent.robots.robot_spec import RobotSpec, RunConfig
 from rpent.robots.runtime import try_spawn_server, try_wait_server
@@ -287,7 +287,7 @@ def _spawn_vla(args: argparse.Namespace, output_dir: Path):
     daemon = am.spawn_worker(
         [
             "-m",
-            "rpent.robots.components.pi05_vla_server",
+            "components.models.openpi.server",
             "--embodiment",
             "robolab",
             "--model-path",
@@ -313,7 +313,7 @@ def _init_runtime(
     components: set[str] | None,
 ) -> tuple[list[ProcessDaemon], dict[str, Any]]:
     from robots.robolab.env_client import RoboLabEnvClient
-    from rpent.robots.components.pi05_vla_client import Pi05VLAClient
+    from components.models.openpi.client import Pi05VLAClient
 
     selected = (
         ({"env", "vla"} if args.policy_backend == "pi05" else {"env"})

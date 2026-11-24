@@ -22,7 +22,7 @@ from typing import Any
 
 import numpy as np
 
-from robots.robodojo.access import CAMERAS
+from components.sim.robodojo.access import CAMERAS
 from rpent.utils.logging import get_logger
 
 logger = get_logger(__name__)
@@ -243,7 +243,7 @@ class _SafetyMonitor:
 
 
 def _obs_dict(env, recorder) -> dict[str, Any]:
-    from robots.robodojo.tasks import resolve_instruction
+    from components.sim.robodojo.tasks import resolve_instruction
 
     obs = env.get_obs(env_idx=0)
     obs["instruction"] = resolve_instruction(env)

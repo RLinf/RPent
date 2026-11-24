@@ -87,45 +87,45 @@ multi-pixel-median tip from the perception protocol.
 
 ## 2. Setup (do these once on a fresh checkout)
 
-Run the idempotent installer from the repo root:
+Install `robot-libero`; it pulls the LIBERO-PRO packages from the `rpent` branch
+and the perception stack (Pi0.5 and SAM 3.0) into one environment:
 
 ```bash
-bash scripts/install_libero_pro_plus.sh
+rpent-install install robot-libero --venv .venv-libero
 ```
 
-It does all four steps below: the liberopro editable install, applies the
-benchmark-registration patch, syncs the authoritative HF dataset snapshot, and
-verifies with the `get_benchmark(...).get_task(0).language` check. The perception
-observables (depth + both cameras + hi-res) are unconditional once the runner
-launches with `--libero-type pro`; there is nothing perception-specific to
-install beyond the PRO setup itself.
+The component covers the liberopro install and its benchmark registration. The
+remaining steps are the assets, the dataset snapshot, and the verification check
+described below. The perception observables (depth + both cameras + hi-res) are
+unconditional once the runner launches with `--libero-type pro`; there is
+nothing perception-specific to install beyond the PRO setup itself.
 
 ### 2.1. LIBERO-PRO repo
 
-Cloned at `${LIBERO_PRO_PATH:-/path/to/LIBERO-PRO}/` from
-`https://github.com/RLinf/LIBERO-PRO.git` and installed editable into the openpi
-venv:
+Installed into the environment from
+`https://github.com/RLinf/LIBERO-PRO.git` at the `rpent` branch. Confirm it from
+inside that environment:
 
 ```bash
-python -m pip show liberopro
-# Name: liberopro  Version: 0.1.0  Location: ${LIBERO_PRO_PATH:-/path/to/LIBERO-PRO}
+.venv-libero/bin/python -m pip show liberopro
+# Name: liberopro  Version: 0.1.0  Location: /path/to/site-packages/liberopro
 ```
 
-### 2.2. Apply the benchmark-registration patch
+### 2.2. Benchmark registration
 
-The upstream `__init__.py` does **not** expose the 16 perturbation suites through
-`get_benchmark()`. Our patch
-[`scripts/liberopro_register_perturbations.patch`](../../../../scripts/liberopro_register_perturbations.patch)
-adds them and overrides `Task.language` to read each BDDL's actual `:language`
-tag (so the perturbed instruction reaches Pi0 / hybrid).
+The 16 perturbation suites must be exposed through `get_benchmark()`, and
+`Task.language` must read each BDDL's actual `:language` tag so the perturbed
+instruction reaches Pi0 / hybrid. The `rpent` branch carries that registration;
+verify it in the installed environment:
 
 ```bash
-cd ${LIBERO_PRO_PATH:-/path/to/LIBERO-PRO}
-git apply <repo-root>/scripts/liberopro_register_perturbations.patch
+.venv-libero/bin/python -c \
+  "import liberopro.liberopro.benchmark as b; print(b.get_benchmark('libero_spatial_task')().get_task(0).language)"
 ```
 
-If already applied (likely), `git status -s` shows clean. If you reinstall
-liberopro, re-apply.
+If you repoint the component at another LIBERO-PRO revision, that revision must
+provide the same registration; otherwise the PRO suites resolve to the legacy
+tables and the perturbed instructions never reach the model.
 
 ### 2.3. Huggingface dataset (authoritative)
 
@@ -431,8 +431,6 @@ robots/libero/guides/
 ├── pro_hybrid_guide.md                 <- this file
 ├── strict_hybrid_guide.md              <- perception protocol + Rules (source of truth)
 └── env_calibration.md                  <- OSC frame bounds + safe altitudes
-scripts/
-└── liberopro_register_perturbations.patch
 memory/libero/
 ├── MEMORY.md                  <- corpus index
 ├── global/                    <- feedback_* / project_* notes
@@ -498,6 +496,4 @@ Then, inside the run:
 
 When in doubt about *how to localize* or a primitive, the source of truth is
 [`strict_hybrid_guide.md`](./strict_hybrid_guide.md); about *PRO setup /
-perturbation semantics*, see
-[`scripts/install_libero_pro_plus.sh`](../../../../scripts/install_libero_pro_plus.sh)
-and §2.
+perturbation semantics*, see §2.

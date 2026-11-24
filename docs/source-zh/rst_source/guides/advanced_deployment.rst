@@ -15,7 +15,7 @@ LIBERO 环境服务
 .. code-block:: bash
 
    export LIBERO_TYPE=pro
-   python -m robots.libero.env_server \
+   python -m components.sim.libero.env_server \
      --suite libero_object_swap --task 2 --seed 0 \
      --max-episode-steps 10000 \
      --cuda-device 0 \
@@ -31,7 +31,7 @@ Pi0.5 VLA 服务
 .. code-block:: bash
 
    export PI05_CHECKPOINT_PATH=/path/to/rlinf-pi05-libero-130-fullshot-sft
-   python -m rpent.robots.components.pi05_vla_server \
+   python -m components.models.openpi.server \
      --embodiment libero \
      --cuda-device 0 \
      --transport http --host 0.0.0.0 --port VLA_PORT
@@ -51,7 +51,7 @@ APXInf 适配器可以替代 Pi0.5 服务。在已安装 RPent 的环境中，�
 
 .. code-block:: bash
 
-   python -m rpent.robots.components.apxinf_vla_server \
+   python -m components.models.apxinf.server \
      --embodiment libero \
      --model-path /path/to/pi05-libero \
      --tokenizer-path /path/to/tokenizer.model \
@@ -78,7 +78,7 @@ SAM3 服务
 .. code-block:: bash
 
    export SAM3_CHECKPOINT_PATH=/path/to/sam3/sam3.pt
-   python -m rpent.robots.components.sam3_server \
+   python -m components.models.sam3.server \
      --cuda-device 0 \
      --transport http --host 0.0.0.0 --port SAM3_PORT
 

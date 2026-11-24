@@ -10,14 +10,16 @@ with documentation instead of assuming either is correct.
 - `rpent/planner/`, `rpent/session/`, and `rpent/prompt/`: planner adapters,
   execution sessions, and shared prompt construction.
 - `rpent/tools/` and `rpent/memory/`: tool execution, observations, and memory.
-- `toolkits/`: opt-in RGB-D tools (`back_project`, `segment`, experimental
+- `components/tools/rgbd/`: opt-in RGB-D tools (`back_project`, `segment`, experimental
   `geometry`) over observations that each robot adapts.
 - `components/<kind>/<name>/`: install units an environment names on the
   command line, grouped as `infra/`, `models/`, `sim/`, and `tools/`. Each
   owns its code and its `component.toml`; the core installs and probes them
   by name and never imports them statically.
-- `rpent/robots/`: robot discovery, descriptors, shared runtime, and Env/VLA
-  components. `robots/<robot>/` owns each concrete integration.
+- `rpent/components/env/` and `rpent/components/models/`: the environment and
+  model contracts, clients, facades, and backends every slice shares.
+- `rpent/robots/`: robot discovery, descriptors, and shared runtime.
+  `robots/<robot>/` owns each concrete integration.
 - `rpent/cli/`, `rpent/dashboard/`, and `rpent/evaluation/`: entry points,
   interactive execution, and run results.
 - `tests/`: offline tests and integration checks; see [tests/README.md](tests/README.md).

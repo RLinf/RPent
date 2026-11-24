@@ -22,9 +22,9 @@ import sys
 from pathlib import Path
 
 if __package__ in (None, ""):
-    sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+    sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 
-from robots.robodojo.env_facade import RoboDojoEnvFacade  # noqa: E402
+from components.sim.robodojo.env_facade import RoboDojoEnvFacade  # noqa: E402
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -97,7 +97,7 @@ def build_config(args: argparse.Namespace):
 def main() -> None:
     args = build_parser().parse_args()
     cfg = build_config(args)
-    from robots.robodojo.rlinf_env import RoboDojoAgentEnv
+    from components.sim.robodojo.rlinf_env import RoboDojoAgentEnv
 
     env = RoboDojoAgentEnv(
         cfg,

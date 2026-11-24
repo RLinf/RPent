@@ -69,9 +69,10 @@ Follow these conventions while developing:
 - **Keep the change focused.** A feature, an unrelated refactor, and
   repository-wide cleanup should normally be separate pull requests.
 - **Keep code in the appropriate module.** Reuse existing implementations
-  where possible. Put integration code for a specific robot or simulation
-  environment in its `robots/<name>/` directory. Place shared functionality
-  in common modules with matching responsibilities.
+  where possible. Put integration code for a specific robot in its
+  `robots/<name>/` directory and a simulator service in
+  `components/sim/<name>/`. Place shared functionality in common modules with
+  matching responsibilities.
 - **Check responsibilities and impact when changing shared modules, classes,
   or methods.** Keep changes within their existing responsibilities and use
   existing extension points where they fit. Keep robot-specific policy and

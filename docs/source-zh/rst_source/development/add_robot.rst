@@ -27,36 +27,71 @@ RPent 的整体进程划分、服务职责和通信方式见 :doc:`系统说明 
 
 .. _add-robot-entry:
 
-入口
-----
+入口与组件清单
+--------------
 
 新增名为 ``myrobot`` 的机器人时，目录结构如下：
 
 .. code-block:: text
 
    robots/myrobot/
-       __init__.py            # 包入口，仅重导出两个工厂
-       robot_spec.py          # RobotSpec、工厂、Dashboard 描述和 runtime 钩子
-       env_client.py          # MyEnvClient —— agent 侧 RPC client (§1)
-       prompt_bundle.py       # system()/user() prompt 工厂              (§2)
-       toolkit.py             # MyRobotToolkit + primitives + 工具定义     (§3)
-       env_server.py          # 环境侧 facade + RPC 服务                 (§1)
-       vla_server.py          # （可选）VLA 模型服务
+       component.toml          # name、probe、python、requires、dependencies
+       __init__.py             # 惰性包入口
+       spec.py                 # RobotSpec、工厂、Dashboard 描述和 runtime 钩子
+       config.py               # 命令行参数、RunConfig、任务选择
+       adapter.py              # env client/facade 与原生环境适配
+       prompts/__init__.py
+       prompts/domain.py       # system_prompt()/user_prompt() prompt 工厂
+       native_tools.py         # toolkit、primitives、工具定义
 
-``__init__.py`` 是机器人包入口，应保持精简，仅重导出 ``robot_spec.py`` 中实现的工厂。``rpent/robots/base.py`` 中的注册表会按需导入 ``robots.<name>``，并调用这两个函数：
+当前仓库中的切片仍使用迁移前的文件名：a_5 会把 ``robot_spec.py`` 改为 ``spec.py``、``prompt_bundle.py`` 改为 ``prompts/domain.py``、``toolkit.py`` 改为 ``native_tools.py``。新增切片请直接使用目标名；下文在每个角色处同时注明当前文件名。布局检查会拒绝任何原本没有、却新引入退役文件名的切片。
+
+``component.toml`` 声明 ``rpent-install`` 读取的清单字段：
+
+.. code-block:: toml
+
+   schema = 2
+   name = "robot-myrobot"
+   probe = "robots.myrobot"
+   planner = true
+   python = ">=3.10,<3.13"
+   requires = ["sim-mysim", "model-mymodel"]
+
+   dependencies = ["my-simulator==1.2"]
+
+``name`` 必须是 ``robot-`` 加上目录名，前缀说明组件类型，也决定代码所在位置。``requires`` 声明这个环境同时安装的组件；机器人环境正是通过它带上仿真器和模型服务。``probe`` 指向可导入的包。``planner = true`` 让该环境额外安装 ``rpent[planner]``，因为该切片导入 planner。``rpent-install install`` 和 ``rpent-install doctor`` 会在目标环境中导入该包和切片实际提供的角色模块，因此 probe 成功说明真实依赖已经装上。``dependencies`` 只放本机器人自己的包；多个组件都需要的包应放进 ``components/infra/`` 下的基础设施组件。
+
+``__init__.py`` 是包入口，必须保持惰性。机器人发现会在用户选择之前导入所有包，一旦在这里直接导入仿真器或模型包，整个 CLI 就会依赖每个机器人的依赖包。通过 ``__getattr__`` 暴露工厂：
 
 .. code-block:: python
 
    # robots/myrobot/__init__.py
-   from robots.myrobot.robot_spec import get_robot_spec, get_toolkit
+   from typing import TYPE_CHECKING, Any
 
-   # robots/myrobot/robot_spec.py
+   if TYPE_CHECKING:
+       from robots.myrobot.spec import get_robot_spec, get_toolkit
+
+   __all__ = ["get_robot_spec", "get_toolkit"]
+
+
+   def __getattr__(name: str) -> Any:
+       if name in __all__:
+           from robots.myrobot import spec
+
+           return getattr(spec, name)
+       raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
+``rpent/robots/base.py`` 中的注册表会按需导入 ``robots.<name>``，并调用这两个函数：
+
+.. code-block:: python
+
+   # robots/myrobot/spec.py（a_5 之前为 robot_spec.py）
    from rpent.dashboard.events import DashboardEventSink
    from rpent.memory import MemoryManager
    from rpent.robots.robot_spec import RobotSpec, RunConfig
    from rpent.robots.prompt_bundle import PromptBundle
    from rpent.utils.config import get_memory_dir
-   from robots.myrobot.prompt_bundle import system_prompt, user_prompt
+   from robots.myrobot.prompts.domain import system_prompt, user_prompt
 
    MYROBOT_DASHBOARD_SPEC = {...}
 
@@ -76,7 +111,7 @@ RPent 的整体进程划分、服务职责和通信方式见 :doc:`系统说明 
        dashboard_events: DashboardEventSink,
        config: RunConfig,
    ):
-       from robots.myrobot.toolkit import MyRobotToolkit
+       from robots.myrobot.native_tools import MyRobotToolkit
        return MyRobotToolkit(
            runtime_kwargs=runtime_kwargs,
            dashboard_events=dashboard_events,
@@ -125,11 +160,11 @@ RPent 的整体进程划分、服务职责和通信方式见 :doc:`系统说明 
 1.1 Env client（agent 侧）
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-继承 :class:`rpent.robots.components.env_client_base.BaseEnvClient`。它已经负责启动时校验 ``env.get_env_meta``、执行首次 reset、缓存 ``last_obs``，并实现公共的 ``reset``、``step``、``chunk_step``、``render_camera``、 ``get_camera_meta`` 和 ``get_task_language`` RPC。子类只需增加环境专用方法；扩展方法需要独立超时时，再扩展超时表。RPC 名称需要保持稳定，因为服务端 facade 会显式注册每个名称。
+继承 :class:`rpent.components.env.client.BaseEnvClient`。它已经负责启动时校验 ``env.get_env_meta``、执行首次 reset、缓存 ``last_obs``，并实现公共的 ``reset``、``step``、``chunk_step``、``render_camera``、 ``get_camera_meta`` 和 ``get_task_language`` RPC。子类只需增加环境专用方法；扩展方法需要独立超时时，再扩展超时表。RPC 名称需要保持稳定，因为服务端 facade 会显式注册每个名称。
 
 .. code-block:: python
 
-   from rpent.robots.components.env_client_base import BaseEnvClient
+   from rpent.components.env.client import BaseEnvClient
 
    class MyEnvClient(BaseEnvClient):
        _TIMEOUT_S = {
@@ -150,12 +185,12 @@ RPent 的整体进程划分、服务职责和通信方式见 :doc:`系统说明 
 ~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 在 ``env_server`` 中定义与 client API 对应的 facade 类，例如 ``MyEnvFacade``。该类继承
-:class:`rpent.robots.components.env_facade_base.BaseEnvFacade`；基类已提供公共 RPC 路由和
+:class:`rpent.components.env.facade.BaseEnvFacade`；基类已提供公共 RPC 路由和
 读写分派锁。子类实现公共环境方法，并通过 ``_register_rpc`` 增加环境专用路由。方法接收与 client 一致的位置参数和关键字参数，返回传输层支持的 Python / NumPy 值（不要返回 torch；agent 进程不导入 torch）。
 
 .. code-block:: python
 
-   from rpent.robots.components.env_facade_base import BaseEnvFacade
+   from rpent.components.env.facade import BaseEnvFacade
 
    class MyEnvFacade(BaseEnvFacade):
        def __init__(self, env, meta):

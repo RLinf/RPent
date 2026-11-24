@@ -1,0 +1,9 @@
+schema = 2
+name = "model-awomo05"
+probe = "components.models.awomo05"
+python = ">=3.11,<3.12"
+# The native XPolicyLab runtime and checkpoints come from the
+# deployment's resource root, so they are not pip dependencies.
+requires = ["sim-robodojo"]
+
+dependencies = []

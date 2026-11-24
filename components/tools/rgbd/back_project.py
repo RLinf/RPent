@@ -19,12 +19,12 @@ from typing import Annotated, Any
 import numpy as np
 from pydantic import Field
 
-from rpent.tools import ToolResult, tool
-from toolkits.observation import (
+from components.tools.rgbd.observation import (
     GeometryObservation,
     ImageSelection,
     ObservationProvider,
 )
+from rpent.tools import ToolResult, tool
 
 
 @tool(readonly=True, exclude=("observations",))

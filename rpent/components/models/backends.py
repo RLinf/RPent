@@ -49,7 +49,7 @@ REMOTE_ONLY_PLATFORMS = {"franka", "yam"}
 
 def _runtime_config(backend: str) -> ModuleType:
     return importlib.import_module(
-        f"rpent.robots.components.{WAM_BACKENDS[backend]}.runtime_config"
+        f"components.models.{WAM_BACKENDS[backend]}.runtime_config"
     )
 
 
@@ -358,7 +358,7 @@ def start_wam_service(
     port = pick_free_port()
     command = [
         "-m",
-        f"rpent.robots.components.{WAM_BACKENDS[config.backend]}.server",
+        f"components.models.{WAM_BACKENDS[config.backend]}.server",
         "--platform",
         config.platform,
         "--checkpoint",

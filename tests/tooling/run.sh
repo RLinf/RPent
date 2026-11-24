@@ -20,9 +20,11 @@ set -euo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")/../.."
 
 case "${1:-}" in
+  layout) module=tests.tooling.layout ;;
   matrix) module=tests.tooling.matrix ;;
+  affected) module=tests.tooling.affected ;;
   *)
-    echo "usage: $0 matrix [args...]" >&2
+    echo "usage: $0 {layout|matrix|affected} [args...]" >&2
     exit 2
     ;;
 esac

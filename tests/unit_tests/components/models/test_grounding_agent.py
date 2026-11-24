@@ -27,7 +27,7 @@ import pytest
 from PIL import Image
 from pydantic_ai.models.test import TestModel
 
-from rpent.robots.components.grounding_agent import GroundingAgent
+from components.models.molmo.grounding_agent import GroundingAgent
 
 
 @pytest.fixture
@@ -98,7 +98,7 @@ def test_codex_receives_image_and_no_robot_tools(monkeypatch, image, tmp_path):
         assert kwargs["output_schema"]["required"] == ["point_xy"]
         return '{"point_xy": [5, 3]}'
 
-    import rpent.robots.components.grounding_agent as grounding
+    import components.models.molmo.grounding_agent as grounding
 
     homes = []
     monkeypatch.setattr(
@@ -120,7 +120,7 @@ def test_codex_receives_image_and_no_robot_tools(monkeypatch, image, tmp_path):
 def test_effective_mcp_configuration_is_checked(monkeypatch, servers, rejected):
     import openai_codex.client as sdk
 
-    from rpent.robots.components.grounding_agent import _check_codex_mcp_isolation
+    from components.models.molmo.grounding_agent import _check_codex_mcp_isolation
 
     class Client:
         def __init__(self, config):
@@ -150,7 +150,7 @@ def test_effective_mcp_configuration_is_checked(monkeypatch, servers, rejected):
 
 
 def test_keyring_login_has_actionable_error(tmp_path):
-    from rpent.robots.components.grounding_agent import _isolated_codex_environment
+    from components.models.molmo.grounding_agent import _isolated_codex_environment
 
     source = tmp_path / "user"
     source.mkdir()
@@ -164,7 +164,7 @@ def test_keyring_login_has_actionable_error(tmp_path):
 def test_custom_provider_does_not_require_keyring_login(
     tmp_path, store, override_provider
 ):
-    from rpent.robots.components.grounding_agent import _isolated_codex_environment
+    from components.models.molmo.grounding_agent import _isolated_codex_environment
 
     source = tmp_path / "user"
     source.mkdir()
@@ -186,7 +186,7 @@ def test_custom_provider_does_not_require_keyring_login(
 
 
 def test_provider_override_can_require_file_login(tmp_path):
-    from rpent.robots.components.grounding_agent import _isolated_codex_environment
+    from components.models.molmo.grounding_agent import _isolated_codex_environment
 
     source = tmp_path / "user"
     source.mkdir()
@@ -295,8 +295,8 @@ def test_codex_cannot_attach_an_image_outside_grounding_directory(
 def test_inherited_mcp_stops_before_model_request(monkeypatch, image, tmp_path):
     import openai_codex
 
+    import components.models.molmo.grounding_agent as grounding
     import rpent.planner.codex as codex
-    import rpent.robots.components.grounding_agent as grounding
 
     monkeypatch.setattr(
         codex,
@@ -321,7 +321,7 @@ def test_inherited_mcp_stops_before_model_request(monkeypatch, image, tmp_path):
 
 
 def test_isolated_provider_preserves_endpoint_and_headers(tmp_path):
-    import rpent.robots.components.grounding_agent as grounding
+    import components.models.molmo.grounding_agent as grounding
 
     source = tmp_path / "user"
     source.mkdir()

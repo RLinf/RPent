@@ -18,9 +18,9 @@ import argparse
 import json
 from pathlib import Path
 
-from rpent.robots.components.uniwam import ACTION_CHUNK_SIZE, HISTORY_LENGTH
-from rpent.robots.components.uniwam import USES_SESSIONS as USES_SESSIONS
-from rpent.robots.components.uniwam.adapter import ADAPTERS as ADAPTERS
+from components.models.uniwam import ACTION_CHUNK_SIZE, HISTORY_LENGTH
+from components.models.uniwam import USES_SESSIONS as USES_SESSIONS
+from components.models.uniwam.adapter import ADAPTERS as ADAPTERS
 
 OPTION_FIELDS = ()
 

@@ -26,11 +26,11 @@ import numpy as np
 if __package__ in (None, ""):
     sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from rpent.robots.components.action_spec import (  # noqa: E402
+from rpent.components.env.action_spec import (  # noqa: E402
     box_action_spec,
     validate_action,
 )
-from rpent.robots.components.env_facade_base import BaseEnvFacade  # noqa: E402
+from rpent.components.env.facade import BaseEnvFacade  # noqa: E402
 from rpent.utils.logging import init_output_dir  # noqa: E402
 from rpent.utils.rpc.main_thread_serve import MainThreadServeMixin  # noqa: E402
 from rpent.utils.serialization import to_numpy_tree  # noqa: E402

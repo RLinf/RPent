@@ -8,7 +8,8 @@ Robot Entry
 -----------
 
 After you add ``robots/<robot>/``, the package ``__init__.py`` re-exports two
-functions implemented in ``robot_spec.py`` for ``main.py`` to call:
+functions implemented in ``spec.py`` (``robot_spec.py`` until the a_5 rename)
+for ``main.py`` to call:
 
 .. code-block:: python
 

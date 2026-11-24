@@ -24,7 +24,7 @@ import numpy as np
 import pytest
 
 from robots.robodojo import robot_spec, tools
-from rpent.robots.components import am_runtime
+from rpent.components.models import backends as runtime
 from rpent.tools import Tool, iter_tools
 
 
@@ -109,9 +109,7 @@ def test_explicit_paths_do_not_read_workspace_or_mutate_parent(monkeypatch, tmp_
     assert str(tmp_path / "policy") in env["PYTHONPATH"].split(os.pathsep)
     assert dict(os.environ) == before
     assert (
-        args.sim_python
-        == am_runtime.select_am(args, "robodojo").python
-        == sys.executable
+        args.sim_python == runtime.select_am(args, "robodojo").python == sys.executable
     )
 
 
@@ -152,7 +150,7 @@ def test_cuda_selection_is_only_overridden_explicitly(
             pass
 
     monkeypatch.setattr(robot_spec, "ProcessDaemon", Daemon)
-    monkeypatch.setattr(am_runtime, "ProcessDaemon", Daemon)
+    monkeypatch.setattr(runtime, "ProcessDaemon", Daemon)
     flags = [] if explicit is None else ["--cuda-device", str(explicit)]
     args = _args("--source-root", str(tmp_path), "--vla-backend", backend, *flags)
     assert args.cuda_device == explicit
@@ -178,7 +176,7 @@ def test_cuda_selection_is_only_overridden_explicitly(
 
 
 def test_task_inventory_uses_explicit_checkout(tmp_path, monkeypatch):
-    from robots.robodojo import tasks
+    from components.sim.robodojo import tasks
 
     configs = tmp_path / "task/RoboDojo/config"
     configs.mkdir(parents=True)
@@ -220,7 +218,7 @@ def test_env_spawn_uses_explicit_interpreter_and_child_paths(monkeypatch, tmp_pa
             recorded["started"] = True
 
     monkeypatch.setattr(robot_spec, "ProcessDaemon", Daemon)
-    monkeypatch.setattr(am_runtime, "ProcessDaemon", Daemon)
+    monkeypatch.setattr(runtime, "ProcessDaemon", Daemon)
     args = _args("--source-root", str(tmp_path), "--sim-python", sys.executable)
     robot_spec._spawn_env_server(args, tmp_path)
     assert recorded["cmd"][0] == sys.executable
@@ -234,7 +232,7 @@ def test_env_spawn_uses_explicit_interpreter_and_child_paths(monkeypatch, tmp_pa
 def test_env_connection_checks_action_protocol_before_reset(
     monkeypatch, tmp_path, agent_module, fake_env, version
 ):
-    from robots.robodojo import env_server
+    from components.sim.robodojo import env_server
     from rpent.dashboard.events import NullDashboardEventSink
     from rpent.robots import runtime
 
@@ -294,8 +292,8 @@ def test_env_connection_checks_action_protocol_before_reset(
 def test_runtime_connects_selected_backend(
     monkeypatch, tmp_path, backend, backend_flag
 ):
-    from robots.robodojo.awomo05_client import Awomo05Client
-    from robots.robodojo.vpp2_client import VPP2Client
+    from components.models.awomo05.client import Awomo05Client
+    from components.models.vpp2.client import VPP2Client
     from rpent.dashboard.events import NullDashboardEventSink
 
     rpc = object()
@@ -416,7 +414,7 @@ def saved_camera(tmp_path, fake_env):
 
 
 def test_readers_are_readonly_and_do_not_act(saved_camera):
-    from rpent.robots.components.sam3_client import Sam3Result
+    from components.models.sam3.client import Sam3Result
 
     obs = {
         "vision": {
@@ -672,7 +670,8 @@ def test_flash_rejected_before_services_start(monkeypatch, tmp_path):
 
 @pytest.fixture
 def runtime_services(monkeypatch):
-    from robots.robodojo import env_client, vpp2_server
+    from components.models.vpp2 import server as vpp2_server
+    from robots.robodojo import env_client
 
     events = []
     failure = {}
@@ -719,7 +718,7 @@ def runtime_services(monkeypatch):
         return rpc
 
     monkeypatch.setattr(env_client, "RoboDojoEnvClient", environment)
-    from robots.robodojo import awomo05_client
+    from components.models.awomo05 import client as awomo05_client
 
     original = awomo05_client.Awomo05Client
 
@@ -728,7 +727,7 @@ def runtime_services(monkeypatch):
         return original(rpc)
 
     monkeypatch.setattr(awomo05_client, "Awomo05Client", connect)
-    from robots.robodojo import vpp2_client
+    from components.models.vpp2 import client as vpp2_client
 
     original_vpp2 = vpp2_client.VPP2Client
 
@@ -819,18 +818,17 @@ def test_backends_accept_shared_sam3_endpoint(runtime_services, tmp_path, backen
 def test_resource_root_uses_selected_backend_environment(
     monkeypatch, backend, variable
 ):
-
     monkeypatch.setenv("VPP2_MODEL_PATH", "/models/vpp2")
     monkeypatch.setenv("AWOMO05_MODEL_PATH", "/models/awomo")
     config = _args("--vla-backend", backend)
     assert (
-        am_runtime.select_am(config, "robodojo").checkpoint
+        runtime.select_am(config, "robodojo").checkpoint
         == {"VPP2_MODEL_PATH": "/models/vpp2", "AWOMO05_MODEL_PATH": "/models/awomo"}[
             variable
         ]
     )
     config.am_checkpoint = "/explicit"
-    assert am_runtime.select_am(config, "robodojo").checkpoint == "/explicit"
+    assert runtime.select_am(config, "robodojo").checkpoint == "/explicit"
 
 
 @pytest.mark.parametrize("backend", ["vpp2", "awomo05"])
@@ -877,7 +875,7 @@ def test_model_startup_failure_stops_owned_process(
         raise RuntimeError("model startup failed")
 
     monkeypatch.setattr(robot_spec, "ProcessDaemon", Daemon)
-    monkeypatch.setattr(am_runtime, "ProcessDaemon", Daemon)
+    monkeypatch.setattr(runtime, "ProcessDaemon", Daemon)
     monkeypatch.setattr(robot_spec, "pick_free_port", lambda: 9205)
     monkeypatch.setattr(robot_spec, "make_rpc_client", fail)
     config = _args(
@@ -942,7 +940,7 @@ def test_model_spawn_owns_process_and_borrows_endpoint(monkeypatch, tmp_path, ba
             recorded["started"] = True
 
     monkeypatch.setattr(robot_spec, "ProcessDaemon", Daemon)
-    monkeypatch.setattr(am_runtime, "ProcessDaemon", Daemon)
+    monkeypatch.setattr(runtime, "ProcessDaemon", Daemon)
     monkeypatch.setattr(robot_spec, "pick_free_port", lambda: 9205)
     monkeypatch.setattr(
         robot_spec, "make_rpc_client", lambda endpoint, **kw: (endpoint, kw)
@@ -966,7 +964,7 @@ def test_model_spawn_owns_process_and_borrows_endpoint(monkeypatch, tmp_path, ba
         sys.executable,
         "-u",
         "-m",
-        f"robots.robodojo.{backend}_server",
+        f"components.models.{backend}.server",
     ]
     assert "--parent-watch" in recorded["cmd"]
     assert rpc == ("socket://127.0.0.1:9205", options)

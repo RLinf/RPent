@@ -32,9 +32,9 @@ from rpent.dashboard.events import NullDashboardEventSink
 from rpent.evaluation import RunFinalizationContext
 from rpent.memory import MemoryManager
 from rpent.robots.base import get_robot_spec
-from rpent.robots.components import am_runtime
-from rpent.robots.components.action_spec import box_action_spec, validate_action
-from rpent.robots.components.pi05_vla_client import Pi05VLAClient
+from rpent.components.models import backends as am_runtime
+from rpent.components.env.action_spec import box_action_spec, validate_action
+from components.models.openpi.client import Pi05VLAClient
 
 
 def test_robolab_registers_and_parses_without_simulator(tmp_path):
