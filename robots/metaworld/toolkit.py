@@ -79,11 +79,12 @@ class MetaWorldToolkit(Toolkit):
         return ToolResult(
             data={
                 **record.state,
+                "step": record.step_idx,
                 "episode_ended": bool(record.terminated or record.truncated),
                 "terminated": record.terminated,
                 "truncated": record.truncated,
             },
-            images=[self._state.load_bytes("camera.png", step=-1)],
+            images=[self._state.load_bytes("camera.png", step=record.step_idx)],
         )
 
     @staticmethod

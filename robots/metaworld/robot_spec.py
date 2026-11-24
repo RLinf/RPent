@@ -59,6 +59,7 @@ def _validate(args) -> None:
 
 
 def _parse_config(args) -> RunConfig:
+    validate(args.task, args.seed, args.max_episode_steps, args.camera)
     tag = f"{args.task}_s{args.seed}"
     memory = Path(args.memory_dir or get_memory_dir("metaworld")).expanduser().resolve()
     output = Path(

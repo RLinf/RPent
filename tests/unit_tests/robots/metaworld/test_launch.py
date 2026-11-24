@@ -126,3 +126,22 @@ def test_server_maps_device_before_environment_construction(
     assert events == [*expected, ("construct",)]
     env.serve.assert_called_once()
     env.close.assert_called_once()
+
+
+@pytest.mark.parametrize("seed", [-1, 0, 2**32 - 1, 2**32])
+def test_seed_range_at_launch_and_dashboard_task_configuration(seed, tmp_path):
+    spec = robot_spec.get_robot_spec()
+    parser = argparse.ArgumentParser()
+    spec.add_cli_args(parser, use_dashboard=True)
+    args = parser.parse_args(["--seed", str(seed)])
+    args.output_dir = tmp_path
+    args.memory_dir = tmp_path / "memory"
+    if 0 <= seed < 2**32:
+        spec.validate_args(args)
+        assert spec.parse_config(args).task_desc["seed"] == seed
+    else:
+        for validate_config in (spec.validate_args, spec.parse_config):
+            with pytest.raises(
+                ValueError, match="seed must be between 0 and 4294967295"
+            ):
+                validate_config(args)

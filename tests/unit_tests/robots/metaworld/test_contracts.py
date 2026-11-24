@@ -267,6 +267,17 @@ def test_native_dispatch_keeps_images_motion_and_readonly_state(tmp_path):
     assert not moved.is_error
     assert moved.data["motion_result"]["steps"] == 2
     assert moved.data["steps"] == 2
+    assert moved.data["step"] == 1
+    projection = tk.execute_tool(
+        "back_project",
+        {
+            "camera": "primary",
+            "step": moved.data["step"],
+            "selection": {"image_shape": [3, 3], "points_rc": [[0, 0]]},
+        },
+    )
+    assert projection.data["step"] == 1
+    assert projection.data["samples_xyz"] == [[0, 0, -1]]
     assert moved.images[0].startswith(b"\x89PNG")
     assert tk.state.latest_record().command["action"] == "set_gripper"
     record = tk.state.latest_record()

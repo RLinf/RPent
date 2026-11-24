@@ -33,8 +33,8 @@ def validate(task: str, seed: int, max_episode_steps: int, camera: str) -> None:
     """Reject unsupported launch selections before loading the simulator."""
     if task not in TASKS:
         raise ValueError(f"unsupported MetaWorld task: {task!r}")
-    if seed < 0:
-        raise ValueError("seed must be nonnegative")
+    if not 0 <= seed <= 2**32 - 1:
+        raise ValueError("seed must be between 0 and 4294967295")
     if max_episode_steps <= 0:
         raise ValueError("max_episode_steps must be positive")
     if camera not in CAMERAS:
