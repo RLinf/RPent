@@ -368,8 +368,14 @@ def _mcp_client() -> tuple[Any, Any]:
     return ClientSession, streamablehttp_client
 
 
-def call_timeout_s() -> float:
-    """Return the response deadline for one MCP request."""
+def call_timeout_s(spec: McpServerSpec | None = None) -> float:
+    """Return the response deadline for one MCP request.
+
+    Precedence: per-server ``spec.timeout_s`` (YAML) > ``MCP_CALL_TIMEOUT_S``
+    environment variable > :data:`DEFAULT_CALL_TIMEOUT_S` (60 seconds).
+    """
+    if spec is not None and spec.timeout_s is not None:
+        return spec.timeout_s
     raw = os.environ.get("MCP_CALL_TIMEOUT_S")
     if raw is None:
         return DEFAULT_CALL_TIMEOUT_S
@@ -415,7 +421,8 @@ async def run_remote(
     """Run one action on a fresh MCP session with timeout and cancellation.
 
     Each call opens its own session and bounds ``initialize``, ``tools/list``,
-    and ``tools/call`` by ``MCP_CALL_TIMEOUT_S`` (60 seconds by default). The
+    and ``tools/call`` by ``spec.timeout_s`` if set, else ``MCP_CALL_TIMEOUT_S``
+    (60 seconds by default). The
     session closes with ``terminate_on_close=False`` so timed-out or cancelled
     calls return immediately instead of waiting on a remote ``DELETE``
     handshake. When ``operation`` is provided, ``Toolkit.cancel_active_and_wait``
@@ -426,7 +433,7 @@ async def run_remote(
 
     ClientSession, streamablehttp_client = _mcp_client()
     headers = dict(spec.headers) or None
-    timeout = timedelta(seconds=call_timeout_s())
+    timeout = timedelta(seconds=call_timeout_s(spec))
     # Keep the HTTP read timeout slightly above ClientSession's deadline so
     # ClientSession raises a single timeout error instead of racing with
     # httpx.ReadTimeout inside anyio's TaskGroup, while allowing

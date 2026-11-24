@@ -47,7 +47,6 @@ redirects = {
     "rst_source/usage/simulation": "../simulators/index.html",
     "rst_source/usage/real_robots": "../real_world_robots/index.html",
     "rst_source/usage/memory": "../guides/memory.html",
-    "rst_source/usage/configure_primitives": "../toolkits/overview.html",
     "rst_source/guides/configure_primitives": "../toolkits/overview.html",
     "rst_source/development/generic_toolkit": "../toolkits/rgbd.html",
     "rst_source/usage/configure_planner": "../guides/configure_planner.html",

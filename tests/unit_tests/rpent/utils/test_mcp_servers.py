@@ -55,6 +55,7 @@ def test_parse_resolves_env_headers_tools_and_sync_flag(
                 "headers": {"Authorization": "Bearer ${oc.env:POWER_TOKEN}"},
                 "tools": ["read_power_meter", "read_power_meter", "read_temp"],
                 "sync_with_robot": True,
+                "timeout_s": 15,
             }
         }
     )
@@ -65,6 +66,7 @@ def test_parse_resolves_env_headers_tools_and_sync_flag(
             headers={"Authorization": "Bearer s3cr3t"},
             tools=("read_power_meter", "read_temp"),
             sync_with_robot=True,
+            timeout_s=15.0,
         ),
     )
 
@@ -152,6 +154,17 @@ def test_parse_rejects_unknown_keys_and_non_bool_sync() -> None:
         )
 
 
+@pytest.mark.parametrize(
+    "bad_timeout",
+    [0, -5, True, False, "30", float("inf"), float("nan")],
+)
+def test_parse_rejects_invalid_timeout_s(bad_timeout: object) -> None:
+    with pytest.raises(ValueError, match="timeout_s must be a positive number"):
+        parse_mcp_servers(
+            {"power": {"url": "http://127.0.0.1:8765/mcp", "timeout_s": bad_timeout}}
+        )
+
+
 def test_load_mcp_config_reads_only_mcp_servers_section(tmp_path: Path) -> None:
     config = tmp_path / "mcp.yaml"
     config.write_text(
@@ -194,6 +207,7 @@ def test_public_spec_redacts_headers_and_url_query_fragment() -> None:
         headers={"Authorization": "Bearer secret", "X-Team": "lab"},
         tools=("read_power_meter",),
         sync_with_robot=True,
+        timeout_s=30.0,
     )
     recorded = public_spec(spec)
     assert recorded == {
@@ -205,4 +219,5 @@ def test_public_spec_redacts_headers_and_url_query_fragment() -> None:
         },
         "tools": ("read_power_meter",),
         "sync_with_robot": True,
+        "timeout_s": 30.0,
     }

@@ -242,12 +242,10 @@ toolkit 模块通常包含四部分：
 
 ``runtime_kwargs`` 由 ``robot_spec.py:get_toolkit`` 转发给 toolkit，再原样传入 primitives 的 ``__init__``。其中通常包含 ``{"env": MyEnvClient(...), "model": VLAClient(...), ...}``。
 
-外部 MCP 工具
-~~~~~~~~~~~~~
+自定义外部 MCP 注册
+~~~~~~~~~~~~~~~~~~~
 
-RPent 会在 ``get_toolkit`` 返回后，自动把 ``--mcp-config`` 和 ``RunConfig.mcp_servers`` 中的外部 MCP 服务注册到 ``Toolkit``\ （工具名为 ``<server>__<tool>``，见 :ref:`external-mcp-servers`\ ）。所有在线规划器（``api``、``claude_code``、``codex`` 和 ``gemini_cli``）都通过同一个 ``Toolkit`` 接口调用这些工具。
-
-如果机器人接入代码需要显式控制某个服务的工具范围或同步方式，可以在 ``get_toolkit`` 中调用 :meth:`~rpent.tools.toolkit.Toolkit.add_mcp_tools`：
+本节说明如何在机器人接入代码中自定义外部 MCP 服务的注册方式。默认情况下，RPent 会在 ``get_toolkit`` 返回后自动注册 ``--mcp-config``\ （YAML 文件路径）与 ``RunConfig.mcp_servers`` 中的外部 MCP 服务，大多数机器人无需编写额外代码（见 :ref:`external-mcp-servers`\ ）。仅当机器人需要把某个服务限定到指定工具子集，或强制该服务的工具与机器人动作同步执行（``sync_with_robot=True``）时，才需要在 ``get_toolkit`` 返回前调用 :meth:`~rpent.tools.toolkit.Toolkit.add_mcp_tools`：
 
 .. code-block:: python
 
@@ -293,7 +291,7 @@ RPent 会在 ``get_toolkit`` 返回后，自动把 ``--mcp-config`` 和 ``RunCon
 - ``output_dir`` —— 单次运行的临时目录路径。main.py 随后调用 ``init_output_dir`` 创建目录并配置日志。
 - ``prompt_vars`` —— 传给 ``PromptBundle.render`` 的字典，通常包含运行标识和 prompt 引用的其他变量。
 - ``task_desc`` —— 机器人特定的任务标识字典，会原样写入 transcript JSON 记录（LIBERO 使用 ``{"suite": ..., "task": ..., "seed": ...}``）。
-- ``mcp_servers`` —— 可选的元组，列出该机器人自带的 MCP 服务（例如用 :func:`~rpent.utils.mcp_servers.parse_mcp_servers` 从机器人配置文件的 ``mcp_servers`` 字段解析得到）。CLI 会合并 ``--mcp-config`` 中的共享服务，``get_toolkit`` 会将它们注册到机器人的 ``Toolkit``。两处来源的服务名必须唯一，参见 :ref:`external-mcp-servers`。
+- ``mcp_servers`` —— 可选的机器人自带 MCP 服务元组（可用 :func:`~rpent.utils.mcp_servers.parse_mcp_servers` 解析），运行时会与 ``--mcp-config`` 传入的 YAML 文件路径合并，详见 :ref:`external-mcp-servers`。
 
 .. code-block:: python
 

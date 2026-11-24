@@ -660,6 +660,14 @@ def test_timeout_pagination_reserved_fields_and_payload_bounds(
         res3 = toolkit.execute_tool("paged__hang", {})
         assert res3.is_error
 
+        # Per-server YAML timeout_s overrides MCP_CALL_TIMEOUT_S.
+        monkeypatch.setenv("MCP_CALL_TIMEOUT_S", "60")
+        yaml_timed = McpServerSpec(name="yaml_timed", url=url, timeout_s=0.3)
+        assert call_timeout_s(yaml_timed) == 0.3
+        toolkit.add_mcp_servers((yaml_timed,))
+        res4 = toolkit.execute_tool("yaml_timed__hang", {})
+        assert res4.is_error
+
 
 def test_get_toolkit_closes_toolkit_when_mcp_registration_fails(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path

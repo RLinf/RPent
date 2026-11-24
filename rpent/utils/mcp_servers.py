@@ -28,14 +28,16 @@ Configuration comes from two places:
   both sources at run time.
 
 Only streamable-HTTP servers are supported: a spec carries a ``url``, optional
-``headers``, optional ``tools`` selection (defaulting to ``"*"``), and optional
-``sync_with_robot`` (defaulting to ``False``). :func:`parse_mcp_servers`
-resolves YAML interpolation (``${oc.env:...}``) for either source, so this
-module is a pure validator with no network access.
+``headers``, optional ``tools`` selection (defaulting to ``"*"``), optional
+``sync_with_robot`` (defaulting to ``False``), and optional ``timeout_s``
+(defaulting to ``None``, which falls back to ``MCP_CALL_TIMEOUT_S`` or 60 s).
+:func:`parse_mcp_servers` resolves YAML interpolation (``${oc.env:...}``) for
+either source, so this module is a pure validator with no network access.
 """
 
 from __future__ import annotations
 
+import math
 import re
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
@@ -79,6 +81,9 @@ class McpServerSpec:
             triggering ``get_env_state``. When ``True``, tools run exclusively
             alongside robot actions, trigger post-action observation capture,
             and preserve their remote payload under ``tool_result``.
+        timeout_s: Optional per-request timeout in seconds for MCP discovery and
+            tool calls. When ``None`` (default), RPent falls back to the
+            ``MCP_CALL_TIMEOUT_S`` environment variable or 60 seconds.
     """
 
     name: str
@@ -86,6 +91,7 @@ class McpServerSpec:
     headers: dict[str, str] = field(default_factory=dict)
     tools: ToolSelection = ALL_TOOLS
     sync_with_robot: bool = False
+    timeout_s: float | None = None
 
     def __post_init__(self) -> None:
         """Reject a spec no consumer could use safely."""
@@ -129,6 +135,9 @@ class McpServerSpec:
                 f"{type(self.sync_with_robot).__name__}"
             )
         object.__setattr__(self, "tools", _parse_tools(self.tools, where))
+        object.__setattr__(
+            self, "timeout_s", _parse_timeout_s(self.timeout_s, f"{where}.timeout_s")
+        )
 
 
 def parse_mcp_servers(
@@ -242,6 +251,7 @@ def public_spec(spec: McpServerSpec) -> dict[str, Any]:
         "headers": dict.fromkeys(spec.headers, REDACTED_VALUE),
         "tools": spec.tools,
         "sync_with_robot": spec.sync_with_robot,
+        "timeout_s": spec.timeout_s,
     }
 
 
@@ -262,7 +272,7 @@ def _parse_one(name: str, value: Any) -> McpServerSpec:
     if not isinstance(value, Mapping):
         raise ValueError(f"{where} must be a mapping with a 'url'")
 
-    valid_keys = {"url", "headers", "tools", "sync_with_robot"}
+    valid_keys = {"url", "headers", "tools", "sync_with_robot", "timeout_s"}
     unknown = sorted(set(value) - valid_keys)
     if unknown:
         raise ValueError(
@@ -279,7 +289,20 @@ def _parse_one(name: str, value: Any) -> McpServerSpec:
         headers=_parse_headers(value.get("headers"), f"{where}.headers"),
         tools=_parse_tools(value.get("tools"), where),
         sync_with_robot=raw_sync,
+        timeout_s=_parse_timeout_s(value.get("timeout_s"), f"{where}.timeout_s"),
     )
+
+
+def _parse_timeout_s(raw: Any, where: str) -> float | None:
+    """Validate an optional positive per-request timeout in seconds."""
+    if raw is None:
+        return None
+    if isinstance(raw, bool) or not isinstance(raw, (int, float)):
+        raise ValueError(f"{where} must be a positive number of seconds; got {raw!r}")
+    timeout_s = float(raw)
+    if not math.isfinite(timeout_s) or timeout_s <= 0:
+        raise ValueError(f"{where} must be a positive number of seconds; got {raw!r}")
+    return timeout_s
 
 
 def _parse_headers(raw: Any, where: str) -> dict[str, str]:

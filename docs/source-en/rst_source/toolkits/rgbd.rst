@@ -3,8 +3,8 @@
 Embodied RGB-D Toolkit
 ======================
 
-Register the read-only tools in ``toolkits`` to let a planner look up 3D positions
-at image pixels, segment objects or measure their parts using recorded RGB-D
+Use RPent's read-only RGB-D perception tools to look up 3D surface positions at
+image pixels, segment objects, or measure object parts from recorded camera
 observations.
 
 For example, if the planner selects a pixel on the side of a cup,
@@ -18,7 +18,7 @@ radius, or estimate the cup's height from its rim and base centers. The
 point and the rim center. The coordinate components, rim radius and cup height
 are all in metres.
 
-Choose a tool
+Choose a Tool
 -------------
 
 All three tools take a ``camera`` and a recorded ``step``. Use ``step=-1`` for
@@ -42,7 +42,7 @@ the latest record. When selecting a pixel on a preview, use the preview's
      - Describe the target in ``query``. You can request the 3D coordinates of a point on its visible surface or the bounds of its visible region. To measure the position or size of a specific part, list the measurements in ``required_geometry``.
      - The tool selects image points internally and checks whether they lie on the target object. If needed, it also examines images recorded by other cameras at the same step. It returns a numerical value for a fitted quantity only if the fit passes its quality checks.
 
-Use the tools in a simulator
+Use the Tools in a Simulator
 ----------------------------
 
 LIBERO
@@ -76,66 +76,65 @@ can be estimated but one fails a quality check, ``warning`` includes only the
 accepted value. If neither passes, ``insufficient_evidence`` lets the planner
 choose another action.
 
-Integrate the tools on a real robot
------------------------------------
-
-Implement the robot's observation adapter
-to read the recorded RGB-D frame and its camera calibration for each step. If
-the camera moves with the arm, use its pose at the time of capture to transform
-depth samples into world coordinates.
-
 .. _generic-toolkit-registration:
 
-Observation adapters and tool registration
-------------------------------------------
+Integrate on a Robot
+--------------------
 
-For a simulator or a real robot, implement ``get_observation(camera=..., step=...)``
-on the platform's observation adapter. The method returns a
-``toolkits.observation.GeometryObservation`` containing the RGB image and its
-3D data for that camera and step. The adapter can supply an
-aligned world XYZ map giving each pixel's surface coordinates in metres, or an
-aligned optical-axis depth map in metres together with the camera intrinsics
-and the camera-to-world transform.
+To enable these tools on a real robot or a new simulator, implement an
+observation adapter that returns each step's RGB-D frame and calibration in the
+world frame (using the arm's capture-time pose for wrist cameras) and register
+the tools on the robot's toolkit.
 
-To filter ``back_project`` samples by height, supply the world up direction
-(``up_direction``). When ``geometry`` measures the object described in ``query``,
-the observation adapter must supply both ``up_direction`` and the camera pose
-(``camera_to_world``).
-For platforms with multiple calibrated cameras, the adapter can implement
-``additional_observations(primary)`` to return other views from the same step
-in the same world frame.
+.. dropdown:: Observation adapter contract and registration example
 
-Before registering tools with the platform's ``toolkit``, prepare the observation
-adapter ``observations``, the current session's state object ``state`` (an
-``EnvState`` instance), and an initialized segmentation client ``segmenter``.
+   For a simulator or a real robot, implement ``get_observation(camera=..., step=...)``
+   on the platform's observation adapter. The method returns a
+   ``toolkits.observation.GeometryObservation`` containing the RGB image and its
+   3D data for that camera and step. The adapter can supply an
+   aligned world XYZ map giving each pixel's surface coordinates in metres, or an
+   aligned optical-axis depth map in metres together with the camera intrinsics
+   and the camera-to-world transform.
 
-The example below registers ``back_project`` and ``segment`` when the platform
-initializes its ``toolkit``, so the planner can call them during a task. To use
-only these two tools, set ``grounder`` to ``None``. If you provide a ``grounder``,
-the example also registers ``geometry``.
+   To filter ``back_project`` samples by height, supply the world up direction
+   (``up_direction``). When ``geometry`` measures the object described in ``query``,
+   the observation adapter must supply both ``up_direction`` and the camera pose
+   (``camera_to_world``).
+   For platforms with multiple calibrated cameras, the adapter can implement
+   ``additional_observations(primary)`` to return other views from the same step
+   in the same world frame.
 
-.. code-block:: python
+   Before registering tools with the platform's ``toolkit``, prepare the observation
+   adapter ``observations``, the current session's state object ``state`` (an
+   ``EnvState`` instance), and an initialized segmentation client ``segmenter``.
 
-   from functools import partial
+   The example below registers ``back_project`` and ``segment`` when the platform
+   initializes its ``toolkit``, so the planner can call them during a task. To use
+   only these two tools, set ``grounder`` to ``None``. If you provide a ``grounder``,
+   the example also registers ``geometry``.
 
-   from toolkits.back_project import back_project
-   from toolkits.segment import SegmentTool
+   .. code-block:: python
 
-   sample = back_project.with_handler(partial(back_project, observations=observations))
-   toolkit.add_tool(sample)
-   masks = SegmentTool(observations=observations, state=state, segmenter=segmenter)
-   toolkit.add_tool(masks.segment)
+      from functools import partial
 
-   if grounder is not None:
-       from toolkits.geometry.geometry_tool import GeometryTool
+      from toolkits.back_project import back_project
+      from toolkits.segment import SegmentTool
 
-       geometry = GeometryTool(
-           observations=observations, state=state, segmenter=segmenter,
-           grounder=grounder, check_cancelled=toolkit.raise_if_cancelled,
-       )
-       toolkit.add_tool(geometry.geometry)
+      sample = back_project.with_handler(partial(back_project, observations=observations))
+      toolkit.add_tool(sample)
+      masks = SegmentTool(observations=observations, state=state, segmenter=segmenter)
+      toolkit.add_tool(masks.segment)
 
-``geometry`` caches measurement results for the current observation step. If
-you reuse the same geometry tool instance across episodes and step numbers
-restart, call ``geometry.reset_cache()`` at the start of each new episode to
-clear the cache.
+      if grounder is not None:
+          from toolkits.geometry.geometry_tool import GeometryTool
+
+          geometry = GeometryTool(
+              observations=observations, state=state, segmenter=segmenter,
+              grounder=grounder, check_cancelled=toolkit.raise_if_cancelled,
+          )
+          toolkit.add_tool(geometry.geometry)
+
+   ``geometry`` caches measurement results for the current observation step. If
+   you reuse the same geometry tool instance across episodes and step numbers
+   restart, call ``geometry.reset_cache()`` at the start of each new episode to
+   clear the cache.

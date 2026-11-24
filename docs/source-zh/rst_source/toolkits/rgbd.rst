@@ -3,7 +3,7 @@
 具身 RGB-D 工具包
 =================
 
-机器人注册 ``toolkits`` 中的只读工具后，规划器可以利用已记录的 RGB-D 观测查询像素对应的三维位置、分割物体或测量指定部位。
+使用 RPent 提供的只读 RGB-D 感知工具，从已记录的相机观测中查询像素对应的三维表面位置、分割目标物体或测量物体指定部位。
 
 以杯子为例，选中杯壁上的一个像素后，``back_project`` 可返回对应表面点的三维坐标。规划器也可以把这个像素或“白色杯子”这样的描述传给 ``segment``，获取候选掩膜，并在叠加图上核对掩膜是否覆盖目标杯子的可见区域。观测充分时，``geometry`` 可拟合杯口，给出杯口中心和半径，也可根据杯口和杯底的位置估算杯高。结果中的 ``world_frame_id`` 标明杯壁表面点和杯口中心所在的世界坐标系。点的坐标分量、杯口半径和杯高都以米为单位。
 
@@ -50,43 +50,42 @@ LIBERO 的适配器按相机名（``agentview`` 或 ``wrist``）和步号读取 
 
 两项拟合都通过时返回 ``usable``。如果杯口清晰，但所有已记录视角都看不到杯底，则返回 ``partial``，给出以米为单位的杯口半径，并在 ``missing_geometry`` 中列出 ``height``。如果两项都能估算，但其中一项触发质量警告，则返回 ``warning``，只给出通过检查的那一项的值。两项都缺乏可靠证据时返回 ``insufficient_evidence``，由规划器选择下一步。
 
-为真实机器人接入工具
---------------------
-
-实现真机的观测适配器时，按步号读取相机采集的 RGB-D 帧和对应的标定数据。若相机随机械臂移动，使用采集该帧时的相机位姿将深度点变换到世界坐标系。
-
 .. _generic-toolkit-registration:
 
-观测适配器与工具注册
---------------------
+为机器人接入工具
+----------------
 
-接入仿真器或真机时，由该平台的观测适配器实现 ``get_observation(camera=..., step=...)``，通过一个 ``toolkits.observation.GeometryObservation`` 对象返回指定相机在该步的 RGB 图像和对应的三维数据。适配器可以直接提供与图像对齐的世界坐标图，给出每个像素对应的三维坐标（单位为米），也可以提供与图像对齐的光轴深度图（单位为米），并附上相机内参和相机到世界坐标系的变换。
+在真实机器人或新仿真器上启用这些工具时，需要实现观测适配器，按步号读取 RGB-D 帧与世界坐标系下的标定数据（若相机随机械臂移动，使用采集时刻的相机位姿），并在机器人的 ``toolkit`` 中注册工具。
 
-用 ``back_project`` 按高度筛选采样点时，适配器还需提供世界坐标系的向上方向 ``up_direction``。用 ``geometry`` 测量 ``query`` 中描述的物体时，观测适配器需要同时提供 ``up_direction`` 和相机位姿 ``camera_to_world``。若有多台标定相机，可实现 ``additional_observations(primary)``，提供同一步、同一世界坐标系的其他视角。
+.. dropdown:: 观测适配器接口与工具注册示例
 
-在平台的 ``toolkit`` 中注册工具前，先准备观测适配器 ``observations``、当前会话的状态对象 ``state``\ （``EnvState`` 实例）和已初始化的分割客户端 ``segmenter``。
+   接入仿真器或真机时，由该平台的观测适配器实现 ``get_observation(camera=..., step=...)``，通过一个 ``toolkits.observation.GeometryObservation`` 对象返回指定相机在该步的 RGB 图像和对应的三维数据。适配器可以直接提供与图像对齐的世界坐标图，给出每个像素对应的三维坐标（单位为米），也可以提供与图像对齐的光轴深度图（单位为米），并附上相机内参和相机到世界坐标系的变换。
 
-下面的示例在平台初始化 ``toolkit`` 时注册 ``back_project`` 和 ``segment``，供规划器在任务中调用。只使用这两个工具时，将 ``grounder`` 设为 ``None``。提供 ``grounder`` 时，还会注册 ``geometry``。
+   用 ``back_project`` 按高度筛选采样点时，适配器还需提供世界坐标系的向上方向 ``up_direction``。用 ``geometry`` 测量 ``query`` 中描述的物体时，观测适配器需要同时提供 ``up_direction`` 和相机位姿 ``camera_to_world``。若有多台标定相机，可实现 ``additional_observations(primary)``，提供同一步、同一世界坐标系的其他视角。
 
-.. code-block:: python
+   在平台的 ``toolkit`` 中注册工具前，先准备观测适配器 ``observations``、当前会话的状态对象 ``state``\ （``EnvState`` 实例）和已初始化的分割客户端 ``segmenter``。
 
-   from functools import partial
+   下面的示例在平台初始化 ``toolkit`` 时注册 ``back_project`` 和 ``segment``，供规划器在任务中调用。只使用这两个工具时，将 ``grounder`` 设为 ``None``。提供 ``grounder`` 时，还会注册 ``geometry``。
 
-   from toolkits.back_project import back_project
-   from toolkits.segment import SegmentTool
+   .. code-block:: python
 
-   sample = back_project.with_handler(partial(back_project, observations=observations))
-   toolkit.add_tool(sample)
-   masks = SegmentTool(observations=observations, state=state, segmenter=segmenter)
-   toolkit.add_tool(masks.segment)
+      from functools import partial
 
-   if grounder is not None:
-       from toolkits.geometry.geometry_tool import GeometryTool
+      from toolkits.back_project import back_project
+      from toolkits.segment import SegmentTool
 
-       geometry = GeometryTool(
-           observations=observations, state=state, segmenter=segmenter,
-           grounder=grounder, check_cancelled=toolkit.raise_if_cancelled,
-       )
-       toolkit.add_tool(geometry.geometry)
+      sample = back_project.with_handler(partial(back_project, observations=observations))
+      toolkit.add_tool(sample)
+      masks = SegmentTool(observations=observations, state=state, segmenter=segmenter)
+      toolkit.add_tool(masks.segment)
 
-``geometry`` 会缓存当前观测步的测量结果。如果新 episode 会从相同的步号重新计数，且沿用同一个几何工具实例，请在新 episode 开始时调用 ``geometry.reset_cache()`` 清除旧缓存。
+      if grounder is not None:
+          from toolkits.geometry.geometry_tool import GeometryTool
+
+          geometry = GeometryTool(
+              observations=observations, state=state, segmenter=segmenter,
+              grounder=grounder, check_cancelled=toolkit.raise_if_cancelled,
+          )
+          toolkit.add_tool(geometry.geometry)
+
+   ``geometry`` 会缓存当前观测步的测量结果。如果新 episode 会从相同的步号重新计数，且沿用同一个几何工具实例，请在新 episode 开始时调用 ``geometry.reset_cache()`` 清除旧缓存。
