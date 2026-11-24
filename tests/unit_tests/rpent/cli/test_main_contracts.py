@@ -149,6 +149,40 @@ def _capture_validated_args(
     return captured["robot_name"], captured["args"]
 
 
+def test_a_core_only_environment_reports_the_missing_planner_layer(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    cli = _cli_module()
+    monkeypatch.setattr(sys, "argv", ["rpent", "--robot", "libero"])
+    monkeypatch.setattr(
+        cli, "_MISSING_PLANNER_LAYER", ModuleNotFoundError("No module named 'yaml'")
+    )
+
+    assert cli.main() == 1
+
+    message = capsys.readouterr().err
+    assert "needs the planner layer" in message
+    assert 'pip install "rpent[planner]"' in message
+
+
+def test_help_names_the_robot_dependency_that_is_missing(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    cli = _cli_module()
+    monkeypatch.setattr(sys, "argv", ["rpent", "--robot", "robocasa", "--help"])
+
+    def missing(_name):
+        raise ModuleNotFoundError("No module named 'robosuite'", name="robosuite")
+
+    monkeypatch.setattr(cli, "get_robot_spec", missing)
+
+    assert cli.main() == 1
+
+    message = capsys.readouterr().err
+    assert "cannot load robot 'robocasa'" in message
+    assert "robosuite" in message
+
+
 def test_public_cli_help_runs_from_source_checkout_without_a_robot_runtime() -> None:
     result = _run_cli_help("--help")
 

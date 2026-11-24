@@ -237,7 +237,7 @@ Fast-WAM 配置
 
 - ``run.log``：RPent 主进程日志。
 - ``robotwin_env_server.log`` 和 ``lingbot_vla_server.log``：仿真环境与模型服务的启动和报错信息。
-- ``transcript_*.json``：规划器对话和最终回复。
+- ``transcript.json``：规划器对话和最终回复。
 
 任务是否成功以最新工具结果中的 RoboTwin 原生 ``TASK_ENV.eval_success`` 为准。``finish`` 只负责结束规划器循环，不会另外定义一套成功条件。
 

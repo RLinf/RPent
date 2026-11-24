@@ -108,12 +108,12 @@ Linux 宿主机前置要求：
       export RPENT_ROOT=/absolute/path/to/RPent
       export EFE_ROOT=/absolute/path/to/embodied-first-exam
       uv sync --project "$EFE_ROOT" --python 3.12
-      uv pip install --python "$EFE_ROOT/.venv/bin/python" -e "$RPENT_ROOT"
+      uv pip install --python "$EFE_ROOT/.venv/bin/python" -e "$RPENT_ROOT[planner]"
       docker info
       uv run --project "$EFE_ROOT" harbor --version
       test -f "$RPENT_ROOT/robots/efe/harbor_agent.py"
 
-   - ``uv pip install ... -e "$RPENT_ROOT"`` 仅供宿主机手动调试（``rpent --robot efe``）使用；Harbor Trial 会在任务容器内自动打包并安装 RPent。
+   - ``uv pip install ... -e "$RPENT_ROOT[planner]"`` 仅供宿主机手动调试（``rpent --robot efe``）使用；Harbor Trial 会在任务容器内自动打包并安装 RPent，并带上 planner 额外依赖。
    - 确认 ``docker info`` 正常输出、``harbor --version`` 显示 ``0.23.0``，且 ``test -f`` 返回 ``0``。
 
 3. 选择 AutoBio 离心机示例任务并配置模型 API：
@@ -165,7 +165,7 @@ Linux 宿主机前置要求：
        ├── agent/
        │   ├── setup/           # 容器内 Agent 安装日志
        │   └── rpent/           # 对应容器内 /logs/agent/rpent/
-       │       ├── transcript_*.json # CLI 对话与规划器统计
+       │       ├── transcript.json   # CLI 对话与规划器统计
        │       ├── efe-result.json   # EFE 指标与收尾结果
        │       ├── codex_*.txt       # 规划器对话记录
        │       ├── codex-home/       # 本次 Trial 独立的 CODEX_HOME
@@ -176,7 +176,7 @@ Linux 宿主机前置要求：
        ├── lock.json
        └── trial.log
 
-若 Trial 中途失败导致缺少 ``result.json`` 或 ``transcript_*.json``，请先排查 \
+若 Trial 中途失败导致缺少 ``result.json`` 或 ``transcript.json``，请先排查 \
 ``trial.log`` 与 ``agent/rpent/run.log``。
 
 成功判定
@@ -185,6 +185,8 @@ Linux 宿主机前置要求：
 - **任务成功指标**：以 ``<trial_name>/result.json`` 中的 ``verifier_result.rewards.success`` 为准（源自 ``verifier/reward.json``）。支持重试的任务还会记录首次尝试的 ``first_success``，最终得分取最后一次尝试。
 - 规划器调用 ``finish(status="completed")`` 或 CLI 退出码为 ``0`` 仅代表进程正常结束，不代表任务成功。
 - 规划器用完时间预算时，Trial 仍会评分：适配器把预算耗尽当作正常结束，评分程序照常检查最后一次尝试的最终状态。
+- 判定为未成功时同样会评分：判定拒绝任务时 CLI 退出码为 ``1``，适配器把记录了判定的运行也当作正常结束，评分程序照常检查最终状态。
+- 未记录判定的正常结束运行 CLI 退出码为 ``75``，同样会评分：``success_signal: hidden`` 的任务中服务从不报告成功，由 agent 调用 ``finish`` 结束 episode，适配器把缺少 harness 判定视为正常结束，评分程序照常检查 episode 结束时的状态。
 
 批量运行 benchmark
 ------------------

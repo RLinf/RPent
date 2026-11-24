@@ -14,9 +14,8 @@
 
 """Prompt bundle dataclass for robot-contributed LLM prompts.
 
-Lives in :mod:`rpent.robots` so each robot's
-``prompt_bundle.py`` (e.g. :mod:`robots.libero.prompt_bundle`)
-can import it without depending on the RPC transport layer.
+Lives in :mod:`rpent.robots` so each robot's own prompt module can import it
+without depending on the RPC transport layer.
 """
 
 from __future__ import annotations

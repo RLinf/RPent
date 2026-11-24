@@ -14,6 +14,7 @@
 
 from __future__ import annotations
 
+import importlib
 from argparse import ArgumentParser
 from dataclasses import FrozenInstanceError
 from pathlib import Path
@@ -151,6 +152,28 @@ def test_registry_discovers_exactly_the_source_checkout_robots() -> None:
         assert (spec.flywheel is not None) == (
             name in {"libero", "robocasa", "robodojo", "robotwin"}
         )
+
+
+def test_a_robot_missing_its_own_dependency_keeps_that_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    real_import_module = importlib.import_module
+
+    def import_module(name: str):
+        if name == "robots.robocasa":
+            raise ModuleNotFoundError("No module named 'robosuite'", name="robosuite")
+        return real_import_module(name)
+
+    monkeypatch.setattr(importlib, "import_module", import_module)
+
+    with pytest.raises(ModuleNotFoundError) as excinfo:
+        get_robot_spec("robocasa")
+    assert excinfo.value.name == "robosuite"
+
+
+def test_an_unimportable_robot_package_is_an_unknown_name() -> None:
+    with pytest.raises(ValueError, match="unknown robot: 'no_such_robot'"):
+        get_robot_spec("no_such_robot")
 
 
 @pytest.mark.parametrize("robot_name", EXPECTED_ROBOTS)

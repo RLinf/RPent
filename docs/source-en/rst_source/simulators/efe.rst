@@ -112,12 +112,12 @@ Prerequisites on the Linux host:
       export RPENT_ROOT=/absolute/path/to/RPent
       export EFE_ROOT=/absolute/path/to/embodied-first-exam
       uv sync --project "$EFE_ROOT" --python 3.12
-      uv pip install --python "$EFE_ROOT/.venv/bin/python" -e "$RPENT_ROOT"
+      uv pip install --python "$EFE_ROOT/.venv/bin/python" -e "$RPENT_ROOT[planner]"
       docker info
       uv run --project "$EFE_ROOT" harbor --version
       test -f "$RPENT_ROOT/robots/efe/harbor_agent.py"
 
-   - ``uv pip install ... -e "$RPENT_ROOT"`` is only needed for manual host runs (``rpent --robot efe``); Harbor trials build and install RPent inside the task container automatically.
+   - ``uv pip install ... -e "$RPENT_ROOT[planner]"`` is only needed for manual host runs (``rpent --robot efe``); Harbor trials build and install RPent inside the task container automatically, including the planner extra.
    - Verify that ``docker info`` succeeds, ``harbor --version`` reports ``0.23.0``, and ``test -f`` exits with ``0``.
 
 3. Select the example AutoBio centrifuge task and configure model credentials:
@@ -169,7 +169,7 @@ Each ``harbor run`` creates a timestamped job directory under ``--jobs-dir``:
        ├── agent/
        │   ├── setup/           # Container agent install log
        │   └── rpent/           # Mounted from /logs/agent/rpent/ in container
-       │       ├── transcript_*.json # CLI transcript and planner stats
+       │       ├── transcript.json   # CLI transcript and planner stats
        │       ├── efe-result.json   # EFE metrics and finalization data
        │       ├── codex_*.txt       # Planner transcript
        │       ├── codex-home/       # Isolated CODEX_HOME for this trial
@@ -180,7 +180,7 @@ Each ``harbor run`` creates a timestamped job directory under ``--jobs-dir``:
        ├── lock.json
        └── trial.log
 
-If a trial aborts before writing ``result.json`` or ``transcript_*.json``,
+If a trial aborts before writing ``result.json`` or ``transcript.json``,
 inspect ``trial.log`` and ``agent/rpent/run.log`` first.
 
 Success Criterion
@@ -191,6 +191,14 @@ Success Criterion
 - A trial whose planner exhausts its time budget is still graded: the adapter
   treats budget exhaustion as a normal stop, so the verifier checks the final
   state of the last attempt as usual.
+- A rejected run is graded the same way. The CLI exits ``1`` when the verdict
+  rejects the task, and the adapter treats a run that recorded a verdict as a
+  normal stop, so the verifier still grades the final state.
+- A clean run that records no verdict exits ``75`` and is graded the same way.
+  On ``success_signal: hidden`` tasks the service never reports success; the
+  agent ends the episode with ``finish``, and the adapter treats the missing
+  harness verdict as a normal stop, so the verifier still grades the state the
+  episode ended in.
 
 Run a Benchmark
 ---------------

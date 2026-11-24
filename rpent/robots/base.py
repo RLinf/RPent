@@ -27,11 +27,15 @@ from __future__ import annotations
 import importlib
 import pkgutil
 import sys
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from rpent.robots.robot_spec import RobotSpec
-from rpent.tools.toolkit import Toolkit
 from rpent.utils.config import get_repo_root
+
+if TYPE_CHECKING:
+    # The toolkit lives in the planner layer, so discovery must import it only
+    # for type checking: a core-only environment still enumerates robots.
+    from rpent.tools.toolkit import Toolkit
 
 # Robot packages live under ``<repo>/robots/``, which is not part of the installed
 # ``rpent`` distribution. Ensure the repo root is importable so ``robots.<name>``
@@ -49,12 +53,26 @@ def _resolve_robot(name: str) -> Any:
     try:
         return importlib.import_module(f"robots.{robot_name}")
     except ModuleNotFoundError as e:
-        raise ValueError(f"unknown robot: {robot_name!r}") from e
+        # Only a missing robot package is an unknown name. A robot whose own
+        # dependency is missing keeps that error, which names the package to
+        # install instead of blaming the robot name.
+        if e.name in {"robots", f"robots.{robot_name}"}:
+            raise ValueError(f"unknown robot: {robot_name!r}") from e
+        raise
 
 
 def enumerate_robots() -> tuple[str, ...]:
-    """Return the names of importable robot packages under ``robots``."""
-    import robots
+    """Return the names of importable robot packages under ``robots``.
+
+    The published wheel ships the core package only, so a plain
+    ``pip install rpent`` has no ``robots`` package. Robot discovery then finds
+    nothing; the CLI and its help still work, and the components come from a
+    source checkout where the manifests live.
+    """
+    try:
+        import robots
+    except ImportError:
+        return ()
 
     return tuple(
         sorted(

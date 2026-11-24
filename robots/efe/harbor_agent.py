@@ -240,7 +240,10 @@ class RPentEfeAgent(BaseInstalledAgent):
                 "python3 -m venv /opt/rpent-efe/venv && "
                 "/opt/rpent-efe/venv/bin/python -m pip install --no-cache-dir "
                 "--disable-pip-version-check "
-                f"/opt/rpent-efe/{shlex.quote(wheel_path.name)}"
+                # The wheel carries only the runtime layer; the adapter runs the
+                # CLI with a planner, so the container environment installs the
+                # planner extra as well.
+                f"{shlex.quote(f'/opt/rpent-efe/{wheel_path.name}[planner]')}"
             ),
             timeout_sec=900,
         )

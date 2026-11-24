@@ -305,13 +305,17 @@ endpoint（``--env-endpoint``、``--am-endpoint``，以及 LIBERO 的 ``--sam3-e
 可选的运行结果 finalizer
 ------------------------
 
-``RobotSpec.finalize_run`` 是面向所有机器人、与具体 benchmark 无关的通用运行结束钩子。RoboCasa 是当前使用方，用它记录单 cell 评测结果，供后续结果统计和聚合。任何需要发布机器可读评测产物的机器人都可以注册该钩子。其默认值为 ``None``，不会改变 runner 行为。配置该钩子后，普通终端 runner 会在关闭 toolkit 前读取 ``toolkit.solved()``，完成运行时清理后再把结构化的 ``RunFinalizationContext`` 传给钩子。产物 schema 与文件名由钩子负责，RPent 只定义生命周期边界。
+``RobotSpec.finalize_run`` 是面向所有机器人、与具体 benchmark 无关的通用运行结束钩子。RoboCasa、EFE、RoboDojo 和 YAM 用它发布评测结果，供后续结果统计和聚合。任何需要发布机器可读评测产物的机器人都可以注册该钩子。其默认值为 ``None``，不会改变 runner 行为。配置该钩子后，runner 会在关闭 toolkit 前读取 ``toolkit.solved()``，完成运行时清理后再把结构化的 ``RunFinalizationContext`` 传给钩子。普通终端运行和 Dashboard 任务运行都会调用它，``run.json`` 记录它返回的路径。产物 schema 与文件名由钩子负责，RPent 只定义生命周期边界。
 
-JSON 产物应使用 ``write_json_atomic``，避免中断写入留下不完整结果：
+JSON 产物应使用 ``write_json_atomic``，避免中断写入留下不完整结果；同时写入 ``verdict_fields``，让产物带有与 ``run.json`` 相同的判定：
 
 .. code-block:: python
 
-   from rpent.evaluation import RunFinalizationContext, write_json_atomic
+   from rpent.evaluation import (
+       RunFinalizationContext,
+       verdict_fields,
+       write_json_atomic,
+   )
 
    def _finalize_run(context: RunFinalizationContext):
        return write_json_atomic(
@@ -319,11 +323,12 @@ JSON 产物应使用 ``write_json_atomic``，避免中断写入留下不完整�
            {
                "robot": context.robot_name,
                "task": dict(context.task_desc),
-               "success": context.environment_success,
+               "environment_success": context.environment_success,
+               **verdict_fields(context),
            },
        )
 
-通过 ``RobotSpec(..., finalize_run=_finalize_run)`` 注册回调。该钩子目前只用于普通终端运行，Dashboard 不会调用。benchmark manifest、机器人专用 runtime 字段和聚合逻辑应继续放在机器人目录中，而不是共享 CLI。
+通过 ``RobotSpec(..., finalize_run=_finalize_run)`` 注册回调。``environment_success`` 是原始判定，运行没有判定时为 ``None``，例如没有人评判的真机运行；这时 ``verdict_fields`` 记为 ``accepted: null`` 和 ``retryable: true``，而不是编造一个失败。``truth_source`` 记录判定由谁给出（``environment`` 或 ``operator``），没有判定时为 ``null``；请在 ``RobotSpec(truth_source=...)`` 中声明。benchmark manifest、机器人专用 runtime 字段和聚合逻辑应继续放在机器人目录中，而不是共享 CLI。
 
 .. _add-robot-testing:
 

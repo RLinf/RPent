@@ -45,16 +45,11 @@ from collections.abc import Callable
 from dataclasses import asdict
 from pathlib import Path
 
-from rpent.cli.tui import (
-    start_first_prompt_resolver,
-    start_interactive_reader,
-)
 from rpent.dashboard.events import (
     NullDashboardEventSink,
     RunStartedEvent,
 )
 from rpent.evaluation import RunFinalizationContext
-from rpent.memory import MemoryManager
 from rpent.planner.base import (
     CODEX_SANDBOX_CHOICES,
     REASONING_EFFORTS,
@@ -63,8 +58,22 @@ from rpent.planner.base import (
 )
 from rpent.planner.check import EXTERNALLY_CONFIGURED_PLANNERS
 from rpent.robots import enumerate_robots, get_robot_spec, get_toolkit
-from rpent.session.planner_capture import end_planner_task, start_planner_task
 from rpent.utils.logging import get_logger, init_output_dir
+
+# The ``rpent`` console script ships with the core wheel, but a session needs
+# the planner layer. Import it here so ``--help`` and argument validation work
+# in an environment that holds only the runtime layer; ``main()`` reports the
+# missing layer before a run touches a robot.
+_MISSING_PLANNER_LAYER: ModuleNotFoundError | None = None
+try:
+    from rpent.cli.tui import (
+        start_first_prompt_resolver,
+        start_interactive_reader,
+    )
+    from rpent.memory import MemoryManager
+    from rpent.session.planner_capture import end_planner_task, start_planner_task
+except ModuleNotFoundError as exc:
+    _MISSING_PLANNER_LAYER = exc
 
 logger = get_logger("agent")
 
@@ -371,6 +380,19 @@ def _start_continuation_session(
 
 def main() -> int:
     parser = _build_argparser()
+    help_requested = "-h" in sys.argv or "--help" in sys.argv
+    # A robot's spec is part of the planner layer's client surface, so report
+    # the missing layer before loading it. ``--help`` stays available because
+    # it never needs a robot.
+    if _MISSING_PLANNER_LAYER is not None and not help_requested:
+        print(
+            "the rpent CLI needs the planner layer, which this environment does "
+            f"not provide ({_MISSING_PLANNER_LAYER}); install it with "
+            '`pip install "rpent[planner]"`, or run inside the environment '
+            "rpent-install created for the robot",
+            file=sys.stderr,
+        )
+        return 1
     # Two-phase argparse: first grab --robot / --env / --dashboard so we know
     # which robot's flags to add and whether to make its required flags optional.
     early, _ = parser.parse_known_args()
@@ -383,10 +405,18 @@ def main() -> int:
         logger.warning("--env is deprecated and will be removed; use --robot instead")
         early.robot_name = early.env_name
     if early.robot_name is None:
-        if "-h" not in sys.argv and "--help" not in sys.argv:
+        if not help_requested:
             parser.error("--robot is required")
     else:
-        robot_spec = get_robot_spec(early.robot_name)
+        try:
+            robot_spec = get_robot_spec(early.robot_name)
+        except ImportError as exc:
+            print(
+                f"cannot load robot {early.robot_name!r}: {exc}. Its environment "
+                "installs the packages it imports",
+                file=sys.stderr,
+            )
+            return 1
         robot_spec.add_cli_args(parser, use_dashboard=early.dashboard)
     parser.add_argument(
         "-h",

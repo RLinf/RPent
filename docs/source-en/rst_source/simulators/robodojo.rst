@@ -362,7 +362,7 @@ run, inspect these files in the directory selected by ``--output-dir``:
 - ``videos/``: head, left-wrist, and right-wrist camera videos.
 - ``robodojo_env_server.log``, ``sam3_server.log``, and ``robodojo_vpp2_server.log``
   or ``robodojo_awomo05_server.log``: locally owned service startup and error logs.
-- ``run.log`` and ``transcript_*.json``: main-process logs, planner conversations,
+- ``run.log`` and ``transcript.json``: main-process logs, planner conversations,
   and errors.
 
 Check ``environment_result_available=true`` and
@@ -489,7 +489,7 @@ Tools
 
 The planner selects tools and checks fresh observations after each action.
 Choose the action model with ``--am-backend`` and inspect actual tool calls
-in ``transcript_*.json``.
+in ``transcript.json``.
 
 .. list-table::
    :header-rows: 1
