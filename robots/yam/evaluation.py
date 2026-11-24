@@ -12,7 +12,7 @@ from rpent.evaluation import RunFinalizationContext, write_json_atomic
 
 
 def finalize_run(context: RunFinalizationContext) -> Path:
-    """Keep planner claims separate from operator-backed environment success."""
+    """Keep planner claims separate from the operator-backed yield verdict."""
     context.output_dir.mkdir(parents=True, exist_ok=True)
     status = (
         "unknown"

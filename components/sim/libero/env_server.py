@@ -23,8 +23,8 @@ from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
-from rpent.robots.components.action_spec import box_action_spec
-from rpent.robots.components.env_facade_base import BaseEnvFacade
+from rpent.components.env.action_spec import box_action_spec
+from rpent.components.env.facade import BaseEnvFacade
 from rpent.utils.logging import get_logger
 from rpent.utils.serialization import to_numpy_tree
 

@@ -16,11 +16,17 @@
 
 import numpy as np
 
-from toolkits.geometry import target_identity
-from toolkits.geometry.geometry import observed_silhouette
-from toolkits.geometry.measured_rectangle import observed_face, rectangle_value
-from toolkits.geometry.package_identity import package_description, select_package
-from toolkits.geometry.rgbd_parts import (
+from components.tools.rgbd.geometry import target_identity
+from components.tools.rgbd.geometry.geometry import observed_silhouette
+from components.tools.rgbd.geometry.measured_rectangle import (
+    observed_face,
+    rectangle_value,
+)
+from components.tools.rgbd.geometry.package_identity import (
+    package_description,
+    select_package,
+)
+from components.tools.rgbd.geometry.rgbd_parts import (
     cuboid_vertices,
     measure,
     object_points,
@@ -104,7 +110,9 @@ def run(
                 decisions["package"],
             ) = proposal
     elif box_search:
-        from toolkits.geometry.chromatic_region import unique_colored_box
+        from components.tools.rgbd.geometry.chromatic_region import (
+            unique_colored_box,
+        )
 
         mask, reason = unique_colored_box(
             observation,
@@ -123,7 +131,7 @@ def run(
     elif native is not None:
         reason = "no_consistent_object_mask"
         camera = observation.camera_to_world
-        from toolkits.geometry.depth_foreground import (
+        from components.tools.rgbd.geometry.depth_foreground import (
             anchored_plane,
             described_lightness,
             foreground,
@@ -182,7 +190,10 @@ def run(
         and data.get("pixel_rc") is not None
         and any(k in ("rectangle_center", "top_corners", "top_size") for k in requested)
     ):
-        from toolkits.geometry.chromatic_region import colored_region, described_hue
+        from components.tools.rgbd.geometry.chromatic_region import (
+            colored_region,
+            described_hue,
+        )
 
         camera = observation.camera_to_world
         hue = described_hue(subject)
@@ -227,7 +238,7 @@ def run(
             cancel()
             matched = False
             if relational and evidence is not None and "source_points" in evidence:
-                from toolkits.geometry.multiview import surfaces_overlap
+                from components.tools.rgbd.geometry.multiview import surfaces_overlap
 
                 points = observation.world_xyz[regions[source] & observation.valid_mask]
                 matched = surfaces_overlap(
@@ -318,7 +329,9 @@ def run(
                     regions.pop(source)
                 if source in regions:
                     if data.get("depth_selection", {}).get("support_height_m") is None:
-                        from toolkits.geometry.depth_foreground import foreground
+                        from components.tools.rgbd.geometry.depth_foreground import (
+                            foreground,
+                        )
 
                         anchor = target_identity.material_pixel(regions[source], native)
                         _, info = foreground(
@@ -418,7 +431,9 @@ def run(
                     quality = {"reason": "full_face_limits_outside_view"}
                     continue
             if name in ("supported_height", "height_above_support"):
-                from toolkits.geometry.depth_foreground import nearby_support_height
+                from components.tools.rgbd.geometry.depth_foreground import (
+                    nearby_support_height,
+                )
 
                 z0 = data.get("depth_selection", {}).get("support_height_m")
                 if observation.up_direction is None:

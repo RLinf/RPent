@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from rpent.robots.components.am_client_base import BaseVLAClient
+from rpent.components.models.client import BaseVLAClient
 
 ACTION_HORIZON = 32
 REPLAN_STEPS = 24

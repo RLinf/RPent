@@ -20,8 +20,8 @@ import numpy as np
 from scipy.ndimage import binary_erosion, label
 from scipy.optimize import least_squares
 
-from toolkits.geometry.depth_foreground import local_depth_range
-from toolkits.geometry.geometry import FitOptions, _basis, fit_circle
+from components.tools.rgbd.geometry.depth_foreground import local_depth_range
+from components.tools.rgbd.geometry.geometry import FitOptions, _basis, fit_circle
 
 
 def _circle(points, normal, *, tolerance=0.0025):

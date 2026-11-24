@@ -19,9 +19,9 @@ from contextlib import ExitStack
 import numpy as np
 import pytest
 
-from rpent.robots.components.am_client_base import BaseWAMClient
-from rpent.robots.components.am_contracts import WAMModelMeta, WAMPrediction
-from rpent.robots.components.am_facade_base import BaseWAMFacade
+from rpent.components.models.client import BaseWAMClient
+from rpent.components.models.contracts import WAMModelMeta, WAMPrediction
+from rpent.components.models.facade import BaseWAMFacade
 from rpent.utils.rpc import RpcError, wait_for_ready
 
 
@@ -42,9 +42,14 @@ class _JointWAM(BaseWAMFacade):
                 state_schema={"joint_position": 7, "gripper_position": 1},
                 uses_sessions=True,
                 chunk_size=None,
-            ),
-            adapter=(lambda request: request, lambda result: result),
+            )
         )
+
+    def encode(self, request):
+        return request
+
+    def decode(self, result):
+        return result
 
     def predict_native(self, request, *, session_id=None):
         count = self.history.get(session_id, 0) + 1

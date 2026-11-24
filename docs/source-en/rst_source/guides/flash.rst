@@ -80,7 +80,7 @@ Download ``allenai/Molmo2-8B`` from `Hugging Face
 
    export MOLMO_CHECKPOINT_PATH=/path/to/Molmo2-8B
    PYTHONPATH=/path/to/RPent /path/to/molmo-venv/bin/python \
-     rpent/robots/components/molmo_server.py \
+     components/models/molmo/server.py \
      --transport http --host 127.0.0.1 --port 20703
 
 Run a Plan

@@ -32,14 +32,20 @@ import time
 from typing import Any
 
 import numpy as np
-import torch
-from omegaconf import OmegaConf
 
-from rpent.robots.components.am_facade_base import BaseVLAFacade
+from rpent.components.models.facade import BaseVLAFacade
+from rpent.components.models.platforms import YAM_VLA_CONTRACT
+from rpent.install import require
 from rpent.utils.config import get_pi05_checkpoint_path
 from rpent.utils.logging import get_logger
 
 logger = get_logger("pi05_vla_server")
+
+# The OpenPI policy runtime owns Torch and OmegaConf; loading them through the
+# component guard keeps the failure actionable when the server starts outside
+# its profile.
+torch = require("model-openpi", "torch")
+OmegaConf = require("model-openpi", "omegaconf").OmegaConf
 
 # ---------------------------------------------------------------------------
 # Embodiment registry
@@ -242,9 +248,7 @@ class Pi05VLAFacade(BaseVLAFacade):
 
     def get_model_meta(self) -> dict:
         """Return YAM policy identity separately from framework readiness."""
-        from robots.yam.contracts import vla_runtime_contract
-
-        return vla_runtime_contract()
+        return dict(YAM_VLA_CONTRACT)
 
     # ---- inference ----
 

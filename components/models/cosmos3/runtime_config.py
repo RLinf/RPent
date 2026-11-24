@@ -17,8 +17,8 @@
 import argparse
 from pathlib import Path
 
-from rpent.robots.components.cosmos3 import USES_SESSIONS as USES_SESSIONS
-from rpent.robots.components.cosmos3.adapter import ADAPTERS as ADAPTERS
+from components.models.cosmos3 import USES_SESSIONS as USES_SESSIONS
+from components.models.cosmos3.adapter import ADAPTERS as ADAPTERS
 
 OPTION_FIELDS = ("cosmos3_config", "cosmos3_sglang_endpoint")
 

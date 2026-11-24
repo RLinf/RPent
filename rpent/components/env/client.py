@@ -21,7 +21,7 @@ from typing import Any
 
 import numpy as np
 
-from rpent.robots.components.action_spec import validate_action
+from rpent.components.env.action_spec import validate_action
 
 
 class BaseEnvClient:

@@ -87,7 +87,7 @@ NVIDIA 驱动版本建议参考 `Isaac Sim 5.1 官方系统要求 <https://docs.
    uv venv --python 3.11 .venv-robodojo
    source .venv-robodojo/bin/activate
    uv pip install -e ".[robodojo-sim,sam3]" --extra-index-url https://pypi.nvidia.com \
-     --override requirements/robodojo-override.txt
+     --override robots/robodojo/requirements/robodojo-override.txt
 
 .. dropdown:: Blackwell GPU 安装
 
@@ -97,7 +97,7 @@ NVIDIA 驱动版本建议参考 `Isaac Sim 5.1 官方系统要求 <https://docs.
    .. code-block:: bash
 
       uv pip install -e ".[robodojo-sim,sam3]" --extra-index-url https://pypi.nvidia.com \
-        --override requirements/robodojo-override.txt \
+        --override robots/robodojo/requirements/robodojo-override.txt \
         --torch-backend=cu128
 
    如果环境中已安装 ``torch==2.7.0+cu126``，uv 会认为它满足版本要求，继续保留原有安装。\
@@ -196,7 +196,7 @@ VPP2 配置
 
    .. code-block:: bash
 
-      python -m robots.robodojo.vpp2_server --model-path /path/to/vpp2 \
+      python -m components.models.vpp2.server --model-path /path/to/vpp2 \
         --host 127.0.0.1 --port 9201
 
    在 RPent／仿真环境的任务命令中添加 ``--am-endpoint socket://127.0.0.1:9201``。RPent 负责启动和关闭自己创建的模型进程；独立启动的服务由其启动者管理。远端部署见 :doc:`../guides/advanced_deployment`。
@@ -241,7 +241,7 @@ Awomo05 配置
 
    .. code-block:: bash
 
-      python -m robots.robodojo.awomo05_server --model-path /path/to/awomo05 \
+      python -m components.models.awomo05.server --model-path /path/to/awomo05 \
         --host 127.0.0.1 --port 9205
 
    在 RPent／仿真环境的任务命令中添加 ``--am-endpoint socket://127.0.0.1:9205``。RPent 负责启动和关闭自己创建的模型进程；独立启动的服务由其启动者管理。远端部署见 :doc:`../guides/advanced_deployment`。

@@ -18,8 +18,8 @@ import argparse
 import os
 from pathlib import Path
 
-from rpent.robots.components.cosmos_policy import USES_SESSIONS as USES_SESSIONS
-from rpent.robots.components.cosmos_policy.adapter import ADAPTERS as ADAPTERS
+from components.models.cosmos_policy import USES_SESSIONS as USES_SESSIONS
+from components.models.cosmos_policy.adapter import ADAPTERS as ADAPTERS
 
 OPTION_FIELDS = (
     "cosmos_text_embeddings",
@@ -34,7 +34,7 @@ def add_arguments(parser: argparse.ArgumentParser) -> None:
         "For local Cosmos deployment; all options below are optional.\n"
         "Append to your platform/task/planner command (replace example paths):\n"
         "  --am-backend cosmos-policy --am-checkpoint /models/cosmos \\\n"
-        "    --am-python /envs/cosmos/bin/python --am-root /src/cosmos\n"
+        "    --am-python /installs/profiles/cosmos/bin/python --am-root /src/cosmos\n"
         "COSMOS_POLICY_PYTHON and COSMOS_POLICY_ROOT provide path defaults.",
     )
     group.add_argument(

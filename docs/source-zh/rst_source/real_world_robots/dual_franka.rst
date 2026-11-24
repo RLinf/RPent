@@ -50,7 +50,7 @@ RPent 通过 RLinf ``RealWorldEnv`` worker 控制双节点双臂 Franka 系统�
 标定
 ----
 
-``base_camera`` 和 ``d455_camera`` 都需要标定到 **右臂基座**。可使用 ``calibration_tools/`` 或 ROS `easy_handeye <https://github.com/IFL-CAMP/easy_handeye>`_，最终加载格式均为 YAML。腕部相机默认仅用于观测；若使用腕部 RGBD 相机进行投影，需要配置手眼标定和投影视图。
+``base_camera`` 和 ``d455_camera`` 都需要标定到 **右臂基座**。可使用 ``robots/dual_franka/calibration/`` 或 ROS `easy_handeye <https://github.com/IFL-CAMP/easy_handeye>`_，最终加载格式均为 YAML。腕部相机默认仅用于观测；若使用腕部 RGBD 相机进行投影，需要配置手眼标定和投影视图。
 
 采集器使用 RealSense RGB 图像，支持零畸变系数或非零的 ``distortion.brown_conrady`` 系数；其他非零畸变模型会拒绝采样。
 
@@ -62,17 +62,17 @@ RPent 通过 RLinf ``RealWorldEnv`` worker 控制双节点双臂 Franka 系统�
 
    uv venv .venv-calibration
    source .venv-calibration/bin/activate
-   uv pip install -r calibration_tools/requirements.txt pyrealsense2
+   uv pip install -r robots/dual_franka/calibration/requirements.txt pyrealsense2
 
 在右臂控制节点，先按 `libfranka 官方安装指南 <https://frankarobotics.github.io/docs/doc/libfranka/README.html#quick-install>`_ 安装与机器人固件兼容的开发库（含头文件和 CMake 配置），再编译状态读取程序：
 
 .. code-block:: bash
 
-   cmake -S calibration_tools -B calibration_tools/build \
+   cmake -S robots/dual_franka/calibration -B robots/dual_franka/calibration/build \
      -DCMAKE_PREFIX_PATH=/absolute/path/to/libfranka/install
-   cmake --build calibration_tools/build --parallel
+   cmake --build robots/dual_franka/calibration/build --parallel
 
-编译后得到 ``calibration_tools/build/read_franka_state``。标定时用它读取机械臂状态，不会移动机械臂。
+编译后得到 ``robots/dual_franka/calibration/build/read_franka_state``。标定时用它读取机械臂状态，不会移动机械臂。
 
 * 本机读取：读取程序与采集器在同一节点，不传 ``--ssh-host``。
 * 远程读取：用 ``--ssh-host`` 指定读取程序所在节点，并提前配置 SSH 免密登录。
@@ -85,7 +85,7 @@ RPent 通过 RLinf ``RealWorldEnv`` worker 控制双节点双臂 Franka 系统�
 
 .. code-block:: bash
 
-   python calibration_tools/raw_camera_service.py \
+   python robots/dual_franka/calibration/raw_camera_service.py \
      --base-serial BASE_SERIAL --d455-serial D455_SERIAL
 
 将 ChArUco 板固定在右臂末端，相机保持不动。默认板为 6×8 格、格边长 25 mm、
@@ -98,12 +98,12 @@ RPent 通过 RLinf ``RealWorldEnv`` worker 控制双节点双臂 Franka 系统�
 
 .. code-block:: bash
 
-   python calibration_tools/base_handeye_collect.py \
+   python robots/dual_franka/calibration/base_handeye_collect.py \
      --arm right --camera-serial BASE_SERIAL \
      --camera-url http://127.0.0.1:8765/raw/base \
      --ssh-host robot-right \
      --reader /absolute/path/to/read_franka_state --robot-ip ROBOT_IP \
-     --output calibration_tools/sessions/base-to-right
+     --output robots/dual_franka/calibration/sessions/base-to-right
 
 打开 ``http://127.0.0.1:8767``，按以下步骤采样：
 
@@ -118,22 +118,22 @@ RPent 通过 RLinf ``RealWorldEnv`` worker 控制双节点双臂 Franka 系统�
 
    ssh -L 8767:127.0.0.1:8767 CAMERA_HOST
 
-标定 D455 时复用采集命令，将序列号改为 ``D455_SERIAL``、URL 改为 ``http://127.0.0.1:8765/raw/d455``、输出目录改为 ``calibration_tools/sessions/d455-to-right``。
+标定 D455 时复用采集命令，将序列号改为 ``D455_SERIAL``、URL 改为 ``http://127.0.0.1:8765/raw/d455``、输出目录改为 ``robots/dual_franka/calibration/sessions/d455-to-right``。
 
 **3. 求解并导出**
 
 .. code-block:: bash
 
-   python calibration_tools/solve_base_handeye.py \
-     calibration_tools/sessions/base-to-right --arm right
-   python calibration_tools/export_dual_franka.py \
-     calibration_tools/sessions/base-to-right/base_camera_extrinsic_candidate.json \
-     --output calibration_tools/exports/base_to_right.yaml
+   python robots/dual_franka/calibration/solve_base_handeye.py \
+     robots/dual_franka/calibration/sessions/base-to-right --arm right
+   python robots/dual_franka/calibration/export_dual_franka.py \
+     robots/dual_franka/calibration/sessions/base-to-right/base_camera_extrinsic_candidate.json \
+     --output robots/dual_franka/calibration/exports/base_to_right.yaml
 
 D455 使用同样步骤，将会话目录和输出文件改为 ``d455-to-right`` 和
 ``d455_to_right.yaml``。检查会话中的 ``quality_report.json``，并通过独立实物
 测量验证候选外参；求解成功或导出 YAML 不代表精度已验证。导出不会覆盖已有文件。
-重新求解后，导出时使用新文件名，例如 ``calibration_tools/exports/base_to_right_v2.yaml``。
+重新求解后，导出时使用新文件名，例如 ``robots/dual_franka/calibration/exports/base_to_right_v2.yaml``。
 验证新结果后，再更新 ``perception.calibration`` 中的文件路径。
 
 **4. 配置 RPent**

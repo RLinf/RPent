@@ -25,9 +25,9 @@ from scipy.ndimage import (
 )
 from scipy.spatial import ConvexHull, QhullError
 
-from toolkits.geometry.depth_foreground import local_depth_range
-from toolkits.geometry.geometry import _basis
-from toolkits.geometry.rgbd_parts import _face
+from components.tools.rgbd.geometry.depth_foreground import local_depth_range
+from components.tools.rgbd.geometry.geometry import _basis
+from components.tools.rgbd.geometry.rgbd_parts import _face
 
 
 def _span(values):

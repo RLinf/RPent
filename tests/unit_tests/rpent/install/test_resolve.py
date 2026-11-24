@@ -15,7 +15,11 @@
 """Component targets resolve into one environment's contents and diagnostics."""
 
 import re
-import tomllib
+
+try:
+    import tomllib
+except ModuleNotFoundError:  # Python 3.10
+    import tomli as tomllib
 
 from rpent.install.resolve import SUPPORTED_PYTHONS, resolve
 from rpent.utils.config import get_repo_root

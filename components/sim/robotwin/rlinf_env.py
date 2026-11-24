@@ -23,8 +23,8 @@ import numpy as np
 import torch
 from rlinf.envs.sim.robotwin.robotwin_env import RoboTwinEnv
 
-from robots.robotwin.robot_spec import RoboTwinActionType
-from rpent.robots.components.action_spec import box_action_spec
+from components.sim.robotwin.contracts import RoboTwinActionType
+from rpent.components.env.action_spec import box_action_spec
 
 __all__ = ["RoboTwinAgentEnv"]
 

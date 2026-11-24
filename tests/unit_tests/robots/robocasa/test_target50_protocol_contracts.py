@@ -17,6 +17,7 @@
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -25,7 +26,10 @@ import pytest
 from robots.robocasa import robot_spec
 from robots.robocasa.eval.result import build_cell_result, finalize_cell_result
 from robots.robocasa.eval.validate_target50 import validate_results
-from rpent.evaluation import RunFinalizationContext, write_json_atomic
+from rpent.evaluation import (
+    RunFinalizationContext,
+    write_json_atomic,
+)
 from rpent.tools.common import CommonTools
 
 REPO_ROOT = Path(__file__).resolve().parents[4]
@@ -79,20 +83,33 @@ def test_target50_manifest_identity_and_dependencies():
     }
 
 
-def test_target50_source_branches_match_extra_and_documentation():
+def test_target50_sources_match_manifest_and_documentation():
     dependencies = _manifest()["dependencies"]
+    # The component that installs each package carries the pin.
     sources = {
-        "robosuite": "robosuite",
-        "robocasa": "rpent-robocasa365",
-        "rldx": "rlinf-rldx",
+        "robosuite": (
+            "robosuite",
+            REPO_ROOT / "components" / "sim" / "robocasa" / "component.toml",
+        ),
+        "robocasa": (
+            "rpent-robocasa365",
+            REPO_ROOT / "components" / "sim" / "robocasa" / "component.toml",
+        ),
+        "rldx": (
+            "rlinf-rldx",
+            REPO_ROOT / "components" / "models" / "rldx" / "component.toml",
+        ),
     }
-    project = (REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8")
-    for name, package in sources.items():
+    for name, (package, manifest) in sources.items():
+        # The public manifest records the upstream branch the protocol was
+        # evaluated against; the install pins a commit on that branch so a
+        # relock cannot silently change the simulator.
         assert dependencies[name]["branch"] == "rpent"
         assert "commit" not in dependencies[name]
         repository = dependencies[name]["repository"]
-        requirement = f"{package} @ git+{repository}.git@rpent"
-        assert requirement in project
+        requirement = f"{package} @ git+{repository}.git@"
+        pinned = re.compile(rf"{re.escape(requirement)}[0-9a-f]{{40}}")
+        assert pinned.search(manifest.read_text(encoding="utf-8"))
         for language in ("en", "zh"):
             guide = (
                 REPO_ROOT
@@ -102,7 +119,8 @@ def test_target50_source_branches_match_extra_and_documentation():
                 / "simulators"
                 / "robocasa.rst"
             ).read_text(encoding="utf-8")
-            assert '".[robocasa]"' in guide
+            assert "install robot-robocasa --venv" in guide
+            assert "robocasa-sim" not in guide
             assert "``rpent``" in guide
             assert "uv pip check" in guide
             assert "uv pip freeze" in guide
@@ -347,27 +365,27 @@ def test_robocasa_registers_and_adapts_shared_result_finalizer(tmp_path, monkeyp
         )
     )
 
-    path = finalize_cell_result(
-        RunFinalizationContext(
-            output_dir=tmp_path,
-            robot_name="robocasa",
-            task_desc={
-                "task_name": "OpenDrawer",
-                "split": "target",
-                "seed": 1,
-            },
-            environment_success=True,
-            agent_error=None,
-            elapsed_s=12.34,
-            planner="codex",
-            model="gpt-5.5",
-            reasoning_effort="xhigh",
-            max_turns=100,
-            planner_timeout_s=1800,
-            finish_result={"status": "failure", "summary": "ignored claim"},
-            stats={"tool_calls": 3},
-        )
+    context = RunFinalizationContext(
+        output_dir=tmp_path,
+        robot_name="robocasa",
+        task_desc={
+            "task_name": "OpenDrawer",
+            "split": "target",
+            "seed": 1,
+        },
+        environment_success=True,
+        agent_error=None,
+        elapsed_s=12.34,
+        planner="codex",
+        model="gpt-5.5",
+        reasoning_effort="xhigh",
+        max_turns=100,
+        planner_timeout_s=1800,
+        finish_result={"status": "failure", "summary": "ignored claim"},
+        stats={"tool_calls": 3},
     )
+
+    path = finalize_cell_result(context)
 
     assert path == tmp_path / "result.json"
     assert json.loads(path.read_text(encoding="utf-8")) == _cell_result(success=True)

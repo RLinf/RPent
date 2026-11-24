@@ -1,0 +1,94 @@
+name: Full CI
+
+# Proves a clean machine can install and run each selected environment in a
+# fresh venv, with doctor checks and the GPU suite where a simulator exists.
+# `fast ci` selects the environments a pull request affects; nightly, manual,
+# and release runs install every environment. Releases call this with
+# `full: true`.
+on:
+  schedule:
+    # Offset from other nightly jobs to spread runner load.
+    - cron: "17 3 * * *"
+  workflow_dispatch:
+  workflow_call:
+    inputs:
+      full:
+        description: Install every environment (release gate)
+        required: false
+        type: boolean
+        default: false
+      hosted:
+        description: JSON array of environments installed on a hosted runner; each entry is the component names of one environment
+        required: false
+        type: string
+        default: ""
+      gpu:
+        description: JSON array of environments installed on the embodied runner; each entry is the component names of one environment
+        required: false
+        type: string
+        default: ""
+      e2e:
+        description: JSON array of simulator suites (libero, robocasa, robotwin)
+        required: false
+        type: string
+        default: ""
+
+permissions:
+  contents: read
+
+jobs:
+  scope:
+    name: Select environments
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      hosted: ${{ steps.select.outputs.hosted }}
+      gpu: ${{ steps.select.outputs.gpu }}
+      e2e: ${{ steps.select.outputs.e2e }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+      - name: Select the environments and suites
+        id: select
+        shell: bash
+        env:
+          EVENT: ${{ github.event_name }}
+          CALLED_FULL: ${{ inputs.full }}
+          CALLED_HOSTED: ${{ inputs.hosted }}
+          CALLED_GPU: ${{ inputs.gpu }}
+          CALLED_E2E: ${{ inputs.e2e }}
+        run: |
+          set -euo pipefail
+          if [[ "$EVENT" == "workflow_call" && "$CALLED_FULL" != "true" ]]; then
+            hosted=$CALLED_HOSTED
+            gpu=$CALLED_GPU
+            e2e=$CALLED_E2E
+          else
+            # Nightly and manual runs, and a release call with `full: true`,
+            # cover every component on the runner its authored partition
+            # assigns it to.
+            hosted=$(./tests/tooling/run.sh matrix --runner hosted)
+            gpu=$(./tests/tooling/run.sh matrix --runner gpu)
+            e2e='["libero","robocasa","robotwin"]'
+          fi
+          {
+            echo "hosted=$hosted"
+            echo "gpu=$gpu"
+            echo "e2e=$e2e"
+          } >> "$GITHUB_OUTPUT"
+
+  unit:
+    name: Unit checks
+    uses: ./.github/workflows/unit.yml
+    with:
+      tests: "[]"
+      components: infra-unit_cpu
+
+  env:
+    name: Environments
+    needs: scope
+    uses: ./.github/workflows/env.yml
+    with:
+      hosted: ${{ needs.scope.outputs.hosted }}
+      gpu: ${{ needs.scope.outputs.gpu }}
+      e2e: ${{ needs.scope.outputs.e2e }}

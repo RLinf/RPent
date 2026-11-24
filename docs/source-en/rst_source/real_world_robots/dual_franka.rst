@@ -61,7 +61,7 @@ Calibration
 -----------
 
 Both ``base_camera`` and ``d455_camera`` must be calibrated against the
-**right-arm base**. Use ``calibration_tools/`` or ROS
+**right-arm base**. Use ``robots/dual_franka/calibration/`` or ROS
 `easy_handeye <https://github.com/IFL-CAMP/easy_handeye>`_; both export YAML.
 Wrist cameras are observation-only in the default configuration. To use a
 wrist RGBD camera for projection, configure its calibration and projection view
@@ -80,7 +80,7 @@ To install calibration dependencies separately, create a dedicated environment:
 
    uv venv .venv-calibration
    source .venv-calibration/bin/activate
-   uv pip install -r calibration_tools/requirements.txt pyrealsense2
+   uv pip install -r robots/dual_franka/calibration/requirements.txt pyrealsense2
 
 On the right-arm control node, first follow the `official libfranka installation
 guide <https://frankarobotics.github.io/docs/doc/libfranka/README.html#quick-install>`_
@@ -89,11 +89,11 @@ configuration. Then compile the state reader:
 
 .. code-block:: bash
 
-   cmake -S calibration_tools -B calibration_tools/build \
+   cmake -S robots/dual_franka/calibration -B robots/dual_franka/calibration/build \
      -DCMAKE_PREFIX_PATH=/absolute/path/to/libfranka/install
-   cmake --build calibration_tools/build --parallel
+   cmake --build robots/dual_franka/calibration/build --parallel
 
-The build produces ``calibration_tools/build/read_franka_state``. Calibration
+The build produces ``robots/dual_franka/calibration/build/read_franka_state``. Calibration
 uses it to read robot state without moving the arm.
 
 * Local reader: omit ``--ssh-host`` when the reader and collector run on the same node.
@@ -108,7 +108,7 @@ Close programs using the cameras, then start the service:
 
 .. code-block:: bash
 
-   python calibration_tools/raw_camera_service.py \
+   python robots/dual_franka/calibration/raw_camera_service.py \
      --base-serial BASE_SERIAL --d455-serial D455_SERIAL
 
 Attach the ChArUco board rigidly to the right end effector and keep the camera
@@ -122,12 +122,12 @@ In another terminal on the same camera node, activate the chosen environment:
 
 .. code-block:: bash
 
-   python calibration_tools/base_handeye_collect.py \
+   python robots/dual_franka/calibration/base_handeye_collect.py \
      --arm right --camera-serial BASE_SERIAL \
      --camera-url http://127.0.0.1:8765/raw/base \
      --ssh-host robot-right \
      --reader /absolute/path/to/read_franka_state --robot-ip ROBOT_IP \
-     --output calibration_tools/sessions/base-to-right
+     --output robots/dual_franka/calibration/sessions/base-to-right
 
 Open ``http://127.0.0.1:8767`` and collect samples:
 
@@ -148,24 +148,24 @@ address above:
 
 For D455, reuse the collection command with serial ``D455_SERIAL``, URL
 ``http://127.0.0.1:8765/raw/d455``, and output directory
-``calibration_tools/sessions/d455-to-right``.
+``robots/dual_franka/calibration/sessions/d455-to-right``.
 
 **3. Fit and export**
 
 .. code-block:: bash
 
-   python calibration_tools/solve_base_handeye.py \
-     calibration_tools/sessions/base-to-right --arm right
-   python calibration_tools/export_dual_franka.py \
-     calibration_tools/sessions/base-to-right/base_camera_extrinsic_candidate.json \
-     --output calibration_tools/exports/base_to_right.yaml
+   python robots/dual_franka/calibration/solve_base_handeye.py \
+     robots/dual_franka/calibration/sessions/base-to-right --arm right
+   python robots/dual_franka/calibration/export_dual_franka.py \
+     robots/dual_franka/calibration/sessions/base-to-right/base_camera_extrinsic_candidate.json \
+     --output robots/dual_franka/calibration/exports/base_to_right.yaml
 
 For D455, use ``d455-to-right`` and ``d455_to_right.yaml`` instead. Inspect
 ``quality_report.json`` and validate the candidate against independent physical
 measurements. Successful fitting or YAML export does not establish accuracy.
 Export does not overwrite existing files.
 When exporting a recalculated result, choose a new output filename, such as
-``calibration_tools/exports/base_to_right_v2.yaml``. Validate it before updating
+``robots/dual_franka/calibration/exports/base_to_right_v2.yaml``. Validate it before updating
 ``perception.calibration`` to use the new file.
 
 **4. Configure RPent**

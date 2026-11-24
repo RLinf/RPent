@@ -25,7 +25,7 @@ class BaseEnvFacade(RpcFacade):
     State-caching principle:
         The server side does **not** cache any observation results. Cache
         variables such as ``_last_obs`` / ``_terminated`` live only on the
-        client side (see ``BaseEnvClient`` in ``rpent.robots.components.env_client_base.py``).
+        client side (see ``BaseEnvClient`` in ``rpent.components.env.client.py``).
         The server is stateless (apart from the env's own physical state) and
         re-reads the env on every request.
 
@@ -44,8 +44,8 @@ class BaseEnvFacade(RpcFacade):
         stay on one thread) should mix in :class:`MainThreadServeMixin`
         (``rpent.utils.rpc.main_thread_serve``) ahead of this class. It
         overrides ``serve`` to run the transport server on a daemon thread and
-        execute every dispatch on the main thread. See robocasa's
-        ``RoboCasaEnvFacade``, which mixes it in and inherits ``serve``.
+        execute every dispatch on the main thread. A simulator facade that
+        mixes it in inherits ``serve``.
     """
 
     def __init__(self):

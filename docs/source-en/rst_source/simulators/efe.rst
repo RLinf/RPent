@@ -187,7 +187,7 @@ Success Criterion
 ~~~~~~~~~~~~~~~~~
 
 - **Native evaluation score**: read ``verifier_result.rewards.success`` in ``<trial_name>/result.json`` (copied from ``verifier/reward.json``). Tasks with retries also log ``first_success`` for the first attempt, while ``success`` reflects the final attempt.
-- Neither ``finish(status="completed")`` nor a ``0`` CLI exit code indicates task success.
+- ``finish(status="completed")`` is not a task-success signal, and neither is the CLI exit code: ``0`` means RPent's own verdict accepted the run, ``1`` that it rejected it, and ``75`` that no verdict was recorded. Task success still comes from the native score above.
 - A trial whose planner exhausts its time budget is still graded: the adapter
   treats budget exhaustion as a normal stop, so the verifier checks the final
   state of the last attempt as usual.

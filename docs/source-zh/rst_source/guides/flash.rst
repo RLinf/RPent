@@ -56,7 +56,7 @@ PyTorch 安装完成后，再安装 Molmo extra：
 
    export MOLMO_CHECKPOINT_PATH=/path/to/Molmo2-8B
    PYTHONPATH=/path/to/RPent /path/to/molmo-venv/bin/python \
-     rpent/robots/components/molmo_server.py \
+     components/models/molmo/server.py \
      --transport http --host 127.0.0.1 --port 20703
 
 运行计划

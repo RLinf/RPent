@@ -15,13 +15,21 @@
 import numpy as np
 import pytest
 
-from rpent.robots.components.am_facade_base import BaseVLAFacade
-from rpent.robots.components.pi05_vla_client import Pi05VLAClient
-from rpent.robots.components.pi05_vla_server import (
-    PI05_EMBODIMENTS,
-    Pi05VLAFacade,
-    build_model_cfg,
-)
+from rpent.components.models.facade import BaseVLAFacade
+from rpent.install.require import MissingComponentError
+
+try:
+    from components.models.openpi.client import Pi05VLAClient
+    from components.models.openpi.server import (
+        PI05_EMBODIMENTS,
+        Pi05VLAFacade,
+        build_model_cfg,
+    )
+except MissingComponentError:
+    # The unit environment installs the core contracts and Torch, not each
+    # model component; the server loads its runtime through the component
+    # guard at import time.
+    pytest.skip("model-openpi is not installed", allow_module_level=True)
 
 
 @pytest.mark.parametrize("embodiment", ["dual_franka", "yam"])
@@ -31,7 +39,7 @@ def test_vla_prediction_follows_shared_component_rpc_contract(monkeypatch, embod
 
     import torch
 
-    from rpent.robots.components.pi05_vla_server import Pi05VLAFacade
+    from components.models.openpi.server import Pi05VLAFacade
 
     calls = []
 
@@ -89,7 +97,7 @@ def test_cli_forwards_model_configuration(monkeypatch, embodiment):
     import sys
     from types import SimpleNamespace
 
-    from rpent.robots.components import pi05_vla_server as server
+    from components.models.openpi import server
 
     received = {}
     monkeypatch.setattr(
@@ -123,7 +131,7 @@ def test_cli_forwards_model_configuration(monkeypatch, embodiment):
 
 
 def test_libero_preset_keeps_existing_defaults():
-    from rpent.robots.components.pi05_vla_server import (
+    from components.models.openpi.server import (
         PI05_EMBODIMENTS,
         build_model_cfg,
     )
@@ -144,7 +152,7 @@ def test_libero_preset_keeps_existing_defaults():
 
 
 def test_robodojo_preset_uses_full_horizon_and_joint_actions():
-    from rpent.robots.components.pi05_vla_server import (
+    from components.models.openpi.server import (
         PI05_EMBODIMENTS,
         build_model_cfg,
     )
@@ -169,7 +177,7 @@ def test_robodojo_cli_resolves_checkpoint_from_environment(monkeypatch):
     import sys
     from types import SimpleNamespace
 
-    from rpent.robots.components import pi05_vla_server as server
+    from components.models.openpi import server
 
     received = {}
     monkeypatch.setenv("PI05_CHECKPOINT_PATH", "/test/robodojo-checkpoint")

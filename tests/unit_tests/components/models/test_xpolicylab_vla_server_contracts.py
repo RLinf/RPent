@@ -24,7 +24,7 @@ def test_policy_without_gpu_flag_preserves_visibility(monkeypatch, tmp_path, mas
     import sys
     from types import SimpleNamespace
 
-    from rpent.robots.components import xpolicylab_vla_server as server
+    from components.models.xpolicylab import server
 
     root = tmp_path / "XPolicyLab"
     policy = root / "policy/Pi_05"
@@ -78,7 +78,7 @@ def test_xpolicylab_cli_without_rlinf_dependencies(monkeypatch):
     monkeypatch.setitem(sys.modules, "omegaconf", None)
     monkeypatch.setitem(sys.modules, "rlinf", None)
     monkeypatch.setitem(sys.modules, "torch", None)
-    spec = importlib.util.find_spec("rpent.robots.components.xpolicylab_vla_server")
+    spec = importlib.util.find_spec("components.models.xpolicylab.server")
     ws = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(ws)
     calls = []
@@ -118,7 +118,7 @@ def test_cli_forwards_configuration_and_restores_sigterm(monkeypatch):
     import sys
     from types import SimpleNamespace
 
-    from rpent.robots.components import xpolicylab_vla_server as server
+    from components.models.xpolicylab import server
 
     received = {}
     options = {
@@ -172,7 +172,7 @@ def test_xpolicylab_rpc_preserves_observations_actions_and_reset(monkeypatch, wr
     import argparse
     from types import SimpleNamespace
 
-    from rpent.robots.components import xpolicylab_vla_server as ws
+    from components.models.xpolicylab import server as ws
 
     parser = argparse.ArgumentParser()
     ws.add_backend_args(parser)
@@ -215,7 +215,7 @@ def test_xpolicylab_metadata(monkeypatch):
     import sys
     from types import ModuleType
 
-    from rpent.robots.components import xpolicylab_vla_server as ws
+    from components.models.xpolicylab import server as ws
 
     module = ModuleType("client_server.ws.model_client")
     module.WsModelClient = lambda **kwargs: kwargs
@@ -243,7 +243,7 @@ def test_owned_policy_exits_with_server(tmp_path, exit_mode):
         from pathlib import Path
         from types import SimpleNamespace
         from rpent.utils.daemon import ProcessDaemon
-        from rpent.robots.components import xpolicylab_vla_server as ws
+        from components.models.xpolicylab import server as ws
 
         mode, pid_file = sys.argv[1:]
         def spawn(args):
@@ -299,7 +299,7 @@ def test_xpolicylab_owned_launcher_cleanup(
     import argparse
     from types import SimpleNamespace
 
-    from rpent.robots.components import xpolicylab_vla_server as ws
+    from components.models.xpolicylab import server as ws
 
     (tmp_path / "setup_eval_policy_server.sh").touch()
     monkeypatch.chdir(tmp_path)

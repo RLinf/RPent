@@ -45,39 +45,90 @@ order:
 
 .. _add-robot-entry:
 
-Entry Point
------------
+Entry Point and Component Manifest
+----------------------------------
 
 For a new robot named ``myrobot``, use the following directory layout:
 
 .. code-block:: text
 
    robots/myrobot/
-       __init__.py            # package entry point; re-exports the factories
-       robot_spec.py          # RobotSpec, factories, Dashboard spec, runtime hooks
-       env_client.py          # MyEnvClient — agent-side RPC stub (§1)
-       prompt_bundle.py       # system()/user() prompt factories         (§2)
-       toolkit.py             # MyRobotToolkit + primitives + tool definitions (§3)
-       env_server.py          # server-side facade + RPC server (§1)
-       vla_server.py          # (optional) VLA model server
+       component.toml          # name, probe, python, requires, dependencies
+       __init__.py             # lazy package entry point
+       spec.py                 # RobotSpec, factories, Dashboard spec, runtime hooks
+       config.py               # CLI flags, RunConfig, task selection
+       adapter.py              # env client/facade and native env adapter
+       prompts/__init__.py
+       prompts/domain.py       # system_prompt()/user_prompt() factories
+       native_tools.py         # toolkit, primitives, tool definitions
 
-``__init__.py`` is the robot package's entry point. Keep it small and
-re-export the factories implemented in ``robot_spec.py``. The registry in
-``rpent/robots/base.py`` lazily imports ``robots.<name>`` on demand and calls
-these two functions:
+The slices in this checkout still use pre-migration names:
+``robot_spec.py`` becomes ``spec.py``, ``prompt_bundle.py`` becomes
+``prompts/domain.py``, and ``toolkit.py`` becomes ``native_tools.py``. Write new
+slices against the target names; the sections below name the current file for
+each role until that migration lands. The layout check rejects a retired name
+in any slice that did not already carry it.
+
+``component.toml`` declares what ``rpent-install`` reads:
+
+.. code-block:: toml
+
+   schema = 2
+   name = "robot-myrobot"
+   probe = "robots.myrobot"
+   planner = true
+   python = ">=3.10,<3.13"
+   requires = ["sim-mysim", "model-mymodel"]
+
+   dependencies = ["my-simulator==1.2"]
+
+``name`` must be ``robot-`` plus the directory name, because the prefix says
+which kind of component it is and where its code lives. ``requires`` names the
+components the environment also installs; declaring them here is how a robot
+environment pulls in its simulator and model services. ``probe`` names the
+importable package. ``planner = true`` adds ``rpent[planner]`` to the
+environment's install, because the slice imports the planner.
+``rpent-install install`` and ``rpent-install doctor`` import the package and
+the role modules the slice ships inside the target environment, so a successful
+probe proves the real dependencies are present. Keep only this robot's packages
+in ``dependencies``; a package that several components need belongs in an
+infrastructure component under ``components/infra/``.
+
+``__init__.py`` is the package entry point and must stay lazy. Robot discovery
+imports every package before the user selects one, so an eager import of a
+simulator or model package makes the whole CLI depend on every robot package.
+Export the factories through ``__getattr__``:
 
 .. code-block:: python
 
    # robots/myrobot/__init__.py
-   from robots.myrobot.robot_spec import get_robot_spec, get_toolkit
+   from typing import TYPE_CHECKING, Any
 
-   # robots/myrobot/robot_spec.py
+   if TYPE_CHECKING:
+       from robots.myrobot.spec import get_robot_spec, get_toolkit
+
+   __all__ = ["get_robot_spec", "get_toolkit"]
+
+
+   def __getattr__(name: str) -> Any:
+       if name in __all__:
+           from robots.myrobot import spec
+
+           return getattr(spec, name)
+       raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
+The registry in ``rpent/robots/base.py`` imports ``robots.<name>`` on demand
+and calls these two functions:
+
+.. code-block:: python
+
+   # robots/myrobot/spec.py (robot_spec.py until the a_5 rename)
    from rpent.dashboard.events import DashboardEventSink
    from rpent.memory import MemoryManager
    from rpent.robots.robot_spec import RobotSpec, RunConfig
    from rpent.robots.prompt_bundle import PromptBundle
    from rpent.utils.config import get_memory_dir
-   from robots.myrobot.prompt_bundle import system_prompt, user_prompt
+   from robots.myrobot.prompts.domain import system_prompt, user_prompt
 
    MYROBOT_DASHBOARD_SPEC = {...}
 
@@ -97,7 +148,7 @@ these two functions:
        dashboard_events: DashboardEventSink,
        config: RunConfig,
    ):
-       from robots.myrobot.toolkit import MyRobotToolkit
+       from robots.myrobot.native_tools import MyRobotToolkit
        return MyRobotToolkit(
            runtime_kwargs=runtime_kwargs,
            dashboard_events=dashboard_events,
@@ -169,7 +220,7 @@ method calls into RPC requests, and ``env_server`` handles those requests.
 1.1 Env Client (agent Side)
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-Subclass :class:`rpent.robots.components.env_client_base.BaseEnvClient`. It already
+Subclass :class:`rpent.components.env.client.BaseEnvClient`. It already
 validates ``env.get_env_meta`` at startup, performs the initial reset, caches
 ``last_obs``, and implements the common ``reset``, ``step``, ``chunk_step``,
 ``render_camera``, ``get_camera_meta``, and ``get_task_language`` RPCs.
@@ -179,7 +230,7 @@ facade registers each name explicitly.
 
 .. code-block:: python
 
-   from rpent.robots.components.env_client_base import BaseEnvClient
+   from rpent.components.env.client import BaseEnvClient
 
    class MyEnvClient(BaseEnvClient):
        _TIMEOUT_S = {
@@ -201,7 +252,7 @@ facade registers each name explicitly.
 
 Mirror the client's API in a facade class on the server side (e.g.
 ``MyEnvFacade``). Subclass
-:class:`rpent.robots.components.env_facade_base.BaseEnvFacade`; it provides the common RPC
+:class:`rpent.components.env.facade.BaseEnvFacade`; it provides the common RPC
 routes and read/write dispatch locking. Implement the common environment
 methods and extend ``_register_rpc`` for environment-specific routes. Methods
 take the same positional / keyword arguments the client sends and return
@@ -210,7 +261,7 @@ import torch).
 
 .. code-block:: python
 
-   from rpent.robots.components.env_facade_base import BaseEnvFacade
+   from rpent.components.env.facade import BaseEnvFacade
 
    class MyEnvFacade(BaseEnvFacade):
        def __init__(self, env, meta):

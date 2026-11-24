@@ -24,7 +24,7 @@ import numpy as np
 import torch
 from rlinf.envs.sim.robodojo.robodojo_env import RoboDojoEnv
 
-from robots.robodojo.agent_support import (
+from components.sim.robodojo.agent_support import (
     _arm_target,
     _gripper_value,
     _motion_robot,
@@ -113,7 +113,7 @@ class RoboDojoAgentEnv(RoboDojoEnv):
     def _observation(self, *, capture: bool = True) -> dict:
         obs = self.get_native_obs(capture=capture)
         if self.eval_fair:
-            from robots.robodojo.access import public_observation
+            from components.sim.robodojo.access import public_observation
 
             return public_observation(obs)
         return obs
@@ -124,7 +124,7 @@ class RoboDojoAgentEnv(RoboDojoEnv):
         return dict(self.meta)
 
     def get_task_language(self) -> str:
-        from robots.robodojo.tasks import resolve_instruction
+        from components.sim.robodojo.tasks import resolve_instruction
 
         return resolve_instruction(self.env)
 

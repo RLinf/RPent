@@ -54,7 +54,7 @@ def check_opencv() -> None:
     if missing:
         raise RuntimeError(
             f"OpenCV {cv2.__version__} lacks required APIs: {', '.join(missing)}. "
-            "Install calibration_tools/requirements.txt in a separate environment."
+            "Install robots/dual_franka/calibration/requirements.txt in a separate environment."
         )
 
 

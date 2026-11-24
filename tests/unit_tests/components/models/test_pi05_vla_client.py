@@ -17,7 +17,7 @@ from unittest.mock import Mock
 import numpy as np
 import pytest
 
-from rpent.robots.components.pi05_vla_client import Pi05VLAClient
+from components.models.openpi.client import Pi05VLAClient
 
 
 @pytest.mark.parametrize(

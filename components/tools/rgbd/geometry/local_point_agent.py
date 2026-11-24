@@ -23,7 +23,7 @@ from pydantic_ai import Agent, BinaryContent
 from pydantic_ai.messages import ModelResponse, ToolCallPart, UserPromptPart
 from pydantic_ai.models.function import FunctionModel
 
-from rpent.robots.components.molmo_client import MolmoResult
+from components.models.molmo.client import MolmoResult
 
 
 class VisualGrounder(Protocol):

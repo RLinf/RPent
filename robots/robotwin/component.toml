@@ -1,0 +1,20 @@
+schema = 2
+name = "robot-robotwin"
+probe = "robots.robotwin"
+planner = true
+python = ">=3.11,<3.12"
+requires = ["sim-robotwin", "model-lingbot"]
+# model-molmo declares this conflict on the model side, where the package
+# requirement belongs. The exporter's lerobot/pyarrow stack was an explicit
+# `[tool.uv]` conflict with RoboTwin before component installs, so the pair
+# stays unnameable together.
+env_conflicts = [
+  "robot-franka",
+  "robot-dual_franka",
+  "robot-libero",
+  "robot-robocasa",
+  "robot-robodojo",
+  "tool-flywheel",
+]
+
+dependencies = []

@@ -21,7 +21,7 @@ from typing import Any
 
 import pytest
 
-from rpent.robots.components.sam3_server import Sam3Facade, Sam3Result
+from components.models.sam3.server import Sam3Facade, Sam3Result
 
 
 class _StubSam3(Sam3Facade):

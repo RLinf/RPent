@@ -20,8 +20,8 @@ from typing import Any
 
 import numpy as np
 
-from robots.robodojo.access import ARX_X5_JOINT_FIELDS, CAMERAS
-from rpent.robots.components.am_client_base import BaseVLAClient
+from components.sim.robodojo.access import ARX_X5_JOINT_FIELDS, CAMERAS
+from rpent.components.models.client import BaseVLAClient
 
 REPLAN_STEPS = 8
 
@@ -71,7 +71,3 @@ class Awomo05Client(BaseVLAClient):
     def end_episode(self) -> None:
         """Release the model while keeping the runtime connection reusable."""
         self._client.call("vla.end_episode")
-
-    def close(self) -> None:
-        """Close this client's RPC session."""
-        self._client.close()

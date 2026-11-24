@@ -1,0 +1,16 @@
+schema = 2
+name = "model-molmo"
+probe = "components.models.molmo"
+python = ">=3.10,<3.13"
+# RoboTwin's stack pins transformers 4.51.3 and the OpenPI stack 4.53.2,
+# while Molmo needs >=4.57, so it cannot share an environment with either.
+env_conflicts = ["model-openpi", "robot-robotwin"]
+
+dependencies = [
+  # The grounding agent's result contract.
+  "pydantic>=2",
+  "transformers>=4.57",
+  "torch",
+  "torchvision",
+  "pillow>=10",
+]

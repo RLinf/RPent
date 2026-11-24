@@ -19,14 +19,14 @@ from typing import Any
 
 import numpy as np
 
-from robots.robotwin.control import (
+from components.sim.robotwin.control import (
     QPOS_HISTORY_CAPACITY,
     ROBOTWIN_CONTROLLERS,
     ROBOTWIN_QPOS,
 )
-from robots.robotwin.observation import physical_observation
-from rpent.robots.components.am_client_base import BaseWAMClient
-from rpent.robots.components.am_contracts import (
+from components.sim.robotwin.observation import physical_observation
+from rpent.components.models.client import BaseWAMClient
+from rpent.components.models.contracts import (
     AMControlSpec,
     WAMPrediction,
     WAMRequest,

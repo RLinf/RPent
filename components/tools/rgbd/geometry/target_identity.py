@@ -29,8 +29,8 @@ from scipy.ndimage import (
     label,
 )
 
-from toolkits.geometry.chromatic_region import described_hue
-from toolkits.geometry.depth_foreground import local_depth_range
+from components.tools.rgbd.geometry.chromatic_region import described_hue
+from components.tools.rgbd.geometry.depth_foreground import local_depth_range
 
 
 def target_subject(query: str) -> str:
@@ -188,7 +188,7 @@ def similar_instances(observation, region, support):
         or observation.up_direction is None
     ):
         return
-    from toolkits.geometry.geometry import _basis
+    from components.tools.rgbd.geometry.geometry import _basis
 
     world, up = observation.world_xyz, observation.up_direction
     cam = observation.camera_to_world
@@ -485,8 +485,8 @@ def verify_region(
 
 def _opening_evidence(obs, region):
     """Check rays through an estimated lip against actual optical depths below its plane."""
-    from toolkits.geometry.geometry import _basis
-    from toolkits.geometry.rgbd_parts import object_points, rim
+    from components.tools.rgbd.geometry.geometry import _basis
+    from components.tools.rgbd.geometry.rgbd_parts import object_points, rim
 
     if (
         obs.up_direction is None

@@ -313,12 +313,13 @@ def main(argv: list[str] | None = None) -> int:
         args.root = _checkout_root(Path.cwd()) or get_repo_root()
     # A wheel install puts this package in site-packages, where none of the
     # manifests the installer reads exist. Say so instead of failing on a
-    # path the user never named.
-    if not (args.root / "pyproject.toml").is_file():
+    # path the user never named. The root has to be judged like the default
+    # candidate: a bare ``pyproject.toml`` also marks any other Python project.
+    if _checkout_root(args.root) != args.root:
         parser.error(
             f"{args.root} is not an RPent checkout; rpent-install reads "
-            "component manifests from a source checkout. Run it from one or "
-            "pass --root"
+            "component manifests from a source checkout. Run it from one, or "
+            "pass --root pointing at one"
         )
     try:
         return args.handler(args)

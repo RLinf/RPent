@@ -21,11 +21,12 @@ task that declares a reset budget exposes a limited reset; the model can call
 graded. ``robots.efe.harbor_agent`` runs this integration inside a Harbor trial.
 """
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-_FACTORY_NAMES = ("get_robot_spec", "get_toolkit")
+if TYPE_CHECKING:
+    from robots.efe.robot_spec import get_robot_spec, get_toolkit
 
-__all__ = list(_FACTORY_NAMES)
+__all__ = ["get_robot_spec", "get_toolkit"]
 
 
 def __getattr__(name: str) -> Any:
@@ -34,7 +35,7 @@ def __getattr__(name: str) -> Any:
     The shared CLI discovers this package only after ``--robot efe`` is
     selected, so generic ``--help`` does not import the robot framework.
     """
-    if name in _FACTORY_NAMES:
+    if name in __all__:
         from robots.efe import robot_spec
 
         return getattr(robot_spec, name)
