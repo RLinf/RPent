@@ -19,7 +19,6 @@ Poses use xyz followed by an xyzw quaternion; translations use metres.
 """
 
 import numpy as np
-from scipy.spatial.transform import Rotation
 
 
 def _rigid_matrix(transform: np.ndarray) -> np.ndarray:
@@ -59,6 +58,10 @@ def transform_pose(transform: np.ndarray, pose: np.ndarray) -> np.ndarray:
         raise ValueError("expected a finite xyz+xyzw pose with shape (7,)")
     if np.linalg.norm(values[3:]) < 1e-12:
         raise ValueError("pose quaternion must be nonzero")
+    # scipy ships with the planner layer, so this module stays importable in a
+    # runtime-only environment until a pose conversion asks for it.
+    from scipy.spatial.transform import Rotation
+
     orientation = Rotation.from_matrix(matrix[:3, :3]) * Rotation.from_quat(values[3:])
     return np.concatenate([transform_points(matrix, values[:3]), orientation.as_quat()])
 
