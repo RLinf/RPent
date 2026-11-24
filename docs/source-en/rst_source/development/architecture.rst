@@ -56,27 +56,50 @@ In LIBERO, the environment, Pi0.5, and SAM3 run in separate service processes. A
 Repository Layout
 -----------------
 
-Shared execution and interfaces live under ``rpent/``. Each package under
-``robots/`` supplies the environment-specific implementation described above.
+Shared execution, contracts, and model bases live under ``rpent/``. Each
+package under ``robots/`` supplies the environment-specific implementation
+described above. Installable components that are not robots live under
+``components/``; every component is one directory holding its
+``component.toml``, and the infrastructure components under
+``components/infra/`` contribute that manifest alone.
+
+The dependency direction is fixed: ``robots/`` → ``components/`` → ``rpent/``.
+The core discovers components by name and never imports them statically, and
+model services do not import each other.
 
 .. code-block:: text
 
-   rpent/
-     cli/          # CLI, Dashboard launcher, memory commands
-     planner/      # Model backends and Planner base class
-     prompt/       # Shared prompt construction
-     session/      # Session and task lifecycle
-     dashboard/    # Web UI and event delivery
-     robots/       # Discovery, descriptors, runtime components
-     tools/        # Toolkit and shared tool behavior
-     memory/       # Memory permissions, merge, and indexing
-     evaluation/   # Evaluation result support
-   robots/
+   rpent/            # Core: contracts, scheduling, model bases
+     components/     # Core contracts for the services a slice talks to
+       env/          # Environment contracts, client, facade, action spec
+       models/       # Model contracts, client, facade, backends, platforms
+     cli/            # CLI, Dashboard launcher, memory and install commands
+     planner/        # Model backends and Planner base class
+     prompt/         # Shared prompt construction
+     session/        # Session and task lifecycle
+     dashboard/      # Web UI and event delivery
+     robots/         # Discovery, descriptors, runtime components
+     tools/          # Toolkit and shared tool behavior
+     memory/         # Memory permissions, merge, and indexing
+     evaluation/     # Evaluation result support
+     install/        # Manifests, resolution, fingerprints
+   robots/<name>/    # Slice: native translation and differentiated features
      libero/
      robocasa/
      robotwin/
      franka/
      dual_franka/
+     robodojo/
+     yam/
+     efe/
+   components/
+     sim/            # Simulator services, one installable component each
+     models/         # Model services, one installable component each
+     tools/          # Tools that depend only on rpent
+     infra/          # Infrastructure components: a manifest and no code
+   rpent-install.sh  # Bootstrap the installer from a fresh checkout
+   tests/
+     tooling/        # Repository checks and CI selection
 
 Environment Discovery
 ---------------------

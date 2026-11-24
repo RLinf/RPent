@@ -10,31 +10,26 @@ Requirements
 
 - Linux, an NVIDIA GPU, and a driver compatible with the selected PyTorch CUDA build.
 - ``git``, ``bash``, and a C/C++ toolchain.
-- `uv <https://docs.astral.sh/uv/getting-started/installation/>`_ to create an isolated Python environment. These commands use Python 3.11.
+- `uv <https://docs.astral.sh/uv/getting-started/installation/>`_ to create the environment and install the components. The installer picks the newest Python minor the components support (3.12 for this example) and has uv install it.
 - An Anthropic API key with access to the example model, and network access to download assets and weights. Model calls incur API charges.
 
 1. Install RPent
 ----------------
 
-Create and activate an isolated Python environment:
+Create the LIBERO-PRO environment and activate it:
 
 .. code-block:: bash
 
    git clone https://github.com/RLinf/RPent.git
    cd RPent
-   uv venv --python 3.11
-   source .venv/bin/activate
+   ./rpent-install.sh install robot-libero --venv .venv-libero
+   source .venv-libero/bin/activate
 
-Install ``torch==2.7.1`` and ``torchvision==0.22.1`` as required by OpenPI.
-Choose a build compatible with your GPU and NVIDIA driver from the
-`PyTorch installation instructions <https://pytorch.org/get-started/previous-versions/>`_,
-replacing ``pip install`` with ``uv pip install``. Then install LIBERO-PRO:
+The components pin Python, the RLinf revision, Pi0.5, SAM 3.0, and the LIBERO
+packages together. See :doc:`installation` for every component, its install
+command, and diagnostics.
 
-.. code-block:: bash
-
-   uv pip install -e ".[libero-pro]"
-
-Run the remaining commands in this terminal from the RPent repository root. In a new terminal, activate ``.venv`` and set the checkpoint paths and API key again.
+Run the remaining commands in this terminal from the RPent repository root. In a new terminal, activate ``.venv-libero`` and set the checkpoint paths and API key again.
 
 2. Download Assets and Models
 -----------------------------

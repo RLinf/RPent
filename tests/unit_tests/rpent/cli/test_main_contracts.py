@@ -165,6 +165,46 @@ def test_a_core_only_environment_reports_the_missing_planner_layer(
     assert 'pip install "rpent[planner]"' in message
 
 
+def test_a_checkout_less_install_reports_the_missing_layer_before_argparse(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    cli = _cli_module()
+    monkeypatch.setattr(sys, "argv", ["rpent", "--robot", "libero"])
+    # A wheel install carries no ``robots`` package, so discovery finds none and
+    # ``--robot`` names a value outside the choice list.
+    monkeypatch.setattr(cli, "enumerate_robots", lambda: ())
+    monkeypatch.setattr(
+        cli, "_MISSING_PLANNER_LAYER", ModuleNotFoundError("No module named 'yaml'")
+    )
+
+    assert cli.main() == 1
+
+    message = capsys.readouterr().err
+    assert "needs the planner layer" in message
+    assert "invalid choice" not in message
+
+
+def test_a_planner_install_without_a_checkout_reports_the_missing_robots(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    cli = _cli_module()
+    monkeypatch.setattr(sys, "argv", ["rpent", "--robot", "libero"])
+    monkeypatch.setattr(cli, "enumerate_robots", lambda: ())
+    # With the planner layer installed the layer guard passes, so the missing
+    # ``robots`` package is what ``--robot`` must explain.
+    monkeypatch.setattr(cli, "_MISSING_PLANNER_LAYER", None)
+
+    assert cli.main() == 1
+
+    message = capsys.readouterr().err
+    assert "found no robot components" in message
+    # The remedy is the installer that builds a robot environment, not an
+    # editable install of the core package.
+    assert "rpent-install.sh" in message
+    assert "RPENT_REPO_ROOT" in message
+    assert "invalid choice" not in message
+
+
 def test_help_names_the_robot_dependency_that_is_missing(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:

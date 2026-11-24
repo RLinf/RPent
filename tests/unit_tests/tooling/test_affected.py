@@ -48,6 +48,45 @@ def test_an_unowned_path_means_everything(make_catalog, make_component):
     assert affected.affected_components(["robots/missing/x.py"], catalog) is None
 
 
+def test_end_to_end_suite_change_narrows_to_its_robot(
+    tmp_path, make_catalog, make_component
+):
+    catalog = make_catalog(
+        components=[
+            make_component("robot-alpha"),
+            make_component("robot-beta"),
+        ]
+    )
+    for shared in affected.ROBOT_SHARED_TESTS:
+        (tmp_path / shared).parent.mkdir(parents=True, exist_ok=True)
+        (tmp_path / shared).write_text("", encoding="utf-8")
+
+    scope = affected.affected_scope(
+        ["tests/e2e_tests/alpha/test_policy_chain.py"], catalog, tmp_path
+    )
+
+    assert scope.components == ("robot-alpha",)
+    assert scope.installs == ("robot-alpha",)
+    assert not scope.full
+
+
+def test_end_to_end_launcher_change_runs_every_environment(
+    tmp_path, make_catalog, make_component
+):
+    catalog = make_catalog(
+        components=[
+            make_component("infra-minimal"),
+            make_component("robot-alpha"),
+        ]
+    )
+
+    for path in ("tests/e2e_tests/run_gpu_suite.sh", "tests/e2e_tests/common.py"):
+        scope = affected.affected_scope([path], catalog, tmp_path)
+
+        assert scope.full
+        assert scope.pr_installs == ("infra-minimal", "robot-alpha")
+
+
 def test_robot_change_narrows_to_its_slice_tests(
     tmp_path, make_catalog, make_component
 ):

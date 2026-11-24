@@ -22,6 +22,7 @@ uv.lock
 docs/build/
 
 build/
+dist/
 .coverage
 .claude/settings.json
 .venv/

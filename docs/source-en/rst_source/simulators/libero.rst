@@ -34,7 +34,7 @@ Check the model, task, and runtime requirements before following the installatio
 
    .. grid-item-card:: Hardware
 
-      Linux, NVIDIA GPU; Python 3.11; CUDA and EGL.
+      Linux, NVIDIA GPU; Python 3.12; CUDA and EGL.
 
 .. _core-libero-pro-suites:
 
@@ -98,26 +98,48 @@ Installation and Resources
 
 For a first LIBERO-PRO run, complete the installation, asset downloads, and model setup in :doc:`../get_started/quickstart`. Continue here to select tasks and reproduce experiments.
 
-For another variant, install the matching extra in an isolated environment and download its assets. Install only one LIBERO variant per Python environment:
+``robot-libero`` installs the standard LIBERO and LIBERO-PRO packages together;
+choose the variant at runtime with ``--libero-type`` and download the matching
+assets:
 
 .. list-table::
    :header-rows: 1
 
-   * - Variant
-     - Install
+   * - ``--libero-type``
      - Assets
    * - ``standard``
-     - ``uv pip install -e ".[libero]"``
      - ``libero-download-assets --skip-existing``
    * - ``pro``
-     - ``uv pip install -e ".[libero-pro]"``
      - ``liberopro-download-assets --skip-existing``
    * - ``plus``
-     - ``uv pip install -e ".[libero-plus]"``
-     - ``liberoplus-download-assets --skip-existing``
+     - ``liberoplus-download-assets --skip-existing``; the simulator package
+       comes from ``sim-libero_plus``
 
-Each extra includes Pi0.5 (``rpent-openpi``), SAM3, and the RLinf runtime
-(``rpent-rlinf``). Download model weights separately as described below.
+LIBERO-plus needs robosuite<1.5, so it cannot share an environment with the
+standard and PRO packages, and ``sim-libero`` is a requirement of
+``robot-libero``. Run a plus task from two environments: install
+``robot-libero`` as usual for the robot, install the plus packages in a second
+environment, and start its environment service with ``LIBERO_TYPE=plus``:
+
+.. code-block:: bash
+
+   rpent-install install sim-libero_plus --venv .venv-libero-plus
+   LIBERO_TYPE=plus .venv-libero-plus/bin/python \
+     -m components.sim.libero.env_server --suite libero_object --task 0 --seed 0 \
+     --max-episode-steps 10000 --transport http --host 0.0.0.0 --port ENV_PORT
+
+Run the task from the ``robot-libero`` environment and point it at that
+service; the suite, task, seed, and episode budget must match:
+
+.. code-block:: bash
+
+   rpent --robot libero --suite libero_object --task 0 --seed 0 \
+     --max-episode-steps 10000 --libero-type plus \
+     --env-endpoint ENV_HOST:ENV_PORT --planner claude_code
+
+The standard and PRO environment includes Pi0.5 (``rpent-openpi``), SAM3, and
+the RLinf runtime (``infra-rlinf``), which ``sim-libero_plus`` requires.
+Download model weights separately as described below.
 
 At runtime, set ``--libero-type`` to match the installed variant.
 
@@ -350,7 +372,8 @@ Bringing Your Own VLA
 If you have a LIBERO-compatible VLA that is not Pi0.5, swap the model
 client without touching the robot by:
 
-1. Writing a new ``vla_server.py`` that exposes the same ``predict``
+1. Writing a new model service
+   (``components/models/<name>/server.py``) that exposes the same ``predict``
    RPC contract (over HTTP or socket).
 2. Pointing at it with ``--am-endpoint [protocol://]host:port``.
 3. Optionally updating ``robots/libero/toolkit.py`` if the tool

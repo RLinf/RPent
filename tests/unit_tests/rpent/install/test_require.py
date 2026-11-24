@@ -77,7 +77,7 @@ def test_missing_module_names_component_and_install(monkeypatch):
 
     message = str(error.value)
     assert f"component 'model-sam3' requires '{MISSING}'" in message
-    assert "rpent-install install model-sam3" in message
+    assert "./rpent-install.sh install model-sam3" in message
 
 
 def test_component_inside_the_environment_reruns_the_same_targets(monkeypatch):

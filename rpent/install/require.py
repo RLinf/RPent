@@ -49,9 +49,10 @@ def _install_hint(
 ) -> str:
     if fingerprint is None:
         return (
-            f"install the environment that provides component {component!r} with "
-            f"`rpent-install install {component}`, or add {component!r} to an "
-            "environment that already holds the components it runs with"
+            f"install the environment that provides component {component!r} from "
+            f"an RPent checkout with `./rpent-install.sh install {component}`, or "
+            f"add {component!r} to an environment that already holds the "
+            "components it runs with"
         )
     # Every suggestion that rebuilds this environment has to name it: without
     # ``--venv`` the installer targets the default path instead.

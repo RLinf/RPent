@@ -39,6 +39,9 @@ HTML; a warning-free build does not establish correct rendering.
 - Match neighboring pages for headings, links, code blocks, and examples.
   Keep comments near their owning contract and avoid repeating the same rule
   across several files.
+- Robot, simulator, and guide pages name the component that installs the slice
+  (`rpent-install install <component>`). Check the page against the manifests
+  under `robots/` and `components/` instead of assuming a component exists.
 - Inspect prompts and tool descriptions as model inputs: check tool names,
   placeholders, actual rendered context, conflicting rules, and unnecessary
   repetition. Preserve behavioral instructions and distinguish prose cleanup

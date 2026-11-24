@@ -41,12 +41,6 @@ from rpent.utils.logging import get_logger
 
 logger = get_logger("pi05_vla_server")
 
-# The OpenPI policy runtime owns Torch and OmegaConf; loading them through the
-# component guard keeps the failure actionable when the server starts outside
-# its profile.
-torch = require("model-openpi", "torch")
-OmegaConf = require("model-openpi", "omegaconf").OmegaConf
-
 # ---------------------------------------------------------------------------
 # Embodiment registry
 # ---------------------------------------------------------------------------
@@ -174,6 +168,11 @@ def build_model_cfg(model_path: str, emb_cfg: dict) -> Any:
         else:
             cfg[k] = v
 
+    # The OpenPI policy runtime owns OmegaConf; loading it through the
+    # component guard keeps the failure actionable when the model starts
+    # outside its profile, and leaves the module importable in an environment
+    # that only holds Torch.
+    OmegaConf = require("model-openpi", "omegaconf").OmegaConf
     return OmegaConf.create(cfg)
 
 
@@ -213,6 +212,7 @@ class Pi05VLAFacade(BaseVLAFacade):
 
         from rlinf.models.embodiment.openpi import get_model
 
+        self._torch = require("model-openpi", "torch")
         platform = PI05_ROBOT_PLATFORMS.get(embodiment)
         if platform is not None:
             os.environ.setdefault("ROBOT_PLATFORM", platform)
@@ -259,7 +259,7 @@ class Pi05VLAFacade(BaseVLAFacade):
         the openpi wire format (see ``Pi05VLAClient.encode_obs``).
         """
         mode = (options or {}).get("mode", "eval")
-        with torch.no_grad():
+        with self._torch.no_grad():
             actions, _ = self._model.predict_action_batch(obs, mode=mode)
         return (
             actions.detach().cpu().numpy()

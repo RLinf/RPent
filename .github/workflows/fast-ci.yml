@@ -1,0 +1,201 @@
+name: Fast CI
+
+# Every pull request and every push to main. Unit checks install the selected
+# CPU test environment and run affected contracts. `full ci` installs the
+# affected component environments and exercises their integration suites.
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review, converted_to_draft]
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  changes:
+    name: Change scope
+    # No `if:` and no `paths:` filter: the aggregate job below is the only
+    # required check, and a skipped workflow leaves that check pending.
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      tests: ${{ steps.scope.outputs.tests }}
+      components: ${{ steps.scope.outputs.components }}
+      hosted: ${{ steps.scope.outputs.hosted }}
+      gpu: ${{ steps.scope.outputs.gpu }}
+      e2e: ${{ steps.scope.outputs.e2e }}
+      docs: ${{ steps.scope.outputs.docs }}
+      package: ${{ steps.scope.outputs.package }}
+      needs_full: ${{ steps.scope.outputs.needs_full }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+      - name: Map changed paths to a scope
+        id: scope
+        shell: bash
+        env:
+          EVENT: ${{ github.event_name }}
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
+          PUSH_BASE: ${{ github.event.before }}
+        run: |
+          set -euo pipefail
+          if [[ "$EVENT" == "pull_request" ]]; then
+            base=$PR_BASE
+          elif [[ -n "$PUSH_BASE" && "$PUSH_BASE" != "0000000000000000000000000000000000000000" ]]; then
+            base=$PUSH_BASE
+          else
+            base=$(git rev-parse HEAD~1)
+          fi
+          scope_json=$(./tests/tooling/run.sh affected --base "$base" --head HEAD)
+          printf '%s' "$scope_json" > "$RUNNER_TEMP/scope.json"
+          # Deleted paths count: removing packaging data reruns the package job.
+          git diff --name-only --diff-filter=ACDMRT "$base" HEAD > "$RUNNER_TEMP/changed.txt"
+          ./tests/tooling/run.sh matrix --runner hosted > "$RUNNER_TEMP/hosted.json"
+          ./tests/tooling/run.sh matrix --runner gpu > "$RUNNER_TEMP/gpu.json"
+          SCOPE="$RUNNER_TEMP/scope.json" \
+            CHANGED="$RUNNER_TEMP/changed.txt" \
+            HOSTED="$RUNNER_TEMP/hosted.json" \
+            GPU="$RUNNER_TEMP/gpu.json" \
+            python3 - <<'PY' >> "$GITHUB_OUTPUT"
+          import json
+          import os
+
+          def load(name):
+              with open(os.environ[name], encoding="utf-8") as handle:
+                  return json.load(handle)
+
+          scope = load("SCOPE")
+          changed = [
+              line.strip()
+              for line in open(os.environ["CHANGED"], encoding="utf-8")
+              if line.strip()
+          ]
+          suites = {"libero", "robocasa", "robotwin"}
+          # A core change keeps `installs` complete for nightly and release
+          # runs, but a pull request installs only the pilot environment. The
+          # installer, workflow, and tooling paths keep the full set, so a
+          # change to any of them still proves every environment.
+          selected = scope.get("pr_installs", scope["installs"])
+          if scope["full"]:
+              e2e = sorted(suites) if set(selected) == set(scope["installs"]) else []
+          else:
+              # A robot and its simulator are separate components now, so both
+              # name the suite their integration runs. Install data selects
+              # environments rather than components, so its affected suites
+              # come from the environments it installs.
+              subjects = {
+                  name.split("-", 1)[-1]
+                  for name in (scope["components"] or selected)
+              }
+              e2e = sorted(suites & subjects)
+          # The installer unit and repository contract groups need only the
+          # core and `infra-dev` dependencies. Every other test path may import
+          # a model server, so it keeps the CPU Torch environment; an empty
+          # selection runs the whole suite and needs that environment too.
+          dev_tests = {"tests/unit_tests/rpent/install", "tests/unit_tests/installs", "tests/unit_tests/tooling"}
+          tests = set(scope["tests"])
+          components = "infra-dev" if tests and tests <= dev_tests else "infra-unit_cpu"
+          values = {
+              "tests": scope["tests"],
+              "components": components,
+              # An entry names the components one environment installs; it is
+              # affected when it names one the change reaches, including the
+              # robot whose closure pulls in a changed model or simulator.
+              "hosted": [
+                  entry for entry in load("HOSTED") if set(entry) & set(selected)
+              ],
+              "gpu": [
+                  entry for entry in load("GPU") if set(entry) & set(selected)
+              ],
+              "e2e": e2e,
+              "docs": scope["docs"],
+              # A component change can only be proven by installing its
+              # environment, which `full ci` does. Install data narrows the
+              # environment set rather than emptying it.
+              "needs_full": bool(scope["components"] or scope["installs"]),
+              # The packaging job builds both distributions and checks the
+              # component data they carry, so a core, robot, or component
+              # change, a change to the packaging settings, or a change to the
+              # check itself reruns it.
+              "package": any(
+                  path in {
+                      "pyproject.toml",
+                      "setup.py",
+                      "MANIFEST.in",
+                      ".github/workflows/package.yml",
+                  }
+                  or path.startswith(("rpent/", "robots/", "components/"))
+                  for path in changed
+              ),
+          }
+          for key, value in values.items():
+              print(f"{key}={json.dumps(value)}")
+          PY
+
+  unit:
+    name: Unit checks
+    needs: changes
+    # Draft pull requests skip the matrix, as the workflow this replaces did;
+    # the aggregate check treats a skipped leg as success.
+    if: >-
+      (github.event_name != 'pull_request' ||
+      github.event.pull_request.draft == false) &&
+      needs.changes.outputs.docs != 'true'
+    uses: ./.github/workflows/unit.yml
+    with:
+      tests: ${{ needs.changes.outputs.tests }}
+      components: ${{ needs.changes.outputs.components }}
+
+  package:
+    name: Package
+    needs: changes
+    if: needs.changes.outputs.package == 'true'
+    uses: ./.github/workflows/package.yml
+
+  full:
+    name: Full CI
+    needs: changes
+    # Fork pull requests cannot reach the self-hosted GPU runner; a maintainer
+    # dispatches `full ci` manually before merging one.
+    if: >-
+      github.event_name == 'pull_request' &&
+      github.event.pull_request.draft == false &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      needs.changes.outputs.needs_full == 'true'
+    uses: ./.github/workflows/full-ci.yml
+    with:
+      scoped: true
+      hosted: ${{ needs.changes.outputs.hosted }}
+      gpu: ${{ needs.changes.outputs.gpu }}
+      e2e: ${{ needs.changes.outputs.e2e }}
+
+  # Single stable status check for rulesets. It runs even when every leg was
+  # skipped (a docs-only change), so the required check is never left pending.
+  unittest:
+    name: unittest
+    if: always()
+    needs: [changes, unit, package, full]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Require every leg to pass
+        run: |
+          failed=0
+          for result in 'changes:${{ needs.changes.result }}' \
+                        'unit:${{ needs.unit.result }}' \
+                        'package:${{ needs.package.result }}' \
+                        'full:${{ needs.full.result }}'; do
+            echo "leg result: $result"
+            case "${result#*:}" in
+              success|skipped) ;;
+              *) echo "::error::$result did not succeed"; failed=1 ;;
+            esac
+          done
+          exit "$failed"

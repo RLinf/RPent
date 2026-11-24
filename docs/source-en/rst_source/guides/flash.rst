@@ -50,27 +50,32 @@ plan used for the task.
 Configure Molmo
 ---------------
 
-Run Molmo in a separate Python environment:
+Molmo runs in its own Python environment because its model stack pins its own
+Torch and Transformers versions. Molmo's model code also needs
+``transformers>=4.57``, while the RoboTwin stack is pinned to ``4.51.3``; the
+component manifests declare those two mutually exclusive, so
+``rpent-install check`` rejects an environment that names both.
+
+Install ``model-molmo`` into a separate environment; its dependencies include
+the pinned PyTorch and torchvision:
 
 .. code-block:: bash
 
-   uv venv --python 3.11 /path/to/molmo-venv
+   ./rpent-install.sh install model-molmo --venv .venv-molmo
 
-Next, install PyTorch and matching torchvision in this environment using the
-command below. Replace ``<CUDA_TAG>`` with a build compatible with your GPU and
-NVIDIA driver (for example, ``cu126`` or ``cu128``); see the
-`PyTorch installation guide <https://pytorch.org/get-started/locally/>`_:
+If your GPU or driver needs a different CUDA build, reinstall the pair from the
+PyTorch index afterwards, replacing ``<CUDA_TAG>`` with a
+compatible build such as ``cu126`` or ``cu128`` (see the
+`PyTorch installation guide <https://pytorch.org/get-started/locally/>`_):
 
 .. code-block:: bash
 
-   uv pip install --python /path/to/molmo-venv/bin/python \
+   uv pip install --python .venv-molmo/bin/python \
+     --reinstall-package torch --reinstall-package torchvision \
      torch torchvision --index-url "https://download.pytorch.org/whl/<CUDA_TAG>/"
 
-Once PyTorch is installed, install the Molmo extra:
-
-.. code-block:: bash
-
-   uv pip install --python /path/to/molmo-venv/bin/python -e ".[molmo]"
+``rpent-install doctor`` then reports that the installed package set differs from
+the fingerprint, which is expected after replacing the build.
 
 Download ``allenai/Molmo2-8B`` from `Hugging Face
 <https://huggingface.co/allenai/Molmo2-8B>`_ or `ModelScope
@@ -79,7 +84,7 @@ Download ``allenai/Molmo2-8B`` from `Hugging Face
 .. code-block:: bash
 
    export MOLMO_CHECKPOINT_PATH=/path/to/Molmo2-8B
-   PYTHONPATH=/path/to/RPent /path/to/molmo-venv/bin/python \
+   .venv-molmo/bin/python \
      components/models/molmo/server.py \
      --transport http --host 127.0.0.1 --port 20703
 

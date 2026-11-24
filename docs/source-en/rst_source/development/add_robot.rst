@@ -29,8 +29,8 @@ extension points required to add a robot. Complete them in the following
 order:
 
 1. Register the ``RobotSpec`` and toolkit factory in the
-   :ref:`entry point <add-robot-entry>`.
-2. Implement :ref:`env_client and env_server <add-robot-env-rpc>`. To
+   :ref:`entry point <add-robot-entry>` and declare ``component.toml``.
+2. Implement :ref:`the environment adapter <add-robot-env-rpc>`. To
    integrate a VLA service and model client, see :ref:`Add a VLA (or other
    model-based primitive) <add-primitive-model-based>`.
 3. :ref:`Define the prompts <add-robot-prompts>`.
@@ -48,7 +48,9 @@ order:
 Entry Point and Component Manifest
 ----------------------------------
 
-For a new robot named ``myrobot``, use the following directory layout:
+A robot is a component: a directory under ``robots/`` plus a
+``component.toml`` that tells ``rpent-install`` how to install it. The target
+skeleton is:
 
 .. code-block:: text
 
@@ -62,12 +64,12 @@ For a new robot named ``myrobot``, use the following directory layout:
        prompts/domain.py       # system_prompt()/user_prompt() factories
        native_tools.py         # toolkit, primitives, tool definitions
 
-The slices in this checkout still use pre-migration names:
-``robot_spec.py`` becomes ``spec.py``, ``prompt_bundle.py`` becomes
-``prompts/domain.py``, and ``toolkit.py`` becomes ``native_tools.py``. Write new
-slices against the target names; the sections below name the current file for
-each role until that migration lands. The layout check rejects a retired name
-in any slice that did not already carry it.
+The slices in this checkout still use their pre-migration names
+(``robot_spec.py``, ``prompt_bundle.py``, ``toolkit.py``, ``env_client.py``,
+``env_server.py``, ``tools.py``); the a_5 migration maps them to the roles
+above. Write new slices against the target names; the sections below name the
+current file for each role until that migration lands. The layout check rejects
+a retired name in any slice that did not already carry it.
 
 ``component.toml`` declares what ``rpent-install`` reads:
 
@@ -82,17 +84,28 @@ in any slice that did not already carry it.
 
    dependencies = ["my-simulator==1.2"]
 
+Every environment targets Linux ``x86_64``; a manifest cannot narrow or widen
+that, so it declares no platform field.
+
+``planner = true`` declares that the slice imports the planner layer, so its
+environment installs ``rpent[planner]`` on top of the runtime ``rpent``. A
+component that only serves models or the simulator leaves the flag out and is
+installable without the planner stack.
+
 ``name`` must be ``robot-`` plus the directory name, because the prefix says
 which kind of component it is and where its code lives. ``requires`` names the
 components the environment also installs; declaring them here is how a robot
 environment pulls in its simulator and model services. ``probe`` names the
-importable package. ``planner = true`` adds ``rpent[planner]`` to the
-environment's install, because the slice imports the planner.
-``rpent-install install`` and ``rpent-install doctor`` import the package and
-the role modules the slice ships inside the target environment, so a successful
-probe proves the real dependencies are present. Keep only this robot's packages
-in ``dependencies``; a package that several components need belongs in an
-infrastructure component under ``components/infra/``.
+importable package. ``rpent-install install`` and ``rpent-install doctor``
+import it and the role modules the slice ships inside the target environment, so
+a successful probe proves the real dependencies are present. Keep
+only this robot's packages in ``dependencies``; a package that several
+components need belongs in an infrastructure component under
+``components/infra/``.
+``imports`` is only for a robot slice
+that reuses another slice's code: name the other robot, and make one of the
+two ``requires`` the other so the install closure includes both. Toolkits and
+model services share a contract instead of importing each other.
 
 ``__init__.py`` is the package entry point and must stay lazy. Robot discovery
 imports every package before the user selects one, so an eager import of a
@@ -186,7 +199,8 @@ and ``primitives`` is the ordered allowlist of Toolkit actions displayed and
 executable as Dashboard controls. Camera tabs are discovered from the PNG
 artifacts in each recorded step. Keep task suggestions in the spec so
 importing the robot does not require simulator packages. See
-``robots/libero/robot_spec.py`` for the reference shape.
+``robots/libero/robot_spec.py`` (``spec.py`` after a_5) for the reference
+shape.
 
 The callback receives the parsed session arguments, so it can select components
 based on options such as ``--am-backend``. For a fixed layout, return the static
@@ -211,11 +225,13 @@ in §5.
 
 .. _add-robot-env-rpc:
 
-1. ``env_client.py`` + ``env_server.py``
------------------------------------------
+1. Environment Adapter
+----------------------
 
-These files connect the agent process to ``env_server``. The client converts
-method calls into RPC requests, and ``env_server`` handles those requests.
+The adapter exposes the environment to the agent over RPC. Its target name is
+``adapter.py``; this checkout still splits it into ``env_client.py`` and
+``env_server.py``, and a_5 merges them. The client converts method calls into
+RPC requests, and the server-side facade handles those requests.
 
 1.1 Env Client (agent Side)
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -297,12 +313,13 @@ teardown.
 
 .. _add-robot-prompts:
 
-2. ``prompt_bundle.py``
------------------------
+2. Prompts
+----------
 
-Define two prompt factories, ``system_prompt()`` and ``user_prompt()``, and
+Prompt factories belong in ``prompts/domain.py`` (``prompt_bundle.py`` until
+a_5). Define two factories, ``system_prompt()`` and ``user_prompt()``, and
 build a ``PromptBundle(system=system_prompt, user=user_prompt)`` in the
-robot's ``robot_spec.py`` (see the entry point above). Each factory returns an ordered
+robot's ``spec.py`` (``robot_spec.py`` today; see the entry point above). Each factory returns an ordered
 ``dict[str, PromptNode]`` of titled sections; ``PromptBundle.render`` assembles
 and fills them. One prompt serves every planner (API loop, Claude Code, Codex):
 refer to tools by their bare names (``move_to``, ...) and note once that the
@@ -311,7 +328,7 @@ maintain separate prompt copies for CLI and API planners.
 
 .. code-block:: python
 
-   # robots/myrobot/prompt_bundle.py
+   # robots/myrobot/prompts/domain.py
    from robots.myrobot.prompts import system as system_parts
    from robots.myrobot.prompts import user as user_parts
    from rpent.prompt.utils import PromptNode
@@ -340,13 +357,13 @@ render time.
 
 .. _add-robot-toolkit:
 
-3. ``toolkit.py``
-------------------
+3. Native Tools and Toolkit
+---------------------------
 
-This module owns the tool schemas, primitives, per-step state records, and
-the list of tools available through MCP. LIBERO splits these between
-``tools.py`` and ``toolkit.py``; a new robot may keep them in one
-``toolkit.py`` module.
+This role is ``native_tools.py`` after a_5; the existing slices split it into
+``toolkit.py`` and ``tools.py``. It owns the tool schemas, primitives, per-step
+state records, and the list of tools available through MCP. LIBERO keeps the
+two pieces separate; a new robot may start with one module.
 
 A toolkit module typically contains four pieces:
 
@@ -426,8 +443,9 @@ TaskRun after the requested fields have been copied to the task arguments. It
 validates those fields and returns a
 :class:`~rpent.robots.RunConfig`:
 
-- ``recipe_tag`` — robot's per-run tag, used in transcript filenames / recipe
-  path (LIBERO: ``f"{suite.replace('libero_', '')}_t{task}_s{seed}"``).
+- ``recipe_tag`` — robot's per-run tag, used in the recipe path, planner CLI
+  output files, and the transcript's ``recipe_tag`` field (LIBERO:
+  ``f"{suite.replace('libero_', '')}_t{task}_s{seed}"``).
 - ``output_dir`` — path to the working directory for this run (main.py then
   calls ``init_output_dir`` to create it and configure logging).
 - ``prompt_vars`` — dict passed to ``PromptBundle.render`` (typically the run
@@ -602,6 +620,7 @@ errors, expected observation artifacts exist, and owned daemons have exited.
 Task success is not required for this bounded integration check.
 
 Run offline tests with ``pytest tests/unit_tests/robots/myrobot -v``. After
-installing the robot extra and preparing its GPU/checkpoint/assets resources,
+installing the robot's environment and preparing its GPU/checkpoint/assets
+resources,
 run ``pytest tests/e2e_tests/myrobot -v``. See ``tests/README.md`` and
 ``tests/e2e_tests/run_gpu_suite.sh`` for running GPU suites in clean environments.

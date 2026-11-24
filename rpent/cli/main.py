@@ -24,7 +24,7 @@
 # in `pyproject.toml`):
 #
 # ```bash
-# rpent --robot libero --suite libero_object_task --task 0 --seed 0 [...]
+# rpent --robot <name> --suite <suite> --task 0 --seed 0 [...]
 # ```
 #
 # ## Note
@@ -382,14 +382,30 @@ def main() -> int:
     parser = _build_argparser()
     help_requested = "-h" in sys.argv or "--help" in sys.argv
     # A robot's spec is part of the planner layer's client surface, so report
-    # the missing layer before loading it. ``--help`` stays available because
-    # it never needs a robot.
+    # the missing layer before argument validation runs: a checkout-less
+    # install discovers no robots, so ``--robot <name>`` would otherwise fail
+    # the empty choice list instead of explaining what to install. ``--help``
+    # stays available because it never needs a robot.
     if _MISSING_PLANNER_LAYER is not None and not help_requested:
         print(
             "the rpent CLI needs the planner layer, which this environment does "
             f"not provide ({_MISSING_PLANNER_LAYER}); install it with "
             '`pip install "rpent[planner]"`, or run inside the environment '
             "rpent-install created for the robot",
+            file=sys.stderr,
+        )
+        return 1
+    # The planner layer can be installed into a wheel-only environment too, and
+    # ``robots/`` still comes only from a checkout. Report that the same way:
+    # ``--robot <name>`` would otherwise fail the empty choice list.
+    if not enumerate_robots() and not help_requested:
+        print(
+            "the rpent CLI found no robot components: robot packages live only "
+            "in a source checkout, which an installed wheel does not carry. "
+            "From a checkout, build the robot's environment with "
+            "`./rpent-install.sh install robot-<name> --venv <venv>` and run "
+            "the CLI inside it; RPENT_REPO_ROOT only adds a manual-run path "
+            "that no fingerprint or `doctor` check covers",
             file=sys.stderr,
         )
         return 1

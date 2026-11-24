@@ -79,7 +79,10 @@ def test_help_survives_a_wheel_without_the_component(
 
     output = capsys.readouterr().out
     assert "usage: rpent-flywheel" in output
-    assert "tool-flywheel" in output
+    # A wheel has no manifests, so the command the help names must be one that
+    # works from a checkout instead of the `rpent-install` script whose
+    # checkout guard rejects a wheel's root.
+    assert "./rpent-install.sh install tool-flywheel" in output
 
 
 def test_flywheel_entry_reports_a_missing_component(

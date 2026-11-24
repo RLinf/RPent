@@ -33,7 +33,8 @@ def _print_uninstalled_help() -> int:
         "\n"
         "Export a recorded flight as training data. The options come from the\n"
         "`tool-flywheel` component, which this environment does not install;\n"
-        "install it with `rpent-install install tool-flywheel`."
+        "install it from an RPent checkout with\n"
+        "`./rpent-install.sh install tool-flywheel`."
     )
     return 0
 

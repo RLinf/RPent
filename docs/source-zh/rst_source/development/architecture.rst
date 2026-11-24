@@ -51,26 +51,43 @@ RPent 将任务规划、工具执行和环境运行分开：规划器选择工�
 代码目录
 ------------
 
-共享执行逻辑和接口位于 ``rpent/`` 中，各环境的具体实现位于 ``robots/`` 下的独立包中。
+共享执行逻辑、接口和模型基类位于 ``rpent/`` 中，各环境的具体实现位于 ``robots/`` 下的独立包中。不属于机器人的可安装组件放在 ``components/``；每个组件都是一个目录，里面放着它的 ``component.toml``，``components/infra/`` 下的基础设施组件只贡献这份清单。
+
+依赖方向固定为 ``robots/`` → ``components/`` → ``rpent/``：核心按名字发现组件，从不静态 import 它们；工具包与模型服务之间也不互相 import。
 
 .. code-block:: text
 
-   rpent/
-     cli/          # CLI, Dashboard launcher, memory commands
-     planner/      # Model backends and Planner protocol
-     prompt/       # Shared prompt construction
-     session/      # Session and task lifecycle
-     dashboard/    # Web UI and event delivery
-     robots/       # Discovery, descriptors, runtime components
-     tools/        # Toolkit and shared tool behavior
-     memory/       # Memory permissions, merge, and indexing
-     evaluation/   # Evaluation result support
-   robots/
+   rpent/            # 核心：契约、调度、模型基类
+     components/     # 切片所对接服务的核心契约
+       env/          # 环境契约、client、facade、动作规格
+       models/       # 模型契约、client、facade、后端注册、平台助手
+     cli/            # CLI、Dashboard 启动器、记忆与安装命令
+     planner/        # 模型后端与 Planner 基类
+     prompt/         # 共享提示词拼装
+     session/        # Session 与任务生命周期
+     dashboard/      # Web UI 与事件投递
+     robots/         # 发现、描述符、运行时组件
+     tools/          # Toolkit 与共享工具行为
+     memory/         # 记忆权限、合并与索引
+     evaluation/     # 评测结果支持
+     install/        # 清单、解析与指纹
+   robots/<name>/    # 切片：原生翻译与差异化功能
      libero/
      robocasa/
      robotwin/
      franka/
      dual_franka/
+     robodojo/
+     yam/
+     efe/
+   components/
+     sim/            # 仿真器服务，每个子目录一个可安装组件
+     models/         # 模型服务，每个子目录一个可安装组件
+     tools/          # 只依赖 rpent 的工具
+     infra/          # 基础设施组件：只有清单，没有代码
+   rpent-install.sh  # 在全新检出中引导安装器
+   tests/
+     tooling/        # 仓库检查与 CI 选路
 
 环境发现与接入
 ---------------------

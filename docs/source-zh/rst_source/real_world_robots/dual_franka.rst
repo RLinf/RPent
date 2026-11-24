@@ -13,28 +13,26 @@ RPent 通过 RLinf ``RealWorldEnv`` worker 控制双节点双臂 Franka 系统�
 安装
 ----
 
-在两台 Linux 控制节点分别安装 RPent，保持代码、Python、Ray 和 RLinf 版本一致。本地运行 VLA 或 SAM3 的节点需要 NVIDIA GPU。以下沿用 :doc:`../get_started/quickstart` 的安装方式：
+在两台 Linux 控制节点分别安装 RPent，保持代码、Python、Ray 和 RLinf 版本一致。本地运行 VLA 或 SAM3 的节点需要 NVIDIA GPU。把 ``robot-dual_franka`` 安装到 ``.venv-dual-franka-real``，其中包含双臂 Franka 和本地 SAM 3.0：
 
 .. code-block:: bash
 
-   git clone https://github.com/RLinf/RPent.git
-   cd RPent
-   uv venv
-   source .venv/bin/activate
-   uv pip install -e ".[franka,sam3]"
+   ./rpent-install.sh install robot-dual_franka \
+     --venv .venv-dual-franka-real
+   source .venv-dual-franka-real/bin/activate
 
-下载 Python 依赖较慢时，可使用 `清华 PyPI 镜像 <https://mirrors.tuna.tsinghua.edu.cn/help/pypi/>`_ 替换上面的安装命令：
+
+下载 Python 依赖较慢时，可在执行该安装命令前设置 `清华 PyPI 镜像 <https://mirrors.tuna.tsinghua.edu.cn/help/pypi/>`_：
 
 .. code-block:: bash
 
-   uv pip install -e ".[franka,sam3]" \
-     --index-url https://pypi.tuna.tsinghua.edu.cn/simple
+   export UV_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple
 
-该选项只替换 Python 包索引，不代理 Git 仓库、直接下载链接或模型权重。
+镜像只替换 Python 包索引，不代理 Git 仓库、直接下载链接或模型权重。
 
 连接机械臂前，请核对 libfranka 与机器人固件的兼容性。标定状态读取程序还需要 libfranka 开发库，见下文的标定步骤。
 
-后续命令在仓库根目录和该环境中执行。新开终端时，重新激活 ``.venv`` 并设置所需的模型环境变量。
+后续命令在仓库根目录和该环境中执行。新开终端时，重新激活 ``.venv-dual-franka-real`` 并设置所需的模型环境变量。
 
 需要本地分割时，在环境节点下载 SAM3 权重：
 
@@ -45,7 +43,7 @@ RPent 通过 RLinf ``RealWorldEnv`` worker 控制双节点双臂 Franka 系统�
      --local_dir ./checkpoints/sam3
    export SAM3_CHECKPOINT_PATH="$PWD/checkpoints/sam3/sam3.pt"
 
-未设置该变量或 ``--sam3-endpoint`` 时，分割功能不可用；仅安装 extra 不会下载权重。VLA checkpoint 配置见 :ref:`dual-franka-vla`。
+未设置该变量或 ``--sam3-endpoint`` 时，分割功能不可用；仅安装组件不会下载权重。VLA checkpoint 配置见 :ref:`dual-franka-vla`。
 
 标定
 ----
@@ -166,7 +164,7 @@ RPent 将其与所选快照中的末端位姿组合；若位姿使用 ``left_bas
 机器人配置
 ----------
 
-若标定使用了独立 Python 环境，执行后续命令前请重新激活 RPent 的 ``.venv``。
+若标定使用了独立 Python 环境，执行后续命令前请重新激活 RPent 的 ``.venv-dual-franka-real``。
 
 启用机械臂运动前，请检查并修改仓库中的开发默认值：
 
@@ -258,7 +256,7 @@ Codex 配置
 启动双节点 Ray 集群
 --------------------
 
-启动 Ray 前，在两个节点分别激活安装好的 ``.venv``。``robots/dual_franka/runtime_config.py`` 的默认部署为：
+启动 Ray 前，在两个节点分别激活安装好的 ``.venv-dual-franka-real``。``robots/dual_franka/runtime_config.py`` 的默认部署为：
 
 * 节点 ``0`` 是 Ray head：运行 RPent、环境 worker、左臂及夹爪控制器、base 相机和左腕相机。额外的 D455 由 RPent 在此本地打开；按需启动的本地 VLA、SAM3 服务也运行在这里。
 * 节点 ``1`` 是 Ray worker：运行右臂及夹爪控制器和右腕相机，需要安装环境并启动 Ray，但不需要另起 RPent runner。

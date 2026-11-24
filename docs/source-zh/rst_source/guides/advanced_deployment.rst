@@ -26,10 +26,12 @@ LIBERO 环境服务
 Pi0.5 VLA 服务
 --------------
 
-在 VLA 主机上设置 checkpoint 路径并启动 HTTP 服务：
+在 VLA 主机上把模型服务装进独立的环境，再设置 checkpoint 路径并启动 HTTP 服务：
 
 .. code-block:: bash
 
+   ./rpent-install.sh install model-openpi --venv .venv-openpi
+   source .venv-openpi/bin/activate
    export PI05_CHECKPOINT_PATH=/path/to/rlinf-pi05-libero-130-fullshot-sft
    python -m components.models.openpi.server \
      --embodiment libero \

@@ -59,9 +59,9 @@ installs the LIBERO-plus package whose environment server ships with
 The core package installs in two layers. Plain ``rpent`` is the runtime layer:
 component and model contracts, RPC, model clients, and the installer, so a
 simulator or model environment can hold it without the planner stack.
-``rpent[planner]`` adds the planner adapters, execution sessions, prompts, and
-the dashboard; the tool contracts and toolkit live in the runtime layer. A
-component that imports the planner declares ``planner = true`` in its
+``rpent[planner]`` adds the planner adapters, execution sessions, tools,
+prompts, and the dashboard. A component that imports the planner declares
+``planner = true`` in its
 ``component.toml``, and every environment holding that component installs the
 planner layer as well; without the flag an environment gets the runtime layer
 only. ``install`` fails with a named component list if a
@@ -136,12 +136,18 @@ over its client:
 .. code-block:: bash
 
    rpent-install install model-openpi --venv .venv-openpi
-   rpent-install install sim-libero_plus model-openpi model-sam3 --venv .venv-libero-plus
+   rpent-install install sim-libero_plus model-openpi model-sam3 --venv .venv-libero-plus-models
 
 ``rpent-install`` runs from a checkout, where it reads the ``component.toml``
 manifests under ``robots/`` and ``components/``. A non-editable ``pip install
-rpent`` provides the CLI; run a specific robot or model service from a source
-checkout, where the manifests live.
+rpent`` from the published wheel provides the CLI without those directories, so
+an installed ``rpent`` finds no robots and refuses to start one. To run a robot,
+build its environment from a checkout with
+``./rpent-install.sh install robot-<name> --venv <venv>``;
+``pip install -e .`` adds only RPent's own dependencies, not a robot's. Setting
+``RPENT_REPO_ROOT`` to a checkout lets an installed ``rpent`` run a robot by
+hand, but no fingerprint attests that environment and ``doctor`` does not
+check it.
 
 An environment contains exactly the components you named and their closure.
 What it contains decides whether an existing venv can be reused, so naming a
@@ -192,7 +198,7 @@ entry can appear here before its component directory lands, and it fails with
    rpent-install install infra-dev --venv .venv-dev
    rpent-install install infra-unit_cpu --venv .venv-unit-cpu
    rpent-install install robot-libero --venv .venv-libero
-   rpent-install install sim-libero_plus model-openpi model-sam3 --venv .venv-libero-plus
+   rpent-install install sim-libero_plus --venv .venv-libero-plus
    rpent-install install robot-robocasa --venv .venv-robocasa
    rpent-install install robot-robotwin --venv .venv-robotwin
    rpent-install install robot-franka --venv .venv-franka
@@ -238,7 +244,10 @@ afterwards, such as an editable RLinf checkout, an SDK, or an adapter package.
 Those additions change the installed package set, so ``doctor`` reports the
 environment as drifted, and rerunning ``install`` re-records the new set. Run
 ``doctor`` on an environment built from the manifests when the fingerprint
-should attest to the component closure alone.
+should attest to the component closure alone. One guide goes further:
+:doc:`../simulators/efe` installs RPent into Harbor's own virtualenv, which
+``rpent-install`` does not create, so that environment has no fingerprint and
+``doctor`` does not cover it.
 
 For ``check --resolve``, ``linux-x86_64`` targets ``manylinux_2_31`` (glibc
 2.31, Ubuntu 20.04 or newer): current GPU wheels are published for newer

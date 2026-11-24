@@ -1,0 +1,164 @@
+name: Package
+
+# Reusable packaging checks: the wheel carries only the core package, the sdist
+# carries the source checkout including robots/ and components/, and both expose the CLI from a fresh environment.
+on:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build and install the distribution
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+      - name: Build sdist and wheel
+        env:
+          # The published wheel is core-only; the sdist stays complete through
+          # MANIFEST.in and is installed from the source scope below.
+          RPENT_WHEEL_SCOPE: core
+        run: uv build
+      - name: Install the wheel into a fresh environment
+        run: |
+          uv venv --python 3.11 .venv-wheel
+          uv pip install --python .venv-wheel/bin/python dist/*.whl
+      - name: Check the wheel install
+        run: |
+          # `python -` puts the working directory on `sys.path`, so this has to
+          # run outside the checkout; otherwise it imports the source tree.
+          cd "$RUNNER_TEMP"
+          "$GITHUB_WORKSPACE/.venv-wheel/bin/rpent" --help >/dev/null
+          # The wheel has no `robots` package, so a user who names a robot must
+          # see the planner-layer message rather than an argparse choice error.
+          if "$GITHUB_WORKSPACE/.venv-wheel/bin/rpent" --robot libero \
+            2>"$RUNNER_TEMP/robot.err"; then
+            echo "rpent --robot must fail without the planner layer" >&2
+            exit 1
+          fi
+          grep -q "needs the planner layer" "$RUNNER_TEMP/robot.err"
+          "$GITHUB_WORKSPACE/.venv-wheel/bin/python" - <<'PY'
+          from pathlib import Path
+
+          import rpent
+
+          root = Path(rpent.__file__).resolve().parent.parent
+          for package in ("robots", "components"):
+              if (root / package).exists():
+                  raise SystemExit(f"{package}/ must not be in the core wheel")
+          if not (root / "rpent").is_dir():
+              raise SystemExit("rpent/ is missing from the wheel")
+          print(sorted(path.name for path in root.iterdir() if path.is_dir()))
+          PY
+      - name: Check the planner-installed wheel
+        run: |
+          uv venv --python 3.11 .venv-planner
+          wheel=$(ls "$GITHUB_WORKSPACE"/dist/*.whl)
+          # Take the extra from the built wheel's metadata: a wheel that lost
+          # the `planner` extra fails here instead of installing a list read
+          # from pyproject.toml.
+          uv pip install --python .venv-planner/bin/python \
+            "rpent[planner] @ file://$wheel"
+          # As above: check the installed distribution from outside the checkout.
+          cd "$RUNNER_TEMP"
+          venv="$GITHUB_WORKSPACE/.venv-planner"
+          "$venv/bin/rpent" --help >/dev/null
+          # The planner layer clears the layer guard, so this layout must explain
+          # that robot discovery reads a source checkout.
+          if "$venv/bin/rpent" --robot libero 2>"$RUNNER_TEMP/planner-robot.err"; then
+            echo "rpent --robot must fail without a source checkout" >&2
+            exit 1
+          fi
+          grep -q "found no robot components" "$RUNNER_TEMP/planner-robot.err"
+          # The message names RPENT_REPO_ROOT, so check that the remedy works.
+          RPENT_REPO_ROOT="$GITHUB_WORKSPACE" "$venv/bin/python" - <<'PY'
+          from rpent.robots.base import enumerate_robots
+
+          assert "libero" in enumerate_robots(), enumerate_robots()
+          PY
+      - name: Install the sdist and upgrade it to the wheel
+        run: |
+          uv venv --python 3.11 .venv-sdist
+          uv pip install --python .venv-sdist/bin/python dist/*.tar.gz
+          # As above: check the installed distribution from outside the
+          # checkout, or `robots` and `components` resolve to the source tree.
+          cd "$RUNNER_TEMP"
+          venv="$GITHUB_WORKSPACE/.venv-sdist"
+          "$venv/bin/rpent" --help >/dev/null
+          "$venv/bin/python" - <<'PY'
+          import components
+          import robots
+
+          print(robots.__name__, components.__name__)
+          PY
+          uv pip install --python "$venv/bin/python" --reinstall \
+            "$GITHUB_WORKSPACE"/dist/*.whl
+          "$venv/bin/rpent" --help >/dev/null
+          "$venv/bin/python" -c "import rpent; print(rpent.__version__)"
+      - name: Check the extracted sdist tree
+        # Discovery reads every manifest and the override files the manifests
+        # name, so it fails when the sdist omits one the tree carries.
+        run: |
+          mkdir -p "$RUNNER_TEMP/sdist-tree"
+          tar -xzf dist/*.tar.gz -C "$RUNNER_TEMP/sdist-tree"
+          cd "$RUNNER_TEMP"/sdist-tree/rpent-*
+          "$GITHUB_WORKSPACE/.venv-sdist/bin/rpent-install" --root "$PWD" list >/dev/null
+      - name: Check source installs outside the checkout
+        run: |
+          # `uv pip install .` builds the source-scope wheel, so the component
+          # data files must be package data. An editable install must expose
+          # the checkout's robots and components from any directory.
+          # Runtime dependencies are skipped: `find_spec` reads the installed
+          # layout without importing pydantic.
+          uv venv --python 3.11 "$RUNNER_TEMP/venv-source"
+          uv pip install --python "$RUNNER_TEMP/venv-source/bin/python" \
+            --no-deps . packaging
+          uv venv --python 3.11 "$RUNNER_TEMP/venv-editable"
+          uv pip install --python "$RUNNER_TEMP/venv-editable/bin/python" \
+            --no-deps -e . packaging
+          cd "$RUNNER_TEMP"
+          "$RUNNER_TEMP/venv-source/bin/python" - <<'PY'
+          import importlib.util
+          import sys
+          from pathlib import Path
+
+          def package_root(name):
+              spec = importlib.util.find_spec(name)
+              if spec is None or not spec.submodule_search_locations:
+                  sys.exit(f"{name}/ is missing from the source wheel")
+              return Path(next(iter(spec.submodule_search_locations)))
+
+          expected = {
+              "robots": (
+                  "robocasa/eval/target50.json",
+                  "franka/config/example.yaml",
+                  "dual_franka/config/example.yaml",
+                  "libero/guides/env_calibration.md",
+                  "yam/config/example.yaml",
+              ),
+              "components": ("sim/robotwin/eval/demo_randomized.json",),
+          }
+          for package, relatives in expected.items():
+              root = package_root(package)
+              for relative in relatives:
+                  if not (root / relative).is_file():
+                      sys.exit(f"{package}/{relative} is missing from the source wheel")
+          PY
+          "$RUNNER_TEMP/venv-editable/bin/python" - <<'PY'
+          import importlib.util
+          import sys
+
+          for name in ("robots", "components"):
+              if importlib.util.find_spec(name) is None:
+                  sys.exit(f"the editable install does not expose {name}/")
+          PY
+          "$RUNNER_TEMP/venv-editable/bin/rpent-install" list >/dev/null
+      - uses: actions/upload-artifact@v4
+        with:
+          # The publish workflow releases this exact artifact after the checks
+          # above have installed it.
+          name: dist
+          path: dist/

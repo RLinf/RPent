@@ -78,33 +78,27 @@ C2R 使用干净场景中的成功轨迹作为经验，在随机场景中评测�
 安装
 ----
 
-RoboTwin 要求 Python 3.11。宿主机需预先具备兼容的 CUDA toolkit/NVCC、编译工具链以及 SAPIEN 依赖的系统级 GL/EGL/Vulkan 库。创建虚拟环境并安装 RoboTwin 所需依赖：
+RoboTwin 要求 Python 3.11。宿主机需预先具备兼容的 CUDA toolkit/NVCC、编译工具链以及 SAPIEN 依赖的系统级 GL/EGL/Vulkan 库。安装 ``robot-robotwin`` 即可；用户不需要运行 RLinf 安装器，也不需要单独克隆 RoboTwin：
 
 .. code-block:: bash
 
-   git clone https://github.com/RLinf/RPent.git
-   cd RPent
-   uv venv --python 3.11 .venv-robotwin
+   ./rpent-install.sh install robot-robotwin --venv .venv-robotwin
    source .venv-robotwin/bin/activate
-   uv pip install -e ".[robotwin]"
 
-用户不需要运行 RLinf 安装器，也不需要单独克隆 RoboTwin。
-
-国内网络可使用 PyPI 镜像加速：
+国内网络可在执行该安装命令前设置 uv 的镜像环境变量：
 
 .. code-block:: bash
 
-   uv pip install -e ".[robotwin]" \
-      --default-index https://mirrors.aliyun.com/pypi/simple \
-      --index https://pypi.tuna.tsinghua.edu.cn/simple
+   export UV_DEFAULT_INDEX=https://mirrors.aliyun.com/pypi/simple
+   export UV_INDEX=https://pypi.tuna.tsinghua.edu.cn/simple
 
 .. note::
 
-   ``.[robotwin]`` 使用 SAPIEN 3.0.0b1。其他版本可能改变仿真观测，导致模型效果下降。
+   ``sim-robotwin`` 环境使用 SAPIEN 3.0.0b1。其他版本可能改变仿真观测，导致模型效果下降。
 
 .. note::
 
-   ``.[robotwin]`` 的 RoboTwin 与 LingBot 运行时已作为发布包安装到 PyPI； cuRobo 仍从 GitHub 官方 tag 源码构建，因此即使配置了 PyPI 镜像，安装时仍需能访问 GitHub。
+   ``sim-robotwin`` 和 ``model-lingbot`` 安装的 RoboTwin 与 LingBot 运行时已作为发布包上架 PyPI；cuRobo 仍从 GitHub 官方 tag 源码构建，因此即使配置了 PyPI 镜像，安装时仍需能访问 GitHub。
 
 下载仿真资源
 ------------
@@ -145,7 +139,7 @@ UniWAM 后端
 
 在独立的 Python 3.11 模型环境中，按
 `UniWAM 官方 RoboTwin 部署说明 <https://github.com/UniWAM/UniWAM/tree/8dcd3401bccda8c002fc558e356b975b1789eecd/inference/robotwin/uniwam>`_
-安装策略依赖，再安装 RPent：``pip install -e /path/to/RPent``。
+安装策略依赖，再安装 RPent：``pip install -e /path/to/RPent``。该环境由 UniWAM 部署维护，不由 ``rpent-install`` 组件管理，``rpent-install doctor`` 不覆盖它。
 已验证的依赖组合为 Torch 2.6.0+cu124、torchvision 0.21.0+cu124、
 FlashAttention 2.7.4.post1、Transformers 4.57.3、Diffusers 0.35.1、
 DeepSpeed 0.16.9 和 NumPy 1.26.4。

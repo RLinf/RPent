@@ -115,8 +115,8 @@ are separate from documentation content requirements.
 Use this sequence: requirements, installation, assets and checkpoints, planner
 connection check, one task, expected artifacts and success criterion, common
 failures. Keep runtime option tables in Command-Line Reference. Put installation
-commands and optional dependency groups in the environment or feature guide
-that uses them; do not maintain a separate installation-extras summary table.
+commands in the environment or feature guide that uses them; do not maintain
+a separate installation summary table.
 
 ### Simulator guides
 

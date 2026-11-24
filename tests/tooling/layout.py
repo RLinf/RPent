@@ -80,7 +80,8 @@ ALLOWED_ROOT_FILES = (
     "rpent-install.sh",
 )
 #: Generated, gitignored directories that may appear in a working checkout.
-IGNORED_TOP_LEVEL = frozenset({"memory", "__pycache__"})
+#: ``build`` and ``dist`` are what ``uv build`` and ``pip wheel`` leave behind.
+IGNORED_TOP_LEVEL = frozenset({"memory", "__pycache__", "build", "dist"})
 #: Core subdirectories K5 does not scan, with the reason and the date by which
 #: the exception must be removed or renewed. Model-side wire contracts name the
 #: embodiment they control. An expired entry is an error, so a temporary

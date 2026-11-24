@@ -16,9 +16,10 @@
 
 `fast ci` narrows which tests a pull request runs and `full ci` narrows which
 environments it installs from the same answer, so the two levels cannot drift: a
-path under a component directory names that component; the affected
-environments are the components whose ``requires`` closure contains it, and the
-affected tests are the suites that mirror it.
+path under a component directory names that component; an end-to-end suite
+directory names the robot whose integration it runs; the affected environments
+are the components whose ``requires`` closure contains the named component, and
+the affected tests are the suites that mirror it.
 
 A path outside every component directory belongs to the core, the installer, or
 the install data, so it can change every installation. An unknown component
@@ -76,14 +77,16 @@ PR_PILOT_COMPONENTS = ("infra-minimal",)
 #: Paths whose change can alter every installation, so a PR installs every
 #: environment instead of the pilot set. Install data changes narrow their own
 #: environment set first; a path here in a mixed change still widens it. The
-#: checkout launcher decides how every environment bootstraps, and this tooling
-#: decides which environments a change runs, so both widen the same way.
+#: checkout launcher decides how every environment bootstraps, the GPU launcher
+#: decides how every end-to-end suite runs, and this tooling decides which
+#: environments a change runs, so all three widen the same way.
 PR_ALL_INSTALL_PREFIXES = (
     "rpent/install/",
     "components/infra/",
     ".github/",
     "rpent-install.sh",
     "tests/tooling/",
+    "tests/e2e_tests/",
 )
 #: The repository's install data: the infrastructure manifests that decide what
 #: each environment contains, and the packaging settings that decide what the
@@ -129,6 +132,18 @@ class Scope:
 def _is_docs(path: str) -> bool:
     """Return True when ``path`` only changes documentation."""
     return path.startswith("docs/") or path.endswith((".md", ".rst"))
+
+
+def _e2e_component(path: str) -> str | None:
+    """Return the robot whose end-to-end suite holds ``path``, if any.
+
+    ``tests/e2e_tests/<suite>/`` runs the integration of ``robot-<suite>``, so
+    a change inside one reaches that robot rather than the whole repository.
+    """
+    parts = path.split("/")
+    if len(parts) > 3 and parts[:2] == ["tests", "e2e_tests"]:
+        return f"robot-{parts[2]}"
+    return None
 
 
 def _component_for(path: str) -> tuple[str, str] | None:
@@ -203,9 +218,9 @@ def _pr_installs(paths: list[str], components: tuple[str, ...]) -> tuple[str, ..
     already the resolution closure. For a core change, installing every GPU
     environment proves little beyond what nightly proves and costs a
     self-hosted runner slot, so the PR installs the core-only pilot. The
-    installer, workflows, packaging, this tooling, and a mixed change that still
-    names one of them keep the full set; install data on its own narrows before
-    this helper runs.
+    installer, workflows, packaging, this tooling, the end-to-end launcher, and
+    a mixed change that still names one of them keep the full set; install data
+    on its own narrows before this helper runs.
     """
     available = tuple(sorted(components))
     if not paths:
@@ -226,10 +241,12 @@ def affected_components(paths: list[str], catalog: Catalog) -> set[str] | None:
     """
     names: set[str] = set()
     for path in paths:
-        owner = _component_for(path)
-        if owner is None:
-            return None
-        _, name = owner
+        name = _e2e_component(path)
+        if name is None:
+            owner = _component_for(path)
+            if owner is None:
+                return None
+            _, name = owner
         if name not in catalog.components:
             return None
         names.add(name)

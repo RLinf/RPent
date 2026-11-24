@@ -2,9 +2,9 @@ name: Full CI
 
 # Proves a clean machine can install and run each selected environment in a
 # fresh venv, with doctor checks and the GPU suite where a simulator exists.
-# `fast ci` selects the environments a pull request affects; nightly, manual,
-# and release runs install every environment. Releases call this with
-# `full: true`.
+# `fast ci` passes `scoped: true` with the environments a pull request affects;
+# nightly, manual, and release runs leave it unset and install every
+# environment.
 on:
   schedule:
     # Offset from other nightly jobs to spread runner load.
@@ -12,8 +12,8 @@ on:
   workflow_dispatch:
   workflow_call:
     inputs:
-      full:
-        description: Install every environment (release gate)
+      scoped:
+        description: Install only the environments the caller passes
         required: false
         type: boolean
         default: false
@@ -52,21 +52,21 @@ jobs:
         id: select
         shell: bash
         env:
-          EVENT: ${{ github.event_name }}
-          CALLED_FULL: ${{ inputs.full }}
+          # A called workflow sees the caller's event name, so the scoped
+          # decision keys on an explicit input rather than on `workflow_call`.
+          CALLED_SCOPED: ${{ inputs.scoped }}
           CALLED_HOSTED: ${{ inputs.hosted }}
           CALLED_GPU: ${{ inputs.gpu }}
           CALLED_E2E: ${{ inputs.e2e }}
         run: |
           set -euo pipefail
-          if [[ "$EVENT" == "workflow_call" && "$CALLED_FULL" != "true" ]]; then
+          if [[ "$CALLED_SCOPED" == "true" ]]; then
             hosted=$CALLED_HOSTED
             gpu=$CALLED_GPU
             e2e=$CALLED_E2E
           else
-            # Nightly and manual runs, and a release call with `full: true`,
-            # cover every component on the runner its authored partition
-            # assigns it to.
+            # Nightly, manual, and release runs cover every component on the
+            # runner its authored partition assigns it to.
             hosted=$(./tests/tooling/run.sh matrix --runner hosted)
             gpu=$(./tests/tooling/run.sh matrix --runner gpu)
             e2e='["libero","robocasa","robotwin"]'

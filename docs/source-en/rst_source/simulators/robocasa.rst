@@ -91,10 +91,14 @@ range:
    ./rpent-install.sh install robot-robocasa --venv .venv-robocasa
    source .venv-robocasa/bin/activate
 
-The component closure installs a CUDA-enabled Torch and torchvision pair; RLDX requires
-Torch >= 2.7 and torchvision >= 0.22. If your driver needs a different build,
-reinstall the matching pair with ``uv pip install`` using the
+The component closure installs a CUDA-enabled Torch and torchvision pair; RLDX
+requires Torch >= 2.7 and torchvision >= 0.22. If your driver needs a different
+build, reinstall the matching pair with ``uv pip install`` using the
 `PyTorch instructions <https://pytorch.org/get-started/locally/>`_.
+
+The :ref:`environment checks <environment-smoke-tests>` need the test tools
+that ``infra-dev`` adds, so they use a second environment:
+``./rpent-install.sh install robot-robocasa infra-dev --venv .venv-robocasa-dev``.
 
 .. list-table::
    :header-rows: 1
@@ -542,8 +546,9 @@ Expand the details below for task names, evaluation settings and score reference
 Environment Checks
 ------------------
 
-Check the simulator first, then VLA inference. Both need working GPU/EGL.
-Skipped tests are not passes, and these checks do not produce leaderboard scores.
+Check the simulator first, then VLA inference. Both run in the
+``.venv-robocasa-dev`` environment and need working GPU/EGL. Skipped tests are
+not passes, and these checks do not produce leaderboard scores.
 
 Simulator Check
 ~~~~~~~~~~~~~~~
@@ -553,7 +558,6 @@ model weights are needed:
 
 .. code-block:: bash
 
-   uv pip install pytest pytest-timeout
    RPENT_RUN_ROBOCASA_INTEGRATION=1 \
       pytest tests/e2e_tests/robocasa/test_environment_smoke.py -v
 
@@ -571,8 +575,8 @@ VLA Inference Check
 ~~~~~~~~~~~~~~~~~~~
 
 Complete :ref:`VLA configuration <robocasa-vla-configuration>`, then select an
-available GPU and a fresh output directory. If you need test dependencies,
-install them into the environment: ``uv pip install pytest pytest-timeout``.
+available GPU and a fresh output directory. Run it in ``.venv-robocasa-dev``,
+which provides the test tools.
 
 .. code-block:: bash
 

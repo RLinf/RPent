@@ -15,6 +15,7 @@
 """Repository checks and the selection of test environments for a change.
 
 ``layout`` enforces the repository structure and import boundaries.
-``affected`` maps changed paths to components, tests and profiles.
-``matrix`` partitions the profiles across the runners that install them.
+``affected`` maps changed paths to components, tests and the install targets
+whose closure reaches them.
+``matrix`` partitions those install targets across the runners.
 """

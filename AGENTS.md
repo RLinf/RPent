@@ -7,23 +7,38 @@ with documentation instead of assuming either is correct.
 
 ## Repository map
 
+- `rpent/`: core contracts, scheduling, and model bases.
+  `rpent/components/env/` and `rpent/components/models/` hold the environment
+  and model-side contracts, clients, facades, backends, and platform helpers
+  that every slice uses.
 - `rpent/planner/`, `rpent/session/`, and `rpent/prompt/`: planner adapters,
   execution sessions, and shared prompt construction.
 - `rpent/tools/` and `rpent/memory/`: tool execution, observations, and memory.
-- `components/tools/rgbd/`: opt-in RGB-D tools (`back_project`, `segment`, experimental
-  `geometry`) over observations that each robot adapts.
-- `components/<kind>/<name>/`: install units an environment names on the
-  command line, grouped as `infra/`, `models/`, `sim/`, and `tools/`. Each
-  owns its code and its `component.toml`; the core installs and probes them
-  by name and never imports them statically.
-- `rpent/components/env/` and `rpent/components/models/`: the environment and
-  model contracts, clients, facades, and backends every slice shares.
 - `rpent/robots/`: robot discovery, descriptors, and shared runtime.
-  `robots/<robot>/` owns each concrete integration.
 - `rpent/cli/`, `rpent/dashboard/`, and `rpent/evaluation/`: entry points,
   interactive execution, and run results.
-- `tests/`: offline tests and integration checks; see [tests/README.md](tests/README.md).
+- `rpent/install/`: component manifests, resolution, and fingerprints.
+- `robots/<name>/`: each robot slice, owning native translation and its
+  differentiated features.
+- `components/sim/<name>/`: installable simulator services.
+- `components/models/<name>/`: installable model services.
+- `components/tools/<name>/`: installable tools such as the flywheel exporter,
+  or capability libraries a robot slice adapts, such as the RGB-D tools
+  (`back_project`, `segment`, experimental `geometry`).
+- `components/infra/<name>/`: infrastructure components that install packages
+  for an environment without owning code; the directory holds only the manifest.
+- `rpent-install.sh`: the checkout-level bootstrap for the installer; a fresh
+  checkout has no `rpent-install` console script yet.
+- `tests/`: offline tests, integration checks, repository structure checks, and
+  the selection of test environments for a change under `tests/tooling/`; see
+  [tests/README.md](tests/README.md).
 - `docs/source-en/` and `docs/source-zh/`: paired user and developer documentation.
+
+The dependency direction is `rpent` ← `components/sim` ← `components/models` ←
+`robots`: the core discovers components by name and never imports them
+statically, tools depend only on `rpent` (a capability library may also read the
+model clients' result types) but never on `robots`, and model services do not
+import each other.
 
 ## Development principles
 
@@ -39,7 +54,7 @@ with documentation instead of assuming either is correct.
   internal control flow direct, avoid repeated checks of established state,
   and preserve useful errors. Make resource ownership and cleanup explicit.
 - Keep optional simulator/model imports at their use sites so basic imports,
-  robot discovery, and CLI help work without every robot extra installed.
+  robot discovery, and CLI help work without every robot package installed.
 - Follow neighboring code for naming and structure, use the project logger,
   and follow CONTRIBUTING's type annotation and docstring conventions.
 - Write prose about current behavior and non-obvious constraints. Keep review

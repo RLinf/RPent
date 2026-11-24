@@ -119,7 +119,7 @@ def test_target50_sources_match_manifest_and_documentation():
                 / "simulators"
                 / "robocasa.rst"
             ).read_text(encoding="utf-8")
-            assert "install robot-robocasa --venv" in guide
+            assert "install robot-robocasa infra-dev --venv" in guide
             assert "robocasa-sim" not in guide
             assert "``rpent``" in guide
             assert "uv pip check" in guide

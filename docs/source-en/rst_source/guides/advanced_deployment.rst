@@ -36,10 +36,13 @@ stop the old service and start a new one.
 Pi0.5 VLA Service
 -----------------
 
-On the VLA host, set the checkpoint path and start the HTTP service:
+On the VLA host, install the model service in its own environment, then set
+the checkpoint path and start the HTTP service:
 
 .. code-block:: bash
 
+   ./rpent-install.sh install model-openpi --venv .venv-openpi
+   source .venv-openpi/bin/activate
    export PI05_CHECKPOINT_PATH=/path/to/rlinf-pi05-libero-130-fullshot-sft
    python -m components.models.openpi.server \
      --embodiment libero \

@@ -1,0 +1,44 @@
+name: Publish
+# Releasing is its own workflow because the publish job needs `id-token: write`
+# for Trusted Publishing, and a reusable workflow cannot request more
+# permission than its caller grants. Keeping it out of `full-ci.yml` also keeps
+# fork pull requests away from the publish environment.
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+jobs:
+  # A release must prove the exact commit and the exact artifact it publishes:
+  # every environment installs from its declared components and the full unit
+  # suite runs in the CPU test environment, then the package checks build the
+  # distribution and install it before anything reaches PyPI.
+  verify:
+    name: Release verification
+    # No scope, so every environment is installed.
+    uses: ./.github/workflows/full-ci.yml
+
+  package:
+    name: Release package checks
+    needs: verify
+    uses: ./.github/workflows/package.yml
+
+  publish:
+    name: Publish to PyPI
+    needs: package
+    # Human approval comes from the `pypi` environment's protection rules.
+    environment: pypi
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      id-token: write
+    steps:
+      # The package checks built and installed this artifact; the release only
+      # uploads it.
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+      - uses: pypa/gh-action-pypi-publish@release/v1

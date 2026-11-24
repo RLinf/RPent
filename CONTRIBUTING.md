@@ -40,26 +40,29 @@ Use a branch name that reflects the change, such as
 ### Step 2. Set up the development environment
 
 ```bash
-# Create and activate an isolated environment.
-uv venv --python 3.11
-source .venv/bin/activate
-
-# Install the source checkout and the lightweight test dependencies.
-uv pip install -e ".[test]"
-
-# For robot work, choose the matching test environment instead.
-uv pip install -e ".[test,libero-pro]"  # LIBERO
-uv pip install -e ".[test,robocasa]"    # RoboCasa
-uv pip install -e ".[test,robotwin]"    # RoboTwin
+# Create and activate the development environment.
+./rpent-install.sh install infra-dev --venv .venv-dev
+source .venv-dev/bin/activate
 
 # Install and enable the repository hooks.
 uv pip install pre-commit==4.6.2
 pre-commit install
+
+# For robot work, install that robot into its own virtualenv together with the
+# test tools. Components with different pins cannot share a virtualenv.
+./rpent-install.sh install robot-libero infra-dev --venv .venv-libero-dev  # LIBERO
+./rpent-install.sh install robot-robocasa infra-dev --venv .venv-robocasa-dev
+./rpent-install.sh install robot-robotwin infra-dev --venv .venv-robotwin-dev
 ```
 
-The commands above are alternatives: install only the robot extra relevant to
-the change. See the
-[installation guide](docs/source-en/rst_source/get_started/quickstart.rst) for
+The three robot commands are alternatives: install only the robot relevant to
+the change. Its environment replaces `.venv-dev` for that robot's code and
+tests, so activate it with `source .venv-<robot>-dev/bin/activate` before
+running them. The `-dev` suffix keeps this environment apart from the
+robot-only environment the installation guide builds under the same robot name;
+the two hold different component sets, and `rpent-install` refuses to install
+one into the other's directory. See the
+[installation guide](docs/source-en/rst_source/get_started/installation.rst) for
 environment-specific setup.
 
 ### Step 3. Develop
@@ -70,9 +73,11 @@ Follow these conventions while developing:
   repository-wide cleanup should normally be separate pull requests.
 - **Keep code in the appropriate module.** Reuse existing implementations
   where possible. Put integration code for a specific robot in its
-  `robots/<name>/` directory and a simulator service in
-  `components/sim/<name>/`. Place shared functionality in common modules with
-  matching responsibilities.
+  `robots/<name>/` directory, a simulator service in
+  `components/sim/<name>/`, and model services in `components/models/<name>/`.
+  Place shared functionality in common modules with matching responsibilities.
+  Infrastructure components that install packages without owning code live in
+  `components/infra/<name>/`, which holds their `component.toml` and no code.
 - **Check responsibilities and impact when changing shared modules, classes,
   or methods.** Keep changes within their existing responsibilities and use
   existing extension points where they fit. Keep robot-specific policy and
@@ -84,8 +89,8 @@ Follow these conventions while developing:
 - **Import optional dependencies only where they are used.** For example,
   import `robosuite` inside the RoboCasa code that needs it, not at module
   import time. This keeps `import rpent`, robot discovery, and CLI help usable
-  without every simulator installed. Put integration-only dependencies in an
-  optional extra.
+  without every simulator installed. Put integration-only dependencies in the
+  component's own `dependencies` list.
 - **Keep existing interfaces and behavior compatible.** When changing APIs,
   CLI options, configuration, or stored data formats, check that existing
   callers and data still work. Check changes to parameter meanings, defaults,
@@ -95,7 +100,12 @@ Follow these conventions while developing:
 - **Write tests with the change.** New behavior and bug fixes should include
   tests. Refactors should keep existing tests passing; if behavior changes,
   update the tests and explain why. Unit tests must run offline on an ordinary
-  CPU machine; use fakes when model or service output is needed.
+  CPU machine; use fakes when model or service output is needed. Installer
+  units use synthetic manifests under `tests/unit_tests/rpent/install/`;
+  contracts over the checked-in components and their dependencies belong in
+  `tests/unit_tests/installs/`. Repository structure checks and the
+  selection of test environments for a change live in `tests/tooling/`, with
+  their tests beside them.
 - **Follow the project style.** Pre-commit handles Ruff formatting and linting.
   Public Python APIs should have type hints and Google-style docstrings, and
   runtime messages should use the project logger rather than `print`.
@@ -108,8 +118,10 @@ Before opening a pull request, run the same required checks as CI:
 # Format and lint the complete repository.
 pre-commit run --all-files
 
-# Run all unit tests.
-pytest tests/unit_tests -v
+# Run all unit tests. The suite needs the infra-unit_cpu environment, which
+# infra-dev deliberately omits; see tests/README.md.
+./rpent-install.sh install infra-unit_cpu --venv .venv-unit-cpu
+.venv-unit-cpu/bin/python -m pytest tests/unit_tests -v
 
 # Run a focused test while developing.
 pytest tests/unit_tests/rpent/cli/test_main_contracts.py -k xxx -x

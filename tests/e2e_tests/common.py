@@ -201,8 +201,9 @@ def parse_runtime_args(spec: RobotSpec, argv: list[str]) -> Namespace:
 def installation_info(environment: str) -> dict[str, Any]:
     """Record enough installation identity to diagnose a clean-environment run.
 
-    ``environment`` names what the suite installed: a profile where one covers
-    the slice, otherwise its compatibility extra.
+    ``environment`` names the component whose environment the suite ran in,
+    such as ``robot-robocasa``; the record lets a failure be re-run against a
+    known install.
     """
     return {
         "environment": environment,

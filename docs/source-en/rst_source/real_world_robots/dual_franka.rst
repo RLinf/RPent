@@ -16,25 +16,24 @@ Install
 
 Install RPent on both Linux control nodes with matching code, Python, Ray and
 RLinf versions. Nodes running VLA or SAM3 locally need an NVIDIA GPU.
-Use the same installation workflow as :doc:`../get_started/quickstart`:
+Install ``robot-dual_franka`` into its own environment; it includes both Franka
+arms, local SAM 3.0, and their dependencies:
 
 .. code-block:: bash
 
-   git clone https://github.com/RLinf/RPent.git
-   cd RPent
-   uv venv
-   source .venv/bin/activate
-   uv pip install -e ".[franka,sam3]"
+   ./rpent-install.sh install robot-dual_franka \
+     --venv .venv-dual-franka-real
+   source .venv-dual-franka-real/bin/activate
 
-If Python package downloads are slow, replace the installation command with the
-`Tsinghua PyPI mirror <https://mirrors.tuna.tsinghua.edu.cn/help/pypi/>`_:
+If Python package downloads are slow, set the
+`Tsinghua PyPI mirror <https://mirrors.tuna.tsinghua.edu.cn/help/pypi/>`_
+before running that install command:
 
 .. code-block:: bash
 
-   uv pip install -e ".[franka,sam3]" \
-     --index-url https://pypi.tuna.tsinghua.edu.cn/simple
+   export UV_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple
 
-This option changes only the Python package index; it does not proxy Git
+The mirror changes only the Python package index; it does not proxy Git
 repositories, direct download URLs or model weights.
 
 Check libfranka compatibility with the robot firmware before connecting.
@@ -42,7 +41,8 @@ The calibration state reader also needs libfranka development files; see the
 calibration steps below.
 
 Run subsequent commands from the repository root in this environment. In a new
-terminal, activate ``.venv`` and set the required model variables again.
+terminal, activate ``.venv-dual-franka-real`` and set the required model variables
+again.
 
 Download SAM3 weights on the environment node if local segmentation is needed:
 
@@ -54,7 +54,7 @@ Download SAM3 weights on the environment node if local segmentation is needed:
    export SAM3_CHECKPOINT_PATH="$PWD/checkpoints/sam3/sam3.pt"
 
 Without this variable or ``--sam3-endpoint``, segmentation is unavailable;
-installing the extra alone does not download weights. VLA checkpoints are
+installing the environment alone does not download weights. VLA checkpoints are
 configured in :ref:`dual-franka-vla`.
 
 Calibration
@@ -203,7 +203,7 @@ Robot Configuration
 -------------------
 
 If calibration used a separate Python environment, reactivate RPent's
-``.venv`` before running the following commands.
+``.venv-dual-franka-real`` before running the following commands.
 
 Review and edit the checked-in development defaults before enabling motion:
 
@@ -333,7 +333,7 @@ Before using Codex, configure separate runtime directories and log in by followi
 Start the Two-node Ray Cluster
 ------------------------------
 
-Activate the installed ``.venv`` on each node before starting Ray. The default
+Activate the installed ``.venv-dual-franka-real`` on each node before starting Ray. The default
 placement in ``robots/dual_franka/runtime_config.py`` is:
 
 * Node ``0`` is the Ray head: it runs RPent, the environment worker, the

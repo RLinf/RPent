@@ -34,7 +34,7 @@ LIBERO
 
    .. grid-item-card:: 硬件
 
-      Linux、NVIDIA GPU；Python 3.11；CUDA 与 EGL。
+      Linux、NVIDIA GPU；Python 3.12；CUDA 与 EGL。
 
 .. _libero-pro:
 
@@ -95,27 +95,39 @@ LIBERO
 
 首次使用 LIBERO-PRO，请先完成 :doc:`../get_started/quickstart` 的安装、资源下载和模型配置。本页用于选择更多任务与复现实验。
 
-其他 LIBERO 版本请在独立环境中安装对应 extra，再下载资源；每个 Python 环境只安装一种 LIBERO 版本：
+``robot-libero`` 同时安装 standard LIBERO 与 LIBERO-PRO，运行时用 ``--libero-type`` 选择版本，并下载对应资源：
 
 .. list-table::
    :header-rows: 1
 
-   * - 版本
-     - 安装命令
+   * - ``--libero-type``
      - 资源下载
    * - ``standard``
-     - ``uv pip install -e ".[libero]"``
      - ``libero-download-assets --skip-existing``
    * - ``pro``
-     - ``uv pip install -e ".[libero-pro]"``
      - ``liberopro-download-assets --skip-existing``
    * - ``plus``
-     - ``uv pip install -e ".[libero-plus]"``
-     - ``liberoplus-download-assets --skip-existing``
+     - ``liberoplus-download-assets --skip-existing``；模拟器包来自
+       ``sim-libero_plus``
 
-以上各组依赖均包含 Pi0.5（``rpent-openpi``）、SAM3 和 RLinf 运行时（``rpent-rlinf``）。模型权重需按下文单独下载。
+LIBERO-plus 要求 robosuite<1.5，不能和 standard、PRO 的包装进同一个环境，而 ``robot-libero`` 又依赖 ``sim-libero``。运行 plus 任务需要两个环境：机器人侧照常安装 ``robot-libero``，另建一个环境安装 plus 包，并用 ``LIBERO_TYPE=plus`` 启动它的环境服务：
 
-运行时通过 ``--libero-type`` 选择与安装包一致的版本。
+.. code-block:: bash
+
+   rpent-install install sim-libero_plus --venv .venv-libero-plus
+   LIBERO_TYPE=plus .venv-libero-plus/bin/python \
+     -m components.sim.libero.env_server --suite libero_object --task 0 --seed 0 \
+     --max-episode-steps 10000 --transport http --host 0.0.0.0 --port ENV_PORT
+
+再从 ``robot-libero`` 环境运行任务并指向该服务；suite、task、seed 和最大步数必须一致：
+
+.. code-block:: bash
+
+   rpent --robot libero --suite libero_object --task 0 --seed 0 \
+     --max-episode-steps 10000 --libero-type plus \
+     --env-endpoint ENV_HOST:ENV_PORT --planner claude_code
+
+standard、PRO 环境包含 Pi0.5（``rpent-openpi``）、SAM3 和 RLinf 运行时（``infra-rlinf``），``sim-libero_plus`` 会带上后者。模型权重需按下文单独下载。
 
 VLA 配置
 --------
@@ -291,7 +303,7 @@ Dashboard
 
 如果你有一个与 LIBERO 兼容、但并非 Pi0.5 的 VLA，可以在不修改机器人实现的情况下替换 model client：
 
-1. 写一个新的 ``vla_server.py``，暴露相同的 ``predict`` RPC 契约（HTTP 或 socket 均可）。
+1. 写一个新的模型服务（``components/models/<name>/server.py``），暴露相同的 ``predict`` RPC 契约（HTTP 或 socket 均可）。
 2. 用 ``--am-endpoint [protocol://]host:port`` 指向它。
 3. 如果可用工具需要调整（比如将 ``pi0_pick`` 改成 ``mymodel_pick``），相应更新 ``robots/libero/toolkit.py``。
 

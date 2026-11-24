@@ -90,6 +90,8 @@ Target50 包含以下任务类别，完整任务、seed 和运行限制见本页
 
 该组件闭包会安装一组成对的 CUDA Torch 与 torchvision；RLDX 要求 Torch >= 2.7、torchvision >= 0.22。若驱动需要其他构建，可按 `PyTorch 安装说明 <https://pytorch.org/get-started/locally/>`_ 用 ``uv pip install`` 重新安装匹配的版本；国内可使用 `上海交大 PyTorch 镜像 <https://mirror.sjtu.edu.cn/docs/pytorch-wheels>`_。
 
+:ref:`环境自检 <environment-smoke-tests>` 需要 ``infra-dev`` 提供的测试工具，因此使用第二个环境：``./rpent-install.sh install robot-robocasa infra-dev --venv .venv-robocasa-dev``。
+
 .. list-table::
    :header-rows: 1
 
@@ -416,7 +418,7 @@ Target50 包含 50 个厨房任务，共运行 340 次。以下使用 Codex、GP
 环境自检
 ------------
 
-先检查仿真器，再检查 VLA 推理。两项均需可用的 GPU/EGL；跳过的测试不算通过，自检也不产生榜单成绩。
+先检查仿真器，再检查 VLA 推理。两项都在 ``.venv-robocasa-dev`` 环境中运行，均需可用的 GPU/EGL；跳过的测试不算通过，自检也不产生榜单成绩。
 
 仿真器检查
 ~~~~~~~~~~~~
@@ -425,7 +427,6 @@ Target50 包含 50 个厨房任务，共运行 340 次。以下使用 Codex、GP
 
 .. code-block:: bash
 
-   uv pip install pytest pytest-timeout
    RPENT_RUN_ROBOCASA_INTEGRATION=1 \
       pytest tests/e2e_tests/robocasa/test_environment_smoke.py -v
 
@@ -438,7 +439,7 @@ Target50 包含 50 个厨房任务，共运行 340 次。以下使用 Codex、GP
 VLA 推理检查
 ~~~~~~~~~~~~
 
-完成 :ref:`VLA 配置 <robocasa-vla-configuration>` 后，选择空闲 GPU 和新的输出目录运行。需要测试依赖时，把测试依赖装入环境：``uv pip install pytest pytest-timeout``。
+完成 :ref:`VLA 配置 <robocasa-vla-configuration>` 后，选择空闲 GPU 和新的输出目录，在 ``.venv-robocasa-dev`` 环境中运行，该环境提供测试工具。
 
 .. code-block:: bash
 
