@@ -22,8 +22,8 @@ import numpy as np
 import pytest
 
 from rpent.cli.main import _build_argparser
+from rpent.components.env.action_spec import box_action_spec
 from rpent.dashboard.events import NullDashboardEventSink
-from rpent.robots.components.action_spec import box_action_spec
 from rpent.tools import ToolResult
 from rpent.tools.direct_action import direct_action_tool
 from rpent.utils import templates
@@ -383,7 +383,7 @@ def test_libero_prompt_matches_direct_action_enablement(
 @pytest.mark.parametrize("legacy", [False, True])
 @pytest.mark.parametrize("mode", ["delta", "absolute"])
 def test_libero_rpc_describes_active_controller(legacy, mode):
-    from robots.libero.env_server import LiberoEnvFacade
+    from components.sim.libero.env_server import LiberoEnvFacade
     from rpent.tools.direct_action import direct_action_tool
 
     low, high = np.array([-2.0] * 6 + [-1.0]), np.array([2.0] * 6 + [1.0])
@@ -428,7 +428,7 @@ def test_libero_rpc_describes_active_controller(legacy, mode):
 
 @pytest.mark.parametrize("base_first", [False, True])
 def test_robocasa_rpc_describes_active_layout(base_first):
-    from robots.robocasa.env_server import RoboCasaEnvFacade
+    from components.sim.robocasa.env_server import RoboCasaEnvFacade
     from rpent.tools.direct_action import direct_action_tool
 
     low, high = np.full(12, -1.0), np.full(12, 1.0)
