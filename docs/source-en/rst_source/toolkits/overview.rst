@@ -61,6 +61,8 @@ Each simulator and real-robot guide lists its own action models, checkpoint path
         - LingBot-VLA (default), UniWAM, Fast-WAM
       * - :doc:`../simulators/robodojo`
         - VPP2, Awomo05
+      * - :doc:`../simulators/robolab`
+        - Pi0.5, or native actions without a model
       * - :doc:`../simulators/efe`
         - None (analytical IK ``Skills`` or native ``Raw`` actions)
       * - :doc:`../real_world_robots/franka`

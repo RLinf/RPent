@@ -61,6 +61,8 @@ RPent 将工具分为四类：
         - LingBot-VLA（默认）、UniWAM、Fast-WAM
       * - :doc:`../simulators/robodojo`
         - VPP2、Awomo05
+      * - :doc:`../simulators/robolab`
+        - Pi0.5，或不使用模型直接执行原生动作
       * - :doc:`../simulators/efe`
         - 无（解析式逆运动学 ``Skills`` 或原生 ``Raw`` 动作）
       * - :doc:`../real_world_robots/franka`

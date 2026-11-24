@@ -72,6 +72,7 @@ def _running_mcp_server(
     handler: Callable[[str, dict[str, Any], dict[str, str]], Any],
     *,
     page_size: int | None = None,
+    list_delay_s: float = 0.0,
 ) -> Iterator[tuple[str, list[dict[str, str]]]]:
     """Start a real local streamable-HTTP MCP server on a background thread."""
     mcp_app = Server("external-test", version="0.1.0")
@@ -82,6 +83,8 @@ def _running_mcp_server(
         async def _list_paginated(
             req: types.ListToolsRequest | None,
         ) -> types.ServerResult:
+            if list_delay_s > 0:
+                await asyncio.sleep(list_delay_s)
             cursor = req.params.cursor if req and req.params else None
             start = int(cursor) if cursor is not None else 0
             chunk = tools[start : start + page_size]
@@ -97,6 +100,8 @@ def _running_mcp_server(
 
         @mcp_app.list_tools()
         async def _list() -> list[types.Tool]:
+            if list_delay_s > 0:
+                await asyncio.sleep(list_delay_s)
             return list(tools)
 
     @mcp_app.call_tool(validate_input=False)
@@ -667,6 +672,43 @@ def test_timeout_pagination_reserved_fields_and_payload_bounds(
         toolkit.add_mcp_servers((yaml_timed,))
         res4 = toolkit.execute_tool("yaml_timed__hang", {})
         assert res4.is_error
+
+
+@pytest.mark.parametrize("raw_timeout", ["inf", "-inf", "nan", "0", "-1", "abc"])
+def test_call_timeout_s_rejects_invalid_env_values(
+    monkeypatch: pytest.MonkeyPatch, raw_timeout: str
+) -> None:
+    monkeypatch.setenv("MCP_CALL_TIMEOUT_S", raw_timeout)
+    with pytest.raises(ValueError, match="MCP_CALL_TIMEOUT_S"):
+        call_timeout_s()
+
+
+def test_list_remote_tools_honors_per_server_timeout_s(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    tools = [
+        types.Tool(name=f"tool_{idx}", description="T", inputSchema={"type": "object"})
+        for idx in range(3)
+    ]
+
+    async def handle(
+        name: str, arguments: dict[str, Any], headers: dict[str, str]
+    ) -> types.CallToolResult:
+        del name, arguments, headers
+        return types.CallToolResult(content=[])
+
+    with _running_mcp_server(tools, handle, page_size=1, list_delay_s=0.15) as (url, _):
+        # Lower per-server timeout_s bounds multi-page discovery even when env is higher.
+        monkeypatch.setenv("MCP_CALL_TIMEOUT_S", "60")
+        tight_spec = McpServerSpec(name="tight", url=url, timeout_s=0.25)
+        with pytest.raises(TimeoutError, match="tools/list did not finish"):
+            list_remote_tools(tight_spec)
+
+        # Higher per-server timeout_s overrides a tighter global MCP_CALL_TIMEOUT_S.
+        monkeypatch.setenv("MCP_CALL_TIMEOUT_S", "0.2")
+        relaxed_spec = McpServerSpec(name="relaxed", url=url, timeout_s=3.0)
+        discovered = list_remote_tools(relaxed_spec)
+        assert [t.name for t in discovered] == ["tool_0", "tool_1", "tool_2"]
 
 
 def test_get_toolkit_closes_toolkit_when_mcp_registration_fails(

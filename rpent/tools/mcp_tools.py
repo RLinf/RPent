@@ -35,6 +35,7 @@ import base64
 import builtins
 import contextlib
 import json
+import math
 import os
 import threading
 from collections.abc import Awaitable, Callable, Mapping, Sequence
@@ -324,9 +325,8 @@ def _make_handler(spec: McpServerSpec, name: str) -> Callable[..., ToolResult]:
     return handler
 
 
-async def _list_tools(session: Any) -> list[Any]:
+async def _list_tools(session: Any, *, timeout_s: float) -> list[Any]:
     """Fetch every page of ``tools/list`` within one request deadline."""
-    deadline = call_timeout_s()
 
     async def collect() -> list[Any]:
         tools: list[Any] = []
@@ -341,14 +341,15 @@ async def _list_tools(session: Any) -> list[Any]:
             seen.add(cursor)
 
     try:
-        return await asyncio.wait_for(collect(), timeout=deadline)
+        return await asyncio.wait_for(collect(), timeout=timeout_s)
     except asyncio.TimeoutError:
-        raise TimeoutError(f"tools/list did not finish within {deadline:g}s") from None
+        raise TimeoutError(f"tools/list did not finish within {timeout_s:g}s") from None
 
 
 def list_remote_tools(spec: McpServerSpec) -> list[Any]:
     """Fetch every tool descriptor a server exposes, following pagination."""
-    return _run_remote(spec, _list_tools)
+    deadline = call_timeout_s(spec)
+    return _run_remote(spec, lambda session: _list_tools(session, timeout_s=deadline))
 
 
 def _call_remote_tool(spec: McpServerSpec, name: str, arguments: dict[str, Any]) -> Any:
@@ -385,8 +386,10 @@ def call_timeout_s(spec: McpServerSpec | None = None) -> float:
         raise ValueError(
             f"MCP_CALL_TIMEOUT_S must be a number of seconds, got {raw!r}"
         ) from exc
-    if timeout_s <= 0:
-        raise ValueError(f"MCP_CALL_TIMEOUT_S must be positive, got {timeout_s}")
+    if not math.isfinite(timeout_s) or timeout_s <= 0:
+        raise ValueError(
+            f"MCP_CALL_TIMEOUT_S must be a positive finite number, got {raw!r}"
+        )
     return timeout_s
 
 
