@@ -18,7 +18,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from rpent.flywheel.reader import iter_trajectories, read_array
+from components.tools.flywheel.reader import iter_trajectories, read_array
 from rpent.session import EnvState, Payload
 
 

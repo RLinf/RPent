@@ -19,8 +19,8 @@ import threading
 
 import pytest
 
-from rpent.flywheel.cli import main
-from rpent.flywheel.export import load_dataset
+from components.tools.flywheel.cli import main
+from components.tools.flywheel.export import load_dataset
 
 pytest.importorskip("lerobot")
 

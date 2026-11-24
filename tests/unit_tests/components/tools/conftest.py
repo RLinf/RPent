@@ -18,7 +18,7 @@ from copy import deepcopy
 import numpy as np
 import pytest
 
-from rpent.flywheel.reader import iter_trajectories
+from components.tools.flywheel.reader import iter_trajectories
 from rpent.session import EnvState, MissingInfo, Payload
 
 

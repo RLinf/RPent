@@ -1,0 +1,14 @@
+schema = 2
+name = "infra-dev"
+probe = "pytest"
+# The core environment plus the tools the unit and contract tests use. The
+# suite imports the planner, so the environment installs both core layers.
+planner = true
+
+dependencies = [
+  "coverage",
+  "pytest",
+  "pytest-timeout",
+  "omegaconf",
+  "gymnasium",
+]
