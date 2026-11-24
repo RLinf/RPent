@@ -23,7 +23,7 @@ from tests.e2e_tests.libero.scenario import LiberoScenario
 @pytest.fixture(params=["cosmos-policy", "cosmos3", "fast-wam"])
 def wam_argv(request) -> list[str]:
     """Select a provisioned worker without requiring Pi0.5 or SAM3 weights."""
-    from robots.libero.suites import suite_variant
+    from components.sim.libero.suites import suite_variant
 
     backend = request.param
     variable = {

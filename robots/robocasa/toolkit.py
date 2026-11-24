@@ -26,8 +26,8 @@ from typing import TYPE_CHECKING, Any, Literal
 
 import numpy as np
 
+from components.sim.robocasa.env_server import DEFAULT_CAMS
 from robots.robocasa import tools as robocasa_tools
-from robots.robocasa.env_server import DEFAULT_CAMS
 from rpent.dashboard.events import DashboardEventSink
 from rpent.session import EnvState
 from rpent.session.env_capture import CapturingEnvClient

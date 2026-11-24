@@ -52,8 +52,8 @@ def test_target50_environment_contract(task_name, monkeypatch):
         pytest.skip("set RPENT_RUN_ROBOCASA_INTEGRATION=1 to run RoboCasa smoke tests")
 
     pytest.importorskip("robocasa")
+    from components.sim.robocasa.env_server import DEFAULT_CAMS, RoboCasaEnvFacade
     from robots.robocasa.env_client import RoboCasaEnvClient
-    from robots.robocasa.env_server import DEFAULT_CAMS, RoboCasaEnvFacade
 
     monkeypatch.setenv("MUJOCO_GL", "egl")
     monkeypatch.setenv("ROBOT_PLATFORM", "ROBOCASA")
@@ -104,8 +104,8 @@ def test_nav_camera_follows_mobile_base(monkeypatch):
         pytest.skip("set RPENT_RUN_ROBOCASA_INTEGRATION=1 to run RoboCasa smoke tests")
 
     pytest.importorskip("robocasa")
+    from components.sim.robocasa.env_server import RoboCasaEnvFacade
     from robots.robocasa.env_client import RoboCasaEnvClient
-    from robots.robocasa.env_server import RoboCasaEnvFacade
 
     monkeypatch.setenv("MUJOCO_GL", "egl")
     monkeypatch.setenv("ROBOT_PLATFORM", "ROBOCASA")

@@ -18,7 +18,8 @@ from contextlib import closing
 import numpy as np
 import pytest
 
-from robots.robotwin.robot_spec import ROBOTWIN_CAMERA_NAMES, get_robot_spec
+from components.sim.robotwin.contracts import ROBOTWIN_CAMERA_NAMES
+from robots.robotwin.robot_spec import get_robot_spec
 from tests.e2e_tests.common import (
     parse_runtime_args,
     publish_check,

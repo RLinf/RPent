@@ -18,7 +18,7 @@ import numpy as np
 from robots.yam.contracts import YAM_CAMERA_NAMES, YAM_STATUS_KEYS, validate_actions
 from robots.yam.geometry import joint_limits_from_config
 from robots.yam.servo import JointServoConfig
-from rpent.robots.components.env_client_base import BaseEnvClient
+from rpent.components.env.client import BaseEnvClient
 from rpent.utils.rpc import RpcClient
 
 

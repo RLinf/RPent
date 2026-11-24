@@ -31,8 +31,8 @@ from typing import Literal
 import numpy as np
 import pytest
 
-from rpent.robots.components.env_client_base import BaseEnvClient
-from rpent.robots.components.env_facade_base import BaseEnvFacade
+from rpent.components.env.client import BaseEnvClient
+from rpent.components.env.facade import BaseEnvFacade
 from rpent.utils.daemon import pick_free_port
 from rpent.utils.rpc import (
     RpcClient,
@@ -58,7 +58,7 @@ PROXY_ENVIRONMENT_VARIABLES = (
 
 
 def test_robodojo_camera_meta_roundtrip(transport, make_server_and_client):
-    from robots.robodojo.env_server import RoboDojoEnvFacade
+    from components.sim.robodojo.env_server import RoboDojoEnvFacade
 
     camera = {
         "intrinsic_matrix": np.eye(3, dtype=np.float32),
