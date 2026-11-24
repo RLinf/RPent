@@ -150,7 +150,7 @@ def _decorator_is_tool(dec: ast.expr) -> bool:
 
 
 def _tool_names(root: Path) -> set[str]:
-    """Registered user-facing tool names declared with ``@tool`` or ``ToolSchema``."""
+    """Registered user-facing tool names declared with ``@tool`` or ``Tool``."""
     names: set[str] = set()
     for folder in ("rpent", "robots", "toolkits"):
         target = root / folder
@@ -184,21 +184,28 @@ def _tool_names(root: Path) -> set[str]:
                         if isinstance(node.func, ast.Attribute)
                         else ""
                     )
-                    if callee not in {"ToolSchema", "ToolDefinition"}:
+                    if callee != "Tool":
                         continue
-                    if (
-                        node.args
-                        and isinstance(node.args[0], ast.Constant)
-                        and isinstance(node.args[0].value, str)
-                    ):
-                        names.add(node.args[0].value)
+                    explicit = None
                     for kw in node.keywords:
                         if (
                             kw.arg == "name"
                             and isinstance(kw.value, ast.Constant)
                             and isinstance(kw.value.value, str)
                         ):
-                            names.add(kw.value.value)
+                            explicit = kw.value.value
+                    if explicit is not None:
+                        names.add(explicit)
+                    elif node.args:
+                        first = node.args[0]
+                        if isinstance(first, ast.Constant) and isinstance(
+                            first.value, str
+                        ):
+                            names.add(first.value)
+                        elif isinstance(first, ast.Attribute):
+                            names.add(first.attr)
+                        elif isinstance(first, ast.Name):
+                            names.add(first.id)
     return names
 
 

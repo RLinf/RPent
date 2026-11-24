@@ -145,6 +145,8 @@ def test_code_names_excludes_registered_user_facing_tools():
         "efe_observe",
         "efe_status",
         "efe_recover",
+        "execute_action",
+        "read_image",
     ):
         assert tool_name not in names
     assert "ProcessDaemon" in names
