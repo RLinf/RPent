@@ -28,13 +28,12 @@ from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from rpent.cli.main import _disable_memory, _handoff_message, _serialize_messages
-from rpent.code_policy.toolkit import CodePolicyTools
+from rpent.cli.main import _handoff_message, _serialize_messages
+from rpent.cli.policy import configure_policy, planner_policy
 from rpent.dashboard.events import RunStartedEvent
 from rpent.evaluation import RunFinalizationContext
 from rpent.memory import MemoryManager
 from rpent.planner.base import build_planner, is_recoverable_agent_error
-from rpent.prompt.code_policy import code_policy_api_reference
 from rpent.robots import get_toolkit
 from rpent.session.planner_capture import end_planner_task, start_planner_task
 from rpent.utils.config import get_memory_dir
@@ -209,9 +208,7 @@ def _run_dashboard_task(
     if task_args.explore and getattr(task_args, "policy_mode", "tools") == "code":
         raise ValueError("--policy-mode code cannot be used with --explore")
     task_args.output_dir = str(claimed.output_dir)
-    run_config = robot_spec.parse_config(task_args)
-    if getattr(task_args, "policy_mode", "tools") == "code":
-        run_config = _disable_memory(run_config)
+    run_config = configure_policy(robot_spec.parse_config(task_args), task_args)
     from rpent.memory.loading import prepare_run_memory
 
     if getattr(task_args, "policy_mode", "tools") == "tools":
@@ -341,27 +338,16 @@ def _run_dashboard_task(
                         dashboard_events=state,
                         no_images=args.no_images,
                     )
-                    planner_tools = toolkit
-                    if getattr(task_args, "policy_mode", "tools") == "code":
-                        planner_tools = CodePolicyTools(
-                            toolkit,
-                            output_dir=Path(state_output_dir),
-                            timeout_s=task_args.code_timeout_s,
-                            max_calls=task_args.code_max_calls,
-                            include_images=not task_args.no_images,
-                        )
-                    try:
-                        session_prompt_vars = {
-                            **prompt_vars,
-                            "session_number": session_number,
-                            "session_max": sessions,
-                        }
-                        if getattr(task_args, "policy_mode", "tools") == "code":
-                            session_prompt_vars["code_policy_api"] = (
-                                code_policy_api_reference(planner_tools.robot_tools())
-                            )
+                    session_prompt_vars = {
+                        **prompt_vars,
+                        "session_number": session_number,
+                        "session_max": sessions,
+                    }
+                    with planner_policy(
+                        toolkit, task_args, Path(state_output_dir), session_prompt_vars
+                    ) as (planner_tools, policy_prompt_vars):
                         system_prompt = robot_spec.prompts.render(
-                            "system", variables=session_prompt_vars
+                            "system", variables=policy_prompt_vars
                         )
                         result = planner.solve(
                             system_prompt=system_prompt,
@@ -370,9 +356,6 @@ def _run_dashboard_task(
                             max_turns=args.max_turns,
                             dashboard_interaction=state,
                         )
-                    finally:
-                        if planner_tools is not toolkit:
-                            planner_tools.close()
                     finish_result = result.finish_result
                     messages += result.messages
                     stats = result.stats

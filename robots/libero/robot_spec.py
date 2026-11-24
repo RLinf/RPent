@@ -70,7 +70,7 @@ FLASH_SUITES = frozenset(
 def _resolve_dashboard(args: argparse.Namespace) -> DashboardSpec:
     """Build the Dashboard configuration for the selected action model."""
     kind = "wam" if getattr(args, "am_backend", None) in WAM_BACKENDS else "vla"
-    no_vla = getattr(args, "no_vla", False)
+    no_am = getattr(args, "no_am", False)
     return {
         "task": {
             "command": "/rpent-task",
@@ -87,7 +87,7 @@ def _resolve_dashboard(args: argparse.Namespace) -> DashboardSpec:
             {"name": "env", "label": "ENV", "scope": "unique"},
             *(
                 ({"name": kind, "label": kind.upper(), "scope": "shared"},)
-                if not no_vla
+                if not no_am
                 else ()
             ),
             {"name": "sam3", "label": "SAM3", "scope": "shared"},
@@ -102,7 +102,7 @@ def _resolve_dashboard(args: argparse.Namespace) -> DashboardSpec:
         ),
         "primitives": (
             "move_to",
-            *(("pi0_pick", "pi0_doubled", "wam_act") if not no_vla else ()),
+            *(("pi0_pick", "pi0_doubled", "wam_act") if not no_am else ()),
             "release",
             "set_gripper",
             "rotate_wrist",
@@ -163,6 +163,7 @@ def get_robot_spec() -> RobotSpec:
         resolve_dashboard=_resolve_dashboard,
         flywheel=FLYWHEEL_CONFIG,
         supports_exploration=True,
+        supports_no_am=True,
         run_flash=_run_flash,
         validate_args=validate_options,
         prepare_memory=prepare_memory,
@@ -233,11 +234,6 @@ def _add_cli_args(parser: argparse.ArgumentParser, use_dashboard: bool) -> None:
     parser.add_argument("--max-episode-steps", type=int, default=10000)
     add_cuda_device_arg(parser)
     add_am_args(parser, platform="libero")
-    parser.add_argument(
-        "--no-vla",
-        action="store_true",
-        help="Use geometric control with --policy-mode code on standard LIBERO.",
-    )
     parser.add_argument(
         "--libero-type",
         default=None,
@@ -334,15 +330,12 @@ def _parse_config(args: argparse.Namespace) -> RunConfig:
         raise ValueError("--task is required")
     planner = getattr(args, "planner", None)
     args.libero_type = resolve_libero_type(args.suite, args.libero_type)
-    no_vla = getattr(args, "no_vla", False)
-    if no_vla:
-        if getattr(args, "policy_mode", "tools") != "code":
-            raise ValueError("--no-vla requires --policy-mode code")
-        if args.libero_type != "standard":
-            raise ValueError("--no-vla supports standard LIBERO")
-    am = None if no_vla else select_am(args, "libero")
+    no_am = getattr(args, "no_am", False)
+    if no_am and args.libero_type != "standard":
+        raise ValueError("--no-am supports standard LIBERO")
+    am = None if no_am else select_am(args, "libero")
     wam = am if am is not None and am.is_wam else None
-    policy_kind = "geometry" if no_vla else "wam" if wam else "vla"
+    policy_kind = None if no_am else "wam" if wam else "vla"
     policy_backend = am.backend if am is not None else None
     if wam:
         if planner == "flash" or getattr(args, "explore", False):
@@ -632,17 +625,8 @@ def _init_runtime(
     from robots.libero.env_client import LiberoEnvClient
     from rpent.robots.components.sam3_client import Sam3Client
 
-    no_vla = getattr(args, "no_vla", False)
-    am = None if no_vla else select_am(args, "libero")
-    wam = am if am is not None and am.is_wam else None
-    policy_kind = "wam" if wam else "vla"
     starters = {
         "env": lambda: _spawn_env_server(args, output_dir),
-        policy_kind: lambda: (
-            start_wam_service(wam, output_dir)
-            if wam
-            else _spawn_vla_server(args, output_dir)
-        ),
         "sam3": lambda: _spawn_sam3_server(args, output_dir),
         "molmo": lambda: _connect_molmo_server(args),
     }
@@ -658,13 +642,21 @@ def _init_runtime(
                 },
             )
         },
-        policy_kind: lambda rpc: {"model": _make_model_client(rpc, wam)},
         "sam3": lambda rpc: {"sam3_client": Sam3Client(rpc)},
         "molmo": lambda rpc: _molmo_clients(args, rpc),
     }
-    if no_vla:
-        del starters[policy_kind]
-        del connectors[policy_kind]
+    wait_order = ["env", "sam3", "molmo"]
+    if not getattr(args, "no_am", False):
+        am = select_am(args, "libero")
+        wam = am if am.is_wam else None
+        policy_kind = "wam" if wam else "vla"
+        starters[policy_kind] = lambda: (
+            start_wam_service(wam, output_dir)
+            if wam
+            else _spawn_vla_server(args, output_dir)
+        )
+        connectors[policy_kind] = lambda rpc: {"model": _make_model_client(rpc, wam)}
+        wait_order.append(policy_kind)
     selected = set(starters) if components is None else set(components)
     if getattr(args, "planner", None) != "flash" and not getattr(
         args, "geometry", False
@@ -686,7 +678,6 @@ def _init_runtime(
             )
 
     runtime_kwargs: dict[str, Any] = {}
-    wait_order = ("env", "sam3", "molmo", policy_kind)
     for component in (name for name in wait_order if name in pending):
         daemon, rpc = pending[component]
         component_kwargs = try_wait_server(

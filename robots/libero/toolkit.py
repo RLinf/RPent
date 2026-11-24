@@ -59,7 +59,7 @@ class LiberoToolkit(Toolkit):
         mode: str = "evaluation",
         attempts_per_session: int = 0,
         state_output_dir: Path | str | None = None,
-        policy_kind: str = "vla",
+        policy_kind: str | None = "vla",
         generic_tools: bool = False,
         geometry_grounder: VisualGrounder | None = None,
     ) -> None:
@@ -78,6 +78,7 @@ class LiberoToolkit(Toolkit):
         )
         self._mode = mode
         self._policy_kind = policy_kind
+        self._require_native_success = policy_kind in ("wam", None)
         self._solved: bool = False
         self._attempt: int = 1
         # Bound the resettable attempts owned by this planner session.
@@ -115,7 +116,7 @@ class LiberoToolkit(Toolkit):
                     check_cancelled=self.raise_if_cancelled,
                 )
                 self.add_tool(self._geometry.geometry)
-        if policy_kind in {"wam", "geometry"}:
+        if self._require_native_success:
             finish = self._tools["finish"]
             self.add_tool(
                 replace(
@@ -146,7 +147,7 @@ class LiberoToolkit(Toolkit):
         excluded = {
             "vla": {"wam_act"},
             "wam": {"pi0_pick", "pi0_doubled"},
-            "geometry": {"pi0_pick", "pi0_doubled", "wam_act"},
+            None: {"pi0_pick", "pi0_doubled", "wam_act"},
         }[self._policy_kind]
         for definition in iter_tools(self._primitives):
             if generic_tools and definition.name == "segment":
@@ -173,9 +174,7 @@ class LiberoToolkit(Toolkit):
         self, handler: Callable[..., ToolResult], **kwargs: Any
     ) -> ToolResult:
         env = self._primitives.env
-        if self._policy_kind in {"wam", "geometry"} and (
-            env.terminated or env.truncated
-        ):
+        if self._require_native_success and (env.terminated or env.truncated):
             status = "success" if env.terminated else "failure"
             raise ValueError(
                 "Episode already ended; no further motion is allowed. "
@@ -272,12 +271,10 @@ class LiberoToolkit(Toolkit):
         out = libero_tools.view_env_state(
             record.step_idx,
             state=self._state,
-            include_images=self._policy_kind != "geometry",
+            include_images=self._policy_kind is not None,
         )
         out.data["agent_elapsed_s"] = elapsed_s
-        if self._policy_kind in {"wam", "geometry"} and (
-            record.terminated or record.truncated
-        ):
+        if self._require_native_success and (record.terminated or record.truncated):
             status = "success" if record.terminated else "failure"
             out.data["next_action"] = (
                 f"Episode ended. Call finish with status={status!r}; "
@@ -301,7 +298,7 @@ class LiberoToolkit(Toolkit):
         self._state.reset()
 
         runtime_kwargs = dict(runtime_kwargs)
-        if self._policy_kind == "geometry":
+        if self._policy_kind is None:
             runtime_kwargs["model"] = None
         if self._mode == "evaluation":
             env = runtime_kwargs["env"]

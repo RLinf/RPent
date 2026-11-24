@@ -67,7 +67,7 @@ class LiberoPrimitives:
         sam3_client: Sam3Client,
         check_cancelled: Callable[[], None],
         molmo_client: MolmoClient | None = None,
-        policy_kind: str = "vla",
+        policy_kind: str | None = "vla",
     ):
         self.env = env
         self.model = model

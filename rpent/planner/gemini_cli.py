@@ -50,6 +50,7 @@ from rpent.planner.utils.agent_runtime import (
 )
 from rpent.planner.utils.agent_session import run_agent
 from rpent.planner.utils.sdk import int_field, jsonable
+from rpent.tools.base import finish_payload
 from rpent.tools.toolkit import Toolkit
 
 _MCP_TOOL_PREFIX = "mcp_rpent_"
@@ -406,12 +407,8 @@ class _Recorder:
         if event_type == "rpent_tool":
             name, arguments, output = event["name"], event["args"], event["result"]
             self.tool_calls += 1
-            if (
-                name == "finish"
-                and not event["is_error"]
-                and output.get("_finish") is True
-            ):
-                self.finish_result = self.finish_result or dict(output)
+            if verdict := finish_payload(name, output, is_error=event["is_error"]):
+                self.finish_result = self.finish_result or verdict
             result = {
                 "status": "error" if event["is_error"] else "success",
                 "output": output,

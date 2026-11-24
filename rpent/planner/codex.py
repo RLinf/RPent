@@ -55,6 +55,7 @@ from rpent.planner.utils.agent_runtime import (
 from rpent.planner.utils.agent_session import run_agent
 from rpent.planner.utils.sdk import get_field, int_field, json_object, jsonable, unwrap
 from rpent.session.codex_capture import finalize_codex_capture
+from rpent.tools.base import FINISH_TOOLS, finish_payload
 from rpent.tools.toolkit import Toolkit
 from rpent.utils.config import get_repo_root
 
@@ -529,7 +530,8 @@ class _Recorder:
     def _maybe_capture_finish(self, name: str, item: Any) -> None:
         if self.finish_result is not None:
             return
-        if name.lower() not in {"finish", "python"}:
+        name = name.lower()
+        if name not in FINISH_TOOLS:
             return
         status = _status(item)
         if status and status != "completed":
@@ -549,17 +551,19 @@ class _Recorder:
                     if not isinstance(block, dict) or block.get("type") != "text":
                         continue
                     payload = json_object(block.get("text"))
-                    if isinstance(payload, dict) and payload.get("_finish") is True:
-                        self.finish_result = dict(payload)
+                    if isinstance(payload, dict) and (
+                        verdict := finish_payload(name, payload)
+                    ):
+                        self.finish_result = verdict
                         return
             return
         payload = json_object(result)
         if isinstance(result, dict) or payload is not None:
-            if payload is not None and payload.get("_finish") is True:
-                self.finish_result = dict(payload)
+            if payload is not None:
+                self.finish_result = finish_payload(name, payload)
             return
         args = json_object(data.get("arguments"))
-        if name.lower() == "finish" and isinstance(args, dict):
+        if name == "finish" and isinstance(args, dict):
             self.finish_result = {"_finish": True, **args}
 
 

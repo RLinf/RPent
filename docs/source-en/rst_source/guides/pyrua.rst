@@ -38,12 +38,12 @@ at low reasoning effort:
      --planner codex --model gpt-6.1-sol \
      --policy-mode code --reasoning-effort low
 
-PyRUA mode supports the ``api``, ``claude_code``, and ``codex`` planners
+PyRUA mode supports the ``api``, ``claude_code``, ``codex``, and ``gemini_cli`` planners
 via either the CLI or the Dashboard. It cannot be combined with
 ``--planner flash`` or ``--explore``. PyRUA mode does not load task
 memory or generate an action recipe.
 
-On standard LIBERO, add ``--no-vla`` to run geometric control with SAM3.
+On standard LIBERO, add ``--no-am`` to disable action model services and tools.
 The Python cell localizes objects with ``segment`` and ``back_project``,
 then checks motion and grasp feedback while calling ``move_to``, ``move_pose``,
 ``set_gripper``, and ``release``. Set ``SAM3_CHECKPOINT_PATH`` for a local server
@@ -55,11 +55,16 @@ service. Call ``view_env_state`` explicitly when images are needed.
    rpent --robot libero --libero-type standard \
      --suite libero_object --task 0 --seed 0 \
      --planner claude_code --model deepseek-v4.1-flash-1017 \
-     --policy-mode code --no-vla
+     --policy-mode code --no-am
 
 
 How Code Execution Works
 ------------------------
+
+The CLI and Dashboard use the same Python policy adapter. The worker calls
+the active robot toolkit through ``robo``. The toolkit owns argument
+validation, action scheduling, and observation capture. A robot backend
+can opt in to ``--no-am`` when its tools can operate without an action model.
 
 In PyRUA mode, RPent loads robot-specific prompts that guide the planner
 in calling robot tools through Python. The planner submits code through

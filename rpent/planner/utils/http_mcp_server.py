@@ -49,6 +49,7 @@ from rpent.planner.base import execute_tool
 from rpent.session import MissingInfo, Payload
 from rpent.session.env_capture import ToolCallCapture
 from rpent.tools import ToolResult
+from rpent.tools.base import finish_payload
 from rpent.tools.toolkit import Toolkit
 from rpent.utils.logging import get_logger
 from rpent.utils.templates import substitute
@@ -189,7 +190,7 @@ def build_mcp_server(
                     ),
                     missing={"feedback": None},
                 )
-        if lookup == "finish" and not tr.is_error and tr.data.get("_finish") is True:
+        if finish_payload(lookup, tr.data, is_error=tr.is_error) is not None:
             finished = True
         if on_tool_result is not None:
             on_tool_result(lookup, arguments, tr)

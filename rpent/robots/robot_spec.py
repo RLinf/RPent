@@ -98,3 +98,5 @@ class RobotSpec:
     #: Fields are ordered, with key paths relative to payload data. raw_dtype applies
     #: to native values; dtype_from selects an earlier field's dtype by index.
     flywheel: dict[str, Any] | None = None
+    #: This backend can provide robot tools without an action model.
+    supports_no_am: bool = False

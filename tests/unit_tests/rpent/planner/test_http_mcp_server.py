@@ -409,8 +409,9 @@ def test_mcp_calls_work_without_environment_state(tmp_path):
     "rejection", [{"_finish": False}, {"_finish": True, "error": "not ready"}]
 )
 @pytest.mark.parametrize("capture_enabled", [False, True])
+@pytest.mark.parametrize("finish_tool", ["finish", "python"])
 def test_http_mcp_rejects_calls_only_after_accepted_finish(
-    tmp_path, rejection, capture_enabled
+    tmp_path, rejection, capture_enabled, finish_tool
 ):
     init_output_dir(tmp_path / "log")
     toolkit = FakeToolkit(tmp_path)
@@ -418,7 +419,7 @@ def test_http_mcp_rejects_calls_only_after_accepted_finish(
         toolkit.state.start_task(instruction="Finish.", config=Payload("test", {}))
     calls = []
 
-    @tool(readonly=True)
+    @tool(name=finish_tool, readonly=True)
     def finish() -> ToolResult:
         calls.append("finish")
         return ToolResult(data=rejection if len(calls) == 1 else {"_finish": True})
@@ -441,10 +442,10 @@ def test_http_mcp_rejects_calls_only_after_accepted_finish(
             ):
                 async with ClientSession(read, write) as session:
                     await session.initialize()
-                    await session.call_tool("finish", {})
+                    await session.call_tool(finish_tool, {})
                     assert not (await session.call_tool("move", {})).isError
-                    assert not (await session.call_tool("finish", {})).isError
-                    for name in ("move", "finish"):
+                    assert not (await session.call_tool(finish_tool, {})).isError
+                    for name in ("move", finish_tool):
                         result = await session.call_tool(name, {})
                         assert result.isError
                         assert "finished" in result.content[0].text

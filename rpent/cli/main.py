@@ -43,14 +43,14 @@ import shlex
 import sys
 import time
 from collections.abc import Callable
-from dataclasses import asdict, replace
+from dataclasses import asdict
 from pathlib import Path
 
+from rpent.cli.policy import configure_policy, planner_policy, validate_policy_options
 from rpent.cli.tui import (
     start_first_prompt_resolver,
     start_interactive_reader,
 )
-from rpent.code_policy.toolkit import CodePolicyTools
 from rpent.dashboard.events import (
     NullDashboardEventSink,
     RunStartedEvent,
@@ -64,9 +64,7 @@ from rpent.planner.base import (
     resolve_model,
 )
 from rpent.planner.check import EXTERNALLY_CONFIGURED_PLANNERS
-from rpent.prompt.code_policy import code_policy_api_reference
 from rpent.robots import enumerate_robots, get_robot_spec, get_toolkit
-from rpent.robots.robot_spec import RunConfig
 from rpent.session.planner_capture import end_planner_task, start_planner_task
 from rpent.utils.logging import get_logger, init_output_dir
 
@@ -111,14 +109,6 @@ def _serialize_messages(messages: list[dict]) -> list[dict]:
 # ---------------------------------------------------------------------------
 
 
-def _disable_memory(config: RunConfig) -> RunConfig:
-    """Return a code-policy config without memory or file-tool prompt state."""
-    prompt_vars = {**config.prompt_vars, "policy_mode": "code"}
-    for name in ("memory_dir", "memory_inbox"):
-        prompt_vars.pop(name, None)
-    return replace(config, prompt_vars=prompt_vars, use_memory=False)
-
-
 def _build_argparser() -> argparse.ArgumentParser:
     known_robots = enumerate_robots()
     known_robots_text = ", ".join(known_robots) if known_robots else "none"
@@ -160,6 +150,11 @@ def _build_argparser() -> argparse.ArgumentParser:
         choices=["tools", "code"],
         default="tools",
         help="Policy execution: direct tool calls or persistent Python cells.",
+    )
+    ap.add_argument(
+        "--no-am",
+        action="store_true",
+        help="Disable action-model services and tools with --policy-mode code.",
     )
     ap.add_argument(
         "--code-timeout-s",
@@ -413,6 +408,11 @@ def main() -> int:
     )
     args = parser.parse_args()
     args.robot_name = early.robot_name
+    if args.no_am:
+        try:
+            validate_policy_options(args, robot_spec)
+        except ValueError as exc:
+            parser.error(str(exc))
     if "--interactive" in sys.argv or "-i" in sys.argv:
         logger.warning("--interactive is deprecated; use --tui instead")
     if not math.isfinite(args.code_timeout_s) or args.code_timeout_s <= 0:
@@ -522,9 +522,7 @@ def main() -> int:
         return run_dashboard_session(args, robot_spec, parser=parser)
 
     try:
-        run_config = robot_spec.parse_config(args)
-        if args.policy_mode == "code":
-            run_config = _disable_memory(run_config)
+        run_config = configure_policy(robot_spec.parse_config(args), args)
     except (OSError, ValueError) as exc:
         parser.error(str(exc))
     recipe_tag = run_config.recipe_tag
@@ -719,28 +717,12 @@ def main() -> int:
                             "run": asdict(run_config),
                         },
                     )
-                planner_tools = toolkit
-                if args.policy_mode == "code":
-                    planner_tools = CodePolicyTools(
-                        toolkit,
-                        output_dir=Path(state_output_dir),
-                        timeout_s=args.code_timeout_s,
-                        max_calls=args.code_max_calls,
-                        include_images=not args.no_images,
-                    )
-
-                try:
-                    if args.policy_mode == "code":
-                        session_prompt_vars = {
-                            **session_prompt_vars,
-                            "code_policy_api": code_policy_api_reference(
-                                planner_tools.robot_tools()
-                            ),
-                        }
-
+                with planner_policy(
+                    toolkit, args, Path(state_output_dir), session_prompt_vars
+                ) as (planner_tools, policy_prompt_vars):
                     system_prompt = robot_spec.prompts.render(
                         "system",
-                        variables=session_prompt_vars,
+                        variables=policy_prompt_vars,
                     )
 
                     result = planner.solve(
@@ -750,9 +732,6 @@ def main() -> int:
                         max_turns=args.max_turns,
                         input_queue=input_queue,
                     )
-                finally:
-                    if planner_tools is not toolkit:
-                        planner_tools.close()               
                 finish_result = result.finish_result
                 messages += result.messages
                 stats = result.stats

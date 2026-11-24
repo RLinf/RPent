@@ -14,7 +14,8 @@ from rpent.code_policy.toolkit import CodePolicyTools
 from rpent.dashboard.events import NullDashboardEventSink
 from rpent.memory import MemoryManager
 from rpent.prompt.code_policy import code_policy_api_reference
-from rpent.session import EnvState
+from rpent.session import EnvState, Payload
+from rpent.session.env_capture import ToolCallCapture
 from rpent.tools import Toolkit, ToolResult, tool
 from rpent.utils import logging as logging_module
 
@@ -88,6 +89,30 @@ def test_variables_survive_python_exceptions(policy):
     assert "value" not in silent
     assert _run(provider, "print(x + 1)")["stdout"] == "42\n"
     assert robot.cancel_count == 0
+
+
+def test_program_tool_calls_are_recorded_separately_from_cell(policy):
+    provider, robot = policy
+    state = robot.state
+    state.start_task(instruction="Move twice.", config=Payload("test", {}))
+    cell_id = state.register_tool_call(
+        planner_id=None, name="python", arguments=Payload("test", {})
+    )
+    with ToolCallCapture(state, cell_id).bind():
+        result = _run(provider, "robo.move(distance=1)\nrobo.move(distance=2)")
+    assert result["primitive_call_count"] == 2
+    cell, first, second = state.tool_call_records()
+    assert (
+        cell.name == "python"
+        and cell.raw_result.data["data"]["primitive_call_count"] == 2
+    )
+    assert [call.feedback.data for call in (first, second)] == [
+        {"distance": 1},
+        {"distance": 2},
+    ]
+    for call in (first, second):
+        assert call.origin == "program" and call.status == "completed"
+        assert call.source_ids["rpent.parent_tool_call_id"] == cell_id
 
 
 @pytest.mark.parametrize("code", ["while True: pass", "import os; os._exit(2)"])

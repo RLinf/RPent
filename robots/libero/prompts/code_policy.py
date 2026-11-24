@@ -60,8 +60,6 @@ MOTION = r"""
 - `final_dist_m` greater than the requested `tol` means the servo stalled (IK limit, contact, budget).
   Near cabinet fronts, low shelves and deep reaches `move_to` can wall at an
   IK singularity; `move_pose` (co-varying xyz with pitch/yaw) reaches deeper.
-- Long pushes can destabilise the simulator; keep pushes short and capped or
-  use `pi0_doubled`.
 """
 
 VLA_SKILLS = r"""
@@ -87,7 +85,7 @@ VLA_SKILLS = r"""
   generic closed-loop contact skill; `pi0_doubled` is the dedicated contact
   skill for drawers, doors, knobs and insertions (its `success` only mirrors
   the task predicate); call it repeatedly, alternating with short scripted
-  aligns.
+  aligns. Keep long pushes short and capped.
 """
 
 PERCEPTION = r"""
@@ -126,7 +124,7 @@ PLACING_AND_RECOVERY = r"""
 """
 
 
-GEOMETRIC_GRASP = r"""
+SCRIPTED_GRASP = r"""
 Use SAM3 and calibrated world coordinates for grasping. Localize the target
 and destination from `robo.segment`. Its `world_xyz` is the visible surface;
 choose a grasp height that puts the fingers around the object below its top.
@@ -144,20 +142,25 @@ for scene data. Read the task instruction from the initial observation.
 """
 
 
-def system_prompt(*, geometric: bool = False) -> dict[str, PromptNode]:
+def system_prompt(*, policy_kind: str | None = "vla") -> dict[str, PromptNode]:
     """Assemble code execution rules and libero operating knowledge."""
-    return {
+    prompt = {
         **common.system_prompt(),
         "Observation and task success": OBSERVATION_AND_TASK_SUCCESS,
         "Frames, units, scene": FRAMES_UNITS_SCENE,
         "Gripper": GRIPPER,
-        "Motion": MOTION.split("- Long pushes", 1)[0] if geometric else MOTION,
-        **(
-            {"Geometric grasp": GEOMETRIC_GRASP}
-            if geometric
-            else {"The VLA skills": VLA_SKILLS}
-        ),
+        "Motion": MOTION,
         "Perception": PERCEPTION,
-        **({} if geometric else {"Placing and recovery": PLACING_AND_RECOVERY}),
         "API reference": "{{code_policy_api}}",
     }
+    if policy_kind is None:
+        prompt["Scripted grasp"] = SCRIPTED_GRASP
+    elif policy_kind == "wam":
+        prompt["Action model"] = (
+            "Call `robo.wam_act` for a bounded action chunk. "
+            "Read its state and check native termination between calls."
+        )
+    else:
+        prompt["The VLA skills"] = VLA_SKILLS
+        prompt["Placing and recovery"] = PLACING_AND_RECOVERY
+    return prompt

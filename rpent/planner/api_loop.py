@@ -80,6 +80,7 @@ from rpent.planner.base import (
 )
 from rpent.session.env_capture import current_tool_call
 from rpent.session.planner_capture import CapturingModel, sdk_payload
+from rpent.tools.base import finish_payload
 from rpent.tools.toolkit import Toolkit, ToolResult
 from rpent.utils.logging import get_logger
 from rpent.utils.templates import substitute
@@ -353,7 +354,12 @@ class _HarnessToolkit(FunctionToolset):
                 ) -> dict[str, Any]:
                     with self.capture.tool(ctx) if self.capture else nullcontext():
                         result = await self.execute("finish", arguments, ctx)
-                        if not result.data.get("_finish"):
+                        if (
+                            finish_payload(
+                                "finish", result.data, is_error=result.is_error
+                            )
+                            is None
+                        ):
                             raise ModelRetry(self._text(result))
                         self.finish_result = result.to_dict()
                         if self.capture is not None:
@@ -449,8 +455,8 @@ class _HarnessToolkit(FunctionToolset):
             self.stopping.set()
             raise
         self._record_result(name, ctx, self._text(result))
-        if not result.is_error and result.data.get("_finish") is True:
-            self.finish_result = result.to_dict()
+        if verdict := finish_payload(name, result.data, is_error=result.is_error):
+            self.finish_result = self.finish_result or verdict
         if self.stopping.is_set():
             # End inside CallToolsNode so the SDK records an interrupted batch
             # before it can consume queued messages in the next request node.

@@ -26,20 +26,24 @@
      --planner codex --model gpt-6.1-sol \
      --policy-mode code --reasoning-effort low
 
-PyRUA 模式支持 ``api``、``claude_code`` 和 ``codex`` 规划器，可通过 CLI 和 Dashboard 启动，不能与 ``--planner flash`` 或 ``--explore`` 一起使用。PyRUA 模式不加载任务记忆，也不生成动作序列（recipe）。
+PyRUA 模式支持 ``api``、``claude_code``、``codex`` 和 ``gemini_cli`` 规划器，可通过 CLI 和 Dashboard 启动，不能与 ``--planner flash`` 或 ``--explore`` 一起使用。PyRUA 模式不加载任务记忆，也不生成动作序列（recipe）。
 
-在标准 LIBERO 上加 ``--no-vla`` 可使用 SAM3 和几何控制。Python 代码通过 ``segment`` 和 ``back_project`` 定位，再用 ``move_to``、``move_pose``、``set_gripper`` 和 ``release`` 执行动作，根据返回的状态判断下一步。通过 ``SAM3_CHECKPOINT_PATH`` 指定本地权重，或用 ``--sam3-endpoint`` 连接已有服务。此模式无需启动动作模型。需要查看图片时显式调用 ``view_env_state``。
+在标准 LIBERO 上加 ``--no-am`` 可关闭动作模型服务和工具。Python 代码通过 ``segment`` 和 ``back_project`` 定位，再用 ``move_to``、``move_pose``、``set_gripper`` 和 ``release`` 执行动作，根据返回的状态判断下一步。通过 ``SAM3_CHECKPOINT_PATH`` 指定本地权重，或用 ``--sam3-endpoint`` 连接已有服务。需要查看图片时显式调用 ``view_env_state``。
 
 .. code-block:: bash
 
    rpent --robot libero --libero-type standard \
      --suite libero_object --task 0 --seed 0 \
      --planner claude_code --model deepseek-v4.1-flash-1017 \
-     --policy-mode code --no-vla
+     --policy-mode code --no-am
 
 
 执行原理
 ------------
+
+CLI 和 Dashboard 共用同一个 Python 执行适配器。Python worker 通过
+``robo`` 调用当前机器人的工具集，由工具集验证参数、调度动作并采集观测。
+能在没有动作模型时提供工具的机器人后端，可以声明支持 ``--no-am``。
 
 启用 PyRUA 模式后，RPent 根据所选机器人加载专用提示词，引导规划器通过 Python 代码调用机器人工具。规划器通过 ``python(code)`` 提交代码，用 ``robo.<tool_name>(argument=value)`` 调用机器人工具。用 ``print(...)`` 显示结果；变量可在后续代码片段中复用。
 

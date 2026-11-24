@@ -33,6 +33,21 @@ from pydantic_core import core_schema
 
 ParamsT = ParamSpec("ParamsT")
 MAX_TOOL_TEXT_BYTES = 60000
+FINISH_TOOLS = frozenset({"finish", "python"})
+
+
+def finish_payload(
+    name: str, data: dict[str, Any], *, is_error: bool = False
+) -> dict[str, Any] | None:
+    """Return the authoritative verdict from a finish tool or Python cell."""
+    if (
+        name in FINISH_TOOLS
+        and not is_error
+        and data.get("error") is None
+        and data.get("_finish") is True
+    ):
+        return dict(data)
+    return None
 
 
 @dataclass

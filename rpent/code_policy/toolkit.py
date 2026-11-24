@@ -26,7 +26,9 @@ from typing import Any, Literal
 
 from rpent.code_policy.runtime import CodeSession
 from rpent.dashboard.events import NullDashboardEventSink
-from rpent.tools.base import Tool, ToolResult, tool
+from rpent.session import Payload
+from rpent.session.env_capture import ToolCallCapture, current_tool_call
+from rpent.tools.base import Tool, ToolResult, finish_payload, tool
 from rpent.tools.toolkit import Toolkit
 
 MEMORY_TOOLS = frozenset({"read_text_file", "write_text_file", "list_dir"})
@@ -186,10 +188,10 @@ class CodePolicyTools(Toolkit):
             "arguments": arguments,
         }
         try:
-            result = self._toolkit.execute_tool(name, arguments)
+            result = self._execute_robot_call(name, arguments)
             self._last_result = result.to_dict()
-            if not result.is_error and result.data.get("_finish") is True:
-                self._finish_result = self._last_result
+            if verdict := finish_payload(name, result.data, is_error=result.is_error):
+                self._finish_result = verdict
             entry["result"] = self._last_result
             if self._include_images and result.images:
                 images = []
@@ -221,6 +223,41 @@ class CodePolicyTools(Toolkit):
             entry["elapsed_s"] = time.perf_counter() - started
             with (self._output_dir / "calls.jsonl").open("a", encoding="utf-8") as file:
                 file.write(json.dumps(entry, ensure_ascii=False, default=str) + "\n")
+
+    def _execute_robot_call(self, name: str, arguments: dict[str, Any]) -> ToolResult:
+        parent = current_tool_call.get()
+        if parent is None:
+            return self._toolkit.execute_tool(name, arguments)
+
+        state = parent.state
+        child = ToolCallCapture(
+            state,
+            state.register_tool_call(
+                planner_id=None,
+                name=name,
+                origin="program",
+                arguments=Payload(
+                    "rpent.tool_args", arguments, completeness="complete"
+                ),
+                source_ids={"rpent.parent_tool_call_id": parent.tool_call_id},
+            ),
+        )
+        with child.bind():
+            try:
+                result = self._toolkit.execute_tool(name, arguments)
+            except BaseException as exc:
+                if not child.finished:
+                    child.finish("failed", f"{type(exc).__name__}: {exc}")
+                raise
+            if not child.finished:
+                child.finish("failed", str(result.data.get("error", "")))
+            state.update_tool_call(
+                child.tool_call_id,
+                feedback=Payload(
+                    "rpent.tool_result", result.to_dict(), completeness="complete"
+                ),
+            )
+            return result
 
     def _stop_robot(self) -> None:
         """Pause admission and drain the robot once per worker interruption."""

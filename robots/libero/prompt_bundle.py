@@ -32,9 +32,7 @@ def system_prompt(
     variables = variables or {}
 
     if variables.get("policy_mode") == "code":
-        return code_parts.system_prompt(
-            geometric=variables.get("policy_kind") == "geometry"
-        )
+        return code_parts.system_prompt(policy_kind=variables.get("policy_kind", "vla"))
 
     if (
         variables.get("mode", "eval") == "explore"
