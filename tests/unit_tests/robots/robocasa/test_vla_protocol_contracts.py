@@ -26,6 +26,8 @@ from typing import Any
 import numpy as np
 import pytest
 
+from components.tools.flywheel.flywheel import select_vla_segments
+from components.tools.flywheel.reader import iter_trajectories, read_array
 from robots.robocasa.env_client import RoboCasaEnvClient
 from robots.robocasa.env_server import DEFAULT_CAMS, RoboCasaEnvFacade
 from robots.robocasa.primitives import RoboCasaPrimitives
@@ -33,8 +35,6 @@ from robots.robocasa.prompt_bundle import system_prompt
 from robots.robocasa.toolkit import _capture_robocasa_call
 from robots.robocasa.vla_server import _normalize_legacy_processor_geometry
 from rpent.dashboard.events import NullDashboardEventSink
-from rpent.flywheel.flywheel import select_vla_segments
-from rpent.flywheel.reader import iter_trajectories, read_array
 from rpent.memory import MemoryManager
 from rpent.prompt.utils import format_prompt
 from rpent.robots.components.action_spec import box_action_spec
