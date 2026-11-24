@@ -3,7 +3,7 @@
 动作原语与工具
 ==============
 
-规划器通过机器人工具包中注册的工具控制机器人。所有在线规划器（``api``、``claude_code``、``codex`` 和 ``gemini_cli``）都从同一个工具包读取工具定义，并通过同一层调度执行。
+规划器通过机器人 ``toolkit`` 中注册的工具控制机器人。所有在线规划器（``api``、``claude_code``、``codex`` 和 ``gemini_cli``）都从同一个 ``toolkit`` 读取工具定义，并通过同一层调度执行。
 
 工具分类
 --------
@@ -27,10 +27,10 @@ RPent 将工具分为四类：
      - 读取运行工件和任务经验，并在规划结束时退出循环。
      - ``read_text_file``、``write_text_file``、``list_dir``、``finish``
    * - **外部 MCP 工具**
-     - 无需编写 Python 代码，直接将第三方 Streamable HTTP MCP 服务接入任务运行。
+     - 通过 ``--mcp-config`` 将第三方 Streamable HTTP MCP 服务接入任务运行。
      - 功率计、充电底座、外部传感器等（见 :doc:`mcp`\ ）
 
-动作原语会推进环境状态，并在执行后采集新的观测。感知工具、记忆工具以及默认模式下的外部 MCP 工具直接返回自身结果，不触发环境状态采集。``finish`` 用于结束规划器循环，任务是否成功仍以环境原生的 ``terminated`` 信号或真机操作员判定为准。
+动作原语会推进环境状态，并在执行后采集新的观测。感知工具、记忆工具以及默认模式下的外部 MCP 工具直接返回自身结果，不触发环境状态采集。``finish`` 用于结束规划器循环，任务是否成功仍以环境原生的成功判定或真机操作员判定为准。
 
 .. _planner-direct-actions:
 
@@ -69,5 +69,5 @@ RPent 将工具分为四类：
 
 - **独立服务部署：** VLA 服务通过 ``predict`` 提供动作预测，通过 ``healthz`` 提供健康检查，支持 HTTP 和 socket 传输，详见 :doc:`../guides/advanced_deployment`。
 - **RGB-D 感知工具：** 启用通用 ``back_project``、``segment`` 和 ``geometry`` 工具或为真机编写观测适配器，见 :doc:`rgbd`。
-- **外部 MCP 工具：** 通过 ``--mcp-config`` 零代码接入第三方 MCP 服务，见 :doc:`mcp`。
+- **外部 MCP 工具：** 通过 ``--mcp-config`` 接入第三方 MCP 服务，见 :doc:`mcp`。
 - **自定义 Python 原语：** 定义工具参数、执行逻辑和状态采集，见 :doc:`../development/add_primitive`。

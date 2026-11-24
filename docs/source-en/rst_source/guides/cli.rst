@@ -56,7 +56,7 @@ These options control the planner, memory, output directory, and Dashboard.
      - ``api`` only: override the model endpoint. ``claude_code``, ``codex``, and ``gemini_cli`` use their existing backend configuration and reject this flag.
    * - ``--mcp-config``
      - ``—``
-     - Path to an external MCP YAML file whose ``mcp_servers`` section is registered on the robot's toolkit for every run; works with ``api``, ``claude_code``, ``codex``, and ``gemini_cli``. See :ref:`external-mcp-servers`.
+     - Path to an external MCP YAML file whose ``mcp_servers`` section is registered on the robot's toolkit for every run; supported by ``api``, ``claude_code``, ``codex``, and ``gemini_cli`` (rejected by ``flash``). See :ref:`external-mcp-servers`.
    * - ``--no-images``
      - ``false``
      - ``api`` only: omit images from model requests.

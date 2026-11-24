@@ -659,3 +659,109 @@ def test_timeout_pagination_reserved_fields_and_payload_bounds(
         assert call_timeout_s() == 0.3
         res3 = toolkit.execute_tool("paged__hang", {})
         assert res3.is_error
+
+
+def test_get_toolkit_closes_toolkit_when_mcp_registration_fails(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    tools = [
+        types.Tool(name="ping", description="Ping", inputSchema={"type": "object"})
+    ]
+
+    async def handle(
+        name: str, arguments: dict[str, Any], headers: dict[str, str]
+    ) -> types.CallToolResult:
+        del name, arguments, headers
+        return types.CallToolResult(content=[types.TextContent(type="text", text="ok")])
+
+    class _ClosableToolkit(_RecordingToolkit):
+        def __init__(self, root: Path, *, fail_close: bool = False) -> None:
+            super().__init__(root)
+            self.closed = False
+            self._fail_close = fail_close
+
+        def close(self) -> None:
+            self.closed = True
+            super().close()
+            if self._fail_close:
+                raise RuntimeError("close failed")
+
+    with _running_mcp_server(tools, handle) as (url, _):
+        config = RunConfig(
+            recipe_tag="run",
+            output_dir=tmp_path,
+            prompt_vars={},
+            task_desc={},
+            mcp_servers=(McpServerSpec(name="lab", url=url, tools=("missing",)),),
+        )
+
+        # Normal failure path closes the constructed toolkit before re-raising.
+        tk_ok = _ClosableToolkit(tmp_path / "ok")
+        monkeypatch.setattr(
+            "rpent.robots.base._resolve_robot",
+            lambda name: SimpleNamespace(get_toolkit=lambda **kwargs: tk_ok),
+        )
+        with pytest.raises(ValueError, match="did not expose tool\\(s\\).*missing"):
+            get_toolkit("fake", config=config)
+        assert tk_ok.closed is True
+
+        # Secondary cleanup failure must not mask the original MCP error.
+        tk_bad = _ClosableToolkit(tmp_path / "bad", fail_close=True)
+        monkeypatch.setattr(
+            "rpent.robots.base._resolve_robot",
+            lambda name: SimpleNamespace(get_toolkit=lambda **kwargs: tk_bad),
+        )
+        with pytest.raises(ValueError, match="did not expose tool\\(s\\).*missing"):
+            get_toolkit("fake", config=config)
+        assert tk_bad.closed is True
+
+
+def test_non_primitive_json_schema_enum_does_not_crash_registration(
+    tmp_path: Path,
+) -> None:
+    tools = [
+        types.Tool(
+            name="complex_enum",
+            description="Accepts complex enum values.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "pose": {
+                        "type": "object",
+                        "enum": [{"x": 0}, {"x": 1}],
+                    },
+                    "scale": {
+                        "type": "number",
+                        "enum": [0.5, 1.5],
+                    },
+                    "tags": {
+                        "type": "array",
+                        "enum": [["a"], ["b"]],
+                    },
+                },
+            },
+        )
+    ]
+
+    async def handle(
+        name: str, arguments: dict[str, Any], headers: dict[str, str]
+    ) -> types.CallToolResult:
+        del name, headers
+        return types.CallToolResult(
+            content=[types.TextContent(type="text", text=json.dumps(arguments))]
+        )
+
+    with _running_mcp_server(tools, handle) as (url, _):
+        toolkit = _RecordingToolkit(tmp_path)
+        registered = toolkit.add_mcp_servers((McpServerSpec(name="geo", url=url),))
+        assert registered == ("geo__complex_enum",)
+        res = toolkit.execute_tool(
+            "geo__complex_enum",
+            {"pose": {"x": 1}, "scale": 1.5, "tags": ["a"]},
+        )
+        assert not res.is_error
+        assert json.loads(res.data["text"]) == {
+            "pose": {"x": 1},
+            "scale": 1.5,
+            "tags": ["a"],
+        }

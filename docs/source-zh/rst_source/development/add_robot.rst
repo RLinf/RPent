@@ -266,7 +266,7 @@ RPent 会在 ``get_toolkit`` 返回后，自动把 ``--mcp-config`` 和 ``RunCon
        )
        return toolkit
 
-已通过 ``add_mcp_tools`` 显式注册的服务会被自动注册流程跳过，不会重复挂载。设置 ``sync_with_robot=True`` 后，工具调用与机器人动作独占串行执行，触发 ``get_env_state``，并将远端返回内容保留在观测的 ``tool_result`` 字段中。
+已通过 ``add_mcp_tools`` 显式注册的服务会被自动注册流程跳过，不会重复挂载。设置 ``sync_with_robot=True`` 后，工具调用会按顺序与机器人动作独占执行，触发 ``get_env_state``，并将远端返回内容保留在观测的 ``tool_result`` 字段中。
 
 建议遵循的约定
 --------------

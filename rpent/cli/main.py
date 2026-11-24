@@ -433,10 +433,6 @@ def main() -> int:
     args.robot_name = early.robot_name
     if "--interactive" in sys.argv or "-i" in sys.argv:
         logger.warning("--interactive is deprecated; use --tui instead")
-    try:
-        args.shared_mcp_servers = load_mcp_config(args.mcp_config)
-    except (OSError, ValueError) as exc:
-        parser.error(str(exc))
     human_interactive_exploration = (
         args.explore and robot_spec.supports_human_interactive_exploration
     )
@@ -479,6 +475,11 @@ def main() -> int:
     if args.planner == "flash":
         if args.explore:
             parser.error("Flash Mode is evaluation-only; remove --explore")
+        if args.mcp_config is not None:
+            parser.error(
+                "--mcp-config is not supported with --planner flash; "
+                "Flash Mode replays recorded plans without an LLM planner"
+            )
         if robot_spec.run_flash is None:
             parser.error(f"Flash Mode is not supported for robot {args.robot_name!r}")
     if args.explore and not robot_spec.supports_exploration:
@@ -516,7 +517,8 @@ def main() -> int:
             parse_repo(args.memory_repo)
         if robot_spec.validate_args is not None:
             robot_spec.validate_args(args)
-    except ValueError as exc:
+        args.shared_mcp_servers = load_mcp_config(args.mcp_config)
+    except (OSError, ValueError) as exc:
         parser.error(str(exc))
     if args.dashboard:
         from rpent.cli.dashboard import run_dashboard_session

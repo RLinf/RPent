@@ -286,8 +286,13 @@ def _argument_annotation(schema: Any) -> Any:
     """Map a JSON-Schema property onto the annotation Toolkit validates."""
     if not isinstance(schema, dict):
         return Any
-    if schema.get("enum"):
-        return Literal[tuple(schema["enum"])]
+    enum_values = schema.get("enum")
+    if (
+        isinstance(enum_values, list)
+        and enum_values
+        and all(isinstance(item, (str, int, bool, type(None))) for item in enum_values)
+    ):
+        return Literal[tuple(enum_values)]
     kind = schema.get("type")
     if isinstance(kind, list):
         kinds = [item for item in kind if item != "null"]

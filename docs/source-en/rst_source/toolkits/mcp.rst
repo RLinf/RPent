@@ -3,7 +3,7 @@
 External MCP Tools
 ==================
 
-Attach any Streamable HTTP MCP server to an RPent run with one ``--mcp-config`` YAML file—no Python code required. RPent registers the server's tools on the robot's toolkit, so ``api``, ``claude_code``, ``codex``, and ``gemini_cli`` all use the same tool filtering, timeouts, cancellation, and trajectory capture.
+Attach a Streamable HTTP MCP server to an RPent run with ``--mcp-config``. RPent registers the server's tools on the robot's toolkit, so ``api``, ``claude_code``, ``codex``, and ``gemini_cli`` all use the same tool filtering, timeouts, cancellation, and trajectory capture.
 
 Prerequisites:
 
@@ -99,9 +99,9 @@ Export ``POWER_API_TOKEN`` before launching RPent. If the variable is unset, RPe
 Synchronizing with Robot Actions
 --------------------------------
 
-By default (``sync_with_robot: false``), external MCP tools run independently of robot motion and return their own text, structured data, and PNG images directly to the planner.
+By default (``sync_with_robot: false``), external MCP tools run as read-only toolkit calls: they can run concurrently with other read-only tools, skip robot state capture, and return their own text, structured data, and PNG images directly to the planner (they still wait for active robot actions under the toolkit lock, and a slow external call delays queued robot actions).
 
-Set ``sync_with_robot: true`` when an external device interacts with the physical cell—such as a charging dock, safety interlock, or lighting controller:
+Set ``sync_with_robot: true`` when an external device interacts with the physical cell (such as a charging dock, safety interlock, or lighting controller):
 
 .. code-block:: yaml
 
@@ -117,12 +117,13 @@ With ``sync_with_robot: true``:
 - After each call, RPent captures a fresh robot observation and includes the remote response under ``tool_result`` alongside the updated state and camera images.
 - Any ``image/png`` blocks returned by the server are forwarded alongside the robot's camera images.
 
-Robot integrations can also declare robot-owned servers in their own configuration or register selected tools programmatically; see :ref:`add-robot-toolkit`.
+If one server exposes both read-only tools and synchronized device actions, split them into two differently named entries under ``mcp_servers`` pointing to the same ``url`` (with separate ``tools`` lists and ``sync_with_robot`` settings), or register each subset separately in the robot integration (see :ref:`add-robot-toolkit`).
 
 Tool Naming, Timeouts, and Limits
 ---------------------------------
 
 - **Naming:** Each remote tool is registered on the toolkit as ``<server>__<tool>`` (for example, ``power__read_power_meter``). Planner adapters apply their normal toolkit namespace on top (``api`` uses ``power__read_power_meter``, ``claude_code`` and ``codex`` use ``mcp__rpent__power__read_power_meter``, and ``gemini_cli`` uses ``mcp_rpent_power__read_power_meter``). Server names must start with a letter or digit, contain only letters, digits, ``_``, or ``-``, omit ``__`` and trailing ``_``, and not be ``rpent``.
-- **Startup validation:** During toolkit initialization, RPent contacts each server and checks that every tool named in ``tools`` exists. Unreachable servers or unknown tool names fail the run with the list of tools the server does expose.
+- **Startup validation and tool allowlisting:** During toolkit initialization, RPent contacts each server and checks that every tool named in ``tools`` exists. Unreachable servers or unknown tool names fail the run with the list of tools the server does expose. Omitting ``tools`` (or setting ``tools: "*"``) exposes and auto-approves every tool on the server across all planners; list explicit tool names in ``tools`` when the server includes side-effecting or administrative tools.
+- **Stateless sessions and static discovery:** Each call opens a fresh stateless MCP session, so session-scoped server state is not preserved across calls. Only MCP tools discovered at startup are exposed; MCP Resources, Prompts, and dynamic ``tools/list_changed`` updates are not forwarded.
 - **Timeouts and cancellation:** Every MCP request times out after 60 seconds by default; set ``MCP_CALL_TIMEOUT_S`` (in seconds) to override it. Cancelling a run or Dashboard task interrupts in-flight MCP calls immediately without waiting for the remote server to finish.
-- **Content types:** Text, structured JSON, and ``image/png`` blocks are forwarded to the model and bounded to RPent's tool-text limit. Other media or resource blocks include metadata only, and ``--no-images`` omits external PNG blocks as well.
+- **Content types:** Text, structured JSON, and ``image/png`` blocks are forwarded to the model and bounded to RPent's tool-text limit. Other media or resource blocks include metadata only, and ``--no-images`` (``api`` only) omits external PNG blocks as well.

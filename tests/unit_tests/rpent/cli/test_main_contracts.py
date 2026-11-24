@@ -1276,6 +1276,65 @@ def test_cli_loads_mcp_config_and_merges_with_robot_servers(
     assert captured_configs[0].mcp_servers[1].tools == ("read_power_meter",)
 
 
+def test_cli_rejects_mcp_config_with_flash_planner(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    tmp_path: Path,
+) -> None:
+    cli = _cli_module()
+    started = False
+
+    def init_runtime(*args: Any) -> tuple[list[Any], dict[str, Any]]:
+        nonlocal started
+        started = True
+        return [], {}
+
+    monkeypatch.setattr(cli, "enumerate_robots", lambda: ("libero",))
+    monkeypatch.setattr(
+        cli,
+        "get_robot_spec",
+        lambda name: SimpleNamespace(
+            name=name,
+            add_cli_args=lambda parser, use_dashboard: None,
+            parse_config=lambda args: RunConfig(
+                recipe_tag="run",
+                output_dir=tmp_path / "out",
+                prompt_vars={},
+                task_desc={},
+            ),
+            init_runtime=init_runtime,
+            run_flash=object(),
+            validate_args=None,
+            resolve_dashboard=None,
+            supports_exploration=False,
+            supports_human_interactive_exploration=False,
+            is_real_robot=False,
+        ),
+    )
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "rpent",
+            "--robot",
+            "libero",
+            "--planner",
+            "flash",
+            "--mcp-config",
+            str(tmp_path / "mcp.yaml"),
+        ],
+    )
+
+    with pytest.raises(SystemExit) as exc:
+        cli.main()
+
+    assert exc.value.code == 2
+    assert (
+        "--mcp-config is not supported with --planner flash" in capsys.readouterr().err
+    )
+    assert started is False
+
+
 def test_cli_rejects_a_missing_mcp_config(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],

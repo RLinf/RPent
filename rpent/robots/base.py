@@ -31,6 +31,9 @@ from typing import TYPE_CHECKING, Any
 
 from rpent.robots.robot_spec import RobotSpec
 from rpent.utils.config import get_repo_root
+from rpent.utils.logging import get_logger
+
+logger = get_logger("robots")
 
 if TYPE_CHECKING:
     from rpent.tools.toolkit import Toolkit
@@ -76,5 +79,15 @@ def get_toolkit(name: str, **kwargs) -> Toolkit:
     toolkit = _resolve_robot(name).get_toolkit(**kwargs)
     config = kwargs.get("config")
     if config is not None and config.mcp_servers:
-        toolkit.add_mcp_servers(config.mcp_servers)
+        try:
+            toolkit.add_mcp_servers(config.mcp_servers)
+        except BaseException:
+            try:
+                toolkit.close()
+            except Exception:
+                logger.warning(
+                    "Failed to close toolkit after MCP registration error",
+                    exc_info=True,
+                )
+            raise
     return toolkit

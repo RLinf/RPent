@@ -51,7 +51,7 @@
      - 仅 ``api``：覆盖模型服务地址。``claude_code``、``codex`` 和 ``gemini_cli`` 使用各自已有的后端配置，并拒绝此参数。
    * - ``--mcp-config``
      - ``—``
-     - 外部 MCP 配置文件（YAML）路径，其中的 ``mcp_servers`` 会自动注册到每次运行的机器人工具包中，支持 ``api``、``claude_code``、``codex`` 和 ``gemini_cli``。参见 :ref:`external-mcp-servers`。
+     - 外部 MCP 配置文件（YAML）路径，其中的 ``mcp_servers`` 会自动注册到当前机器人的 ``toolkit`` 中；支持 ``api``、``claude_code``、``codex`` 和 ``gemini_cli``\ （``flash`` 会拒绝此参数）。参见 :ref:`external-mcp-servers`。
    * - ``--no-images``
      - ``false``
      - 仅 ``api``：不向模型发送图像。

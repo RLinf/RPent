@@ -1,7 +1,7 @@
 .. _generic-toolkit:
 
-Generic RGB-D Toolkit
-=====================
+Embodied RGB-D Toolkit
+======================
 
 Register the read-only tools in ``toolkits`` to let a planner look up 3D positions
 at image pixels, segment objects or measure their parts using recorded RGB-D
