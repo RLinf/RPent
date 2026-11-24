@@ -21,3 +21,7 @@
      - 十种任务类型，支持 RGB-D 与有步数上限的笛卡尔控制。
    * - :doc:`robodojo`
      - Isaac Sim 双臂 ARX-X5 操作与 RLinf Pi0.5 策略。
+   * - :doc:`robolab`
+     - 基于 Isaac Lab 的 DROID 操作任务与 Pi0.5 策略。
+   * - :doc:`efe`
+     - EFE 机器人任务基准；通过 Harbor 运行，涵盖多个任务仿真环境。

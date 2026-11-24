@@ -20,12 +20,11 @@ import pytest
 from robots.metaworld.toolkit import MetaWorldToolkit
 from robots.metaworld.wam_client import MetaWorldWAMClient
 from rpent.robots.components.am_facade_base import BaseWAMFacade
-from rpent.utils.rpc import wait_for_ready
 from tests.unit_tests.robots.metaworld.test_wam import metadata, observation
 
 
 class _SawyerWAM(BaseWAMFacade):
-    def __init__(self):
+    def __init__(self, uses_sessions):
         self.requests = []
         self.resets = []
         super().__init__(
@@ -33,7 +32,7 @@ class _SawyerWAM(BaseWAMFacade):
                 **metadata(),
                 "backend": "test",
                 "checkpoint": "test",
-                "uses_sessions": True,
+                "uses_sessions": uses_sessions,
             },
             adapter=(lambda x: x, lambda x: x),
         )
@@ -46,18 +45,22 @@ class _SawyerWAM(BaseWAMFacade):
         self.resets.append(session_id)
 
 
-def test_model_transport_reset_and_session_release(transport, make_server_and_client):
-    facade = _SawyerWAM()
-    with make_server_and_client(facade, transport, enable_sessions=True) as rpc:
-        wait_for_ready(rpc, timeout_s=5)
-        model = MetaWorldWAMClient(rpc)
-        model.reset()
+@pytest.mark.parametrize("uses_sessions", [False, True])
+def test_model_transport_reset_and_session_release(
+    transport, make_server_and_client, uses_sessions
+):
+    facade = _SawyerWAM(uses_sessions)
+    with make_server_and_client(facade, transport) as rpc:
+        endpoint = (
+            rpc._base_url if transport == "http" else f"socket://{rpc.host}:{rpc.port}"
+        )
+        model = MetaWorldWAMClient.connect(endpoint)
         result = model.predict(observation())
         assert result["actions"].shape == (2, 4)
         assert facade.requests[0]["instruction"] == "reach"
         assert set(facade.requests[0]["state"]) == {"eef_position", "gripper_opening"}
         model.close()
-        assert len(facade.resets) == 2
+        assert len(facade.resets) == (2 if uses_sessions else 0)
 
 
 def test_toolkit_releases_session_when_contract_rejected(monkeypatch, tmp_path):

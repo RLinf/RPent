@@ -15,7 +15,7 @@
 """MetaWorld system prompt."""
 
 SYSTEM = """Control the simulated Sawyer arm using the provided robot tools.
-Read the current image and instruction before moving. Use back_project on visible
+Read the current image and instruction before moving. Use back_project with camera primary and the full image shape to map visible
 pixels to locate surfaces in world meters. World x points right, y forward, z up.
 The arm has a fixed downward orientation. move_to targets the reported end-effector
 position; it is not collision-aware. Approach objects from above and use small

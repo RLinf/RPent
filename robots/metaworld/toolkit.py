@@ -16,46 +16,21 @@
 
 from __future__ import annotations
 
+from functools import partial
 from pathlib import Path
 from typing import TYPE_CHECKING, Annotated, Any
 
 import numpy as np
 from pydantic import Field
 
+from robots.metaworld.geometry import MetaWorldGeometryObservations
 from rpent.dashboard.events import DashboardEventSink
 from rpent.session import EnvState
 from rpent.tools import Toolkit, ToolResult, iter_tools, tool
+from toolkits.back_project import back_project
 
 if TYPE_CHECKING:
     from rpent.memory import MemoryManager
-
-
-def back_project_pixel(obs: dict, row: int, col: int) -> list[float]:
-    """Project one valid metric-depth pixel using the documented camera axes."""
-    depth = np.asarray(obs["depth"])
-    if (
-        isinstance(row, bool)
-        or isinstance(col, bool)
-        or not isinstance(row, int)
-        or not isinstance(col, int)
-    ):
-        raise ValueError("row and col must be integer pixels")
-    if not (0 <= row < depth.shape[0] and 0 <= col < depth.shape[1]):
-        raise ValueError("pixel lies outside the rendered image")
-    z = float(depth[row, col])
-    if not np.isfinite(z) or z <= 0:
-        raise ValueError("pixel has no finite positive depth")
-    meta = obs["camera"]
-    if "clip_range" in meta and z >= meta["clip_range"][1] * (1 - 1e-5):
-        raise ValueError("pixel is at the far clipping plane, not a visible surface")
-    k = np.asarray(meta["intrinsics"])
-    camera_point = np.array(
-        [(col - k[0, 2]) * z / k[0, 0], -(row - k[1, 2]) * z / k[1, 1], -z]
-    )
-    return (
-        np.asarray(meta["position_world"])
-        + np.asarray(meta["rotation_world_from_camera"]) @ camera_point
-    ).tolist()
 
 
 class MetaWorldToolkit(Toolkit):
@@ -78,21 +53,20 @@ class MetaWorldToolkit(Toolkit):
             memory=memory,
         )
         self.add_tools(t for t in iter_tools(self) if t.name != "wam_act")
+        self.add_tool(
+            back_project.with_handler(
+                partial(
+                    back_project,
+                    observations=MetaWorldGeometryObservations(self._state),
+                )
+            )
+        )
         self.get_env_state(command={}, result={}, elapsed_s=0)
         self._publish_step(self._state.latest_record())
         if endpoint := runtime_kwargs.get("am_endpoint"):
             from robots.metaworld.wam_client import MetaWorldWAMClient
-            from rpent.utils.rpc import make_rpc_client, wait_for_ready
 
-            rpc = make_rpc_client(endpoint, enable_sessions=True)
-            try:
-                wait_for_ready(rpc, timeout_s=30)
-                model = MetaWorldWAMClient(rpc)
-                model.reset()
-            except BaseException:
-                rpc.close()
-                raise
-            self._wam = model
+            self._wam = MetaWorldWAMClient.connect(endpoint)
             self.add_tool(self.wam_act)
 
     @tool(readonly=True)
@@ -110,23 +84,6 @@ class MetaWorldToolkit(Toolkit):
                 "truncated": record.truncated,
             },
             images=[self._state.load_bytes("camera.png", step=-1)],
-        )
-
-    @tool(readonly=True)
-    def back_project(self, row: int, col: int) -> ToolResult:
-        """Locate a visible surface from the latest snapshot's depth."""
-        return ToolResult(
-            data={
-                "world_xyz": back_project_pixel(
-                    {
-                        "depth": self._state.load("depth.npy", step=-1),
-                        "camera": self._state.latest_record().state["camera"],
-                    },
-                    row,
-                    col,
-                ),
-                "pixel": [row, col],
-            }
         )
 
     @staticmethod

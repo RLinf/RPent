@@ -22,7 +22,8 @@ import pytest
 
 from robots.metaworld.config import validate
 from robots.metaworld.env_server import MetaWorldEnvFacade
-from robots.metaworld.toolkit import MetaWorldToolkit, back_project_pixel
+from robots.metaworld.geometry import geometry_observation
+from robots.metaworld.toolkit import MetaWorldToolkit
 from rpent.dashboard.events import NullDashboardEventSink
 from rpent.memory import MemoryManager
 from rpent.tools import ToolResult
@@ -54,12 +55,18 @@ def test_projection_honors_camera_axes_and_world_rotation():
     obs = {
         "depth": np.full((3, 3), 2.0),
         "camera": {
+            "clip_range": [0.01, 100],
             "intrinsics": [[2, 0, 1], [0, 2, 1], [0, 0, 1]],
             "rotation_world_from_camera": [[0, -1, 0], [1, 0, 0], [0, 0, 1]],
             "position_world": [1, 2, 3],
         },
     }
-    np.testing.assert_allclose(back_project_pixel(obs, 2, 1), [2, 2, 1])
+    np.testing.assert_allclose(
+        geometry_observation(
+            np.zeros((3, 3, 3), np.uint8), obs["depth"], obs["camera"], 0, "world"
+        ).world_xyz[2, 1],
+        [2, 2, 1],
+    )
 
 
 @pytest.mark.parametrize(
@@ -76,8 +83,25 @@ def test_projection_honors_camera_axes_and_world_rotation():
     ],
 )
 def test_projection_rejects_invalid_pixels_and_depth(row, col, depth):
-    with pytest.raises(ValueError):
-        back_project_pixel({"depth": np.full((3, 3), depth)}, row, col)
+    from toolkits.observation import ImageSelection
+
+    if (row, col) != (0, 0):
+        with pytest.raises(ValueError):
+            ImageSelection(image_shape=[3, 3], points_rc=[[row, col]])
+    else:
+        obs = geometry_observation(
+            np.zeros((3, 3, 3), np.uint8),
+            np.full((3, 3), depth),
+            {
+                "intrinsics": np.eye(3),
+                "rotation_world_from_camera": np.eye(3),
+                "position_world": [0, 0, 0],
+                "clip_range": [0.01, 100],
+            },
+            0,
+            "world",
+        )
+        assert not obs.valid_mask[0, 0]
 
 
 def facade():
@@ -199,6 +223,7 @@ def test_native_dispatch_keeps_images_motion_and_readonly_state(tmp_path):
         "rgb": np.zeros((3, 3, 3), dtype=np.uint8),
         "depth": np.ones((3, 3)),
         "camera": {
+            "clip_range": [0.01, 100],
             "intrinsics": np.eye(3).tolist(),
             "position_world": [0, 0, 0],
             "rotation_world_from_camera": np.eye(3).tolist(),
@@ -223,8 +248,14 @@ def test_native_dispatch_keeps_images_motion_and_readonly_state(tmp_path):
     assert isinstance(read, ToolResult)
     assert read.images[0].startswith(b"\x89PNG")
     assert "_image_bytes" not in read.data
-    projected = tk.execute_tool("back_project", {"row": 0, "col": 0})
-    assert projected.data["world_xyz"] == [0, 0, -1]
+    projected = tk.execute_tool(
+        "back_project",
+        {
+            "camera": "primary",
+            "selection": {"image_shape": [3, 3], "points_rc": [[0, 0]]},
+        },
+    )
+    assert projected.data["samples_xyz"][0] == [0, 0, -1]
     assert tk.state.latest_record() is initial
 
     invalid = tk.execute_tool("set_gripper", {"gripper": -1, "steps": 21})

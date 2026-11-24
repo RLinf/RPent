@@ -54,7 +54,9 @@ Observations and controls
 
 ``view_env_state`` returns the latest 480 x 480 RGB image, end-effector
 position, gripper opening, instruction and simulation step count.
-``back_project(row, col)`` uses the corresponding metric depth and camera
+Use the shared ``back_project`` with camera ``primary`` and a selection such as
+``{"image_shape": [480, 480], "points_rc": [[240, 240]]}``. Read the resulting
+``samples_xyz`` in the same order. It uses the corresponding metric depth and camera
 calibration to return a visible surface in world meters. Camera axes are
 x right, y up and z backward. Pixel-center intrinsics and single-sample rendering
 keep RGB and depth aligned; multisample antialiasing is disabled. Invalid pixels,
@@ -128,8 +130,8 @@ External Action Model
 
 To use a compatible WAM service, append ``--am-endpoint http://HOST:PORT``
 to the run command above. This adds ``wam_act(max_chunks=1)``; the default
-scripted tools remain available. The endpoint is borrowed, and its per-run
-session is reset on connection and released on toolkit close.
+scripted tools remain available. Stateless workers connect directly. For a worker requiring a bound session,
+the toolkit registers and resets a per-run session and releases it on close.
 
 The worker must implement the shared ``wam.*`` RPC contract with
 ``METAWORLD_CONTROL`` from ``robots/metaworld/control.py``. Physical inputs

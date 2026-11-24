@@ -24,8 +24,8 @@ import pytest
 
 from robots.metaworld.config import CAMERAS, TASKS
 from robots.metaworld.env_server import MetaWorldEnvFacade
+from robots.metaworld.geometry import geometry_observation
 from robots.metaworld.robot_spec import get_robot_spec, get_toolkit
-from robots.metaworld.toolkit import back_project_pixel
 from rpent.dashboard.events import NullDashboardEventSink
 from rpent.utils.rpc import RpcError
 from tests.e2e_tests.common import (
@@ -186,10 +186,14 @@ def test_pixel_centers_match_a_rendered_plane():
         renderer.update_scene(data, camera="plane")
         renderer.enable_depth_rendering()
         obs = {"depth": renderer.render(), "camera": facade.get_camera_meta("plane")}
+        renderer.disable_depth_rendering()
+        geometry = geometry_observation(
+            renderer.render(), obs["depth"], obs["camera"], 0, "world"
+        )
         for row, col in [(80, 80), (160, 300), (240, 240), (400, 360)]:
             # The fixture's tilted plane independently constrains both image
             # axes, pixel centers and camera translation.
-            point = np.asarray(back_project_pixel(obs, row, col))
+            point = geometry.world_xyz[row, col]
             normal = data.geom_xmat[0].reshape(3, 3)[:, 2]
             assert abs(np.dot(point - data.geom_xpos[0], normal)) < 2e-5
 
@@ -216,7 +220,8 @@ def test_reset_preserves_prior_episode_video(output):
     assert count_video_frames(video_dir / "episode_0002.mp4") == 3
 
 
-def test_external_wam_executes_native_steps_and_releases_session(output):
+@pytest.mark.parametrize("uses_sessions", [False, True])
+def test_external_wam_executes_native_steps_and_releases_session(output, uses_sessions):
     import threading
 
     from robots.metaworld.control import METAWORLD_CONTROL
@@ -235,7 +240,7 @@ def test_external_wam_executes_native_steps_and_releases_session(output):
                     "camera_roles": ["primary"],
                     "state_schema": {"eef_position": 3, "gripper_opening": 1},
                     "chunk_size": 3,
-                    "uses_sessions": True,
+                    "uses_sessions": uses_sessions,
                 },
                 adapter=(lambda request: request, lambda result: result),
             )
@@ -264,7 +269,7 @@ def test_external_wam_executes_native_steps_and_releases_session(output):
                 f"http://127.0.0.1:{server.server_address[1]}",
             ],
         )
-        args.output_dir = output / "wam-chain"
+        args.output_dir = output / f"wam-chain-{uses_sessions}"
         args.memory_dir = output / "wam-memory"
         args.memory_profile = "local"
         config = spec.parse_config(args)
@@ -289,7 +294,7 @@ def test_external_wam_executes_native_steps_and_releases_session(output):
                 ).data["_finish"]
             finally:
                 toolkit.close()
-        assert len(worker.resets) == 2
+        assert len(worker.resets) == (2 if uses_sessions else 0)
         assert count_video_frames(config.output_dir / "videos/episode_0000.mp4") == 3
     finally:
         server.shutdown()

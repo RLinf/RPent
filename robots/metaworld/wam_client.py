@@ -22,6 +22,35 @@ from rpent.robots.components.am_client_base import BaseWAMClient
 
 
 class MetaWorldWAMClient(BaseWAMClient):
+    @classmethod
+    def connect(cls, endpoint: str) -> "MetaWorldWAMClient":
+        """Probe without a session; session-based workers require binding before metadata."""
+        from rpent.utils.rpc import RpcError, make_rpc_client, wait_for_ready
+
+        rpc = make_rpc_client(endpoint)
+        try:
+            wait_for_ready(rpc, timeout_s=30)
+            try:
+                model = cls(rpc)
+            except RpcError as exc:
+                if (
+                    exc.method != "wam.get_model_meta"
+                    or "requires a bound session" not in str(exc)
+                ):
+                    raise
+            else:
+                if not model.model_meta["uses_sessions"]:
+                    return model
+            rpc.close()
+            rpc = make_rpc_client(endpoint, enable_sessions=True)
+            wait_for_ready(rpc, timeout_s=30)
+            model = cls(rpc)
+            model.reset()
+            return model
+        except BaseException:
+            rpc.close()
+            raise
+
     def __init__(self, client):
         super().__init__(client)
         self.validate_contract(METAWORLD_CONTROL)

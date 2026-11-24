@@ -108,6 +108,8 @@ Choose an environment: :doc:`LIBERO <rst_source/simulators/libero>`, :doc:`RoboC
    RoboTwin <rst_source/simulators/robotwin>
    MetaWorld <rst_source/simulators/metaworld>
    RoboDojo <rst_source/simulators/robodojo>
+   RoboLab <rst_source/simulators/robolab>
+   Embodied First Exam <rst_source/simulators/efe>
 
 .. toctree::
    :maxdepth: 2

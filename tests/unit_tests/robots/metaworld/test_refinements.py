@@ -20,8 +20,9 @@ import numpy as np
 import pytest
 
 from robots.metaworld.env_server import MetaWorldEnvFacade
+from robots.metaworld.geometry import geometry_observation
 from robots.metaworld.robot_spec import get_robot_spec
-from robots.metaworld.toolkit import MetaWorldToolkit, back_project_pixel
+from robots.metaworld.toolkit import MetaWorldToolkit
 from rpent.dashboard.events import NullDashboardEventSink
 from rpent.memory import MemoryManager
 
@@ -86,6 +87,7 @@ def test_projection_stays_bound_to_visible_snapshot_after_capture_failure(tmp_pa
         "rgb": np.zeros((3, 3, 3), dtype=np.uint8),
         "depth": np.full((3, 3), 2.0),
         "camera": {
+            "clip_range": [0.01, 100],
             "intrinsics": [[2, 0, 1], [0, 2, 1], [0, 0, 1]],
             "rotation_world_from_camera": np.eye(3),
             "position_world": [1, 2, 3],
@@ -111,18 +113,31 @@ def test_projection_stays_bound_to_visible_snapshot_after_capture_failure(tmp_pa
         "move_to", {"target_xyz": [0.01, 0, 0], "gripper": -1, "max_steps": 1}
     )
     assert "state_capture_error" in motion.data
-    projection = toolkit.execute_tool("back_project", {"row": 1, "col": 2})
+    projection = toolkit.execute_tool(
+        "back_project",
+        {
+            "camera": "primary",
+            "selection": {"image_shape": [3, 3], "points_rc": [[1, 2]]},
+        },
+    )
     assert "error" not in projection.data
-    np.testing.assert_allclose(projection.data["world_xyz"], [2, 2, 1])
+    np.testing.assert_allclose(projection.data["samples_xyz"][0], [2, 2, 1])
 
 
 def test_far_plane_is_not_reported_as_a_surface():
-    with pytest.raises(ValueError, match="far clipping plane"):
-        back_project_pixel(
-            {"depth": np.full((2, 2), 100.0), "camera": {"clip_range": [0.01, 100.0]}},
-            0,
-            0,
-        )
+    obs = geometry_observation(
+        np.zeros((2, 2, 3), np.uint8),
+        np.full((2, 2), 100.0),
+        {
+            "intrinsics": np.eye(3),
+            "rotation_world_from_camera": np.eye(3),
+            "position_world": [0, 0, 0],
+            "clip_range": [0.01, 100],
+        },
+        0,
+        "world",
+    )
+    assert not obs.valid_mask.any()
 
 
 def test_recording_failure_does_not_skip_renderer_or_environment_cleanup():
