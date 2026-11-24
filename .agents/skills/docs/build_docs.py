@@ -147,8 +147,11 @@ def build(python: Path, source: Path, output: Path) -> list[str]:
     )
     records = [r for r in split_records(result.stderr) if RECORD_START.match(r)]
     if result.returncode != 0 and not records:
+        detail = (result.stderr.strip() or result.stdout.strip())[-2000:]
         records.append(
-            f"sphinx-build exited {result.returncode}\n{result.stdout[-2000:]}"
+            f"sphinx-build exited {result.returncode}\n{detail}"
+            if detail
+            else f"sphinx-build exited {result.returncode}"
         )
     return records
 

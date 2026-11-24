@@ -97,7 +97,7 @@ Plug into an existing contract instead of adding robot- or planner-name branches
 ## Commits, PRs, and writing
 
 - Commit subjects follow Conventional Commits (`<type>(<scope>): <description>`, imperative) and carry a `Signed-off-by:` trailer (`git commit -s`) under the human author's Git identity.
-- PR titles keep the description after `: ` at most 50 characters, starting with a lowercase letter, imperative mood, plain ASCII, no trailing period. Use `create-pr` to fill `.github/PULL_REQUEST_TEMPLATE.md` and run `python3 .agents/skills/create-pr/lint_pr.py lint --title "<title>" --body-file <body.md>`.
+- PR titles keep the description after `: ` at most 72 characters, starting with a lowercase letter, imperative mood, plain ASCII, no trailing period. Use `create-pr` to fill `.github/PULL_REQUEST_TEMPLATE.md` and run `python3 .agents/skills/create-pr/lint_pr.py lint --title "<title>" --body-file <body.md>`.
 - All project writing—docs, PR descriptions, review comments, and commit messages—follows [english.md](.agents/skills/docs/rules/english.md) and [chinese.md](.agents/skills/docs/rules/chinese.md). Change English and Chinese docs together, writing Chinese natively instead of translating sentence by sentence.
 
 ## Skills

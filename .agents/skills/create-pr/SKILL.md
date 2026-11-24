@@ -55,7 +55,7 @@ Record its result in `## Testing` alongside the unit tests and pre-commit comman
 
 - **type**: `feat`, `fix`, `docs`, `style`, `refactor`, `test`, `chore`, `perf`, `build`, `ci`, `revert` (lowercase).
 - **scope**: lowercase `[a-z0-9_-]+` naming the touched component. Optional; omit rather than using vague scopes like `update` or `new`.
-- **description**: **≤ 50 characters** after `: `, starts with a lowercase ASCII letter `a-z`, imperative mood (`add`, `fix`, `support`, never `added` or `fixed`), no trailing period, plain ASCII only, and no trailing `(#123)` (GitHub appends the PR number on squash-merge).
+- **description**: **≤ 72 characters** after `: `, starts with a lowercase ASCII letter `a-z`, imperative mood (`add`, `fix`, `support`, never `added` or `fixed`), no trailing period, plain ASCII only, and no trailing `(#123)` (GitHub appends the PR number on squash-merge).
 
 Check just the title on its own:
 
@@ -116,11 +116,14 @@ To mechanically strip paste-indentation, pull headings/tables flush left, drop l
 ```bash
 python3 .agents/skills/create-pr/lint_pr.py fix --pr 364 --unwrap > /tmp/fixed.md
 python3 .agents/skills/create-pr/lint_pr.py lint --title "$TITLE" --body-file /tmp/fixed.md
+```
+
+Read `/tmp/fixed.md` and confirm `lint` exits 0 before updating GitHub:
+
+```bash
 gh pr edit 364 --body-file /tmp/fixed.md
 gh pr edit 364 --title "$TITLE"
 ```
-
-Always read `/tmp/fixed.md` before posting it.
 
 ## Gotchas
 
@@ -129,7 +132,7 @@ Always read `/tmp/fixed.md` before posting it.
 - **`###` subheadings stay inside their parent `##` section** (for example `### Motivation` inside `## Description`), while renaming a top-level template heading triggers `section-missing`.
 - **`fix` cannot repair an unclosed code fence.** If `body-fence` fires, close the stray fence by hand.
 - **Warnings do not fail the run** (exit 0), but reviewers notice `body-hardwrap`, `body-comments`, `section-order`, and `title-scope-vague`.
-- **Commit subjects and PR titles have different length limits.** A single-commit PR reusing a 72-character commit subject will fail the 50-character PR title description check.
+- **Title description limit is 72 characters after `: `.** Keep PR titles concise so they stay readable in GitHub and `git log --oneline`.
 
 ## Troubleshooting
 

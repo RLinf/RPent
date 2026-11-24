@@ -15,9 +15,14 @@
 from __future__ import annotations
 
 import runpy
+import subprocess
+import sys
 from pathlib import Path
 
+import pytest
+
 REPO_ROOT = Path(__file__).resolve().parents[3]
+build_docs = runpy.run_path(str(REPO_ROOT / ".agents/skills/docs/build_docs.py"))
 docs_check = runpy.run_path(str(REPO_ROOT / ".agents/skills/docs/check.py"))
 doc_symbols = runpy.run_path(
     str(REPO_ROOT / ".agents/skills/docs/check_doc_symbols.py")
@@ -120,3 +125,53 @@ def test_check_page_flags_hardcoded_rpent_rtd_links(tmp_path):
         page, "docs/source-en/rst_source/guides/demo.rst", set()
     )
     assert any(f.rule == "docs/rtd-link" and f.severity == "major" for f in findings)
+
+
+def test_code_names_excludes_registered_user_facing_tools():
+    names = writing["code_names"](REPO_ROOT)
+    for tool_name in (
+        "view_env_state",
+        "view_camera_meta",
+        "move_delta",
+        "rotate_delta",
+        "open_gripper",
+        "close_gripper",
+        "move_pose",
+        "rotate_wrist",
+        "sample_world_xyz",
+        "query_world_map",
+        "vla_grasp",
+        "efe_spec",
+        "efe_observe",
+        "efe_status",
+        "efe_recover",
+    ):
+        assert tool_name not in names
+    assert "ProcessDaemon" in names
+    assert "try_spawn_server" in names
+
+
+def test_build_docs_falls_back_to_stderr_when_sphinx_fails_without_warning_prefix(
+    tmp_path, monkeypatch
+):
+    fake_result = subprocess.CompletedProcess(
+        args=["sphinx"],
+        returncode=2,
+        stdout="",
+        stderr="Extension error (sphinx_sitemap): boom\n",
+    )
+    monkeypatch.setattr(subprocess, "run", lambda *a, **kw: fake_result)
+    records = build_docs["build"](Path(sys.executable), tmp_path, tmp_path / "out")
+    assert len(records) == 1
+    assert "sphinx-build exited 2" in records[0]
+    assert "Extension error (sphinx_sitemap): boom" in records[0]
+
+
+def test_docs_check_help_does_not_provision_docs_venv(monkeypatch):
+    def fail_venv(*args, **kwargs):
+        raise AssertionError("ensure_venv must not run on --help")
+
+    monkeypatch.setitem(docs_check["main"].__globals__, "ensure_venv", fail_venv)
+    with pytest.raises(SystemExit) as exc:
+        docs_check["main"](["--help"])
+    assert exc.value.code == 0

@@ -20,7 +20,7 @@ RPent's documentation rules live in [rules/](rules/) alongside [docs/STYLE_GUIDE
 3. **Check the facts** the page will state against the code (`rpent/`, `robots/`, `pyproject.toml`): every command, CLI flag, config key, install extra, default, path, and success criterion.
 4. **Plan the page**: its type, its reader, the result the reader reaches, and one line per section saying what it answers.
 5. **Write the English and the Chinese page from the plan**, each in its own language. Write the Chinese natively from the plan rather than translating English sentences one by one.
-6. **Place the page** in the matching sidebar index and both hidden toctrees ([rules/index.md](rules/index.md)). When moving or renaming a page, add the old-to-new redirect to both `conf.py` files. Add a README highlight for a major user-visible feature ([rules/readme.md](rules/readme.md)).
+6. **Place the page** in the matching `:hidden:` toctree in `docs/source-en/index.rst` and `docs/source-zh/index.rst`, plus any directory routing table without adding a duplicate toctree ([rules/index.md](rules/index.md)). When moving or renaming a page, add the old-to-new redirect to both `conf.py` files. Add a README highlight for a major user-visible feature ([rules/readme.md](rules/readme.md)).
 7. **Go through [rules/mistakes.md](rules/mistakes.md).**
 8. **Run a simplicity and language pass.** Give a fresh agent, which has seen nothing else, only the changed pages, [rules/base.md](rules/base.md), and the language file for each. Ask it first to cut anything the reader does not need for the main path (long-winded explanations, redundant paragraphs, repeated facts, defensive caveats, internal code citations, complex shell glue, and repeated negative-contrast framing such as "this is not A, not B, but C"), and then to rewrite any remaining sentence that reads as translated, padded, or built on code names. Apply the cuts and rewrites that hold.
 9. **Run the check** below and fix what it reports.
@@ -28,7 +28,7 @@ RPent's documentation rules live in [rules/](rules/) alongside [docs/STYLE_GUIDE
 ### A simulator guide
 
 - Write `docs/source-en/rst_source/simulators/<name>.rst` and the matching path under `docs/source-zh/` from [templates/simulator.rst](templates/simulator.rst) and [templates/simulator.zh.rst](templates/simulator.zh.rst), following [rules/simulator.md](rules/simulator.md).
-- Register the page in `simulators/index.rst` (card/table entry and hidden toctree) in both languages, and add the feature to `README.md` and `README.zh-CN.md` ([rules/readme.md](rules/readme.md)).
+- Register the page in the matching `:hidden:` toctree in `docs/source-en/index.rst` and `docs/source-zh/index.rst`, add a row in `simulators/index.rst` in both languages (without adding another toctree), and add the feature to `README.md` and `README.zh-CN.md` ([rules/readme.md](rules/readme.md)).
 - Keep existing leaderboard entries, reproduction conditions, and coming-soon placeholders intact unless explicitly asked to change them.
 
 ## Check

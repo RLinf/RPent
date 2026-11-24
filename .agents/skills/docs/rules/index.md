@@ -19,8 +19,8 @@ Keep the same eight sidebar groups, order, and relative page paths in both `docs
 
 ## Index page shape
 
-- **Home page (`index.rst`)**: centered logo and heading, short intro, task-oriented cards, and hidden toctrees driving the sidebar.
-- **Directory index pages (`simulators/index.rst`, `real_world_robots/index.rst`, `leaderboard/index.rst`)**: one brief routing intro + `sphinx-design` cards or a `.. list-table::` with concise descriptions + `:hidden:` toctree. Never use bare bullet link lists as the visible directory.
+- **Home page (`docs/source-{en,zh}/index.rst`)**: centered logo and heading, short intro, task-oriented cards, and all eight `:hidden:` toctrees driving the sidebar.
+- **Directory routing pages (`simulators/index.rst`, `real_world_robots/index.rst`, `leaderboard/index.rst`)**: `:orphan:` routing pages with one brief intro + `sphinx-design` cards or a `.. list-table::` with concise descriptions, linking to pages already owned by the home-page toctrees without adding another toctree. Never use bare bullet link lists as the visible directory.
 - Keep `toctrees` identical between `docs/source-en/` and `docs/source-zh/` (`docs/check.py` verifies `docs/parity` on toctree targets).
 
 ## Moving, renaming, and restructuring pages

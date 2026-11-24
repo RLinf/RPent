@@ -24,6 +24,7 @@ runs them on the lines a change adds.
 
 from __future__ import annotations
 
+import ast
 import re
 from pathlib import Path
 
@@ -139,6 +140,68 @@ def page_type(rel: str) -> str | None:
     )
 
 
+def _decorator_is_tool(dec: ast.expr) -> bool:
+    target = dec.func if isinstance(dec, ast.Call) else dec
+    if isinstance(target, ast.Name):
+        return target.id == "tool"
+    if isinstance(target, ast.Attribute):
+        return target.attr == "tool"
+    return False
+
+
+def _tool_names(root: Path) -> set[str]:
+    """Registered user-facing tool names declared with ``@tool`` or ``ToolSchema``."""
+    names: set[str] = set()
+    for folder in ("rpent", "robots", "toolkits"):
+        target = root / folder
+        if not target.is_dir():
+            continue
+        for path in target.rglob("*.py"):
+            try:
+                tree = ast.parse(path.read_text(encoding="utf-8", errors="ignore"))
+            except SyntaxError:
+                continue
+            for node in ast.walk(tree):
+                if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                    for dec in node.decorator_list:
+                        if not _decorator_is_tool(dec):
+                            continue
+                        explicit: str | None = None
+                        if isinstance(dec, ast.Call):
+                            for kw in dec.keywords:
+                                if (
+                                    kw.arg == "name"
+                                    and isinstance(kw.value, ast.Constant)
+                                    and isinstance(kw.value.value, str)
+                                ):
+                                    explicit = kw.value.value
+                        names.add(explicit or node.name)
+                elif isinstance(node, ast.Call):
+                    callee = (
+                        node.func.id
+                        if isinstance(node.func, ast.Name)
+                        else node.func.attr
+                        if isinstance(node.func, ast.Attribute)
+                        else ""
+                    )
+                    if callee not in {"ToolSchema", "ToolDefinition"}:
+                        continue
+                    if (
+                        node.args
+                        and isinstance(node.args[0], ast.Constant)
+                        and isinstance(node.args[0].value, str)
+                    ):
+                        names.add(node.args[0].value)
+                    for kw in node.keywords:
+                        if (
+                            kw.arg == "name"
+                            and isinstance(kw.value, ast.Constant)
+                            and isinstance(kw.value.value, str)
+                        ):
+                            names.add(kw.value.value)
+    return names
+
+
 def code_names(root: Path) -> frozenset[str]:
     """Classes and functions under ``rpent/`` and ``robots/``, minus config/user names."""
     defined: set[str] = set()
@@ -155,9 +218,8 @@ def code_names(root: Path) -> frozenset[str]:
             keys.update(
                 YAML_KEY.findall(path.read_text(encoding="utf-8", errors="ignore"))
             )
-    return frozenset(
-        n for n in defined - keys - USER_FACING_NAMES if CODE_LIKE.match(n)
-    )
+    allowed = keys | USER_FACING_NAMES | _tool_names(root)
+    return frozenset(n for n in defined - allowed if CODE_LIKE.match(n))
 
 
 def headings(lines: list[str]) -> list[tuple[int, str]]:

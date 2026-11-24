@@ -40,21 +40,26 @@ HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE.parent))
 sys.path.insert(0, str(HERE))
 
+import check_doc_symbols  # noqa: E402
 import route  # noqa: E402
 from build_docs import build, ensure_venv  # noqa: E402
 
 REQUIREMENTS = route.REPO_ROOT / "docs" / "requirements.txt"
 VENV = Path(os.environ.get("DOCS_VENV") or route.REPO_ROOT / ".docs-venv")
 
-try:
-    import docutils  # noqa: F401
-except ImportError:  # pragma: no cover - re-exec into docs venv when docutils missing
-    python = ensure_venv(VENV, REQUIREMENTS)
-    os.execv(str(python), [str(python), __file__, *sys.argv[1:]])
 
-import check_doc_symbols  # noqa: E402
-import check_rst_markup  # noqa: E402
-import check_writing  # noqa: E402
+def _ensure_docutils(argv: list[str] | None) -> None:
+    """Re-exec into the docs virtualenv when ``docutils`` is not installed."""
+    try:
+        import docutils  # noqa: F401
+    except (
+        ImportError
+    ):  # pragma: no cover - re-exec into docs venv when docutils missing
+        explicit = bool(os.environ.get("DOCS_VENV"))
+        python = ensure_venv(VENV, REQUIREMENTS, explicit=explicit)
+        args = sys.argv[1:] if argv is None else argv
+        os.execv(str(python), [str(python), __file__, *args])
+
 
 LANGS = {"docs/source-en/": "docs/source-zh/", "docs/source-zh/": "docs/source-en/"}
 PAIRED_ROOT_DOCS = {
@@ -190,6 +195,8 @@ def check_hard_wrap(page: Path, rel: str) -> list[route.Finding]:
     trailing backslash (``\\``) that escapes the newline; bare CJK wraps are flagged.
     """
     findings: list[route.Finding] = []
+    import check_rst_markup
+
     source = page.read_text(encoding="utf-8")
     for block in check_rst_markup.prose_blocks(source):
         rows = block.text.split("\n")
@@ -224,6 +231,8 @@ def check_hard_wrap(page: Path, rel: str) -> list[route.Finding]:
 
 def check_page(page: Path, rel: str, known: set[str]) -> list[route.Finding]:
     """Markup, symbols (on Development pages), RTD links, and Chinese wrapping."""
+    import check_rst_markup
+
     findings = [
         route.Finding(
             "critical" if f.level == "ERROR" else "major",
@@ -298,6 +307,9 @@ def main(argv: list[str] | None = None) -> int:
     parser = route.check_parser(__doc__.splitlines()[0])
     parser.add_argument("--no-build", action="store_true", help="skip the Sphinx build")
     args = parser.parse_args(argv)
+    _ensure_docutils(argv)
+    import check_writing
+
     selection = route.select("docs", args)
     changes = selection.changes
     pages = [

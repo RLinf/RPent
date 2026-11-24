@@ -20,7 +20,7 @@ Check this list before finishing any documentation page, README update, prompt/t
 | Mistake | Fix |
 |---|---|
 | Skipping standard simulator sections or changing Overview card titles/order | Follow [simulator.md](simulator.md): `Action Models`, `Planners`, `Tasks`, `Hardware` + H3 `Tasks` and `Observation and Action` |
-| Bare link lists on directory/index pages | Use `sphinx-design` cards or a `.. list-table::` with a `:hidden:` toctree |
+| Bare link lists or duplicate toctrees on `:orphan:` directory routing pages | Use `sphinx-design` cards or a `.. list-table::` on directory routing pages, and register child pages in the home-page `:hidden:` toctrees in `docs/source-{en,zh}/index.rst` |
 | Hardcoded `rpent.readthedocs.io` links inside `docs/` | Use `:doc:` and `:ref:` (READMEs keep rendered Read the Docs URLs) |
 | CJK punctuation or characters touching `` ``code`` `` or `**bold**` without `\ ` | Insert an escaped space (`\ `) and run `python3 .agents/skills/docs/check.py` |
 | Unescaped hard-wrapped Chinese paragraphs | Keep Chinese prose on one source line or end wrapped lines with `\` |

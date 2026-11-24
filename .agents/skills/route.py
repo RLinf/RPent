@@ -292,8 +292,13 @@ class Selection:
         by_path = {c.path: c for c in self.changes}
         kept = []
         for finding in findings:
+            if not finding.line or self.all_lines:
+                kept.append(finding)
+                continue
             change = by_path.get(finding.path)
-            lines = self.lines(change) if change and finding.line else None
+            if change is None:
+                continue
+            lines = self.lines(change)
             if lines is None or finding.line in lines:
                 kept.append(finding)
         return kept

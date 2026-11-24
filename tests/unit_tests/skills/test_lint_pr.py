@@ -28,6 +28,10 @@ lint_pr = runpy.run_path(str(SCRIPT))
     [
         ("fix(toolkit): retain the original handler error", []),
         ("feat: add support for custom MCP servers", []),
+        (
+            "docs(skills): align review-pr skill with structured GitHub review workflow",
+            [],
+        ),
         ("Added support for custom MCP servers", ["title-format"]),
         (
             "feat(toolkit): Added support for custom MCP servers",
@@ -35,7 +39,7 @@ lint_pr = runpy.run_path(str(SCRIPT))
         ),
         ("feat(toolkit): add support for custom MCP servers.", ["title-period"]),
         (
-            "feat(toolkit): " + "a" * 51,
+            "feat(toolkit): " + "a" * 73,
             ["title-desc-long"],
         ),
         ("feat(): add support", ["title-scope-empty"]),

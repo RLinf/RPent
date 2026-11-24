@@ -86,7 +86,7 @@ TEMPLATE_SECTIONS = (
     ("Checklist", True),
 )
 
-TITLE_DESC_MAX = 50
+TITLE_DESC_MAX = 72
 SCOPE_RE = re.compile(r"^[a-z0-9_-]+$")
 NON_ASCII_RE = re.compile(r"[^\x20-\x7e]")
 DESCRIPTION_MAX_WORDS = 250

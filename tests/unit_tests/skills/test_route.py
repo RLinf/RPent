@@ -108,6 +108,16 @@ def test_selection_filters_modified_lines_but_keeps_added_files(tmp_path, monkey
         Finding("minor", "mod.py", 3, "r/new", "added line"),
         Finding("minor", "new.py", 1, "r/added", "untracked file"),
         Finding("major", "mod.py", None, "r/file", "file-level"),
+        Finding("major", "untouched.py", 5, "r/untouched-line", "pre-existing line"),
+        Finding("major", "untouched.py", None, "r/untouched-file", "package-level"),
     ]
     kept = sel.relevant(findings)
-    assert [f.rule for f in kept] == ["r/new", "r/added", "r/file"]
+    assert [f.rule for f in kept] == [
+        "r/new",
+        "r/added",
+        "r/file",
+        "r/untouched-file",
+    ]
+
+    all_sel = Selection("main", (Change("M", "mod.py"), Change("A", "new.py")), True)
+    assert len(all_sel.relevant(findings)) == len(findings)
