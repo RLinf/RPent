@@ -16,7 +16,7 @@ from copy import deepcopy
 
 import pytest
 
-from rpent.flywheel.flywheel import (
+from components.tools.flywheel.flywheel import (
     select_vla_segments,
 )
 

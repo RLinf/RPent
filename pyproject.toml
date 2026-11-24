@@ -34,6 +34,9 @@ dependencies = [
     "numpy",
     # `NotRequired` in the model contracts.
     "typing-extensions>=4",
+    # `rpent-install` parses requirement strings, which the core layer
+    # needs without the planner extra.
+    "packaging",
     "tomli>=2; python_version < '3.11'",
     # Frame encoding in the model clients, which the runtime layer ships.
     "imageio>=2.0",
@@ -49,7 +52,8 @@ dependencies = [
 rpent = "rpent.cli.main:main"
 rpent-memory = "rpent.cli.memory:main"
 rpent-check-llm = "rpent.cli.check_llm:main"
-rpent-flywheel = "rpent.flywheel.cli:main"
+rpent-install = "rpent.cli.install:main"
+rpent-flywheel = "rpent.cli.flywheel:main"
 
 [project.urls]
 Homepage = "https://github.com/RLinf/RPent"
@@ -85,6 +89,8 @@ planner = [
     "scipy",
 ]
 test = [
+    # Transitional: `infra-dev` and `infra-unit_cpu` own these packages once
+    # the environment workflow switches to component installs.
     "rpent[planner]",
     "coverage",
     "pytest",
@@ -93,8 +99,11 @@ test = [
     "gymnasium",
 ]
 rlinf = [
+    # Transitional: this extra and `components/infra/rlinf/component.toml`
+    # name the same commit, so both install paths build the same RLinf. The
+    # extra remains until the extras install path is removed.
     "rpent[planner]",
-    "rlinf @ git+https://github.com/RLinf/RLinf.git@release/v0.4",
+    "rlinf @ git+https://github.com/RLinf/RLinf.git@2348ece3df113874671478be1360ae3115b346e3",
 ]
 sam3 = [
     "sam3 @ git+https://github.com/RLinf/sam3.git@main",
@@ -172,6 +181,8 @@ robocasa = [
     "robosuite @ git+https://github.com/RLinf/robosuite.git@rpent",
 ]
 flywheel = [
+    # Transitional: `tool-flywheel`'s manifest owns these pins. The extra
+    # remains until the extras install path is removed.
     "lerobot>=0.3.3,<0.4",
     # LeRobot 0.3.x expects Fraction frame rates; PyAV 19 returns AVRational.
     "av<19",
@@ -319,10 +330,15 @@ where = ["."]
 # leave the CLI unable to import any backend. The globs also cover every
 # per-robot subpackage (robots.yam.*, robots.robodojo.*, ...), as well as the
 # shared RGB-D tools.
-include = ["rpent*", "robots", "robots.*", "toolkits", "toolkits.*"]
+# components/ holds the install units: each component owns its code and its
+# manifest, and the installer discovers them from the checkout or the sdist.
+include = ["rpent*", "robots", "robots.*", "toolkits", "toolkits.*", "components", "components.*"]
 exclude = ["tests*", "docs*", "examples*", "docker*"]
 
 [tool.setuptools.package-data]
+# Component manifests are runtime data: the installer reads them from the
+# checkout or the sdist, so a component's manifest ships beside its code.
+"*" = ["component.toml"]
 "robots.robodojo" = ["guides/*.md"]
 "rpent.dashboard" = ["*.html", "static/*.css", "static/*.js"]
 "robots.yam" = ["config/*.yaml", "config/*.json", "guides/*.md"]
