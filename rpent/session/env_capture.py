@@ -234,7 +234,7 @@ class CapturingEnvClient:
                 return value
             if isinstance(value, (np.ndarray, bytes)):
                 try:
-                    return self.state.save_trajectory_artifact(value)
+                    return self.state.save_trajectory_artifact(value, background=True)
                 except OSError as exc:
                     payload.completeness = "partial"
                     payload.missing[pointer] = MissingInfo(

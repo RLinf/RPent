@@ -623,9 +623,13 @@ class EnvState:
         return self._output_dir / "trajectories" / self._task.task_id
 
     def save_trajectory_artifact(
-        self, value: np.ndarray | bytes, *, name: str | None = None
+        self,
+        value: np.ndarray | bytes,
+        *,
+        name: str | None = None,
+        background: bool = False,
     ) -> ArtifactRef:
-        """Store an array or bytes in the task's trajectory and return its reference."""
+        """Store an attachment, optionally deferring its write until task export."""
         root = self.trajectory_dir
         if not isinstance(value, (np.ndarray, bytes)):
             raise TypeError("trajectory artifacts must be numpy arrays or bytes")
@@ -638,19 +642,35 @@ class EnvState:
             raise ValueError(f"trajectory artifact name must end with {suffix}")
         path = f"artifacts/{name}"
         destination = root / path
+        size = len(value) if is_bytes else value.nbytes
+        writer = self._writer
+
+        def write(path: Path, pending: PendingArtifact) -> None:
+            self._write_trajectory_artifact(path, pending.value)
+
         with self._artifact_lock:
-            destination.parent.mkdir(parents=True, exist_ok=True)
-            with self._write_trajectory_file(destination, binary=True) as file:
-                if is_bytes:
-                    file.write(value)
-                else:
-                    np.save(file, value, allow_pickle=False)
+            if writer is not None:
+                writer.discard(destination)
+            if background and writer is not None and size <= writer.max_bytes:
+                writer.submit(destination, value, size, write)
+            else:
+                self._write_trajectory_artifact(destination, value)
         return ArtifactRef(
             path=path,
             kind="bytes" if is_bytes else "ndarray",
             dtype=None if is_bytes else str(value.dtype),
             shape=None if is_bytes else value.shape,
         )
+
+    def _write_trajectory_artifact(
+        self, destination: Path, value: np.ndarray | bytes
+    ) -> None:
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        with self._write_trajectory_file(destination, binary=True) as file:
+            if isinstance(value, bytes):
+                file.write(value)
+            else:
+                np.save(file, value, allow_pickle=False)
 
     def save_planner_trajectory(self) -> Path:
         """Save task, planner, action, and prediction records after end_task().
@@ -741,7 +761,9 @@ class EnvState:
                 is_bytes = isinstance(value, bytes)
                 digest = sha256(value).hexdigest() if is_bytes else None
                 if digest is not None and digest in byte_artifacts:
-                    return encode(byte_artifacts[digest])
+                    return encode(
+                        byte_artifacts[digest], missing=missing, pointer=pointer
+                    )
                 suffix = ".bin" if is_bytes else ".npy"
                 while True:
                     attachment_count += 1
@@ -766,6 +788,14 @@ class EnvState:
                     return None
                 if digest is not None:
                     byte_artifacts[digest] = value
+            if isinstance(value, ArtifactRef) and self._writer is not None:
+                try:
+                    self._writer.wait(root / value.path)
+                except OSError as exc:
+                    if missing is None:
+                        raise
+                    missing[pointer] = MissingInfo("capture_failed", str(exc))
+                    return None
             if is_dataclass(value):
                 is_payload = isinstance(value, Payload)
                 failures = {} if is_payload else None
@@ -952,6 +982,8 @@ class EnvState:
             snapshot = np.asarray(value)
             if suffix == ".png" and snapshot.dtype != np.uint8:
                 snapshot = snapshot.astype(np.uint8)
+            if snapshot.dtype.hasobject:
+                return self.save(name, snapshot, step=step, fps=fps)
             size = snapshot.nbytes
         else:
             return self.save(name, value, step=step, fps=fps)
