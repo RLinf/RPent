@@ -17,10 +17,7 @@ from __future__ import annotations
 import runpy
 from pathlib import Path
 
-SCRIPT = (
-    Path(__file__).resolve().parents[3]
-    / ".agents/skills/docs-check/check_rst_markup.py"
-)
+SCRIPT = Path(__file__).resolve().parents[3] / ".agents/skills/docs/check_rst_markup.py"
 rst_check = runpy.run_path(str(SCRIPT))
 
 
