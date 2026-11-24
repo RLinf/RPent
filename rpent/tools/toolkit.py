@@ -373,9 +373,13 @@ class Toolkit:
                 raise ToolCancelled("tool operation interrupted")
 
     def close(self) -> None:
-        """Close admission and drain calls before subclasses release resources."""
+        """Close admission and drain tool calls and background writes."""
         self._scheduler.cancel(close=True)
-        self.cancel_active_and_wait()
+        try:
+            self.cancel_active_and_wait()
+        finally:
+            if self._state is not None:
+                self._state.close_artifacts()
 
     def exploration_continuation(self, *, explicit: bool = False) -> str | None:
         """Return a rule-checked continuation at an idle planner boundary."""

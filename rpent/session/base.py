@@ -34,6 +34,7 @@ from uuid import uuid4
 import imageio.v2 as imageio
 import numpy as np
 
+from rpent.session.artifact_writer import ArtifactWriter, PendingArtifact
 from rpent.session.records import (
     ActionRecord,
     ArtifactRef,
@@ -113,9 +114,10 @@ class StepRecord:
 class EnvState:
     """Own task records, legacy tool steps, and stored artifacts."""
 
-    def __init__(self, output_dir: Path | str):
+    def __init__(self, output_dir: Path | str, *, async_artifacts: bool = False):
         self._output_dir = Path(output_dir)
         self._artifact_lock = threading.Lock()
+        self._writer = ArtifactWriter(128 * 1024**2) if async_artifacts else None
         self._records_lock = threading.Lock()
         self._task: TaskRecord | None = None
         self._planners: dict[str, PlannerRecord] = {}
@@ -887,6 +889,8 @@ class EnvState:
 
     def reset(self) -> None:
         """Clear legacy tool state, preserving task records and disk artifacts."""
+        if self._writer is not None:
+            self._writer.flush()
         self._output_dir.mkdir(parents=True, exist_ok=True)
         self._steps: list[StepRecord] = []
         self._run_artifacts: set[str] = set()
@@ -916,6 +920,73 @@ class EnvState:
 
     # -- generic artifact operations ------------------------------------
 
+    def save_async(
+        self,
+        name: str,
+        value: Any,
+        *,
+        step: int | None = -1,
+        fps: int = 20,
+    ) -> str | None:
+        """Save a snapshot, queuing PNG, numeric arrays, and videos when enabled.
+
+        Large payloads exceeding the queue budget use the synchronous save path.
+        Accepted names are immediately available through load() and load_bytes().
+        """
+        writer = self._writer
+        if writer is None:
+            return self.save(name, value, step=step, fps=fps)
+        suffix = Path(self._validate_name(name)).suffix.lower()
+        if suffix == ".mp4":
+            snapshot = (
+                bytes(value)
+                if isinstance(value, (bytes, bytearray, memoryview))
+                else tuple(np.asarray(frame) for frame in value)
+            )
+            size = (
+                len(snapshot)
+                if isinstance(snapshot, bytes)
+                else sum(frame.nbytes for frame in snapshot)
+            )
+        elif suffix in {".png", ".npy", ".npz"}:
+            snapshot = np.asarray(value)
+            if suffix == ".png" and snapshot.dtype != np.uint8:
+                snapshot = snapshot.astype(np.uint8)
+            size = snapshot.nbytes
+        else:
+            return self.save(name, value, step=step, fps=fps)
+        if size > writer.max_bytes:
+            return self.save(name, snapshot, step=step, fps=fps)
+
+        def write(path: Path, pending: PendingArtifact) -> None:
+            if suffix == ".png":
+                self._write_artifact(path, pending.png_bytes(), encoded_png=True)
+            else:
+                self._write_artifact(path, pending.value, fps=fps)
+
+        with self._artifact_lock:
+            step = self._resolve_read_step(step)
+            destination = self._artifact_file(name, step)
+            artifacts = self._artifact_names(step)
+            writer.discard(destination)
+            writer.submit(destination, snapshot, size, write)
+            artifacts.add(name)
+            if not self._step_open:
+                self._write_manifest()
+        return name
+
+    def _artifact_names(self, step: int | None) -> set[str]:
+        return self._run_artifacts if step is None else self._record_for(step).artifacts
+
+    def close_artifacts(self) -> None:
+        """Join background writes after tool admission and execution have stopped."""
+        if self._writer is not None:
+            self._writer.close()
+
+    def artifact_write_failures(self) -> dict[str, str]:
+        """Return background write errors keyed by their destination path."""
+        return self._writer.failures() if self._writer is not None else {}
+
     def save(
         self,
         name: str,
@@ -934,69 +1005,74 @@ class EnvState:
         with self._artifact_lock:
             step = self._resolve_read_step(step)
             destination = self._artifact_file(name, step)
-            destination.parent.mkdir(parents=True, exist_ok=True)
-            temporary = self._temporary_file(destination)
-            suffix = destination.suffix.lower()
-            record: StepRecord | None = (
-                self._record_for(step) if step is not None else None
-            )
+            artifacts = self._artifact_names(step)
+            if self._writer is not None:
+                self._writer.discard(destination)
             try:
-                if suffix in _IMAGE_SUFFIXES:
-                    array = np.asarray(value)
-                    if array.dtype != np.uint8:
-                        array = array.astype(np.uint8)
-                    imageio.imwrite(temporary, array)
-                elif suffix == ".npy":
-                    np.save(temporary, np.asarray(value))
-                elif suffix == ".npz":
-                    np.savez_compressed(temporary, array=np.asarray(value))
-                elif suffix == ".json":
-                    with temporary.open("w") as file:
-                        json.dump(value, file, indent=2, default=_json_default)
-                elif suffix == ".jsonl":
-                    with temporary.open("w") as file:
-                        if isinstance(value, str):
-                            file.write(value)
-                        else:
-                            for item in value:
-                                file.write(
-                                    json.dumps(item, default=_json_default) + "\n"
-                                )
-                elif suffix == ".mp4":
-                    if isinstance(value, (bytes, bytearray, memoryview)):
-                        temporary.write_bytes(bytes(value))
-                    else:
-                        imageio.mimwrite(
-                            temporary,
-                            list(value),
-                            fps=int(options.get("fps", 20)),
-                            codec="libx264",
-                        )
-                elif suffix in _TEXT_SUFFIXES:
-                    temporary.write_text(str(value))
-                elif suffix == ".bin":
-                    temporary.write_bytes(bytes(value))
-                else:
-                    raise ValueError(f"unsupported artifact suffix: {suffix}")
-                os.replace(temporary, destination)
-                if record is not None:
-                    record.artifacts.add(name)
-                else:
-                    self._run_artifacts.add(name)
+                self._write_artifact(destination, value, fps=options.get("fps", 20))
+                artifacts.add(name)
                 if not self._step_open:
                     self._write_manifest()
                 return name
             except Exception as exc:
                 logger.warning("failed to save artifact %s: %s", name, exc)
                 return None
-            finally:
-                temporary.unlink(missing_ok=True)
+
+    def _write_artifact(
+        self,
+        destination: Path,
+        value: Any,
+        *,
+        fps: int = 20,
+        encoded_png: bool = False,
+    ) -> None:
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        temporary = self._temporary_file(destination)
+        suffix = destination.suffix.lower()
+        try:
+            if encoded_png:
+                temporary.write_bytes(value)
+            elif suffix in _IMAGE_SUFFIXES:
+                imageio.imwrite(temporary, np.asarray(value, dtype=np.uint8))
+            elif suffix == ".npy":
+                np.save(temporary, np.asarray(value))
+            elif suffix == ".npz":
+                np.savez_compressed(temporary, array=np.asarray(value))
+            elif suffix == ".json":
+                with temporary.open("w") as file:
+                    json.dump(value, file, indent=2, default=_json_default)
+            elif suffix == ".jsonl":
+                with temporary.open("w") as file:
+                    if isinstance(value, str):
+                        file.write(value)
+                    else:
+                        for item in value:
+                            file.write(json.dumps(item, default=_json_default) + "\n")
+            elif suffix == ".mp4" and not isinstance(
+                value, (bytes, bytearray, memoryview)
+            ):
+                imageio.mimwrite(temporary, list(value), fps=int(fps), codec="libx264")
+            elif suffix in _TEXT_SUFFIXES:
+                temporary.write_text(str(value))
+            else:
+                temporary.write_bytes(bytes(value))
+            os.replace(temporary, destination)
+        finally:
+            temporary.unlink(missing_ok=True)
 
     def load(self, name: str, *, step: int | None = -1) -> Any:
         """Load an artifact; ``step=-1`` selects the latest recorded step."""
         resolved_step = self._resolve_read_step(step)
         source = self._artifact_file(name, resolved_step)
         suffix = source.suffix.lower()
+        if self._writer is not None:
+            pending = self._writer.pending(source)
+            if pending is not None:
+                if isinstance(pending.value, np.ndarray):
+                    return pending.value.copy()
+                if isinstance(pending.value, bytes):
+                    return pending.value
+                self._writer.wait(source)
         if suffix in _IMAGE_SUFFIXES:
             return imageio.imread(source)
         if suffix == ".npy":
@@ -1015,8 +1091,30 @@ class EnvState:
         return source.read_bytes()
 
     def load_bytes(self, name: str, *, step: int | None = -1) -> bytes:
-        resolved_step = self._resolve_read_step(step)
-        return self._artifact_file(name, resolved_step).read_bytes()
+        source = self.artifact_path(name, step=step)
+        if self._writer is not None:
+            pending = self._writer.pending(source)
+            if pending is not None:
+                if source.suffix.lower() == ".png":
+                    try:
+                        return pending.png_bytes()
+                    except Exception as exc:
+                        raise FileNotFoundError(
+                            f"could not encode {source}: {exc}"
+                        ) from exc
+                if isinstance(pending.value, bytes):
+                    return pending.value
+                self._writer.wait(source)
+        return source.read_bytes()
+
+    def wait_artifact(self, name: str, *, step: int | None = -1) -> Path:
+        """Wait for a file-based consumer to be able to open an artifact."""
+        source = self.artifact_path(name, step=step)
+        if self._writer is not None:
+            self._writer.wait(source)
+        if not source.is_file():
+            raise FileNotFoundError(source)
+        return source
 
     def artifact_path(self, name: str, *, step: int | None = -1) -> Path:
         """Return the canonical filesystem path for an artifact."""
@@ -1026,9 +1124,12 @@ class EnvState:
     def exists(self, name: str, *, step: int | None = -1) -> bool:
         try:
             resolved_step = self._resolve_read_step(step)
-        except LookupError:
+            path = self._artifact_file(name, resolved_step)
+            if self._writer is not None and self._writer.pending(path) is not None:
+                return True
+        except (LookupError, FileNotFoundError):
             return False
-        return self._artifact_file(name, resolved_step).exists()
+        return path.exists()
 
     def prune_artifacts(
         self, names: tuple[str, ...], *, step: int, keep_last: int
@@ -1044,11 +1145,16 @@ class EnvState:
         for name in names:
             path = self._artifact_file(name, old)
             try:
-                path.unlink(missing_ok=True)
+                self._remove_artifact(path)
             except OSError as exc:
                 logger.warning(
                     "failed to prune artifact %s at step %d: %s", name, old, exc
                 )
+
+    def _remove_artifact(self, path: Path) -> None:
+        if self._writer is not None:
+            self._writer.discard(path)
+        path.unlink(missing_ok=True)
 
     # -- step records ----------------------------------------------------
 
@@ -1089,7 +1195,7 @@ class EnvState:
         except BaseException as e:
             for name in record.artifacts:
                 try:
-                    self._artifact_file(name, record.step_idx).unlink(missing_ok=True)
+                    self._remove_artifact(self._artifact_file(name, record.step_idx))
                 except OSError as cleanup_error:
                     logger.warning(
                         "failed to remove artifact %s from discarded step %d: %s",

@@ -15,6 +15,7 @@
 from __future__ import annotations
 
 import json
+import threading
 from pathlib import Path
 from typing import Any
 
@@ -26,6 +27,78 @@ from rpent.session import EnvState, StepRecord
 
 class _StepFailure(Exception):
     pass
+
+
+def test_pending_observations_are_readable_before_disk_write(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    state = EnvState(tmp_path / "async", async_artifacts=True)
+    synchronous = EnvState(tmp_path / "sync")
+    frame = np.full((4, 4, 3), 42, dtype=np.uint8)
+    depth = np.arange(16, dtype=np.float32).reshape(4, 4)
+    assert synchronous.save("camera.png", frame, step=None)
+    expected_png = synchronous.load_bytes("camera.png", step=None)
+    expected_depth = depth.copy()
+    release = threading.Event()
+    write = state._write_artifact
+
+    def blocked_write(*args, **kwargs):
+        assert release.wait(timeout=5)
+        write(*args, **kwargs)
+
+    monkeypatch.setattr(state, "_write_artifact", blocked_write)
+    try:
+        with state.record_step(state={}):
+            assert state.save_async("depth.npz", depth)
+            assert state.save_async("camera.png", frame)
+        frame[:] = 0
+        depth[:] = 0
+        assert not state.artifact_path("camera.png").exists()
+        assert state.exists("camera.png")
+        assert state.load_bytes("camera.png") == expected_png
+        state.load("depth.npz")[:] = 33
+        np.testing.assert_array_equal(state.load("depth.npz"), expected_depth)
+    finally:
+        release.set()
+        state.close_artifacts()
+    assert state.wait_artifact("camera.png").read_bytes() == expected_png
+    np.testing.assert_array_equal(state.load("depth.npz"), expected_depth)
+
+
+def test_background_write_failure_is_reported_at_close(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    state = EnvState(tmp_path, async_artifacts=True)
+    assert state.save("depth.npy", np.array([1]), step=None)
+
+    def fail_write(*args, **kwargs):
+        raise OSError("disk full")
+
+    monkeypatch.setattr(state, "_write_artifact", fail_write)
+    assert state.save_async("depth.npy", np.array([2]), step=None)
+    state.close_artifacts()
+
+    assert not state.exists("depth.npy", step=None)
+    with pytest.raises(FileNotFoundError, match="disk full"):
+        state.load("depth.npy", step=None)
+    assert state.artifact_write_failures() == {
+        str(tmp_path / "depth.npy"): "OSError: disk full"
+    }
+
+
+def test_rolled_back_step_drains_and_removes_artifacts(tmp_path: Path) -> None:
+    state = EnvState(tmp_path, async_artifacts=True)
+    try:
+        with pytest.raises(RuntimeError, match="could not capture state"):
+            with state.record_step(state={}):
+                assert state.save_async("depth.npy", np.array([1]))
+                raise _StepFailure("could not capture state")
+        assert not state.artifact_path("depth.npy", step=0).exists()
+        with state.record_step(state={}):
+            assert state.save_async("depth.npy", np.array([2]))
+        np.testing.assert_array_equal(state.load("depth.npy", step=0), [2])
+    finally:
+        state.close_artifacts()
 
 
 def test_step_record_serializes_optional_fields_and_sorts_artifacts() -> None:
