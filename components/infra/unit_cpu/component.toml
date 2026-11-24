@@ -13,7 +13,7 @@ probe = "torch"
 # nothing, so this environment installs what they import. The calibration
 # requirements pin OpenCV 4.x, and OpenCV 5 changes the ChArUco drawing path
 # the preview image assertions rely on, so the pin is repeated here.
-requires = ["infra-dev", "tool-flywheel"]
+requires = ["infra-dev", "tool-flywheel", "tool-trace_export"]
 extra-index-urls = ["https://download.pytorch.org/whl/cpu"]
 index-strategy = "unsafe-first-match"
 

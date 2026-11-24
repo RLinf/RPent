@@ -95,6 +95,7 @@ Choose an environment: :doc:`LIBERO <rst_source/simulators/libero>`, :doc:`RoboC
    Interactive Usage <rst_source/guides/dashboard>
    Flash Mode <rst_source/guides/flash>
    Trajectory Collection and Data Flywheel <rst_source/guides/flywheel>
+   Code-Policy Trace Export <rst_source/guides/trace_export>
    Remote Services and Parallel Runs <rst_source/guides/advanced_deployment>
 
 .. toctree::
