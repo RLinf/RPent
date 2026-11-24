@@ -1,0 +1,11 @@
+schema = 2
+name = "tool-trace_export"
+probe = "components.tools.trace_export"
+python = ">=3.10,<3.13"
+# An offline process tool: it reads recorded code-policy traces and writes an
+# audited, model-agnostic dataset. It depends only on core contracts and the
+# standard library, plus Pillow to verify that recorded images decode and match
+# their recorded checksums. It imports no robot, simulator, model service, or
+# other tool.
+
+dependencies = ["pillow>=10"]
