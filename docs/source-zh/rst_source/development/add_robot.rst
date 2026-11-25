@@ -216,7 +216,7 @@ RPent 的整体进程划分、服务职责和通信方式见 :doc:`系统说明 
    def user_prompt(variables=None):
        return build_user_prompt(task="{{task}}", begin="Inspect the current scene.")
 
-机器人专用说明放在 ``robots/<robot>/prompts/`` 下。如何根据后端指定工具参数和每次执行的动作长度，见 :ref:`robotwin-model-guidance`。
+机器人专用说明放在 ``robots/<robot>/prompts/`` 下。如果机器人支持多种动作模型，提示词工厂可以按当前后端选择调用说明，通过 ``action_model_guidance`` 传给 ``workflow.system_prompt()``。工作流会将这段说明追加到 ``ACTION AND VERIFICATION`` 分节中机器人动作说明的末尾。可以在这里指定工具需要哪些参数，以及何时检查动作块的执行结果。
 
 .. _add-robot-toolkit:
 

@@ -283,9 +283,13 @@ variables passed to ``PromptBundle.render``.
    def user_prompt(variables=None):
        return build_user_prompt(task="{{task}}", begin="Inspect the current scene.")
 
-Keep local instructions under ``robots/<robot>/prompts/``. For an example
-of selecting tool arguments and chunk timing by backend, see
-:ref:`robotwin-model-guidance`.
+Keep robot-specific instructions under ``robots/<robot>/prompts/``. When a
+robot supports several action models, its prompt factory can select guidance
+for the active backend and pass it as ``action_model_guidance`` to
+``workflow.system_prompt()``. The workflow appends that text to
+``ACTION AND VERIFICATION``, after the robot's own action instructions.
+Use it for details such as which tool arguments to supply and when to
+inspect the result of an action chunk.
 
 .. _add-robot-toolkit:
 

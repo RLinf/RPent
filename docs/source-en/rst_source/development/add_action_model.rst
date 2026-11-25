@@ -519,37 +519,6 @@ requires both ``--fast-wam-config`` and ``--fast-wam-dataset-stats``.
 Cosmos3 requires ``--cosmos3-config`` and ``--cosmos3-sglang-endpoint``;
 this starts the RPC worker against an already running SGLang service.
 
-.. _robotwin-model-guidance:
-
-Planner guidance for RoboTwin action models
--------------------------------------------
-
-RoboTwin selects the prompt in ``robots/robotwin/prompt_bundle.py`` using
-``policy_backend``. LingBot-VLA and UniWAM select the evaluation or exploration
-workflow by run mode. Fast-WAM uses the evaluation workflow even when the mode
-variable is set to exploration. Its user prompt points to local memory and asks
-the planner to inspect step zero for the native task and scene.
-
-* **LingBot-VLA** (``lingbot``). Pass the complete current ``task_language`` to
-  ``lingbot_act`` with ``use_length=50``. A successful recipe for the same task
-  can guide how many chunks to run.
-* **UniWAM** (``uniwam``). Call ``wam_act`` with the prompt omitted for the
-  native task, or supply a subtask grounded in the current observation. Each
-  chunk executes 16 joint-position actions. ``max_chunks`` defaults to one.
-  The model history includes analytic actions, so choose the next chunk count
-  from observed progress.
-* **Fast-WAM** (``fast-wam``). Call ``wam_act`` for one chunk, then inspect the
-  new state and images. Omit the prompt for the native task or supply a
-  grounded subtask for that call.
-
-When adding a backend, put its tool name, prompt arguments and chunk guidance
-in ``robots/robotwin/prompts/action_models.py`` under its backend key. The
-bundle passes that entry as ``action_model_guidance``, which appends it to
-``ACTION AND VERIFICATION``. A new key takes the compact evaluation path by
-default. To support exploration, also update the system and user factories in
-the bundle to select the appropriate startup, memory and retry instructions.
-See :ref:`add-robot-prompts` for the shared section structure.
-
 Tests
 -----
 
