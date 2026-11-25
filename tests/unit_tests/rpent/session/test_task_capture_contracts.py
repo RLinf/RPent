@@ -20,10 +20,13 @@ import json
 import logging
 
 import pytest
+from pydantic_core import to_jsonable_python
 
 from rpent.planner.base import PlannerResult
+from rpent.robots import RunConfig
 from rpent.session import EnvState, Payload
-from rpent.session.planner_capture import end_planner_task
+from rpent.session.planner_capture import end_planner_task, task_config_snapshot
+from rpent.utils.mcp_servers import McpServerSpec
 
 
 @pytest.mark.parametrize(
@@ -133,3 +136,48 @@ def test_save_failure_is_logged_without_replacing_execution_error(
     assert state.get_task().result.data["error"] == "RuntimeError: model failed"
     assert "Failed to save planner trajectory" in caplog.text
     assert "disk full" in caplog.text
+
+
+def test_task_config_snapshot_redacts_mcp_header_values(tmp_path) -> None:
+    spec = McpServerSpec(
+        name="facility",
+        url="https://facility.example/mcp?token=secret",
+        headers={"Authorization": "Bearer secret"},
+        tools=("read_power_meter",),
+        sync_with_robot=True,
+    )
+    run_config = RunConfig(
+        recipe_tag="run",
+        output_dir=tmp_path,
+        prompt_vars={},
+        task_desc={},
+        mcp_servers=(spec,),
+    )
+
+    config = task_config_snapshot(
+        {"planner": "api", "shared_mcp_servers": (spec,)}, run_config
+    )
+
+    dumped = json.dumps(to_jsonable_python(config))
+    assert "Bearer secret" not in dumped
+    assert "token=secret" not in dumped
+    redacted = {"Authorization": "<redacted>"}
+    assert config["run"]["mcp_servers"][0]["headers"] == redacted
+    assert config["arguments"]["shared_mcp_servers"][0]["headers"] == redacted
+    assert config["run"]["mcp_servers"][0]["url"] == (
+        "https://facility.example/mcp?<redacted>"
+    )
+    assert config["run"]["mcp_servers"][0]["tools"] == ("read_power_meter",)
+    assert config["run"]["mcp_servers"][0]["sync_with_robot"] is True
+
+    bare = task_config_snapshot(
+        {"planner": "api", "shared_mcp_servers": ()},
+        RunConfig(
+            recipe_tag="run",
+            output_dir=tmp_path,
+            prompt_vars={},
+            task_desc={},
+        ),
+    )
+    assert "shared_mcp_servers" not in bare["arguments"]
+    assert "mcp_servers" not in bare["run"]
