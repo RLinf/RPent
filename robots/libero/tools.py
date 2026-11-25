@@ -954,8 +954,14 @@ class LiberoPrimitives:
             result["error"] = segment_blob["error"]
             result["fallback"] = "Use manual visual localization and back_project."
         if saved_overlay is not None:
-            result["overlay_artifact"] = saved_overlay
-            images.append(state.load_bytes(saved_overlay, step=nn))
+            try:
+                images.append(state.load_bytes(saved_overlay, step=nn))
+            except OSError as exc:
+                logger.warning(
+                    "could not return segment overlay %s: %s", saved_overlay, exc
+                )
+            else:
+                result["overlay_artifact"] = saved_overlay
         return ToolResult(data=result, images=images)
 
 
