@@ -376,6 +376,32 @@ def test_explicit_add_mcp_tools_skips_auto_registration_duplicate(
         assert "lab__b" not in names
 
 
+def test_explicit_add_mcp_tools_enforces_yaml_tools_allowlist(tmp_path: Path) -> None:
+    tools = [
+        types.Tool(name="a", description="A", inputSchema={"type": "object"}),
+        types.Tool(name="b", description="B", inputSchema={"type": "object"}),
+    ]
+
+    async def handle(
+        name: str, arguments: dict[str, Any], headers: dict[str, str]
+    ) -> types.CallToolResult:
+        del arguments, headers
+        return types.CallToolResult(content=[types.TextContent(type="text", text=name)])
+
+    with _running_mcp_server(tools, handle) as (url, _):
+        toolkit = _RecordingToolkit(tmp_path)
+        restricted = McpServerSpec(name="lab", url=url, tools=("a",))
+
+        with pytest.raises(
+            ValueError,
+            match="not allowed by mcp_servers.lab.tools",
+        ):
+            toolkit.add_mcp_tools((restricted,), tools={"lab": ["b"]})
+
+        assert toolkit.add_mcp_tools((restricted,), tools={"lab": ["a"]}) == ("lab__a",)
+        assert toolkit.add_mcp_servers((restricted,)) == ()
+
+
 def test_missing_tool_or_unknown_server_raises_clear_error(tmp_path: Path) -> None:
     tools = [
         types.Tool(name="ping", description="Ping", inputSchema={"type": "object"})

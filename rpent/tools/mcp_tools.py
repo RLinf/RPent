@@ -120,6 +120,11 @@ def register_mcp_tools(
 ) -> tuple[str, ...]:
     """Register selected remote tools from ``servers`` on ``toolkit``.
 
+    YAML ``spec.tools`` remains the upper-bound allowlist: requesting a tool
+    excluded by ``spec.tools`` raises ``ValueError``. Servers registered here
+    are skipped by :func:`register_mcp_servers` so robot code keeps control of
+    their tool subset and ``sync_with_robot`` setting.
+
     Args:
         toolkit: The robot Toolkit receiving the tools.
         servers: Candidate specs, usually ``RunConfig.mcp_servers``.
@@ -132,7 +137,8 @@ def register_mcp_tools(
         The registered ``<server>__<tool>`` tool names, in the order given.
 
     Raises:
-        ValueError: On an unknown server or tool name, or a name that collides
+        ValueError: On an unknown server, a tool excluded by ``spec.tools`` or
+            missing on the remote server, or a name that collides
             case-insensitively with an existing tool.
     """
     by_name = {server.name: server for server in servers}
@@ -148,12 +154,22 @@ def register_mcp_tools(
     taken = {name.casefold() for name in toolkit._tools}
     for server_name, names in tools.items():
         spec = by_name[server_name]
+        selected = tuple(dict.fromkeys(names))
+        if spec.tools != ALL_TOOLS:
+            allowed = set(spec.tools)
+            disallowed = [name for name in selected if name not in allowed]
+            if disallowed:
+                raise ValueError(
+                    f"cannot register MCP tool(s) {disallowed} from {server_name!r}: "
+                    f"not allowed by mcp_servers.{server_name}.tools "
+                    f"(allowed: {list(spec.tools)})"
+                )
         sync = spec.sync_with_robot if sync_with_robot is None else sync_with_robot
         registered.extend(
             _register_server(
                 toolkit,
                 spec,
-                selected=tuple(dict.fromkeys(names)),
+                selected=selected,
                 sync_with_robot=sync,
                 taken=taken,
             )

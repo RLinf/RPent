@@ -197,7 +197,9 @@ RPent CLI 保留原有 ``--cuda-device`` 作为本地服务的共享默认值；
 
 Claude Code 和 Codex 也可复用已有的 CLI 认证。Gemini CLI 使用自身的认证和地址配置。模型选择、地址优先级和本地服务示例见 :doc:`configure_planner`。连接检查使用 ``rpent-check-llm``；记忆管理使用 ``rpent-memory``，操作方法见 :doc:`memory`。
 
-模型与资源路径由各环境读取，例如 LIBERO 的 ``PI05_CHECKPOINT_PATH``、``SAM3_CHECKPOINT_PATH``，RoboCasa365 的 ``ROBOCASA_ASSETS_PATH``，以及 RoboTwin 的 ``ROBOTWIN_ASSETS_PATH``、``LINGBOT_MODEL_PATH``。对于通过 ``--mcp-config`` 接入的外部 MCP 服务，若 YAML 配置中未设置 ``timeout_s``，环境变量 ``MCP_CALL_TIMEOUT_S``\ （正数，单位为秒，默认 ``60``）用于设置单次工具发现与调用的默认超时时间（见 :ref:`external-mcp-servers`\ ）。
+模型与资源路径由各环境读取，例如 LIBERO 的 ``PI05_CHECKPOINT_PATH``、``SAM3_CHECKPOINT_PATH``，RoboCasa365 的 ``ROBOCASA_ASSETS_PATH``，以及 RoboTwin 的 ``ROBOTWIN_ASSETS_PATH``、``LINGBOT_MODEL_PATH``。
+
+使用 ``--mcp-config`` 接入外部 MCP 服务时，环境变量 ``MCP_CALL_TIMEOUT_S``\ （正数，单位为秒，默认 ``60``）用于设置单次工具发现与调用的超时时间；如果 YAML 中已为单个服务配置 ``timeout_s``，则优先以 YAML 为准（见 :ref:`external-mcp-servers`\ ）。
 
 .. _run-output-files:
 

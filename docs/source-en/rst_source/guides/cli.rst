@@ -235,7 +235,9 @@ Set the credentials and endpoint for your chosen planner in the launch shell.
 
 Claude Code and Codex can also reuse existing CLI authentication. Gemini CLI uses its own authentication and endpoint configuration. See :doc:`configure_planner` for model selection, endpoint precedence, and local server examples. Use ``rpent-check-llm`` for connectivity checks and ``rpent-memory`` for the operations in :doc:`memory`.
 
-Each environment reads its own resource variables, including LIBERO’s ``PI05_CHECKPOINT_PATH`` and ``SAM3_CHECKPOINT_PATH``, RoboCasa365’s ``ROBOCASA_ASSETS_PATH``, and RoboTwin’s ``ROBOTWIN_ASSETS_PATH`` and ``LINGBOT_MODEL_PATH``. For external MCP servers configured through ``--mcp-config``, ``MCP_CALL_TIMEOUT_S`` (positive number of seconds, default ``60``) sets the fallback per-request timeout when a server entry does not set ``timeout_s`` in YAML (see :ref:`external-mcp-servers`).
+Each environment reads its own resource variables, including LIBERO’s ``PI05_CHECKPOINT_PATH`` and ``SAM3_CHECKPOINT_PATH``, RoboCasa365’s ``ROBOCASA_ASSETS_PATH``, and RoboTwin’s ``ROBOTWIN_ASSETS_PATH`` and ``LINGBOT_MODEL_PATH``.
+
+When using external MCP servers via ``--mcp-config``, ``MCP_CALL_TIMEOUT_S`` (positive number of seconds, default ``60``) sets the per-request timeout for tool discovery and tool calls. A server's ``timeout_s`` setting in YAML takes precedence over this variable (see :ref:`external-mcp-servers`).
 
 .. _run-output-files:
 

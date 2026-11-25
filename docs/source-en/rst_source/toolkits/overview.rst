@@ -3,12 +3,10 @@
 Action Primitives and Tools
 ===========================
 
-Use this page to see which tool families RPent exposes to a planner—action primitives, RGB-D perception tools, memory tools, and external MCP tools—and where to configure each one. All online planners (``api``, ``claude_code``, ``codex``, and ``gemini_cli``) read schemas from the same robot toolkit and dispatch through the same execution layer.
+Planners observe the environment and control the robot through tools registered on the robot's toolkit. All online planners (``api``, ``claude_code``, ``codex``, and ``gemini_cli``) read schemas from the same toolkit and dispatch through the same execution layer.
 
 Tool Families
 -------------
-
-RPent organizes tools into four families:
 
 .. list-table::
    :header-rows: 1

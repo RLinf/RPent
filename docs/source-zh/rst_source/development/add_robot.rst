@@ -245,7 +245,7 @@ toolkit 模块通常包含四部分：
 自定义外部 MCP 注册
 ~~~~~~~~~~~~~~~~~~~
 
-本节说明如何在机器人接入代码中自定义外部 MCP 服务的注册方式。默认情况下，RPent 会在 ``get_toolkit`` 返回后自动注册 ``--mcp-config``\ （YAML 文件路径）与 ``RunConfig.mcp_servers`` 中的外部 MCP 服务，大多数机器人无需编写额外代码（见 :ref:`external-mcp-servers`\ ）。仅当机器人需要把某个服务限定到指定工具子集，或强制该服务的工具与机器人动作同步执行（``sync_with_robot=True``）时，才需要在 ``get_toolkit`` 返回前调用 :meth:`~rpent.tools.toolkit.Toolkit.add_mcp_tools`：
+默认情况下，RPent 会在 ``get_toolkit`` 返回后自动注册 ``--mcp-config``\ （YAML 文件路径）与 ``RunConfig.mcp_servers`` 中的全部外部 MCP 服务，大多数机器人无需编写额外代码（见 :ref:`external-mcp-servers`\ ）。如果机器人需要限定某个服务的可用工具，或要求某组工具与机器人动作互斥执行（``sync_with_robot=True``），可在 ``get_toolkit`` 返回前调用 :meth:`~rpent.tools.toolkit.Toolkit.add_mcp_tools`：
 
 .. code-block:: python
 
@@ -257,14 +257,15 @@ toolkit 模块通常包含四部分：
                root=config.prompt_vars.get("memory_dir") or get_memory_dir("myrobot"),
            ),
        )
-       toolkit.add_mcp_tools(
-           config.mcp_servers,
-           tools={"dock": ["set_charging_dock", "read_battery"]},
-           sync_with_robot=True,
-       )
+       if any(server.name == "dock" for server in config.mcp_servers):
+           toolkit.add_mcp_tools(
+               config.mcp_servers,
+               tools={"dock": ["set_charging_dock", "read_battery"]},
+               sync_with_robot=True,
+           )
        return toolkit
 
-已通过 ``add_mcp_tools`` 显式注册的服务会被自动注册流程跳过，不会重复挂载。设置 ``sync_with_robot=True`` 后，工具调用会按顺序与机器人动作独占执行，触发 ``get_env_state``，并将远端返回内容保留在观测的 ``tool_result`` 字段中。
+自动注册流程会跳过已通过 ``add_mcp_tools`` 注册的服务，不会重复挂载。如果传入了未声明的服务名，或指定了被该服务 YAML ``tools`` 列表排除的工具，``add_mcp_tools`` 会抛出 ``ValueError``。设置 ``sync_with_robot=True`` 后，这些工具与机器人动作互斥执行（不会并发运行），执行后会触发 ``get_env_state`` 采集观测，并将远端返回内容保存在观测的 ``tool_result`` 字段中。
 
 建议遵循的约定
 --------------
@@ -291,7 +292,7 @@ toolkit 模块通常包含四部分：
 - ``output_dir`` —— 单次运行的临时目录路径。main.py 随后调用 ``init_output_dir`` 创建目录并配置日志。
 - ``prompt_vars`` —— 传给 ``PromptBundle.render`` 的字典，通常包含运行标识和 prompt 引用的其他变量。
 - ``task_desc`` —— 机器人特定的任务标识字典，会原样写入 transcript JSON 记录（LIBERO 使用 ``{"suite": ..., "task": ..., "seed": ...}``）。
-- ``mcp_servers`` —— 可选的机器人自带 MCP 服务元组（可用 :func:`~rpent.utils.mcp_servers.parse_mcp_servers` 解析），运行时会与 ``--mcp-config`` 传入的 YAML 文件路径合并，详见 :ref:`external-mcp-servers`。
+- ``mcp_servers`` —— 可选的机器人自带 MCP 服务元组（可用 :func:`~rpent.utils.mcp_servers.parse_mcp_servers` 解析），运行时会与 ``--mcp-config`` 所指定 YAML 文件中的服务配置合并，详见 :ref:`external-mcp-servers`。
 
 .. code-block:: python
 
