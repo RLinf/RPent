@@ -789,9 +789,18 @@ def workflow_steps(
 
 def sampling_instructions(variables: Mapping[str, object]) -> str:
     """Describe the generic RGB-D tools registered for this run."""
+    comparison = """To check an unclear visual outcome after an action, compare the
+same fixed camera before and after it:
+    image_diff({"camera":"agentview","before_step":0,"after_step":1})
+Read rgb and depth separately. changed_ratio is the fraction of compared pixels
+that crossed the threshold. bbox_rc bounds all changed pixels in that modality.
+Depth uses only pixels valid in both frames. If the result is partial or needs
+another observation, check the reason and inspect the recorded views. Use scene
+and task evidence to decide whether the action succeeded."""
+    instructions = GENERIC_SAMPLING + "\n\n" + comparison
     if variables.get("geometry"):
-        return GENERIC_SAMPLING + "\n\n" + NAMED_GEOMETRY
-    return GENERIC_SAMPLING
+        return instructions + "\n\n" + NAMED_GEOMETRY
+    return instructions
 
 
 def localization(variables: Mapping[str, object]) -> str:

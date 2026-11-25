@@ -18,8 +18,8 @@ radius, or estimate the cup's height from its rim and base centers. The
 point and the rim center. The coordinate components, rim radius and cup height
 are all in metres.
 
-Choose a Tool
--------------
+Choose a Tool for One Step
+--------------------------
 
 All three tools take a ``camera`` and a recorded ``step``. Use ``step=-1`` for
 the latest record. When selecting a pixel on a preview, use the preview's
@@ -41,6 +41,39 @@ the latest record. When selecting a pixel on a preview, use the preview's
    * - ``geometry``
      - Describe the target in ``query``. You can request the 3D coordinates of a point on its visible surface or the bounds of its visible region. To measure the position or size of a specific part, list the measurements in ``required_geometry``.
      - The tool selects image points internally and checks whether they lie on the target object. If needed, it also examines images recorded by other cameras at the same step. It returns a numerical value for a fitted quantity only if the fit passes its quality checks.
+
+Compare Two Recorded Frames
+---------------------------
+
+Use ``image_diff`` to see where the scene changed after an action.
+In LIBERO, add ``--rgbd-tools`` and use the fixed ``agentview`` camera.
+Give an earlier ``before_step`` and a later ``after_step``. Set
+``after_step=-1`` to use the latest recorded step.
+
+.. code-block:: json
+
+   {"camera": "agentview", "before_step": 0, "after_step": 1}
+
+By default, ``image_diff`` compares both RGB and depth. Set ``mode`` to
+``rgb`` or ``depth`` to compare one. By default, a pixel counts as changed
+when the absolute difference reaches 20 in any RGB channel or 0.01 metres
+in depth, depending on the comparison. The ``changed_ratio`` is the
+fraction of compared pixels that changed. The ``bbox_rc`` covers all changed
+pixels and gives [top row, left column, bottom row, right column]. Bottom
+and right are exclusive. A ``null`` box means no pixels met the threshold.
+
+Depth compares only pixels valid in both frames. If fewer than 10% of image
+pixels have common valid depth, the default comparison returns RGB with
+``partial`` status. The tool returns ``"status": "need_observation"`` if a
+camera pose is missing, the camera moved, or the frames differ in resolution,
+coordinate frame or intrinsics.
+
+Use this prompt to guide the planner after an action.
+
+   Compare the fixed view before and after the action. Check the reported
+   boxes against the recorded images. If the camera moved, compare images
+   from another fixed camera. Verify the task outcome using the task's
+   success signal or direct scene evidence.
 
 Use the Tools in a Simulator
 ----------------------------
