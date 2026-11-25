@@ -47,17 +47,19 @@ Keep the same sections and ordering in both languages:
 2. **Leaderboard / 排行榜**: the existing performance and time/token pages.
 3. **Real-World Demos / 真实世界演示**: direct robot demo pages, each linking to
    the corresponding installation and usage guide.
-4. **Guides / 使用指南**: memory and exploration; action primitives and tools;
-   planner configuration; command-line reference; interactive usage
-   (terminal and Dashboard); Flash Mode;
-   trajectory collection and data flywheel; remote services and parallel runs.
-5. **Simulators / 仿真环境**: LIBERO, RoboCasa365, RoboTwin, RoboDojo, and
+4. **Guides / 使用指南**: memory and exploration; planner configuration;
+   command-line reference; interactive usage (terminal and Dashboard); Flash
+   Mode; trajectory collection and data flywheel; remote services and parallel
+   runs.
+5. **Toolkits / 工具包**: action primitives and tools overview, embodied RGB-D
+   toolkit, and external MCP tools.
+6. **Simulators / 仿真环境**: LIBERO, RoboCasa365, RoboTwin, RoboDojo, and
    Embodied First Exam (EFE).
-6. **Real-World Robots / 真实机器人**: Single-Arm Franka, Dual-Arm Franka, YAM,
+7. **Real-World Robots / 真实机器人**: Single-Arm Franka, Dual-Arm Franka, YAM,
    and SO-101. Preserve coming-soon pages and describe their actual status.
-7. **Concepts & Development / 原理与开发**: architecture, interfaces, memory
+8. **Concepts & Development / 原理与开发**: architecture, interfaces, memory
    design, and extension guides for environments, tools, and planners.
-8. **Resources / 项目资源**: Harness VLA, contributing, and release notes.
+9. **Resources / 项目资源**: Harness VLA, contributing, and release notes.
 
 Match source directories to the sidebar groups in both language trees:
 
@@ -67,6 +69,7 @@ Match source directories to the sidebar groups in both language trees:
 | Leaderboard | `leaderboard/` |
 | Real-World Demos | `real_world_demos/` |
 | Guides | `guides/` |
+| Toolkits | `toolkits/` |
 | Simulators | `simulators/` |
 | Real-World Robots | `real_world_robots/` |
 | Concepts & Development | `development/` |
