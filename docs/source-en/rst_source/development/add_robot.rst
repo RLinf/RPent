@@ -496,8 +496,9 @@ lifecycle boundary.
 ``RunFinalizationContext.stop_reason`` and ``stop_info`` carry the planner's
 optional reason and structured stop evidence separately from usage statistics.
 ``cancelled_reason`` carries runner cancellation, such as replacing a Dashboard
-task. Result writers should preserve backend evidence and resolve the final
-category consistently with trajectory capture. LIBERO keeps native success,
+task. Preserve the planner's stop evidence. If you publish a stop category,
+follow the precedence in :doc:`add_planner`, as trajectory capture does. Each robot chooses which fields
+to publish in its result file. LIBERO keeps native success,
 accepted finish, and operator verdict separate in ``result.json``; a planner's
 finish does not establish environment success.
 

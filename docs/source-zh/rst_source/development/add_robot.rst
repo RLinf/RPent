@@ -333,7 +333,7 @@ endpoint（``--env-endpoint``、``--am-endpoint``，以及 LIBERO 的 ``--sam3-e
 
 ``RobotSpec.finalize_run`` 是面向所有机器人、与具体 benchmark 无关的通用运行结束钩子，用于记录单 cell 评测结果，供后续统计和聚合。任何需要发布机器可读评测产物的机器人都可以注册该钩子。其默认值为 ``None``，不会改变 runner 行为。配置该钩子后，终端与 Dashboard runner 会在关闭 toolkit 前读取 ``toolkit.solved()``，完成运行时清理后再把结构化的 ``RunFinalizationContext`` 传给钩子。产物 schema 与文件名由钩子负责，RPent 只定义生命周期边界。
 
-``RunFinalizationContext.stop_reason`` 和 ``stop_info`` 分别传递规划器可选的停止原因和结构化证据，与用量统计分开。``cancelled_reason`` 传递运行器的取消原因，例如 Dashboard 切换任务。结果写入方应保留后端证据，并使用与轨迹记录一致的最终分组。LIBERO 在 ``result.json`` 中分别记录原生成功、已接受的 finish 和操作员裁决；规划器的 finish 不代表环境任务成功。
+``RunFinalizationContext.stop_reason`` 和 ``stop_info`` 分别传递规划器可选的停止原因和结构化证据，与用量统计分开。``cancelled_reason`` 传递运行器的取消原因，例如 Dashboard 切换任务。保留规划器给出的停止证据。如果结果文件记录停止类别，就按 :doc:`add_planner` 中的优先级判定，与轨迹记录一致。各机器人自行选择写入结果文件的字段。LIBERO 在 ``result.json`` 中分别记录原生成功、已接受的 finish 和操作员裁决；规划器的 finish 不代表环境任务成功。
 
 JSON 产物应使用 ``write_json_atomic``，避免中断写入留下不完整结果：
 

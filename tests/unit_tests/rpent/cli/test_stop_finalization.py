@@ -28,6 +28,7 @@ from rpent.dashboard.session import DashboardSessionController
 from rpent.dashboard.state import ClaimedTask, DashboardState
 from rpent.planner.base import PlannerResult
 from rpent.robots import PromptBundle, RobotSpec, RunConfig
+from rpent.utils.mcp_servers import McpServerSpec
 
 _SAFE_STOP = {
     "reason": "backend_pause",
@@ -371,6 +372,13 @@ def test_runner_finalization_and_capture_share_terminal_boundary(
             else tmp_path / "run",
             prompt_vars={},
             task_desc={},
+            mcp_servers=(
+                McpServerSpec(
+                    name="facility",
+                    url="https://facility.example/mcp?key=test-query",
+                    headers={"Authorization": "Bearer test-header"},
+                ),
+            ),
         ),
         init_runtime=lambda *args: ([daemon], {}),
         finalize_run=finalize,
@@ -472,6 +480,10 @@ def test_runner_finalization_and_capture_share_terminal_boundary(
         return
     context = captured[0]
     record = json.loads((tmp_path / "run" / "result.json").read_text())
+    task_record = json.loads((toolkit.state.trajectory_dir / "task.json").read_text())
+    server = task_record["task"]["config"]["data"]["run"]["mcp_servers"][0]
+    assert server["headers"] == {"Authorization": "<redacted>"}
+    assert server["url"] == "https://facility.example/mcp?<redacted>"
     task = toolkit.state.get_task()
     assert task.stop_reason == record["termination_reason"]
     assert record["termination_category"] == (
