@@ -1,28 +1,12 @@
 添加规划器
 ===============
 
-规划器负责接收提示词、选择工具并处理工具结果。
-
-ACP Harness
-------------
-
-ACP 是共享驱动，不是可选的规划器。接入 ACP harness 时，继承
-``rpent/planner/utils/acp.py`` 中的 ``AcpPlanner``，设置 ``backend`` 和显示名称
-``label``。实现 ``_create_session``，准备命令、环境与工具策略，并返回
-``AcpSession``。参考 ``gemini_cli.py`` 和 ``opencode.py``：两者均通过 ACP
-管理会话，通过 HTTP MCP 调用 RPent 工具。按下方步骤以 harness 名称注册适配器。
-
-基类统一处理会话、事件记录和连接探测，并复用 ``utils/agent_session.py`` 的交互控制、
-HTTP MCP、日志与清理逻辑。MCP 地址的配置方式取决于 harness：OpenCode 通过
-``AcpSession`` 传入，Gemini CLI 写入工作目录配置。仅在使用 agent 的 ACP 模型选择器时，
-向会话传入模型 ID。认证和原生轮次限制由 harness 适配器负责，ACP 没有统一的模型轮次上限。
-除连接检查外，还应验证文本和图像工具返回、真实 ``finish`` 调用、消息排队、
-中断及进程清理。
+接入模型后端需要实现 ``Planner``，负责接收提示词、调用工具并返回任务结果。如果 CLI 支持 ACP（Agent Client Protocol），可继承 ``AcpPlanner`` 复用会话执行和交互逻辑。两条接入路径使用相同的工具包和注册步骤。
 
 自定义规划器
 --------------
 
-对于其他执行协议，继承 ``Planner`` 并实现 ``solve``，然后将其加入构建入口和 CLI 选项。
+接入模型 API 或 SDK 时，继承 ``Planner`` 并实现 ``solve``。
 
 以下为接口示意，省略了模型请求和工具循环，不能直接作为实现运行。完整示例可参考 ``rpent/planner/api_loop.py``。
 
@@ -54,7 +38,7 @@ HTTP MCP、日志与清理逻辑。MCP 地址的配置方式取决于 harness：
                error=error,
            )
 
-任何 planner 必须：
+任何规划器都必须：
 
 1. 接收已经渲染好的 ``system_prompt`` 和 ``user_message``。
 2. 从 ``toolkit.list_tools()`` 取得工具的 ``name``、``description`` 和 ``input_schema``，并通过 ``toolkit.execute_tool(name, arguments)`` 执行工具。
@@ -62,12 +46,20 @@ HTTP MCP、日志与清理逻辑。MCP 地址的配置方式取决于 harness：
 4. 识别 ``ToolResult.data.get("_finish")``，并按 ``max_turns`` 等限制终止循环。
 5. 返回包含结束状态、消息、统计信息和可选错误的 ``PlannerResult``。
 
-由于 RPent 工具定义和 prompt 渲染流程保持不变，新增 planner 不需要修改工具或环境服务。接口参见 :doc:`architecture`；想给
-自定义 planner 暴露新工具，见 :doc:`add_primitive`。
+RPent 的工具定义和提示词渲染流程保持不变，新增规划器不需要修改工具或环境服务。接口参见 :doc:`architecture`；添加工具见 :doc:`add_primitive`。
+
+ACP CLI 适配器
+--------------
+
+接入支持 ACP 的 CLI 时，继承 ``rpent/planner/utils/acp.py`` 中的 ``AcpPlanner``，设置 ``backend`` 和显示名称 ``label``。实现 ``_create_session``，准备命令、环境与工具策略，并返回 ``AcpSession``。参考 ``gemini_cli.py`` 和 ``opencode.py``：两者均通过 ACP 管理会话，通过 HTTP MCP 调用 RPent 工具。适配器以 CLI 的名称注册。
+
+基类处理会话、事件记录、连接探测、消息排队、中断及进程清理。OpenCode 通过 ``AcpSession`` 传入 MCP 地址，Gemini CLI 则写入工作目录配置。使用 CLI 的 ACP 模型选择器时，才向 ``AcpSession`` 传入模型 ID。适配器负责认证和原生轮数限制；ACP 没有统一的模型轮数上限。
 
 接入与验证
 ---------------
 
-在 ``rpent/planner/base.py`` 的 ``build_planner`` 中添加构建分支。在线后端还需在 ``rpent/planner/check.py`` 中加入 ``CHECK_PLANNERS``，设置诊断超时并接入连接探测；CLI 从该列表生成在线规划器选项。由 harness 自行配置模型服务的后端，还需加入 ``EXTERNALLY_CONFIGURED_PLANNERS``。Dashboard 会话使用命令行选定的规划器。
+在 ``rpent/planner/base.py`` 的 ``build_planner`` 中添加构建分支。在线后端还需在 ``rpent/planner/check.py`` 中加入 ``CHECK_PLANNERS``，设置诊断超时并接入连接探测；CLI 从该列表生成在线规划器选项。自行配置模型服务的 CLI/SDK 规划器还需加入 ``EXTERNALLY_CONFIGURED_PLANNERS``。Dashboard 会话使用命令行选定的规划器。
 
-验证工具调用、文本和图像返回、``finish``、轮数上限、错误结果，以及需要支持的中断和交互路径。复用 ``tests/unit_tests/rpent/planner/`` 中的测试模式；真实模型连接需要单独验证。
+接入 ACP 适配器还需更新 ``rpent/cli/main.py`` 的 ``--reasoning-effort`` 校验：其中显式列出的 ``gemini_cli`` / ``opencode`` 组仅接受 ``none``。
+
+验证工具调用、文本和图像返回、真实的 ``finish`` 调用、轮数上限、错误结果、消息排队、中断及进程清理。复用 ``tests/unit_tests/rpent/planner/`` 中的测试模式；真实模型连接需要单独验证。

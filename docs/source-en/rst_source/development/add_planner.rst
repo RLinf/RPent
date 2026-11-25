@@ -1,32 +1,15 @@
 Add a Planner
 =============
 
-A planner receives prompts, chooses tools, and consumes their results.
-
-ACP Harnesses
---------------
-
-ACP is a shared driver, not a selectable planner. For an ACP harness, subclass
-``AcpPlanner`` from ``rpent/planner/utils/acp.py`` and set its ``backend`` and
-display ``label``. Implement ``_create_session`` to prepare the command,
-environment, and tool policy and return an ``AcpSession``. See ``gemini_cli.py``
-and ``opencode.py``: both use ACP for sessions and HTTP MCP for RPent tools.
-Register the adapter under the harness's name using the steps below.
-
-The base shares session handling, event recording, probes, and
-``utils/agent_session.py`` interaction, HTTP MCP, artifacts, and cleanup.
-MCP endpoint configuration depends on the harness: OpenCode receives the URL
-through ``AcpSession``; Gemini CLI uses workspace settings. Pass a model ID only when using
-the agent's ACP model selector. Authentication and native turn limits belong
-to the harness adapter; ACP has no standard model-turn budget.
-Verify text and image tool results, actual ``finish`` calls, queued follow-ups,
-cancellation, and process cleanup separately from the connection probe.
+Add a model backend by implementing ``Planner``, which receives prompts, calls
+tools, and returns a task result. For a CLI supporting ACP (Agent Client
+Protocol), subclass ``AcpPlanner`` to reuse session execution and interaction.
+Both paths use the same toolkit and registration steps below.
 
 Custom Planners
 ----------------
 
-For a different execution protocol, subclass ``Planner``, implement ``solve``,
-and expose it through the construction path and CLI choices.
+Subclass ``Planner`` and implement ``solve`` for your model API or SDK.
 
 The following interface sketch omits model requests and the tool loop; it is not a runnable implementation. See ``rpent/planner/api_loop.py`` for a complete backend.
 
@@ -77,14 +60,31 @@ servers. See :doc:`architecture` for the interface, and
 :doc:`add_primitive` if you want to expose new tools to
 your custom planner.
 
+ACP CLI Adapters
+----------------
+
+For an ACP CLI, subclass ``AcpPlanner`` from ``rpent/planner/utils/acp.py`` and
+set its ``backend`` and display ``label``. Implement ``_create_session`` to
+prepare the command, environment, and tool policy and return an ``AcpSession``.
+See ``gemini_cli.py`` and ``opencode.py``: both use ACP for sessions and HTTP MCP
+for RPent tools. Register the adapter under the CLI's name.
+
+The base handles sessions, event recording, connection probes, queued input,
+cancellation, and cleanup. OpenCode passes its MCP URL through ``AcpSession``;
+Gemini CLI uses workspace settings. Pass a model ID to ``AcpSession`` only when
+using the CLI's ACP model selector. The adapter owns authentication and native
+turn limits; ACP has no standard model-turn budget.
+
 Wire and Validate the Planner
 -----------------------------
 
 Add a construction branch in ``rpent/planner/base.py:build_planner``. Register
 an online backend in ``rpent/planner/check.py`` with ``CHECK_PLANNERS``, its
 diagnostic timeout, and a connection probe; the CLI derives its online planner
-choices from that list. For harnesses that own their provider configuration,
+choices from that list. For CLI/SDK planners that own their provider configuration,
 also update ``EXTERNALLY_CONFIGURED_PLANNERS``. Dashboard sessions use the
-planner selected on the command line.
+planner selected on the command line. For an ACP adapter, also update the
+``--reasoning-effort`` validation in ``rpent/cli/main.py``: its explicit
+``gemini_cli`` / ``opencode`` group accepts only ``none``.
 
-Verify tool dispatch, text and image results, ``finish``, turn limits, errors, and the interruption and interaction paths you support. Reuse test patterns in ``tests/unit_tests/rpent/planner/``. Validate real model connectivity separately.
+Verify tool dispatch, text and image results, actual ``finish`` calls, turn limits, errors, queued input, cancellation, and process cleanup. Reuse test patterns in ``tests/unit_tests/rpent/planner/``. Validate real model connectivity separately.

@@ -63,7 +63,7 @@ def _parser() -> argparse.ArgumentParser:
         default=None,
         help="Model id. For the 'api' planner, prefix the provider "
         "(e.g. anthropic:claude-opus-4-8, google:Argon, "
-        "openai:gpt-5.5, openai-chat:glm-5.2). For external harnesses this "
+        "openai:gpt-5.5, openai-chat:glm-5.2). For CLI/SDK planners this "
         "overrides their default model.",
     )
     parser.add_argument(
