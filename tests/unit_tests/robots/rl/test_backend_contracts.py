@@ -91,7 +91,7 @@ class Twin:
             "robot_state": state,
             "episode_status": {"eval_success": False},
         }
-        self.plans, self.chunks = [], []
+        self.plans, self.chunks, self.dense_chunks = [], [], []
         self._client = SimpleNamespace(
             call=lambda method: {
                 side: {"opening": 1.0, "commanded_opening": 1.0}
@@ -107,17 +107,23 @@ class Twin:
         return {
             "status": "Success",
             "position": np.linspace(np.zeros(6), np.ones(6), count),
+            "velocity": np.full((count, 6), 0.5),
         }
 
     def chunk_step(self, actions, *, action_type):
         assert action_type == "qpos"
         self.chunks.append(actions)
-        for side, pose in self.plans:
-            self.last_info["robot_state"][f"{side}_tcp_pose"] = [
-                *np.asarray(pose[:3]) + [0, 0, 0.1],
-                *pose[3:],
-            ]
         return None, None, None, None, {"executed_actions": len(actions)}
+
+    def step_dense_arm(self, arm, position, velocity):
+        self.dense_chunks.append((arm, position, velocity))
+        side, pose = self.plans[-1]
+        assert arm == side
+        self.last_info["robot_state"][f"{arm}_tcp_pose"] = [
+            *np.asarray(pose[:3]) + [0, 0, 0.1],
+            *pose[3:],
+        ]
+        return len(position)
 
 
 def twin_primitives(tmp_path, **kwargs):
@@ -153,17 +159,17 @@ def test_native_camera_backprojection_accepts_sapien_extrinsic_shape(
     )
 
 
-def test_arm_plan_transforms_tcp_to_eef_and_holds_unselected_targets(tmp_path):
+def test_arm_plan_sends_dense_positions_and_velocities_to_the_selected_arm(tmp_path):
     primitive = twin_primitives(tmp_path)
     result = primitive._move_arm("left", primitive._matrix([0.1, 0.2, 0.5, 1, 0, 0, 0]))
     assert result.data["status"] == "reached"
     np.testing.assert_allclose(primitive.env.plans[0][1][:3], [0.1, 0.2, 0.4])
     assert len(primitive.env.plans) == 1
-    actions = primitive.env.chunks[0]
-    assert actions.shape == (3, 14)
-    np.testing.assert_allclose(actions[:, [6, 13]], 1)
-    np.testing.assert_allclose(actions[-1, :6], 1)
-    np.testing.assert_allclose(actions[:, 7:13], 0)
+    assert not primitive.env.chunks
+    arm, positions, velocities = primitive.env.dense_chunks[0]
+    assert arm == "left" and primitive.env_steps == 3
+    np.testing.assert_allclose(positions, np.linspace(np.zeros(6), np.ones(6), 3))
+    np.testing.assert_allclose(velocities, np.full((3, 6), 0.5))
     assert primitive.native_success() is False
 
 
@@ -174,28 +180,28 @@ def test_failed_plan_executes_no_motion(tmp_path):
     )
     assert result.data["reason"] == "plan_failed"
     assert len(primitive.env.plans) == 1
-    assert primitive.env.chunks == [] and primitive.env_steps == 0
+    assert not primitive.env.chunks and not primitive.env.dense_chunks
+    assert primitive.env_steps == 0
 
 
 def test_motion_holds_final_waypoint_until_measured_joint_drive_settles(tmp_path):
     primitive = twin_primitives(tmp_path)
-    execute = primitive.env.chunk_step
+    execute = primitive.env.step_dense_arm
 
-    def lagging_drive(actions, *, action_type):
-        result = execute(actions, action_type=action_type)
-        if len(primitive.env.chunks) == 1:
+    def lagging_drive(arm, position, velocity):
+        result = execute(arm, position, velocity)
+        if len(primitive.env.dense_chunks) == 1:
             primitive.env.last_info["robot_state"]["left_tcp_pose"][2] -= 0.005
         return result
 
-    primitive.env.chunk_step = lagging_drive
+    primitive.env.step_dense_arm = lagging_drive
     result = primitive._move_arm("left", primitive._matrix([0.1, 0.2, 0.5, 1, 0, 0, 0]))
     assert result.data["status"] == "reached"
     assert result.data["settling_steps"] == 10
-    assert len(primitive.env.chunks) == 2
-    np.testing.assert_allclose(
-        primitive.env.chunks[1],
-        np.repeat(primitive.env.chunks[0][-1][None], 10, axis=0),
-    )
+    planned, hold = primitive.env.dense_chunks
+    assert hold[0] == planned[0] == "left"
+    np.testing.assert_allclose(hold[1], np.repeat(planned[1][-1:], 10, axis=0))
+    np.testing.assert_allclose(hold[2], np.zeros((10, 6)))
 
 
 def test_measured_gripper_state_does_not_report_the_command_as_measurement(tmp_path):

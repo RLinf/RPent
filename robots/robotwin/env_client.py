@@ -237,6 +237,38 @@ class RoboTwinEnvClient(BaseEnvClient):
         self._record_qpos_history(info)
         return result
 
+    def step_dense_arm(
+        self, arm: str, position: np.ndarray, velocity: np.ndarray
+    ) -> int:
+        """Advance a planned arm chunk and cache the measured result."""
+        self._require_common_active()
+        before = self.last_info["episode_status"]["take_action_cnt"]
+        info = self._client.call(
+            "env.step_dense_arm",
+            args=(arm, position, velocity),
+            timeout_s=ROBOTWIN_STATE_CHANGE_TIMEOUT_S,
+        )
+        status = self._require_episode_status(info)
+        executed = info["executed_actions"]
+        if (
+            type(executed) is not int
+            or not 0 <= executed <= len(position)
+            or (before + executed != status["take_action_cnt"])
+        ):
+            raise ValueError(
+                f"Dense arm step counter disagrees with executed actions: {info!r}"
+            )
+        self.terminated = bool(status["eval_success"])
+        limit = status["step_lim"]
+        self.truncated = limit is not None and status["take_action_cnt"] >= limit
+        if executed != len(position) and not (self.terminated or self.truncated):
+            raise ValueError(
+                "Dense arm chunk stopped before reporting a terminal state"
+            )
+        self.last_info = info
+        self._record_qpos_history(info)
+        return executed
+
     def render_camera(self, camera_name: str, *, depth: bool = False) -> Any:
         """Render one RoboTwin camera, optionally including depth."""
         if camera_name not in ROBOTWIN_CAMERA_NAMES:

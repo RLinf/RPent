@@ -141,14 +141,14 @@ def test_robotwin_episode_tools_report_and_execute_in_the_same_frame(
             *(np.asarray(tcp[:3]) - [0, 0, 0.1]),
             *tcp[3:],
         ]
-    native_step = env.chunk_step
+    native_step = env.step_dense_arm
 
-    def step_and_displace_tcp(actions, *, action_type):
-        result = native_step(actions, action_type=action_type)
+    def step_and_displace_tcp(arm, position, velocity):
+        result = native_step(arm, position, velocity)
         env.last_info["robot_state"]["right_tcp_pose"][1] += 0.012
         return result
 
-    env.chunk_step = step_and_displace_tcp
+    env.step_dense_arm = step_and_displace_tcp
     stopped = toolkit.execute_tool("execute_actions", {"actions": [move_right, grip]})
     assert stopped.data["executed_count"] == 1
     assert stopped.data["stop_reason"] == "not_at_target"

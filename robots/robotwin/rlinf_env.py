@@ -231,6 +231,62 @@ class RoboTwinAgentEnv(RoboTwinEnv):
             [info],
         )
 
+    def step_dense_arm(
+        self,
+        arm: Literal["left", "right"],
+        position: Any,
+        velocity: Any,
+        env_id: int = 0,
+    ) -> dict[str, Any]:
+        """Play a bounded planned-arm chunk and return measured state."""
+        pos = np.asarray(position, dtype=np.float64)
+        vel = np.asarray(velocity, dtype=np.float64)
+        if (
+            arm not in ("left", "right")
+            or pos.ndim != 2
+            or not 1 <= len(pos) <= 64
+            or pos.shape[1] != 6
+            or pos.shape != vel.shape
+            or not np.isfinite(pos).all()
+            or not np.isfinite(vel).all()
+        ):
+            raise ValueError(
+                "Expected left/right with 1 to 64 finite [N,6] positions and velocities"
+            )
+        sub_env = self._sub_env(env_id)
+        path = {"position": pos[:1], "velocity": vel[:1]}
+        controls = dict.fromkeys(
+            ("left_arm", "right_arm", "left_gripper", "right_gripper")
+        )
+        controls[f"{arm}_arm"] = path
+        per_step = []
+        with sub_env.lock:
+            task = sub_env.task
+            for index in range(len(pos)):
+                if _execution_should_stop(self._episode_status(sub_env)):
+                    break
+                path["position"] = pos[index : index + 1]
+                path["velocity"] = vel[index : index + 1]
+                task.take_dense_action(controls, save_freq=None)
+                task.take_action_cnt += 1
+                if task.check_success():
+                    task.eval_success = True
+                per_step.append(
+                    {
+                        "episode_status": self._episode_status(sub_env),
+                        "qpos_target14": self._qpos_target14(sub_env),
+                    }
+                )
+            status = self._episode_status(sub_env)
+            if self.record_metrics:
+                self._elapsed_steps[env_id] = status["take_action_cnt"]
+            return {
+                "executed_actions": len(per_step),
+                "episode_status": status,
+                "robot_state": self._robot_state(sub_env),
+                "per_step": per_step,
+            }
+
     def step(
         self,
         action: Any,

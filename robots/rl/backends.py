@@ -789,12 +789,10 @@ class RoboTwinPrimitives(ScenePrimitives):
             return ToolResult(
                 data={"status": "partial", "reason": "plan_failed", "arm": arm}
             )
-        initial = np.asarray(state["qpos_target14"], dtype=float)
-        actions = np.repeat(initial[None], len(plan["position"]), axis=0)
-        joint_slice = slice(0, 6) if arm == "left" else slice(7, 13)
-        actions[:, joint_slice] = plan["position"]
+        position = np.asarray(plan["position"], dtype=np.float64)
+        velocity = np.asarray(plan["velocity"], dtype=np.float64)
         goals = {arm: target}
-        result = self._execute(actions)
+        result = self._execute_arm_path(arm, position, velocity)
         if result.is_error:
             return result
         # Native joint drives can still lag the final path waypoint. Hold that
@@ -806,12 +804,12 @@ class RoboTwinPrimitives(ScenePrimitives):
             count = min(10, self._max_episode_steps - self.env_steps)
             if count <= 0:
                 break
-            result = self._execute(
-                np.repeat(np.asarray(actions[-1])[None], count, axis=0)
-            )
+            hold = np.repeat(position[-1:], count, axis=0)
+            before = self.env_steps
+            result = self._execute_arm_path(arm, hold, np.zeros_like(hold))
             if result.is_error:
                 return result
-            settling_steps += count
+            settling_steps += self.env_steps - before
             errors, reached = self._pose_errors(goals)
         result.data.update(
             status="reached" if reached else "partial",
@@ -821,6 +819,23 @@ class RoboTwinPrimitives(ScenePrimitives):
         if not reached:
             result.data["reason"] = "not_at_target"
         return result
+
+    def _execute_arm_path(
+        self, arm: str, position: np.ndarray, velocity: np.ndarray
+    ) -> ToolResult:
+        """Play dense joint targets with a cancellation check between chunks."""
+        count = min(len(position), self._max_episode_steps - self.env_steps)
+        if self.ended or count <= 0:
+            return ToolResult(data={"error": "episode_ended"})
+        for start in range(0, count, 64):
+            self._check_cancelled()
+            end = min(start + 64, count)
+            self.env_steps += self.env.step_dense_arm(
+                arm, position[start:end], velocity[start:end]
+            )
+            if self.ended:
+                break
+        return ToolResult(data={"status": "reached", "env_steps": self.env_steps})
 
     def _pose_errors(self, goals):
         """Compare requested poses with native measured TCPs."""

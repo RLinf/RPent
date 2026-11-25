@@ -275,6 +275,7 @@ class _Task:
         self.success_at = None
         self.fail_at = None
         self.executed = []
+        self.dense_executed = []
         self.observation_reads = 0
         self.reset_count = 0
         self.lock = Lock()
@@ -320,6 +321,14 @@ class _Task:
         self.eval_success = self.take_action_cnt == self.success_at
         if self.take_action_cnt == self.fail_at:
             raise RuntimeError("native action failed")
+
+    def take_dense_action(self, controls, *, save_freq):
+        assert self.lock.locked()
+        assert save_freq is None
+        self.dense_executed.append(deepcopy(controls))
+
+    def check_success(self):
+        return self.take_action_cnt == self.success_at
 
 
 @pytest.fixture
@@ -438,6 +447,38 @@ def test_chunk_returns_only_executed_steps_with_distinct_observations(
         for camera in observation["observation"].values():
             np.testing.assert_array_equal(camera["rgb"], np.full((2, 2, 3), count))
             np.testing.assert_array_equal(camera["intrinsic_cv"], np.eye(3))
+
+
+@pytest.mark.parametrize("stop", ["success", "budget"])
+def test_dense_arm_advances_native_state_and_stops_at_terminal_status(
+    facade, make_server_and_client, stop
+):
+    task = facade._env.venv.envs[0].task
+    if stop == "success":
+        task.success_at = 2
+    else:
+        task.step_lim = 2
+    positions = np.arange(30, dtype=float).reshape(5, 6)
+    velocities = positions / 10
+    with make_server_and_client(facade, "http") as rpc:
+        client = RoboTwinEnvClient(rpc, expected_meta=facade.get_env_meta())
+        assert client.step_dense_arm("right", positions, velocities) == 2
+        assert client.terminated is (stop == "success")
+        assert client.truncated is (stop == "budget")
+        assert client.last_info["episode_status"]["take_action_cnt"] == 2
+        np.testing.assert_array_equal(client.qpos_history[:, 7], [0, 1, 2])
+
+    assert not task.executed
+    assert len(task.dense_executed) == 2
+    for index, command in enumerate(task.dense_executed):
+        assert command["left_arm"] is None
+        assert command["left_gripper"] is None and command["right_gripper"] is None
+        np.testing.assert_array_equal(
+            command["right_arm"]["position"], positions[index : index + 1]
+        )
+        np.testing.assert_array_equal(
+            command["right_arm"]["velocity"], velocities[index : index + 1]
+        )
 
 
 def test_old_frame_format_is_rejected_before_reset(facade, make_server_and_client):
