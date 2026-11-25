@@ -28,6 +28,41 @@ class _StepFailure(Exception):
     pass
 
 
+def test_reload_restores_synchronized_records_without_rewriting_files(tmp_path):
+    original = EnvState(tmp_path)
+    with original.record_step(
+        state={"position": [1, 2, 3]}, command={"action": "move"}
+    ):
+        original.save("frame.png", np.zeros((2, 3, 3), dtype=np.uint8))
+    original.save("rollout.json", {"env_steps": 12}, step=None)
+    manifest = tmp_path / "states.json"
+    before = manifest.read_bytes(), manifest.stat().st_mtime_ns
+
+    restored = EnvState(tmp_path)
+    restored.reload()
+
+    assert restored.records() == original.records()
+    assert restored.load("rollout.json", step=None) == {"env_steps": 12}
+    np.testing.assert_array_equal(
+        restored.load("frame.png"), original.load("frame.png")
+    )
+    assert (manifest.read_bytes(), manifest.stat().st_mtime_ns) == before
+
+
+def test_reload_rejects_broken_order_without_replacing_the_live_trace(tmp_path):
+    state = EnvState(tmp_path)
+    with state.record_step(state={"valid": True}):
+        pass
+    manifest = tmp_path / "states.json"
+    data = json.loads(manifest.read_text())
+    data["steps"][0]["step_idx"] = 8
+    manifest.write_text(json.dumps(data))
+    with pytest.raises(ValueError, match="consecutive"):
+        state.reload()
+    assert state.latest_step == 0
+    assert state.get().state == {"valid": True}
+
+
 def test_step_record_serializes_optional_fields_and_sorts_artifacts() -> None:
     minimal = StepRecord(
         step_idx=2,

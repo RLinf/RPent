@@ -61,7 +61,10 @@ def test_server_arguments_reach_runtime_config():
     assert cfg.task_config.task_name == "fill_pen_holder"
     assert cfg.task_config.source_root == "/data/code"
     assert cfg.task_config.save_dir == "/data/output"
-    assert cfg.task_config.cuda_device == 2
+    assert cfg.task_config.cuda_device == 0
+    assert cfg.task_config.device == "cuda:0"
+    assert "--/renderer/multiGpu/enabled=false" in cfg.task_config.kit_args
+    assert "--/renderer/activeGpu=2" in cfg.task_config.kit_args
     assert cfg.task_config.headless and cfg.task_config.random
     assert cfg.task_config.max_episode_steps == 1200
     assert (

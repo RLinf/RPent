@@ -1,0 +1,26 @@
+nodes:
+  local:
+    output_dir: /work/runs/mixed-smoke/services
+    sam3:
+      python: /work/envs/sam3/bin/python
+      checkpoint: /work/models/sam3/sam3.pt
+      port: 28424
+      replicas: {0: 1}
+    backends:
+      libero:
+        python: /work/envs/libero/bin/python
+        port: 28561
+        gpu_slots: {1: 4}
+        sam3_endpoint: http://127.0.0.1:28424
+        env:
+          LIBERO_TYPE: pro
+          LIBERO_CONFIG_PATH: /work/data/libero-config
+          MUJOCO_GL: egl
+          PYOPENGL_PLATFORM: egl
+      robotwin:
+        python: /work/envs/robotwin/bin/python
+        port: 28562
+        gpu_slots: {1: 4}
+        sam3_endpoint: http://127.0.0.1:28424
+        env:
+          ROBOTWIN_ASSETS_PATH: /work/data/robotwin

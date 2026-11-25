@@ -892,6 +892,25 @@ class EnvState:
         self._run_artifacts: set[str] = set()
         self._step_open = False
 
+    def reload(self) -> None:
+        """Load a complete manifest after its artifacts have been synchronized."""
+        with self._artifact_lock:
+            if self._step_open:
+                raise RuntimeError("cannot reload during a state capture")
+            manifest = json.loads(self._manifest_file().read_text())
+            records = []
+            for index, row in enumerate(manifest["steps"]):
+                record = StepRecord(**{**row, "artifacts": set(row["artifacts"])})
+                if record.step_idx != index:
+                    raise ValueError("state records must have consecutive step indices")
+                for name in record.artifacts:
+                    self._validate_name(name)
+                records.append(record)
+            artifacts = set(manifest["run_artifacts"])
+            for name in artifacts:
+                self._validate_name(name)
+            self._steps, self._run_artifacts = records, artifacts
+
     @property
     def latest_step(self) -> int | None:
         if not self._steps:

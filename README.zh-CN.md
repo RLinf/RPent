@@ -124,6 +124,8 @@ RPent 面向以下四类用户：
 
 ## 快速开始
 
+LIBERO、RoboTwin、RoboCasa 和 RoboDojo 共用一套 episode 工具。参见[安装与采集指南](docs/source-zh/rst_source/simulators/rl.rst)。
+
 **1. 选择一个环境并安装 RPent。**
 
 ```bash

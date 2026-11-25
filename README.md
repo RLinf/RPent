@@ -124,6 +124,8 @@ RPent is built for four kinds of users:
 
 ## Quick Start
 
+Run LIBERO, RoboTwin, RoboCasa or RoboDojo with the shared episode tools. See the [installation and rollout guide](docs/source-en/rst_source/simulators/rl.rst).
+
 **1. Choose an environment and install RPent.**
 
 ```bash

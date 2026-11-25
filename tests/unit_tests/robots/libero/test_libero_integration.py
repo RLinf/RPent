@@ -436,6 +436,71 @@ def test_no_capture_context_keeps_fast_chunk_path(capture_actions, tmp_path):
     assert not (tmp_path / "trajectories").exists()
 
 
+def test_seeded_vla_chunks_repeat_after_reset():
+    requests = []
+
+    class Model(_Model):
+        def predict(self, observation, *, options):
+            requests.append(options.copy())
+            return super().predict(observation, options=options)
+
+    primitives = LiberoPrimitives(_Env(), Model(), None, lambda: None, vla_seed=42)
+    for _ in range(2):
+        primitives.reset()
+        primitives._vlm_chunk("pick up the bowl")
+        primitives._vlm_chunk("pick up the bowl")
+    assert requests[:2] == requests[2:]
+    assert requests[0]["seed"] != requests[1]["seed"]
+
+
+def _rl_episode_args(tmp_path, monkeypatch, init_runtime, toolkit):
+    from robots.rl import rl_episode
+
+    spec = SimpleNamespace(
+        parse_config=lambda args: SimpleNamespace(prompt_vars={}),
+        init_runtime=init_runtime,
+        configure_planner=lambda planner, config: planner,
+        prompts=SimpleNamespace(render=lambda *args, **kwargs: "Move the robot."),
+    )
+    monkeypatch.setattr(rl_episode, "init_output_dir", lambda path: None)
+    monkeypatch.setattr(rl_episode, "get_robot_spec", lambda: spec)
+    monkeypatch.setattr(rl_episode, "get_toolkit", lambda **kwargs: toolkit())
+    request = tmp_path / "request.json"
+    planner = {
+        "base_url": "http://trainer/v1",
+        "model_name": "policy",
+        "max_tokens": 64,
+        "max_turns": 2,
+        "request_timeout_s": 5,
+        "episode_timeout_s": 5,
+        "history_compaction": None,
+    }
+    task = {"suite": "libero_goal", "task": 7, "seed": 3, "init_state_id": 3}
+    request.write_text(json.dumps({"task": task, "planner": planner}))
+    return SimpleNamespace(
+        output_dir=tmp_path,
+        request=request,
+        image_size=1024,
+        tokenizer_path=None,
+    )
+
+
+def test_rl_episode_setup_failure_releases_started_services(tmp_path, monkeypatch):
+    from robots.rl import rl_episode
+
+    daemon = SimpleNamespace(stop=Mock())
+
+    def toolkit():
+        raise RuntimeError("env did not answer")
+
+    args = _rl_episode_args(
+        tmp_path, monkeypatch, lambda *args: ([daemon], {}), toolkit
+    )
+    assert rl_episode.run(args) == rl_episode.EXIT_SETUP_FAILED
+    daemon.stop.assert_called_once()
+    assert not (tmp_path / "outcome.json").exists()
+
+
 @pytest.mark.parametrize("failure", [None, "predict", "step"])
 def test_policy_subinstruction_does_not_mutate_environment_observations(failure):
     env = _Env()
@@ -482,8 +547,10 @@ def test_spawned_env_server_keeps_caller_mujoco_gl(
     else:
         monkeypatch.setenv("MUJOCO_GL", environ)
     monkeypatch.setattr(robot_spec, "ProcessDaemon", FakeDaemon)
-    monkeypatch.setattr(robot_spec, "pick_free_port", lambda: 43210)
-    monkeypatch.setattr(robot_spec, "HttpRpcClient", lambda url: url)
+    monkeypatch.setattr(
+        robot_spec, "wait_for_endpoint", lambda _: "http://127.0.0.1:43210"
+    )
+    monkeypatch.setattr(robot_spec, "make_rpc_client", lambda url: url)
     args = SimpleNamespace(
         env_endpoint=None,
         suite="libero_object",
@@ -599,6 +666,8 @@ def test_recipe_exports_generic_segment_calls_without_geometry_masks(tmp_path):
 
 class _LiberoBackend:
     def __init__(self):
+        self.task_ids = np.array([0])
+        self.trial_ids = np.array([0])
         self.executed = []
         self.wrap_count = 0
         self.reset_count = 0
@@ -795,3 +864,51 @@ def test_libero_failed_chunk_discards_unconfirmed_actions(
         {"start_index": 2, "stop_index": 3, "instruction": "move"}
     ]
     assert [item["action_id"] for item in selected["rejected"]] == [recovered.action_id]
+
+
+def test_rl_episode_reports_outcome_after_releasing_the_scene(tmp_path, monkeypatch):
+    from robots.rl import rl_episode
+
+    released, seen = [], {}
+    daemon = SimpleNamespace(stop=lambda: released.append("env"))
+
+    def init_runtime(args, output, events, components):
+        seen.update(output=output, components=components, task=args.task)
+        return [daemon], {}
+
+    def toolkit():
+        return SimpleNamespace(
+            primitives=SimpleNamespace(reset_info={"init_state_id": 3}),
+            solved=lambda: True,
+            state=SimpleNamespace(
+                records=lambda: [],
+                latest_record=lambda: SimpleNamespace(truncated=False),
+            ),
+            close=lambda: released.append("toolkit"),
+        )
+
+    async def solve(*args, **kwargs):
+        assert not released and not (tmp_path / "outcome.json").exists()
+        return SimpleNamespace(
+            messages=[],
+            stats={"turns_used": 1},
+            finish_result=None,
+            error=None,
+            error_kind=None,
+        )
+
+    args = _rl_episode_args(tmp_path, monkeypatch, init_runtime, toolkit)
+    monkeypatch.setattr(rl_episode, "solve", solve)
+    assert rl_episode.run(args) == 0
+    assert seen == {"output": tmp_path, "components": {"env", "sam3"}, "task": 7}
+    assert released == ["toolkit", "env"]
+    # The trainer reads exactly these fields.
+    assert json.loads((tmp_path / "outcome.json").read_text()) == {
+        "success": True,
+        "truncated": False,
+        "terminal": True,
+        "termination_reason": "success",
+        "error": None,
+        "error_kind": None,
+        "init_state_id": 3,
+    }
