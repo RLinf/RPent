@@ -78,19 +78,26 @@ execution uncertain. If automatic state capture after an action raises an
 exception, Toolkit marks the execution outcome as uncertain.
 
 Return ``ToolResult(execution_uncertain=True, data={"error": ...})`` when native
-feedback cannot establish the execution outcome. Toolkit preserves this flag
-through observation capture; it is internal metadata, not part of ``to_dict()``
-or the model-facing result payload. Validation failures and cancellation before the
-handler starts do not set it. Invalid JSON results carry
-``code="tool_result_serialization_failed"`` separately from execution certainty;
-callers must treat that code as incomplete result delivery.
+feedback cannot establish the execution outcome. Read the flag from the
+``ToolResult`` returned by ``Toolkit.execute_tool``.
+``to_dict()``, tool-call records, step records, Dashboard summaries, and the
+model-facing payload all omit it. The flag stays false when argument validation
+fails, cancellation precedes the handler, or the write policy denies access
+before the first write. If a result cannot be serialized to JSON, treat
+``code="tool_result_serialization_failed"`` as incomplete result delivery
+regardless of execution certainty.
 
 Use ``Toolkit.refresh_observation()`` to capture an observation outside a tool
-call. It takes the exclusive scheduler, checks cancellation, and publishes the
-new state record. It rejects paused or closed toolkits and never resumes them.
-If capture finishes during cancellation, the record is published before the
-cancellation is reported. Keep provenance outside ``StepRecord.command``:
-replayable commands contain only ``action`` and the tool's arguments.
+call. It takes an exclusive scheduler slot and checks for cancellation. It
+publishes a step only if ``get_env_state`` appends one. If capture raises, the
+exception propagates without publishing a step. The recorded command is
+``{"action": "refresh_observation"}``. This action has no registered tool, so the
+planner cannot call it. Trajectory consumers must skip it when validating or
+replaying tool actions. Paused or closed toolkits reject the refresh and stay
+in that state. If cancellation arrives during a successful capture, the new
+record is published before cancellation is reported. Store provenance outside
+``StepRecord.command`` so replayable commands contain only ``action`` and the
+tool arguments.
 
 .. _add-primitive-model-based:
 

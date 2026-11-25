@@ -59,9 +59,9 @@
 
 ``uncertain_on_error`` 默认取 ``not readonly``。按此默认值，只读的观测或缓存处理函数抛出异常，本身不会使执行结果变得不确定。动作执行后，如果自动状态采集抛出异常，Toolkit 会将执行结果标记为不确定。
 
-当原生反馈无法确认执行结果时，返回 ``ToolResult(execution_uncertain=True, data={"error": ...})``。Toolkit 在采集观测后保留此标记；它属于内部元数据，不进入 ``to_dict()`` 或发送给模型的结果内容。参数校验失败、处理函数开始前的取消不会设置该标记。无效 JSON 结果另外携带 ``code="tool_result_serialization_failed"``，调用方应将其视为结果交付不完整，不与执行确定性混为一谈。
+原生反馈无法确认执行结果时，返回 ``ToolResult(execution_uncertain=True, data={"error": ...})``。只有 ``Toolkit.execute_tool`` 返回的 ``ToolResult`` 保留此标记。``to_dict()``、工具调用记录、步骤记录、Dashboard 摘要以及发给模型的结果均不包含该字段。参数校验失败、处理函数开始前收到取消请求，或写入权限检查在首次写入前拒绝请求时，标记均为假。结果无法序列化为 JSON 时，无论执行结果是否确定，调用方都应将 ``code="tool_result_serialization_failed"`` 视为结果交付不完整。
 
-在工具调用之外采集观测时，使用 ``Toolkit.refresh_observation()``。它通过独占调度执行，检查取消状态，并发布新状态记录。已暂停或关闭的 Toolkit 会拒绝刷新，刷新方法不会自行恢复执行。如果采集过程中发生取消，已完成的记录会先发布，再报告取消。操作来源应保存在 ``StepRecord.command`` 之外；可回放命令只包含 ``action`` 和工具参数。
+在工具调用之外采集观测时，使用 ``Toolkit.refresh_observation()``。它独占调度并检查取消状态。只有 ``get_env_state`` 新增步骤记录时才发布该记录。采集抛出异常时，异常会传给调用方，本次刷新不会发布记录。记录中的命令为 ``{"action": "refresh_observation"}``。这个动作没有注册为工具，规划器无法调用它。读取轨迹的程序在校验或回放工具动作时必须跳过它。已暂停或关闭的 Toolkit 会拒绝刷新并保持原状态。如果成功采集到新记录时已收到取消请求，会先发布记录，再报告取消。操作来源应保存在 ``StepRecord.command`` 之外，可回放命令只包含 ``action`` 和工具参数。
 
 .. _add-primitive-model-based:
 
