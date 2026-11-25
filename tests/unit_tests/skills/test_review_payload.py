@@ -265,23 +265,70 @@ def test_thread_posted_row_supports_carried_forward_replies(monkeypatch):
     findings = review["ReviewLinter"]({"body": duplicated, "comments": []}, None).run()
     assert any("replied on an existing thread" in f.message for f in findings)
 
-    # With --pr, exact thread match passes, shifted line warns, missing file errors.
+    # With --pr, active and outdated threads both pass, shifted lines warn, missing files error.
     pr = review["PullRequest"]("RLinf/RPent", 372)
     monkeypatch.setattr(
-        review["PullRequest"],
-        "commented_lines",
-        {("rpent/x.py", "RIGHT", 2): "reviewer"},
+        pr,
+        "api_items",
+        lambda endpoint, jq: [
+            {
+                "path": "rpent/x.py",
+                "side": "RIGHT",
+                "line": 2,
+                "original_line": 2,
+                "user": "reviewer",
+                "in_reply_to_id": None,
+            },
+            {
+                "path": "rpent/outdated.py",
+                "side": "RIGHT",
+                "line": None,
+                "original_line": 14,
+                "user": "reviewer",
+                "in_reply_to_id": None,
+            },
+            {
+                "path": "rpent/outdated.py",
+                "side": "RIGHT",
+                "line": None,
+                "original_line": 14,
+                "user": "author",
+                "in_reply_to_id": 100,
+            },
+        ],
     )
+    assert pr.commented_lines == {("rpent/x.py", "RIGHT", 2): "reviewer"}
+    assert pr.thread_lines == {
+        ("rpent/x.py", "RIGHT", 2): "reviewer",
+        ("rpent/outdated.py", "RIGHT", 14): "reviewer",
+    }
+
     findings = review["ReviewLinter"](
         {"body": body_with_thread, "comments": []}, pr
     ).run()
     assert findings == []
 
+    outdated_body = body_with_thread.replace("`rpent/x.py:2`", "`rpent/outdated.py:14`")
+    findings = review["ReviewLinter"]({"body": outdated_body, "comments": []}, pr).run()
+    assert findings == []
+
+    outdated_moved_body = body_with_thread.replace(
+        "`rpent/x.py:2`", "`rpent/outdated.py:20`"
+    )
+    findings = review["ReviewLinter"](
+        {"body": outdated_moved_body, "comments": []}, pr
+    ).run()
+    assert [f for f in findings if f.level == "ERROR"] == []
+    assert any(
+        f.level == "WARN" and "no existing thread sits on line 20" in f.message
+        for f in findings
+    )
+
     shifted_body = body_with_thread.replace("`rpent/x.py:2`", "`rpent/x.py:10`")
     findings = review["ReviewLinter"]({"body": shifted_body, "comments": []}, pr).run()
     assert [f for f in findings if f.level == "ERROR"] == []
     assert any(
-        f.level == "WARN" and "no active thread sits on line 10" in f.message
+        f.level == "WARN" and "no existing thread sits on line 10" in f.message
         for f in findings
     )
 

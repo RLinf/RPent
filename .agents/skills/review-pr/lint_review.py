@@ -255,16 +255,38 @@ class PullRequest:
                 old, new = old + 1, new + 1
 
     @cached_property
+    def _top_level_comments(self) -> list[dict]:
+        """All top-level PR review comments (active and outdated)."""
+        return [
+            c
+            for c in self.api_items(
+                f"repos/{self.repo}/pulls/{self.number}/comments",
+                '.[] | {path, side: (.side // "RIGHT"), line, original_line, '
+                "user: .user.login, in_reply_to_id}",
+            )
+            if c["in_reply_to_id"] is None
+        ]
+
+    @cached_property
     def commented_lines(self) -> dict[tuple[str, str, int], str]:
-        """Maps (path, side, line) of existing review threads to their author."""
-        items = self.api_items(
-            f"repos/{self.repo}/pulls/{self.number}/comments",
-            ".[] | {path, side, line, user: .user.login, in_reply_to_id}",
-        )
+        """Maps (path, side, line) of active review threads to their author."""
         return {
             (c["path"], c["side"], c["line"]): c["user"]
-            for c in items
-            if c["line"] is not None and c["in_reply_to_id"] is None
+            for c in self._top_level_comments
+            if c["line"] is not None
+        }
+
+    @cached_property
+    def thread_lines(self) -> dict[tuple[str, str, int], str]:
+        """Maps (path, side, line) of active and outdated review threads to their author."""
+        return {
+            (
+                c["path"],
+                c["side"],
+                c["line"] if c["line"] is not None else c["original_line"],
+            ): c["user"]
+            for c in self._top_level_comments
+            if (c["line"] if c["line"] is not None else c["original_line"]) is not None
         }
 
     def review_comments(self, review_id: int) -> list[dict]:
@@ -608,15 +630,13 @@ class ReviewLinter:
             path, start, end = m[1], int(m[2]), int(m[3] or m[2])
             if row.posted == "thread":
                 if self.pr is not None:
-                    if any(
-                        (path, side, end) in self.pr.commented_lines
-                        for side in ("RIGHT", "LEFT")
-                    ):
+                    threads = self.pr.thread_lines
+                    if any((path, side, end) in threads for side in ("RIGHT", "LEFT")):
                         continue
-                    if any(p == path for p, _, _ in self.pr.commented_lines):
+                    if any(p == path for p, _, _ in threads):
                         self.warn(
                             f"body {row.id}",
-                            f"marked 'thread' at {m[0]}, but no active thread sits on line {end} of {path}",
+                            f"marked 'thread' at {m[0]}, but no existing thread sits on line {end} of {path}",
                         )
                     else:
                         self.error(
