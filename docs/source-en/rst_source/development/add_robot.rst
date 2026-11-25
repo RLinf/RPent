@@ -250,34 +250,34 @@ refer to tools by their bare names (``move_to``, ...) and note once that the
 Claude Code and Codex SDKs show them as ``mcp__rpent__<name>``. Do not
 maintain separate prompt copies for CLI and API planners.
 
-.. code-block:: python
+When integrating a manipulation robot, use the common prompts in
+``rpent/prompt/`` by default. Add only instructions specific to the robot
+under ``robots/<robot>/``. The shared ``evaluate.py`` and ``explore.py``
+modules use the same seven system prompt sections defined in ``workflow.py``.
 
-   # robots/myrobot/prompt_bundle.py
-   from robots.myrobot.prompts import system as system_parts
-   from robots.myrobot.prompts import user as user_parts
-   from rpent.prompt.utils import PromptNode
+- ``ROLE AND TASK`` — Identify the goal and the evidence needed to establish success.
+- ``RUNTIME AND SAFETY`` — Set tool, access and motion limits.
+- ``INITIALIZATION AND MEMORY`` — Specify the startup checks and memory read order.
+- ``PERCEPTION AND LOCALIZATION`` — Explain how to identify and localize the target.
+- ``ACTION AND VERIFICATION`` — Choose an action and check its physical effect.
+- ``RECOVERY AND BUDGET`` — Decide when to correct, retry or stop.
+- ``SUCCESS AND REPORTING`` — Check the verdict and record the outcome.
 
-   def system_prompt() -> PromptNode:
-       return {
-           "INTRO": system_parts.PREAMBLE,
-           "GOAL": system_parts.GOAL,
-           "RULES": system_parts.RULES,
-           "WORKFLOW": system_parts.WORKFLOW,
-           "ENVIRONMENT": system_parts.ENVIRONMENT,
-           "OUTPUT": system_parts.OUTPUT,
-       }
+Organize robot-specific prompts under ``robots/<robot>/prompts/`` as follows:
 
-   def user_prompt() -> PromptNode:
-       return {
-           "TASK": user_parts.TASK,
-           "BEGIN": user_parts.BEGIN,
-       }
+- ``system.py`` holds the robot's common system instructions and evaluation
+  rules, such as camera views, coordinate frames and the native success signal.
+- ``explore.py`` holds additions specific to exploration on this robot, such as
+  which records to save before a reset and where to write handoff notes.
+- ``action_models.py`` keeps each action model's instruction format, chunk
+  length and history rules together.
+- ``user.py`` defines the per-run task fields in ``TASK`` and the startup
+  instruction in ``BEGIN``.
 
-Keep the prompt content under the robot package, for example in
-``robots/myrobot/prompts/system.py`` and ``user.py``. Section bodies are plain
-strings (or ``BulletList`` / ``Numbered``) with ``{{suite}}`` / ``{{task}}`` /
-``{{seed}}`` / ``{{output_dir}}`` / ``{{recipe_tag}}`` placeholders filled at
-render time.
+In ``robots/<robot>/prompt_bundle.py``, select the shared workflow for the
+run mode and append the robot's instructions to the corresponding sections.
+Pass the active model's guidance through ``action_model_guidance`` to append
+it to ``ACTION AND VERIFICATION``.
 
 .. _add-robot-toolkit:
 
