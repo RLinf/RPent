@@ -250,9 +250,10 @@ refer to tools by their bare names (``move_to``, ...) and note once that the
 Claude Code and Codex SDKs show them as ``mcp__rpent__<name>``. Do not
 maintain separate prompt copies for CLI and API planners.
 
-For a manipulation robot, start with the workflow in ``rpent/prompt/workflow.py``.
-Evaluation uses one episode and recovers within it. Exploration adds retry,
-handoff and memory-writing instructions. Both use the same seven system sections.
+When integrating a manipulation robot, use the common prompts in
+``rpent/prompt/`` by default. Add only instructions specific to the robot
+under ``robots/<robot>/``. The shared ``evaluate.py`` and ``explore.py``
+modules use the same seven system prompt sections defined in ``workflow.py``.
 
 - ``ROLE AND TASK`` — Identify the goal and the evidence needed to establish success.
 - ``RUNTIME AND SAFETY`` — Set tool, access and motion limits.
@@ -262,34 +263,36 @@ handoff and memory-writing instructions. Both use the same seven system sections
 - ``RECOVERY AND BUDGET`` — Decide when to correct, retry or stop.
 - ``SUCCESS AND REPORTING`` — Check the verdict and record the outcome.
 
-Each keyword adds robot-specific text after the shared instructions in that
-section. For example, a robot can supply its guide and camera checks through
-``initialization``. The user prompt carries the run's task in ``TASK`` and
-the first instruction in ``BEGIN``. This example expects ``task`` in the
-variables passed to ``PromptBundle.render``.
+Follow RoboTwin's layout for each robot's ``prompts/`` directory:
+
+- ``system.py`` holds the robot's common system instructions and evaluation
+  rules, such as camera views, coordinate frames and the native success signal.
+- ``explore.py`` holds additions specific to exploration on this robot, such as
+  which records to save before a reset and where to write handoff notes.
+- ``action_models.py`` keeps each action model's instruction format, chunk
+  length and history rules together. For example, RoboTwin's LingBot requires
+  the full task instruction, while UniWAM can run the native task with the
+  instruction omitted.
+- ``user.py`` defines the per-run task fields in ``TASK`` and the startup
+  instruction in ``BEGIN``.
+
+In ``robots/<robot>/prompt_bundle.py``, select the shared workflow for the
+run mode and append the robot's instructions to the corresponding sections.
+Pass the active model's guidance through ``action_model_guidance`` to append
+it to ``ACTION AND VERIFICATION``. This excerpt shows how RoboTwin supplies
+the startup sequence and model guidance for a LingBot evaluation.
 
 .. code-block:: python
 
-   from rpent.prompt import evaluate, explore
-   from rpent.prompt.workflow import user_prompt as build_user_prompt
+   from robots.robotwin.prompts import action_models, system, user
+   from rpent.prompt import evaluate
+   from rpent.prompt.workflow import user_prompt
 
-   def system_prompt(variables=None):
-       variables = variables or {}
-       workflow = explore if variables.get("mode") == "explore" else evaluate
-       return workflow.system_prompt(
-           initialization="Read the robot guide and inspect the initial observation.",
-       )
-
-   def user_prompt(variables=None):
-       return build_user_prompt(task="{{task}}", begin="Inspect the current scene.")
-
-Keep robot-specific instructions under ``robots/<robot>/prompts/``. When a
-robot supports several action models, its prompt factory can select guidance
-for the active backend and pass it as ``action_model_guidance`` to
-``workflow.system_prompt()``. The workflow appends that text to
-``ACTION AND VERIFICATION``, after the robot's own action instructions.
-Use it for details such as which tool arguments to supply and when to
-inspect the result of an action chunk.
+   system_sections = evaluate.system_prompt(
+       initialization=system.READ_ORDER,
+       action_model_guidance=action_models.GUIDANCE["lingbot"],
+   )
+   user_sections = user_prompt(user.TASK, user.BEGIN)
 
 .. _add-robot-toolkit:
 

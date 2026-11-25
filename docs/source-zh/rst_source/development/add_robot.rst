@@ -189,7 +189,7 @@ RPent 的整体进程划分、服务职责和通信方式见 :doc:`系统说明 
 
 定义 ``system_prompt()`` 和 ``user_prompt()`` 两个 prompt 工厂，并在机器人的 ``robot_spec.py`` 中构造 ``PromptBundle(system=system_prompt, user=user_prompt)`` （见上面的“入口”）。每个工厂返回一个有序的 ``dict[str, PromptNode]``，其中包含带标题的分节； ``PromptBundle.render`` 负责组装和填充。一套 prompt 供 API loop、Claude Code 和 Codex 等 planner 共用。正文使用工具的裸名（如 ``move_to``），并说明 Claude Code 和 Codex SDK 会将其显示为 ``mcp__rpent__<name>``；无需分别维护 CLI 与 API 版本。
 
-接入操作类机器人时，可以从 ``rpent/prompt/workflow.py`` 的共享工作流开始。评测模式在一个 episode 内完成任务并处理失败。探索模式增加了重试、会话交接和记忆写入规则。两种模式使用相同的七个系统提示词分节。
+接入操作类机器人时，优先复用 ``rpent/prompt/`` 中的通用提示词，只在 ``robots/<robot>/`` 下补充该机器人特有的内容。评测和探索分别使用公共的 ``evaluate.py`` 和 ``explore.py``，两者共用 ``workflow.py`` 定义的七个系统提示词分节。
 
 - ``ROLE AND TASK`` — 明确目标，以及判定成功所需的证据。
 - ``RUNTIME AND SAFETY`` — 说明工具、文件访问与运动的限制。
@@ -199,24 +199,26 @@ RPent 的整体进程划分、服务职责和通信方式见 :doc:`系统说明 
 - ``RECOVERY AND BUDGET`` — 根据剩余预算决定何时纠偏、重试或停止。
 - ``SUCCESS AND REPORTING`` — 核对环境判定并记录结果。
 
-各关键字参数会把机器人专用说明追加到对应分节。例如，``initialization`` 可以指定启动时要读的指南和要检查的相机视图。用户提示词用 ``TASK`` 传入本次任务，用 ``BEGIN`` 指明第一步。下面的示例从传给 ``PromptBundle.render`` 的变量中读取 ``task``。
+按 RoboTwin 的目录结构组织每个机器人的 ``prompts/``：
+
+- ``system.py`` 放机器人共用的系统说明和评测专用规则，例如相机视角、坐标系和原生成功信号。
+- ``explore.py`` 放该机器人在探索模式下追加的规则，例如重置前要保存哪些记录、交接笔记写到哪里。
+- ``action_models.py`` 按动作模型分别维护调用约定，包括输入指令、动作块长度和历史状态。例如 RoboTwin 的 LingBot 要求传入完整任务指令，UniWAM 则允许省略指令来执行原任务。
+- ``user.py`` 定义本轮任务字段 ``TASK`` 和启动指令 ``BEGIN``。
+
+``robots/<robot>/prompt_bundle.py`` 负责组装。它根据本轮模式选择公共工作流，将机器人专用说明追加到对应分节，并通过 ``action_model_guidance`` 将当前动作模型的调用约定追加到 ``ACTION AND VERIFICATION``。下面以 RoboTwin 的 LingBot 评测为例，展示启动顺序和模型说明的接法。
 
 .. code-block:: python
 
-   from rpent.prompt import evaluate, explore
-   from rpent.prompt.workflow import user_prompt as build_user_prompt
+   from robots.robotwin.prompts import action_models, system, user
+   from rpent.prompt import evaluate
+   from rpent.prompt.workflow import user_prompt
 
-   def system_prompt(variables=None):
-       variables = variables or {}
-       workflow = explore if variables.get("mode") == "explore" else evaluate
-       return workflow.system_prompt(
-           initialization="Read the robot guide and inspect the initial observation.",
-       )
-
-   def user_prompt(variables=None):
-       return build_user_prompt(task="{{task}}", begin="Inspect the current scene.")
-
-机器人专用说明放在 ``robots/<robot>/prompts/`` 下。如果机器人支持多种动作模型，提示词工厂可以按当前后端选择调用说明，通过 ``action_model_guidance`` 传给 ``workflow.system_prompt()``。工作流会将这段说明追加到 ``ACTION AND VERIFICATION`` 分节中机器人动作说明的末尾。可以在这里指定工具需要哪些参数，以及何时检查动作块的执行结果。
+   system_sections = evaluate.system_prompt(
+       initialization=system.READ_ORDER,
+       action_model_guidance=action_models.GUIDANCE["lingbot"],
+   )
+   user_sections = user_prompt(user.TASK, user.BEGIN)
 
 .. _add-robot-toolkit:
 
