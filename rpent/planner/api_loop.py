@@ -59,7 +59,6 @@ from pydantic_ai.capabilities import AbstractCapability, Thinking, on_event
 from pydantic_ai.capabilities.abstract import AgentNode, NodeResult, WrapRunHandler
 from pydantic_ai.exceptions import (
     ModelAPIError,
-    ModelHTTPError,
     UnexpectedModelBehavior,
     UsageLimitExceeded,
     UserError,
@@ -116,15 +115,18 @@ def _is_response_truncation(exc: UnexpectedModelBehavior) -> bool:
     return "token limit" in message and "before any response was generated" in message
 
 
-def _is_context_overflow(exc: ModelHTTPError) -> bool:
+def _is_context_overflow(exc: Exception) -> bool:
     """Match an endpoint that rejects a request longer than its context."""
-    if not isinstance(exc.body, dict):
+    body = getattr(exc, "body", None)
+    if not isinstance(body, dict):
         return False
-    if exc.body.get("code") == "context_length_exceeded":
+    if isinstance(body.get("error"), dict):
+        body = body["error"]
+    if body.get("code") == "context_length_exceeded":
         return True
-    message = str(exc.body.get("message", "")).lower()
+    message = str(body.get("message", "")).lower()
     return (
-        exc.status_code == 400
+        getattr(exc, "status_code", body.get("status_code")) == 400
         and "requested token count exceeds" in message
         and "maximum context length" in message
     )
@@ -450,12 +452,7 @@ def _build_model_settings(
     thinking: bool = True,
     parallel_tool_calls: bool = True,
 ) -> ModelSettings:
-    """Enable parallel tool requests and preserve Anthropic prompt caching.
-
-    A Qwen chat endpoint gets its sampling defaults and an explicit thinking
-    switch; ``parallel_tool_calls`` reaches only that path, other OpenAI-family
-    endpoints keep the established settings.
-    """
+    """Build provider settings with the robot’s tool concurrency policy."""
     from pydantic_ai.models.anthropic import AnthropicModel, AnthropicModelSettings
     from pydantic_ai.models.openai import OpenAIChatModel, OpenAIChatModelSettings
     from pydantic_ai.profiles.openai import OPENAI_REASONING_EFFORT_MAP
@@ -472,7 +469,7 @@ def _build_model_settings(
     if isinstance(model, AnthropicModel):
         return AnthropicModelSettings(
             max_tokens=max_tokens,
-            parallel_tool_calls=True,
+            parallel_tool_calls=parallel_tool_calls,
             anthropic_cache_instructions=True,
             anthropic_cache_tool_definitions=True,
             anthropic_cache_messages=True,
@@ -480,12 +477,12 @@ def _build_model_settings(
     if isinstance(model, OpenAIChatModel) and reasoning_effort is not None:
         return OpenAIChatModelSettings(
             max_tokens=max_tokens,
-            parallel_tool_calls=True,
+            parallel_tool_calls=parallel_tool_calls,
             openai_reasoning_effort=OPENAI_REASONING_EFFORT_MAP.get(
                 reasoning_effort, reasoning_effort
             ),
         )
-    return ModelSettings(max_tokens=max_tokens, parallel_tool_calls=True)
+    return ModelSettings(max_tokens=max_tokens, parallel_tool_calls=parallel_tool_calls)
 
 
 class _ConversationAgent(WrapperAgent):
@@ -812,7 +809,7 @@ class _Session(AbstractCapability):
                 and isinstance(exc.__cause__, APIConnectionError)
             ):
                 self.error_kind = "model_transport"
-            if isinstance(exc, ModelHTTPError) and _is_context_overflow(exc):
+            if _is_context_overflow(exc):
                 self.error_kind = "context_limit"
             if isinstance(exc, UnexpectedModelBehavior):
                 cause = exc.__cause__

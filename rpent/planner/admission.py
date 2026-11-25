@@ -12,7 +12,7 @@ from pathlib import Path
 
 import httpx
 
-from rpent.utils.serialization import write_json
+from rpent.utils.serialization import write_json_atomic as write_json
 
 PREFIX = b": rpent-admission "
 HEADER = "x-rpent-admission-protocol"
@@ -95,6 +95,7 @@ class _AdmissionStream(httpx.AsyncByteStream):
                     self.pending += chunk
                     while b"\n" in self.pending:
                         line, self.pending = self.pending.split(b"\n", 1)
+                        line = line.rstrip(b"\r")
                         if line.startswith(PREFIX):
                             event = json.loads(line[len(PREFIX) :])
                             self.clock.event(event)

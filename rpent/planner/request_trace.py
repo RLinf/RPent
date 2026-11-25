@@ -18,6 +18,7 @@
 from __future__ import annotations
 
 import base64
+import binascii
 import contextvars
 import hashlib
 import json
@@ -28,7 +29,7 @@ from typing import Any
 
 import httpx
 
-from rpent.utils.serialization import write_json
+from rpent.utils.serialization import write_json_atomic as write_json
 
 _NATIVE_ID = contextvars.ContextVar("rpent_native_request_id", default=None)
 
@@ -66,8 +67,12 @@ class RequestTrace:
             return {**self.asset(value), "$encoding": "bytes"}
         if isinstance(value, str) and value.startswith("data:") and ";base64," in value:
             prefix, encoded = value.split(";base64,", 1)
+            try:
+                data = base64.b64decode(encoded, validate=True)
+            except (ValueError, binascii.Error):
+                return value
             return {
-                **self.asset(base64.b64decode(encoded, validate=True), prefix[5:]),
+                **self.asset(data, prefix[5:]),
                 "$encoding": "data_uri",
                 "data_uri_prefix": prefix + ";base64,",
             }
@@ -157,8 +162,10 @@ class _ResponseStream(httpx.AsyncByteStream):
             with (self.directory / "response.body").open("wb") as stream:
                 async for chunk in self.wrapped:
                     stream.write(chunk)
-                    tail = (tail + chunk)[-1000:]
-                    if b"data: [DONE]" in tail:
+                    *lines, tail = (tail + chunk).split(b"\n")
+                    if not complete and any(
+                        line.rstrip(b"\r") == b"data: [DONE]" for line in lines
+                    ):
                         complete = True
                         stream.flush()
                         self.metadata.update(

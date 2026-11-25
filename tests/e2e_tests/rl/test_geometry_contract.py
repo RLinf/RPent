@@ -29,11 +29,11 @@ def _arm_pose(state, arm):
 
 
 @pytest.mark.timeout(1200)
-def test_episode_geometry_and_control():
+def test_episode_geometry_and_control(tmp_path):
     parser = argparse.ArgumentParser()
     get_robot_spec().add_cli_args(parser, use_dashboard=False)
     args = parser.parse_args(shlex.split(os.environ["RPENT_GEOMETRY_ARGS"]))
-    args.output_dir = Path(os.environ["RPENT_E2E_OUTPUT_DIR"])
+    args.output_dir = Path(os.environ["RPENT_E2E_OUTPUT_DIR"]) / tmp_path.name
     args.output_dir.mkdir(parents=True, exist_ok=False)
     init_output_dir(args.output_dir)
     task = {
@@ -161,14 +161,14 @@ def test_episode_geometry_and_control():
 
 
 @pytest.mark.timeout(1200)
-def test_mobile_frame_and_historical_projection():
+def test_mobile_frame_and_historical_projection(tmp_path):
     """Measure frame changes against the native base and an unchanged old pixel."""
     parser = argparse.ArgumentParser()
     get_robot_spec().add_cli_args(parser, use_dashboard=False)
     args = parser.parse_args(shlex.split(os.environ["RPENT_GEOMETRY_ARGS"]))
     if args.env != "robocasa":
         pytest.skip("requires the native RoboCasa mobile mounting frame")
-    args.output_dir = Path(os.environ["RPENT_E2E_OUTPUT_DIR"])
+    args.output_dir = Path(os.environ["RPENT_E2E_OUTPUT_DIR"]) / tmp_path.name
     args.output_dir.mkdir(parents=True, exist_ok=False)
     init_output_dir(args.output_dir)
     factor = 100

@@ -44,11 +44,6 @@ WAM_BEGIN = (
 )
 
 
-BEGIN_WITH_TASK_MEMORY = """Call `view_env_state({"step": 0})` and inspect `task_language`
-and `agentview_high.png`. Use the frozen task memory below for the current task
-and scene, then localize, plan, and execute."""
-
-
 # Without memory the agent writes its audit and recipe under ./files/.
 NO_MEMORY_CELL = """- suite:      {{suite}}
 - task:       {{task}}

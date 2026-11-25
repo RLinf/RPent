@@ -231,10 +231,13 @@ class QwenChatModel(OpenAIChatModel):
                 pass
         counter = None
         if path is not None:
-            # An explicit bad path/configuration is an actionable startup error.
-            counter = await asyncio.to_thread(
-                QwenPromptCounter.from_checkpoint, path, sglang=sglang
-            )
+            try:
+                counter = await asyncio.to_thread(
+                    QwenPromptCounter.from_checkpoint, path, sglang=sglang
+                )
+            except (ImportError, ValueError):
+                if configured is not None:
+                    raise
         if counter is None:
             get_logger("api").warning(
                 "No local Qwen processor: compaction uses an image-aware text "

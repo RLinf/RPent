@@ -85,6 +85,7 @@ def start_environment(
         if name != "reasoning":
             setattr(args, name, task.get(name, getattr(args, name, default)))
     args.suite, args.task, args.seed = task.get("suite"), task.get("task"), task["seed"]
+    args.libero_type = task.get("libero_type", getattr(args, "libero_type", None))
     args.task_name = task.get("task_name", getattr(args, "task_name", None))
     args.layout = task.get("layout", getattr(args, "layout", 0))
     args.split = task.get("split", getattr(args, "split", "target"))
@@ -236,7 +237,7 @@ def episode_outcome(result: PlannerResult, toolkit: Toolkit, max_turns: int) -> 
                             "error": detection["error"],
                         }
                     )
-    if service_errors:
+    if service_errors and not success:
         return {
             "success": success,
             "truncated": False,
@@ -252,10 +253,10 @@ def episode_outcome(result: PlannerResult, toolkit: Toolkit, max_turns: int) -> 
         reason = "success"
     elif result.error:
         reason = result.error_kind if terminal_error else "error"
-    elif result.stats["turns_used"] >= max_turns:
-        reason = "request_limit"
     elif truncated:
         reason = "environment_step_limit"
+    elif result.stats["turns_used"] >= max_turns:
+        reason = "request_limit"
     else:
         reason = "planner_completed"
     return {

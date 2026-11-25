@@ -18,16 +18,28 @@ from __future__ import annotations
 
 import dataclasses
 import json
+import os
+import tempfile
 from pathlib import Path
 from typing import Any
 
 
-def write_json(path: Path, value: Any) -> None:
-    """Publish JSON atomically without exposing partially written records."""
+def write_json_atomic(destination: Path | str, record: Any, *, default=str) -> Path:
+    """Publish UTF-8 JSON atomically and return its destination."""
+    path = Path(destination)
     path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_suffix(path.suffix + ".tmp")
-    temporary.write_text(json.dumps(value, ensure_ascii=False, default=str))
-    temporary.replace(path)
+    with tempfile.NamedTemporaryFile(
+        mode="w", encoding="utf-8", dir=path.parent, suffix=".tmp", delete=False
+    ) as file:
+        temporary = Path(file.name)
+        try:
+            json.dump(record, file, ensure_ascii=False, indent=2, default=default)
+            file.write("\n")
+            file.close()
+            os.replace(temporary, path)
+        finally:
+            temporary.unlink(missing_ok=True)
+    return path
 
 
 def to_numpy_tree(value: Any) -> Any:

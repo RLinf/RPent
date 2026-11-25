@@ -473,10 +473,11 @@ def collect(args: argparse.Namespace, batch: Path) -> None:
     signal.signal(signal.SIGINT, interrupt)
     signal.signal(signal.SIGTERM, interrupt)
     waiting = sum(q.qsize() for q in pending.values())
-    if gate and waiting > len(slots):
-        raise ValueError(
-            "start barrier requires one resident slot for every pending job"
-        )
+    if gate and (
+        os.environ.get("RPENT_REMOTE_TOOLKIT_ENDPOINT")
+        or any(q.qsize() > args.per_gpu for q in pending.values())
+    ):
+        raise ValueError("start barrier requires local capacity for every pending job")
     started = time.time()
 
     def worker(index: int, gpu: str) -> None:
@@ -507,8 +508,11 @@ def collect(args: argparse.Namespace, batch: Path) -> None:
                     "bash",
                     str(EVAL_DIR / "run.sh"),
                     *job_arguments(job),
-                    "--cuda-device",
-                    gpu,
+                    *(
+                        []
+                        if os.environ.get("RPENT_REMOTE_GROUP")
+                        else ["--cuda-device", gpu]
+                    ),
                     *episode_options(args),
                 ]
                 endpoint_index = index if endpoint_assignment == "slot" else job_index

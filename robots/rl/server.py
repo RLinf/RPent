@@ -80,6 +80,7 @@ def main() -> None:
         if args.cuda_device is not None:
             from rpent.utils.egl import configure_egl_device
 
+            os.environ.pop("CUDA_VISIBLE_DEVICES", None)
             configure_egl_device(args.cuda_device)
         from robots.robocasa.env_server import RoboCasaEnvFacade
 

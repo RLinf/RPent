@@ -18,7 +18,9 @@ import argparse
 import os
 import sys
 from datetime import datetime
-from pathlib import Path
+
+from rpent.planner.base import REASONING_EFFORTS
+from rpent.utils.config import get_repo_root
 
 OPTIONS = (
     ("--sam3-timeout-s", float, 120),
@@ -42,7 +44,6 @@ OPTIONS = (
     ("--max-episode-steps", int, 10000),
     ("--planner-timeout-s", int, 7200),
 )
-EFFORTS = ("none", "minimal", "low", "medium", "high", "xhigh")
 
 
 def option_name(flag: str) -> str:
@@ -50,11 +51,20 @@ def option_name(flag: str) -> str:
     return flag[2:].replace("-", "_")
 
 
+def planner_defaults() -> dict:
+    """Keep standalone simulator defaults local to the RL robot."""
+    return {
+        option_name(flag): default
+        for flag, _, default in OPTIONS
+        if flag in {"--max-tokens", "--context-window", "--compaction-fraction"}
+    }
+
+
 def add_options(parser: argparse.ArgumentParser) -> None:
     """Add the flags that can override the standalone rollout defaults."""
     for flag, kind, _ in OPTIONS:
         choices = (
-            EFFORTS
+            REASONING_EFFORTS
             if flag == "--reasoning-effort"
             else (1024, 512, 256)
             if flag == "--image_size"
@@ -112,9 +122,7 @@ def main() -> None:
     os.environ.setdefault("OPENAI_API_KEY", "local")
     resolve_options(args)
     output = os.environ.get("RPENT_OUTPUT_DIR") or str(
-        Path(os.environ["RPENT_REPO_ROOT"])
-        / "logs"
-        / datetime.now().strftime("rl-%Y%m%d-%H%M%S")
+        get_repo_root() / "logs" / datetime.now().strftime("rl-%Y%m%d-%H%M%S")
     )
     command = [
         sys.executable,

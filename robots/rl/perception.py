@@ -249,7 +249,7 @@ class RecordedPerception:
             )
 
         mask = segmentation.mask
-        if mask is None or mask.shape != native_shape:
+        if mask is None or mask.shape != native_shape or not mask.any():
             return _error(
                 "SAM3 mask dimensions differ from the selected image", **metadata
             )

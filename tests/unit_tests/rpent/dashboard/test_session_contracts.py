@@ -293,6 +293,7 @@ def test_dashboard_exploration_finalizes_memory_and_reports_merge_failures(
     )
     robot_spec = SimpleNamespace(
         name="custom_exploration_env",
+        configure_planner=None,
         finalize_run=finalized.append if collect_metrics else None,
         prepare_memory=None,
         prepare_prompt_vars=None,

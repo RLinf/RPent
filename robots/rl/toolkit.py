@@ -32,7 +32,7 @@ from rpent.memory import MemoryManager
 from rpent.session import EnvState
 from rpent.tools import ToolResult
 from rpent.tools.toolkit import Toolkit
-from rpent.utils.serialization import write_json
+from rpent.utils.serialization import write_json_atomic as write_json
 
 
 def primitive_owner(environment: str):

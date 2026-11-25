@@ -94,6 +94,7 @@ RPent（Recursive Physical Agent）是一个开源框架，用于构建在与物
    使用 Flash Mode <rst_source/guides/flash>
    采集轨迹与数据飞轮 <rst_source/guides/flywheel>
    远程服务与并行运行 <rst_source/guides/advanced_deployment>
+   机器人 Episode <rst_source/guides/robot_episodes>
 
 .. toctree::
    :maxdepth: 2
@@ -114,7 +115,6 @@ RPent（Recursive Physical Agent）是一个开源框架，用于构建在与物
    :caption: 仿真环境
 
    LIBERO <rst_source/simulators/libero>
-   LIBERO RL 回合 <rst_source/simulators/rl>
    RoboCasa365 <rst_source/simulators/robocasa>
    RoboTwin <rst_source/simulators/robotwin>
    RoboDojo <rst_source/simulators/robodojo>

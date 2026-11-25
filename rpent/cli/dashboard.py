@@ -28,6 +28,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from rpent.cli.main import (
+    _api_planner_options,
     _handoff_message,
     _serialize_messages,
     _with_shared_mcp_servers,
@@ -359,7 +360,11 @@ def _run_dashboard_task(
                         claude_code_max_budget_usd=args.claude_code_max_budget_usd,
                         dashboard_events=state,
                         no_images=args.no_images,
+                        strict_tool_definitions=not args.no_strict_tools,
+                        **_api_planner_options(task_args),
                     )
+                    if robot_spec.configure_planner is not None:
+                        planner = robot_spec.configure_planner(planner, run_config)
                     result = planner.solve(
                         system_prompt=system_prompt,
                         user_message=session_message,

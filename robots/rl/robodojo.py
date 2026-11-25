@@ -187,7 +187,15 @@ class RoboDojoPrimitives(ScenePrimitives):
             xyz=native_xyz.tolist(),
             quat=quaternion_wxyz(Rotation.from_matrix(native_rotation)).tolist(),
         )
+        stop_reason = result.data.get("stop_reason")
+        if stop_reason == "cancelled":
+            from rpent.tools.toolkit import ToolCancelled
+
+            raise ToolCancelled(result.data.get("error", "cancelled"))
         if not self._check_execution(result):
+            return result
+        if stop_reason == "plan_failed":
+            result.data.update(status="partial", reason=stop_reason)
             return result
         result.data.pop("final_eef_xyz", None)
         result.data.pop("final_dist_m", None)

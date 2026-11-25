@@ -8,3 +8,4 @@ imageio>=2.0
 mcp>=1.23,<2.0.0
 jsonschema>=4.18
 PyYAML>=6.0
+prompt-toolkit>=3.0.48

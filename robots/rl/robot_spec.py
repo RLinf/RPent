@@ -92,6 +92,9 @@ def get_toolkit(
 
 def _add_cli_args(parser: argparse.ArgumentParser, use_dashboard: bool) -> None:
     """Register simulator, task, observation, and runtime flags."""
+    from robots.rl.rollout_options import planner_defaults
+
+    parser.set_defaults(**planner_defaults())
     parser.add_argument(
         "--simulator",
         dest="env",
@@ -374,7 +377,7 @@ def _start_env(
             overrides,
             python=simulator_python,
         )
-    from rpent.utils.config import get_libero_type
+    from robots.libero.suites import resolve_libero_type
 
     # The LIBERO env server and client are shared with robots.libero.
     return _spawn_server(
@@ -394,7 +397,7 @@ def _start_env(
             "--rl-control-state",
         ],
         {
-            "LIBERO_TYPE": args.libero_type or get_libero_type(),
+            "LIBERO_TYPE": resolve_libero_type(args.suite, args.libero_type),
             "MUJOCO_GL": "egl",
             "ROBOT_PLATFORM": "LIBERO",
         },
@@ -449,9 +452,9 @@ def _init_runtime(
         task = dict(config.task_desc)
         task.update(split=args.split, task_config=args.task_config)
         if task["environment"] == "libero":
-            from rpent.utils.config import get_libero_type
+            from robots.libero.suites import resolve_libero_type
 
-            task["libero_type"] = args.libero_type or get_libero_type()
+            task["libero_type"] = resolve_libero_type(args.suite, args.libero_type)
         return [], {
             "remote_endpoint": args.remote_toolkit_endpoint,
             "remote_request": {

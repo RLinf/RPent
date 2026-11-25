@@ -29,19 +29,19 @@ Choose the line for the environment you will run.
    * - Simulator
      - Prepare on its host
    * - LIBERO
-     - Python 3.12, EGL and MuJoCo. Set ``LIBERO_TYPE=pro`` and ``LIBERO_CONFIG_PATH``. The configuration needs the asset, BDDL and native state paths. See :doc:`libero`.
+     - Python 3.12, EGL and MuJoCo. Set ``LIBERO_TYPE=pro`` and ``LIBERO_CONFIG_PATH``. The configuration needs the asset, BDDL and native state paths. See :doc:`../simulators/libero`.
    * - RoboTwin
-     - Python 3.11, NVIDIA Vulkan and a CUDA toolkit matching Torch for cuRobo. Run ``robotwin-download-assets`` in its environment and set ``ROBOTWIN_ASSETS_PATH`` to the snapshot root. See :doc:`robotwin`.
+     - Python 3.11, NVIDIA Vulkan and a CUDA toolkit matching Torch for cuRobo. Run ``robotwin-download-assets`` in its environment and set ``ROBOTWIN_ASSETS_PATH`` to the snapshot root. See :doc:`../simulators/robotwin`.
    * - RoboCasa
-     - Python 3.11 and EGL. Run ``robocasa-download-assets --assets-path /work/data/robocasa --no-macros -y`` in its environment. See :doc:`robocasa`.
+     - Python 3.11 and EGL. Run ``robocasa-download-assets --assets-path /work/data/robocasa --no-macros -y`` in its environment. See :doc:`../simulators/robocasa`.
    * - RoboDojo
-     - Python 3.11, Isaac Sim 5.1 and an RTX GPU. Prepare the RoboDojo assets and evaluation layouts under ``ROBODOJO_ASSETS_ROOT``. See :doc:`robodojo`.
+     - Python 3.11, Isaac Sim 5.1 and an RTX GPU. Prepare the RoboDojo assets and evaluation layouts under ``ROBODOJO_ASSETS_ROOT``. See :doc:`../simulators/robodojo`.
 
 Provide an OpenAI-compatible model endpoint and a SAM3 service. Install the
 ``sam3`` extra in the Python environment that serves SAM3 and set
 ``SAM3_CHECKPOINT_PATH`` to the local checkpoint. Run SAM3 on its assigned GPU.
 
-Download the SAM3 weights from the configuration instructions in :doc:`libero`.
+Download the SAM3 weights from the configuration instructions in :doc:`../simulators/libero`.
 
 .. code-block:: bash
 
@@ -105,7 +105,7 @@ The local example uses GPU 0 for SAM3 and GPU 1 for four slots each of LIBERO an
 
 Set each backend's ``gpu_slots`` to its physical allocation, and ``endpoint`` to the address the router can reach. Set SAM3 ``replicas`` per GPU and ``max_pending`` for the perception queue. For routed networks, use restricted forwarding and put the forwarded addresses in the corresponding fields. Choose a fresh ``output_dir`` for each launch. It holds the service logs and simulator traces. Stopping the node command releases its own services and simulator processes.
 
-Use the same RPent revision for trainers and simulator hosts. RLinf manages the model during training. Continue with the `RLinf mixed training guide <https://github.com/zhexuanxu/RLinf/blob/codex/rpent-mixed-grpo/docs/source-en/rst_source/examples/agentic/rpent_episode_sync.rst>`_ to start Ray and training.
+Use the same RPent revision for trainers and simulator hosts. RLinf manages the model during training. Continue with the `RLinf mixed training guide <https://github.com/RLinf/RLinf/blob/main/docs/source-en/rst_source/examples/agentic/rpent_episode_sync.rst>`_ to start Ray and training.
 
 Coordinates and actions
 -----------------------

@@ -88,7 +88,25 @@ def create_app(
                         content=body,
                         headers={"Content-Type": "application/json"},
                     ) as response:
-                        response.raise_for_status()
+                        if response.is_error:
+                            raw = await response.aread()
+                            try:
+                                error = json.loads(raw)
+                            except ValueError:
+                                error = {
+                                    "message": f"{response.status_code} {response.reason_phrase}: {raw.decode(errors='replace')}"
+                                }
+                            if isinstance(error, dict):
+                                error = error.get("error", error)
+                            if not isinstance(error, dict):
+                                error = {"message": str(error)}
+                            error["status_code"] = response.status_code
+                            yield (
+                                b"data: "
+                                + json.dumps({"error": error}).encode()
+                                + b"\n\n"
+                            )
+                            return
                         async for chunk in response.aiter_bytes():
                             yield chunk
                 except Exception as error:

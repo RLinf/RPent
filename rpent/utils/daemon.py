@@ -295,33 +295,35 @@ class ProcessDaemon:
         logger.info("%s spawned (pid=%s)", self.name, self._proc.pid)
 
     def stop(self, timeout: float = 15.0) -> None:
-        if self._proc is not None and self._proc.poll() is None:
-            # Closing the parent-watch pipe lets cooperative servers unwind
-            # their RPC/facade cleanup and exit with status 0.
-            if "--parent-watch" in self.cmd and self._proc.stdin is not None:
+        try:
+            if self._proc is not None and self._proc.poll() is None:
+                # Closing the parent-watch pipe lets cooperative servers unwind
+                # their RPC/facade cleanup and exit with status 0.
+                if "--parent-watch" in self.cmd and self._proc.stdin is not None:
+                    try:
+                        self._proc.stdin.close()
+                        self._proc.wait(timeout=timeout)
+                    except (BrokenPipeError, OSError, subprocess.TimeoutExpired):
+                        pass
+                if self._process_group is None and self._proc.poll() is None:
+                    self._proc.terminate()
+                    try:
+                        self._proc.wait(timeout=timeout)
+                    except subprocess.TimeoutExpired:
+                        self._proc.kill()
+                        self._proc.wait()
+            if self._process_group is not None:
+                self._stop_process_group(timeout)
+                self._proc.wait(timeout=timeout)
+        finally:
+            if self._proc is not None and self._proc.stdin is not None:
+                self._proc.stdin.close()
+            if self._log_f is not None:
                 try:
-                    self._proc.stdin.close()
-                    self._proc.wait(timeout=timeout)
-                except (BrokenPipeError, OSError, subprocess.TimeoutExpired):
+                    self._log_f.close()
+                except Exception:
                     pass
-            if self._process_group is None and self._proc.poll() is None:
-                self._proc.terminate()
-                try:
-                    self._proc.wait(timeout=timeout)
-                except subprocess.TimeoutExpired:
-                    self._proc.kill()
-                    self._proc.wait()
-        if self._process_group is not None:
-            self._stop_process_group(timeout)
-            self._proc.wait(timeout=timeout)
-        if self._proc is not None and self._proc.stdin is not None:
-            self._proc.stdin.close()
-        if self._log_f is not None:
-            try:
-                self._log_f.close()
-            except Exception:
-                pass
-            self._log_f = None
+                self._log_f = None
 
     def _stop_process_group(self, timeout: float) -> None:
         stop_owned_process_group(
