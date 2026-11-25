@@ -1,6 +1,6 @@
 # Glossary
 
-One term per concept across English and Chinese documentation, aligned with [docs/STYLE_GUIDE.md](../../../../docs/STYLE_GUIDE.md#english-and-chinese). Code identifiers, CLI flags, filenames, and robot IDs (`--planner`, `robocasa`, `_recipe.jsonl`, `terminated`) are never translated.
+One term per concept across English and Chinese documentation. Code identifiers, CLI flags, filenames, and robot IDs (`--planner`, `robocasa`, `_recipe.jsonl`, `terminated`) are never translated.
 
 | English term | Chinese term | Note |
 |---|---|---|
@@ -15,11 +15,14 @@ One term per concept across English and Chinese documentation, aligned with [doc
 | Planners | 规划器 | simulator overview card title |
 | Tasks | 任务 | simulator overview card title |
 | Hardware | 硬件 | simulator overview card title |
+| Guides | 使用指南 | sidebar group name |
+| Toolkits | 工具包 | sidebar group name |
 | Simulators | 仿真环境 | sidebar group name |
 | Real-World Robots | 真实机器人 | sidebar group name |
 | Real-World Demos | 真实世界演示 | sidebar group name |
 | Leaderboard | 排行榜 | sidebar group name |
 | Concepts & Development | 原理与开发 | sidebar group name |
+| Resources | 项目资源 | sidebar group name |
 | Data Flywheel | 数据飞轮 | |
 | Flash Mode | Flash Mode | |
 | Dashboard | Dashboard | |

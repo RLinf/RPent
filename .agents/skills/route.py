@@ -192,10 +192,11 @@ def merge_base(base: str) -> str:
 
 @dataclass(frozen=True)
 class Change:
-    """One changed file: git status letter (A, C, D, M, R, T) and path."""
+    """One changed file: git status letter (A, C, D, M, R, T), path, and old path on renames."""
 
     status: str
     path: str
+    old_path: str | None = None
 
 
 def changes(base: str) -> list[Change]:
@@ -203,7 +204,8 @@ def changes(base: str) -> list[Change]:
     found: dict[str, Change] = {}
     for line in git("diff", "--name-status", "-M", merge_base(base)).splitlines():
         status, *paths = line.split("\t")
-        found[paths[-1]] = Change(status[0], paths[-1])
+        old_path = paths[0] if len(paths) > 1 else None
+        found[paths[-1]] = Change(status[0], paths[-1], old_path)
     for path in git("ls-files", "--others", "--exclude-standard").splitlines():
         found[path] = Change("A", path)
     return sorted(found.values(), key=lambda c: c.path)
@@ -253,19 +255,25 @@ def report(area: str, findings: list[Finding]) -> int:
 
 
 @functools.cache
-def _added_lines_for(root: Path, base: str, path: str) -> frozenset[int]:
+def _added_lines_for(
+    root: Path, base: str, path: str, old_path: str | None = None
+) -> frozenset[int]:
     """1-based line numbers of ``path`` that are new since the merge base."""
-    diff = git("diff", "-U0", merge_base(base), "--", path)
+    if old_path:
+        diff = git("diff", "-U0", "-M", merge_base(base), "--", old_path, path)
+    else:
+        diff = git("diff", "-U0", merge_base(base), "--", path)
     lines: set[int] = set()
     for hunk in HUNK.finditer(diff):
-        start, count = int(hunk[1]), int(hunk[2] or 1)
+        start = int(hunk[1])
+        count = int(hunk[2]) if hunk[2] is not None else 1
         lines.update(range(start, start + count))
     return frozenset(lines)
 
 
-def added_lines(base: str, path: str) -> frozenset[int]:
+def added_lines(base: str, path: str, old_path: str | None = None) -> frozenset[int]:
     """1-based line numbers of ``path`` that are new since the merge base."""
-    return _added_lines_for(REPO_ROOT, base, path)
+    return _added_lines_for(REPO_ROOT, base, path, old_path)
 
 
 @dataclass(frozen=True)
@@ -285,7 +293,7 @@ class Selection:
         """The lines of a file whose findings count, or None for all of them."""
         if self.all_lines or change.status == "A":
             return None
-        return added_lines(self.base, change.path)
+        return added_lines(self.base, change.path, change.old_path)
 
     def relevant(self, findings: list[Finding]) -> list[Finding]:
         """Findings that have no line, or sit on a line that counts."""
@@ -325,9 +333,9 @@ def select(area: str, args: argparse.Namespace) -> Selection:
     base = args.base or default_base()
     if not args.files:
         return Selection(base, tuple(area_changes(area, base)), args.all_lines)
-    status = {c.path: c.status for c in changes(base)}
+    by_path = {c.path: c for c in changes(base)}
     paths = [Path(f).resolve().relative_to(REPO_ROOT).as_posix() for f in args.files]
-    selected = tuple(Change(status.get(p, "M"), p) for p in paths)
+    selected = tuple(by_path.get(p, Change("M", p)) for p in paths)
     return Selection(base, selected, args.all_lines)
 
 

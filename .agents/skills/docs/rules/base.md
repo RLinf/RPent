@@ -1,11 +1,11 @@
 # Rules for every page
 
-Every RPent docs page follows this file and [docs/STYLE_GUIDE.md](../../../../docs/STYLE_GUIDE.md), whatever its type. Before writing, read this file, the page type's file below, and the language file for each language you write ([english.md](english.md), [chinese.md](chinese.md)). Before finishing, go through [mistakes.md](mistakes.md).
+Every RPent docs page follows this file, whatever its type. Before writing, read this file, the page type's file below, and the language file for each language you write ([english.md](english.md), [chinese.md](chinese.md)). Before finishing, go through [mistakes.md](mistakes.md).
 
 | Page type | Where it lives | Rules |
 |---|---|---|
 | Simulator & real-world robot guide | `simulators/`, `real_world_robots/` | [simulator.md](simulator.md) |
-| Guide & Quick Start | `get_started/`, `guides/`, `real_world_demos/` | [guide.md](guide.md) |
+| Guide, Toolkit & Quick Start | `get_started/`, `guides/`, `toolkits/`, `real_world_demos/` | [guide.md](guide.md) |
 | Concepts & Development | `development/` | [development.md](development.md) |
 | Index & navigation | every `index.rst` | [index.md](index.md) |
 | README highlight | `README.md`, `README.zh-CN.md` | [readme.md](readme.md) |
@@ -18,7 +18,7 @@ The reader of a user-facing page is an engineer running tasks with RPent who has
 
 - Describe what the reader runs, configures, and observes: CLI flags, install extras, environment variables, saved artifacts, and the environment's native success criterion.
 - Name a piece of code only when the reader types, runs, opens, or edits it: commands, CLI flags, config keys, paths, and—on Development pages—the public classes and hooks a contributor implements or calls.
-- Never explain user-facing behavior by touring `rpent/` or `robots/` modules.
+- Never explain user-facing behavior by touring `rpent/`, `robots/`, or `toolkits/` modules.
 - Rewrite code-tour sentences around observable behavior:
   - Before: "`rpent/cli/main.py` calls `RobotSpec.init_runtime`, which spawns `ProcessDaemon` servers and passes handles to `Toolkit`."
   - After: "Running `rpent --robot libero` starts the environment, VLA, and perception services, executes tool calls from the planner, and saves step images and run status under `--output-dir`."
@@ -52,7 +52,14 @@ When completeness and readability pull in opposite directions, trim the main pat
 - Headings name tasks or ideas the reader understands; reserve raw identifiers for CLI/API reference sections.
 - Frame each command with one sentence on what it does, followed by the few flags the reader actually changes and the expected output or artifact that confirms success. Write commands without a `$` prompt and explain `<placeholders>`.
 - Link inside `docs/` with `:doc:` and `:ref:`, never hardcoded `rpent.readthedocs.io` URLs. Factor repeated blocks that share the exact same contract into underscore-prefixed `_*.rst` partials.
+- Keep prose and cards left-aligned using the shared CSS; do not style individual paragraphs or add duplicate raw-HTML titles. Use direct HTTP 200 media URLs with alt text, captions, and video controls, avoid replacing ordinary text with screenshots, and check transparency/contrast in both light and dark themes (no forced white background on transparent logos).
 - When moving or renaming a page, preserve useful anchors and add old-to-new URL redirects in both `docs/source-en/conf.py` and `docs/source-zh/conf.py`.
+
+## Preserve information during restructuring
+
+- Track where important commands, dependency options, parameter defaults, outputs, tables, figures, videos, and constraints move; brevity alone is not a reason to delete them.
+- Preserve task/seed coverage, denominators, failure and timeout handling, aggregation, model settings, resource revisions, and timing boundaries alongside every reported result — moving a table must not detach its qualifications.
+- Preserve existing coming-soon integrations and clearly state their documented status; explain deliberate removals in the change description.
 
 ## Two languages
 

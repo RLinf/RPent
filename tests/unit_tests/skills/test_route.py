@@ -121,3 +121,57 @@ def test_selection_filters_modified_lines_but_keeps_added_files(tmp_path, monkey
 
     all_sel = Selection("main", (Change("M", "mod.py"), Change("A", "new.py")), True)
     assert len(all_sel.relevant(findings)) == len(findings)
+
+
+def test_selection_tracks_renames_without_flagging_unchanged_lines(
+    tmp_path, monkeypatch
+):
+    subprocess.run(
+        ["git", "init", "-b", "main"], cwd=tmp_path, check=True, capture_output=True
+    )
+    subprocess.run(
+        ["git", "config", "user.email", "test@example.com"], cwd=tmp_path, check=True
+    )
+    subprocess.run(["git", "config", "user.name", "Test"], cwd=tmp_path, check=True)
+    old_doc = tmp_path / "docs" / "old.rst"
+    old_doc.parent.mkdir(parents=True)
+    old_doc.write_text(
+        "Title\n=====\n\nLine four.\nLine five.\nLine six.\n", encoding="utf-8"
+    )
+    subprocess.run(["git", "add", "docs/old.rst"], cwd=tmp_path, check=True)
+    subprocess.run(
+        ["git", "commit", "-m", "init"], cwd=tmp_path, check=True, capture_output=True
+    )
+
+    subprocess.run(
+        ["git", "mv", "docs/old.rst", "docs/new.rst"], cwd=tmp_path, check=True
+    )
+    monkeypatch.setitem(route["git"].__globals__, "REPO_ROOT", tmp_path)
+    route["_added_lines_for"].cache_clear()
+
+    changed = route["changes"]("main")
+    assert changed == [route["Change"]("R", "docs/new.rst", "docs/old.rst")]
+    assert route["added_lines"]("main", "docs/new.rst", "docs/old.rst") == frozenset()
+
+    Finding = route["Finding"]
+    sel = route["Selection"]("main", tuple(changed), False)
+    preexisting = [Finding("major", "docs/new.rst", 4, "docs/code-name", "old line")]
+    assert sel.relevant(preexisting) == []
+
+    # Adding one line to the moved file flags only the added line, including via select().
+    new_doc = tmp_path / "docs" / "new.rst"
+    new_doc.write_text(
+        "Title\n=====\n\nLine four.\nLine five.\nLine six.\nLine seven.\n",
+        encoding="utf-8",
+    )
+    route["_added_lines_for"].cache_clear()
+    args = route["check_parser"]("test").parse_args(["--base", "main", str(new_doc)])
+    selected = route["select"]("docs", args)
+    assert selected.changes == (route["Change"]("R", "docs/new.rst", "docs/old.rst"),)
+    kept = selected.relevant(
+        [
+            Finding("major", "docs/new.rst", 4, "docs/code-name", "old line"),
+            Finding("major", "docs/new.rst", 7, "docs/code-name", "added line"),
+        ]
+    )
+    assert [f.line for f in kept] == [7]

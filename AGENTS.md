@@ -1,6 +1,6 @@
 # AGENTS.md
 
-This file tells coding agents how to build, test, and change RPent so that the result passes CI and review. `CLAUDE.md` is a symlink to it, and [`.gemini/settings.json`](.gemini/settings.json) loads it for Gemini CLI. It holds only rules that apply across the repository: the contribution process is in [CONTRIBUTING.md](CONTRIBUTING.md), writing and documentation rules are in the docs skill's [rules](.agents/skills/docs/rules/base.md) and [docs/STYLE_GUIDE.md](docs/STYLE_GUIDE.md), and step-by-step workflows are skills under `.agents/skills/`. When this file disagrees with the code, the code is right; fix this file in the same change.
+This file tells coding agents how to build, test, and change RPent so that the result passes CI and review. `CLAUDE.md` is a symlink to it, and [`.gemini/settings.json`](.gemini/settings.json) loads it for Gemini CLI. It holds only rules that apply across the repository: the contribution process is in [CONTRIBUTING.md](CONTRIBUTING.md), writing and documentation rules are in the docs skill's [rules](.agents/skills/docs/rules/base.md) (indexed by [docs/STYLE_GUIDE.md](docs/STYLE_GUIDE.md)), and step-by-step workflows are skills under `.agents/skills/`. When this file disagrees with the code, the code is right; fix this file in the same change.
 
 RPent is a recursive physical agent framework that coordinates high-level planners (`api`, `claude_code`, `codex`, `gemini_cli`, `flash`) with robot-owned toolkits, RPC-backed Env/VLA/perception services, shared prompts, and task memory. A run loads a robot's `RobotSpec` and `Toolkit` through `rpent/robots/base.py`, spawns or connects to its runtime services via `rpent/robots/runtime.py`, runs a planner session or Dashboard loop, and saves step artifacts and final evaluation status. User and developer documentation lives under `docs/source-en/rst_source/` and `docs/source-zh/rst_source/`.
 
@@ -120,6 +120,6 @@ Before reporting a change as done, run `python3 .agents/skills/route.py check`. 
 ## Maintaining agent instructions
 
 - This file is loaded on every agent request. Keep it under 200 lines, and add a rule only when it applies across the repository and an agent would get it wrong without being told.
-- Put area-specific guidance in a skill under `.agents/skills/` or in `docs/STYLE_GUIDE.md`. Edit canonical files under `.agents/skills/` so Codex, Cursor, Claude Code (`.claude/skills`), and Gemini CLI (`.gemini/settings.json`) share the same instructions.
+- Put area-specific guidance in a skill under `.agents/skills/`. Edit canonical files under `.agents/skills/` so Codex, Cursor, Claude Code (`.claude/skills`), and Gemini CLI (`.gemini/settings.json`) share the same instructions.
 - Refer to code by symbol or search pattern instead of copying lists that drift. Check every path, command, and API you add against the code.
 - An area skill declares `paths:` and ships `check.py` ([.agents/skills/README.md](.agents/skills/README.md)).

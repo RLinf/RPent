@@ -228,3 +228,72 @@ def test_docs_check_help_does_not_provision_docs_venv(monkeypatch):
     with pytest.raises(SystemExit) as exc:
         docs_check["main"](["--help"])
     assert exc.value.code == 0
+
+
+def test_check_writing_scans_toolkits_json_keys_sphinx_roles_and_allows_cli_entries(
+    tmp_path,
+):
+    assert writing["page_type"]("docs/source-en/rst_source/toolkits/mcp.rst") == "guide"
+
+    # Synthetic tree verifies toolkits/ Python definitions and *.json keys.
+    (tmp_path / "toolkits").mkdir()
+    (tmp_path / "toolkits" / "internal_helper.py").write_text(
+        "class InternalGeometryHelper:\n    pass\n\ndef json_config_key():\n    pass\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "robots" / "demo").mkdir(parents=True)
+    (tmp_path / "robots" / "demo" / "spec.json").write_text(
+        '{"nested": {"json_config_key": 16}}\n',
+        encoding="utf-8",
+    )
+    names = writing["code_names"](tmp_path)
+    assert "InternalGeometryHelper" in names
+    assert "json_config_key" not in names
+
+    repo_names = writing["code_names"](REPO_ROOT)
+    assert "RPentEfeAgent" not in repo_names
+    assert "history_length" not in repo_names
+
+    page = tmp_path / "mcp.rst"
+    page.write_text(
+        "MCP Tools\n=========\n\n"
+        "See ``toolkits/back_project.py``, ``InternalGeometryHelper``, "
+        ":class:`rpent.tools.toolkit.Toolkit`, "
+        ":meth:`~robots.libero.toolkit.get_toolkit`, "
+        ":mod:`Label <toolkits.segment>`, "
+        "and ``RPentEfeAgent`` with ``history_length``.\n",
+        encoding="utf-8",
+    )
+    findings = writing["check_page"](
+        page, "docs/source-en/rst_source/toolkits/mcp.rst", names, False
+    )
+    hits = [f.message for f in findings if f.rule == "docs/code-name"]
+    assert any("toolkits/back_project.py" in m for m in hits)
+    assert any("InternalGeometryHelper" in m for m in hits)
+    assert any("rpent.tools.toolkit.Toolkit" in m for m in hits)
+    assert any("robots.libero.toolkit.get_toolkit" in m for m in hits)
+    assert any("toolkits.segment" in m for m in hits)
+    assert not any("RPentEfeAgent" in m or "history_length" in m for m in hits)
+
+
+def test_check_doc_symbols_uses_cwd_git_toplevel(tmp_path, monkeypatch):
+    subprocess.run(
+        ["git", "init", "-b", "main"], cwd=tmp_path, check=True, capture_output=True
+    )
+    (tmp_path / "rpent").mkdir()
+    (tmp_path / "rpent" / "demo.py").write_text(
+        "class WorktreeOnlySymbol:\n    pass\n", encoding="utf-8"
+    )
+    dev_dir = tmp_path / "docs" / "source-en" / "rst_source" / "development"
+    dev_dir.mkdir(parents=True)
+    (dev_dir / "demo.rst").write_text(
+        "Demo\n====\n\nUse ``WorktreeOnlySymbol``.\n", encoding="utf-8"
+    )
+
+    monkeypatch.chdir(tmp_path)
+    assert doc_symbols["main"]([]) == 0
+
+    (dev_dir / "demo.rst").write_text(
+        "Demo\n====\n\nUse ``MissingWorktreeSymbol``.\n", encoding="utf-8"
+    )
+    assert doc_symbols["main"]([]) == 1

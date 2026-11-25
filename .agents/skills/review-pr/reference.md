@@ -6,7 +6,7 @@ Checklist for step 5 of [SKILL.md](SKILL.md), ordered by finding category. Desig
 
 - [ ] **Logic**: off-by-one, inverted conditions, wrong defaults, swapped args, mutated shared state, missing locks/drains.
 - [ ] **Edge cases**: empty/`None` inputs, missing optional config, first/last step, timeout/step limit, interruption/cancellation (`ToolCancelled`), real-robot vs. simulator reset semantics.
-- [ ] **Concurrency and RPC**: cancellation of queued/active tool calls (`Toolkit._Scheduler`), RPC timeouts/retries, thread safety, event-loop blocking, Dashboard vs. CLI event delivery.
+- [ ] **Concurrency and RPC**: cancellation of queued/active tool calls (`Toolkit._scheduler`), RPC timeouts/retries, thread safety, event-loop blocking, Dashboard vs. CLI event delivery.
 - [ ] **Resources and lifecycle**: orphaned subprocess daemons on startup failure, stopping borrowed external endpoints, leaked file handles/sockets/temp dirs, non-idempotent `stop()`/`close()`.
 - [ ] **Success semantics**: planner `finish` never conflated with native environment `terminated` or verifier reward.
 - [ ] **Error handling**: silent `except`, swallowed original exceptions, missing boundary validation, or over-validating internal state ([code/patterns.md](../code/patterns.md#no-unnecessary-protection-code)).
@@ -36,7 +36,7 @@ A mismatch with RPent conventions, bloated workaround, or dead boilerplate is a 
 Area scripts and checklists run in step 6 ([code § Check](../code/SKILL.md#check), [robots § Check](../robots/SKILL.md#check), [docs § Check](../docs/SKILL.md#check)). Review these PR-wide checks alongside them:
 
 - [ ] **Coverage and completeness**: user-facing changes include offline CPU tests that fail without the change; new robot integrations ship `pyproject.toml` extras/conflicts, offline unit tests, real-component/policy-chain e2e tests, paired EN/ZH docs, and README highlights.
-- [ ] **Docs readability (fresh agent)**: run a fresh-agent pass (no `rpent/` or `robots/` context) following [docs § Check](../docs/SKILL.md#check) and [docs/STYLE_GUIDE.md](../../../docs/STYLE_GUIDE.md) for plain human prose, native Chinese, concise main paths, no internal code citations on user pages, and no negative-contrast restatement.
+- [ ] **Docs readability (fresh agent)**: run a fresh-agent pass (no `rpent/`, `robots/`, or `toolkits/` context) following [docs § Check](../docs/SKILL.md#check) and `docs/rules/` for plain human prose, native Chinese, concise main paths, no internal code citations or developer internals leaking into user guides, no non-runnable placeholder examples (`example.com`), and no negative-contrast restatement.
 - [ ] **Sibling alignment**: compare new simulator/robot guides against the closest current sibling on `main` and check `conf.py` redirects for moved pages.
 
 ## style

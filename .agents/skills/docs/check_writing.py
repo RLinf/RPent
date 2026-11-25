@@ -25,6 +25,7 @@ runs them on the lines a change adds.
 from __future__ import annotations
 
 import ast
+import json
 import re
 from pathlib import Path
 
@@ -37,6 +38,7 @@ TYPE_PREFIXES = (
     ("real_world_robots/", "simulator"),
     ("real_world_demos/", "guide"),
     ("guides/", "guide"),
+    ("toolkits/", "guide"),
     ("development/", "development"),
     ("leaderboard/", "reference"),
     ("resources/", "other"),
@@ -57,6 +59,10 @@ SIMULATOR_INSTALL = {
 CODE_NAME_SEVERITY = {"simulator": "major", "guide": "major"}
 
 LITERAL = re.compile(r"``([^`\n]+)``")
+SPHINX_API_ROLE = re.compile(
+    r":(?:py:)?(?:meth|func|class|mod|attr|obj|data|exc):`([^`\n]+)`"
+)
+ROLE_TARGET = re.compile(r"<([^>]+)>")
 #: A name that reads as code rather than a word or product: CamelCase with an
 #: inner capital, or snake_case, at least four characters long.
 CODE_LIKE = re.compile(
@@ -80,9 +86,12 @@ USER_FACING_NAMES = frozenset(
         "get_state",
         "back_project",
         "segment",
+        "geometry",
         "wam_act",
         "efe_submit",
         "efe_reset",
+        "RPentEfeAgent",
+        "history_length",
         "skills",
         "finish",
         "terminated",
@@ -209,11 +218,25 @@ def _tool_names(root: Path) -> set[str]:
     return names
 
 
+def _json_keys(obj: object) -> set[str]:
+    """Recursively collect string object keys from parsed JSON data."""
+    keys: set[str] = set()
+    if isinstance(obj, dict):
+        for k, v in obj.items():
+            if isinstance(k, str):
+                keys.add(k)
+            keys.update(_json_keys(v))
+    elif isinstance(obj, list):
+        for item in obj:
+            keys.update(_json_keys(item))
+    return keys
+
+
 def code_names(root: Path) -> frozenset[str]:
-    """Classes and functions under ``rpent/`` and ``robots/``, minus config/user names."""
+    """Classes and functions under ``rpent/``, ``robots/``, and ``toolkits/``, minus config/user names."""
     defined: set[str] = set()
     keys: set[str] = set()
-    for folder in ("rpent", "robots"):
+    for folder in ("rpent", "robots", "toolkits"):
         target = root / folder
         if not target.is_dir():
             continue
@@ -221,10 +244,17 @@ def code_names(root: Path) -> frozenset[str]:
             defined.update(
                 DEFINITION.findall(path.read_text(encoding="utf-8", errors="ignore"))
             )
-        for path in target.rglob("*.yaml"):
-            keys.update(
-                YAML_KEY.findall(path.read_text(encoding="utf-8", errors="ignore"))
-            )
+        for pattern in ("*.yaml", "*.yml"):
+            for path in target.rglob(pattern):
+                keys.update(
+                    YAML_KEY.findall(path.read_text(encoding="utf-8", errors="ignore"))
+                )
+        for path in target.rglob("*.json"):
+            try:
+                data = json.loads(path.read_text(encoding="utf-8", errors="ignore"))
+            except json.JSONDecodeError:
+                continue
+            keys.update(_json_keys(data))
     allowed = keys | USER_FACING_NAMES | _tool_names(root)
     return frozenset(n for n in defined - allowed if CODE_LIKE.match(n))
 
@@ -271,7 +301,7 @@ def check_page(
             for token in LITERAL.findall(text):
                 token = token.strip().removesuffix("()")
                 internal = (
-                    token.startswith(("rpent/", "robots/"))
+                    token.startswith(("rpent/", "robots/", "toolkits/"))
                     and ":" not in token
                     and not token.endswith((".yaml", ".yml", ".json"))
                 ) or (
@@ -286,6 +316,24 @@ def check_page(
                         "docs/code-name",
                         f"``{token}`` is RPent internal code that a reader never "
                         "touches on this page; describe the CLI or user-visible behavior instead",
+                    )
+            for raw_role in SPHINX_API_ROLE.findall(text):
+                match = ROLE_TARGET.search(raw_role)
+                target = (
+                    (match[1] if match else raw_role)
+                    .strip()
+                    .lstrip("~")
+                    .removesuffix("()")
+                )
+                if target.startswith(("rpent.", "robots.", "toolkits.")) or any(
+                    part in names for part in target.split(".")
+                ):
+                    add(
+                        CODE_NAME_SEVERITY[kind],
+                        number,
+                        "docs/code-name",
+                        f"Sphinx API role targeting ``{target}`` exposes RPent internal "
+                        "code on this page; describe the CLI or user-visible behavior instead",
                     )
 
     if kind not in ("reference", "development"):

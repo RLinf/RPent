@@ -83,7 +83,7 @@ Flag:
 
 ### Keep the common path direct
 
-Keep local in-process or direct RPC calls straightforward. Introduce extra threads, background processes, locks, or abstraction layers only when concurrency or isolation genuinely requires them, and ensure cancellation and shutdown drain cleanly (`Toolkit._Scheduler`, `ProcessDaemon.stop`).
+Keep local in-process or direct RPC calls straightforward. Introduce extra threads, background processes, locks, or abstraction layers only when concurrency or isolation genuinely requires them, and ensure cancellation and shutdown drain cleanly (`Toolkit._scheduler`, `ProcessDaemon.stop`).
 
 ### Preserve behavior
 

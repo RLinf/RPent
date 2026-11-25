@@ -90,7 +90,7 @@ python3 "$SKILLS/route.py" check --base "$BASE"
 python3 "$SKILLS/create-pr/lint_pr.py" lint --pr "$N"
 ```
 
-- **Docs readability pass (fresh agent)**: `docs/check.py` checks build, markup, symbols, and mechanical prose. Delegate the full EN/ZH reading to a **fresh agent (never a fork)** that sees only the changed doc pages, closest `main` sibling pages, [docs/STYLE_GUIDE.md](../../../docs/STYLE_GUIDE.md), and [docs/SKILL.md](../docs/SKILL.md) + `docs/rules/`—with no `rpent/` or `robots/` source context. Prioritize readability and conciseness: flag (1) stiff prose or machine-translated/literal Chinese, (2) long-winded explanations, (3) internal code citations on user pages, (4) complex commands, and (5) repeated negative-contrast framing ("not A, not B, but C" / "不是……而是……").
+- **Docs readability pass (fresh agent)**: `docs/check.py` checks build, markup, symbols, and mechanical prose. Delegate the full EN/ZH reading to a **fresh agent (never a fork)** that sees only the changed doc pages, closest `main` sibling pages, and [docs/SKILL.md](../docs/SKILL.md) + `docs/rules/`—with no `rpent/`, `robots/`, or `toolkits/` source context. Prioritize readability and conciseness: flag (1) stiff prose or machine-translated/literal Chinese, (2) long-winded explanations, (3) internal code citations on user pages, (4) developer internals leaking into user guides or duplicating `development/`, (5) complex commands, (6) non-runnable placeholder examples (such as `example.com`), and (7) repeated negative-contrast framing ("not A, not B, but C" / "不是……而是……").
 - **Script-to-category mapping**:
   - `tests`: `code/test-layout`, `robots/packaging`, `robots/e2e-syntax`, `robots/e2e-targets`
   - `design`: `robots/exports`, `robots/lazy-import`
@@ -107,7 +107,7 @@ Try to falsify each candidate before reporting it. Run cheap offline CPU checks 
 - **unresolved**: plausible, but needs missing hardware, assets, or author intent; state what settles it.
 - **dismissed**: cannot happen or matches `main`; drop silently (never list in the output).
 
-Merge findings with the same root cause into one finding listing affected locations. Assign severity strictly per [README.md § Findings](../README.md#findings): `critical` requires a concrete failure path (wrong result, crash, data loss, broken backend/robot, failed docs build, or uncompletable workflow); downgrade or drop speculative edge cases and low-value nits. If nothing survives, write `No findings.` and one line on what was checked.
+Merge findings with the same root cause into one finding listing affected locations. Assign severity strictly per [README.md § Findings](../README.md#findings): `critical` requires a concrete failure path (wrong result, crash, data loss, broken backend/robot, failed docs build, or uncompletable workflow); whole-page docs readability failures, developer internals leaking into user guides or duplicating `development/`, and non-runnable placeholder examples (such as `example.com`) are `major`, not `minor`; downgrade or drop speculative edge cases and low-value nits. If nothing survives, write `No findings.` and one line on what was checked.
 
 ## 8. Report
 

@@ -36,10 +36,26 @@ from __future__ import annotations
 
 import argparse
 import re
+import subprocess
 import sys
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[3]
+
+def repo_root() -> Path:
+    """The RPent checkout containing the working directory, or this script's repo."""
+    try:
+        out = subprocess.run(
+            ["git", "rev-parse", "--show-toplevel"],
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        return Path(out.stdout.strip())
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        return Path(__file__).resolve().parents[3]
+
+
+ROOT = repo_root()
 
 #: Pages that document RPent's own APIs and extension contracts.
 DOC_ROOTS = tuple(f"docs/source-{lang}/rst_source/development" for lang in ("en", "zh"))
@@ -152,12 +168,13 @@ def main(argv: list[str] | None = None) -> int:
     )
     args = parser.parse_args(argv)
 
-    known = vocabulary(ROOT) | ALLOWED | EXTERNAL | KNOWN_DRIFT | set(args.allow)
-    pages = collect(args.targets or list(DOC_ROOTS))
+    root = repo_root()
+    known = vocabulary(root) | ALLOWED | EXTERNAL | KNOWN_DRIFT | set(args.allow)
+    pages = collect(args.targets or list(DOC_ROOTS), root)
 
     unknown: list[str] = []
     for page in pages:
-        rel = page.relative_to(ROOT) if page.is_relative_to(ROOT) else page
+        rel = page.relative_to(root) if page.is_relative_to(root) else page
         for number, token in literals(page):
             if token not in known:
                 unknown.append(f"{rel}:{number}: {token}")

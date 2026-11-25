@@ -11,7 +11,7 @@ paths:
 
 # Docs
 
-RPent's documentation rules live in [rules/](rules/) alongside [docs/STYLE_GUIDE.md](../../../docs/STYLE_GUIDE.md), split so a writer reads only what the page in hand needs: the rules for every page, the rules for its type, and the rules for each language. This skill says what to read, how to write a page, and how to check it.
+RPent's documentation rules live in [rules/](rules/) (indexed from [docs/STYLE_GUIDE.md](../../../docs/STYLE_GUIDE.md)), split so a writer reads only what the page in hand needs: the rules for every page, the rules for its type, and the rules for each language. This skill says what to read, how to write a page, and how to check it.
 
 ## Write
 
@@ -46,7 +46,7 @@ Page findings count only on the lines the change adds, because older pages may p
 | `docs/build` | critical | a Sphinx warning in either language; both Read the Docs projects build with `fail_on_warning: true`, independently ([reference.md](reference.md#the-build-gate)) |
 | `docs/markup` | critical or major | inline markup next to CJK text that breaks the build (critical) or silently mis-renders (major) ([reference.md](reference.md#inline-markup-next-to-cjk-punctuation)) |
 | `docs/symbol` | major | a name in code font, on a Concepts & Development page, that nothing in the repository defines |
-| `docs/code-name` | major | internal `rpent/` or `robots/` classes, functions, or paths in code font on a simulator or user guide page |
+| `docs/code-name` | major | internal `rpent/`, `robots/`, or `toolkits/` classes, functions, Sphinx API roles, or source paths on a simulator, toolkit, or user guide page |
 | `docs/structure` | major | a new simulator page missing required sections (`Overview`, `Tasks`, `Observation and Action`, `Installation [and Resources]`, `Run a Task`, `View Results`) |
 | `docs/rtd-link` | major | a hardcoded `rpent.readthedocs.io` link inside `docs/` instead of `:doc:` or `:ref:` |
 | `docs/parity` | major or minor | a page without its counterpart, or toctrees that differ (major); a page, README, or CONTRIBUTING changed while its counterpart did not (minor) |
@@ -58,10 +58,12 @@ Page findings count only on the lines the change adds, because older pages may p
 Then read every changed page in full, in both languages, as a reader new to RPent who has not seen its code, and inspect every command block:
 
 - [ ] The checklist in the page type's rules file holds.
-- [ ] **Readability and conciseness**: apply [rules/base.md](rules/base.md#prefer-simplicity-and-readability-over-verbosity). Flag stiff prose, machine-translated or clause-by-clause Chinese, long-winded explanations, internal code citations on user pages, repeated negative-contrast framing, and pages bloatier than a clean `main` sibling.
+- [ ] **Readability and conciseness**: apply [rules/base.md](rules/base.md#prefer-simplicity-and-readability-over-verbosity). Flag stiff prose, machine-translated or clause-by-clause Chinese, long-winded explanations, internal code citations or developer internals leaking into user pages / duplicating `development/`, repeated negative-contrast framing, and pages bloatier than a clean `main` sibling.
+- [ ] **Code examples**: snippets and commands are complete, copyable, and runnable as written — no placeholder domains (`example.com`), fictional flags/paths, or unframed pseudo-code mixed into runnable steps (illustrative sketches on `development/` are labeled as such).
 - [ ] **Commands and sibling alignment**: one clean copyable main path; commands match actual CLI flags, install extras, and defaults; simulator guides distinguish planner `finish` from native `terminated`.
+- [ ] **Cross-references**: links inside `docs/` use `:doc:` / `:ref:` (no hardcoded `rpent.readthedocs.io` URLs), related guides link instead of duplicating shared setup or CLI tables, and moved/renamed pages have redirects in both `conf.py` files.
 - [ ] **Docs ↔ code accuracy**: every command, flag, env var, install extra, path, and capability claim matches `main` plus the change; public additions, renames, or removals update all affected EN/ZH pages and prompts/docstrings.
 - [ ] **Parity, assets, and README**: paired EN/ZH pages agree on sections, commands, keys, claims, and numbers; media URLs return HTTP 200 directly ([reference.md § Asset and media references](reference.md#asset-and-media-references)); noteworthy features get a README highlight ([rules/readme.md](rules/readme.md)).
 - [ ] None of the mistakes in [rules/mistakes.md](rules/mistakes.md) remains.
 
-Report each changed page with its type and result (pass or findings). Rate a page `major` when it fails any bullet above as a whole; rate isolated wording issues `minor`. Quote the line, name the rule, and give the rewrite.
+Report each changed page with its type and result (pass or findings). Rate a page `major` when it fails any bullet above as a whole — for example, whole-page machine-translated or literal Chinese, developer internals leaking into a user guide or duplicating `development/`, non-runnable placeholder examples (such as `example.com`), missing prerequisites or broken main-path commands, or EN/ZH content drift. Rate isolated wording or phrasing tweaks `minor`. Quote the line, name the rule, and give the rewrite.

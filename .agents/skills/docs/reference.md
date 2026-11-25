@@ -1,6 +1,6 @@
 # Docs check reference
 
-Background for the rules [check.py](check.py) applies and for the judgment items in [SKILL.md](SKILL.md#check). The writing rules live in [rules/](rules/) and [docs/STYLE_GUIDE.md](../../../docs/STYLE_GUIDE.md).
+Background for the rules [check.py](check.py) applies and for the judgment items in [SKILL.md](SKILL.md#check). The writing rules live in [rules/](rules/).
 
 ## Source of truth for robots, planners, and extras
 
@@ -47,7 +47,7 @@ Fix both with an escaped space (`\ `) between the markup and the adjacent charac
 
 ## Hard-wrapped Chinese prose
 
-reStructuredText joins consecutive source lines inside a paragraph with a space, so bare line wrapping inside Chinese prose inserts a visible gap between characters. Keep Chinese prose paragraphs and list items on one source line, or end wrapped source lines with a trailing backslash (`\`) per [docs/STYLE_GUIDE.md](../../../docs/STYLE_GUIDE.md#english-and-chinese).
+reStructuredText joins consecutive source lines inside a paragraph with a space, so bare line wrapping inside Chinese prose inserts a visible gap between characters. Keep Chinese prose paragraphs and list items on one source line, or end wrapped source lines with a trailing backslash (`\`) per [rules/chinese.md](rules/chinese.md).
 
 ## Code-font names
 
