@@ -45,8 +45,9 @@ SCRIPTED_GRASP = """
 Localize the object and destination, choose a grasp height below the object's
 top surface, and check the numeric outcome after each motion. Move above
 the target with the gripper open, descend, close with `set_gripper` and
-lift vertically. Check finger separation and confirm uncertain grasps
-visually before carrying. Move above the destination, descend, release and
+lift vertically. Check finger separation. Under --no-am, action calls return
+state without images. Use `robo.view_env_state(step=-1)` to check the latest
+images when the grasp is uncertain. Move above the destination, descend, release and
 check native termination.
 """
 

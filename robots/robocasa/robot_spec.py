@@ -34,6 +34,7 @@ from robots.robocasa.memory import (
     validate_options,
 )
 from robots.robocasa.prompt_bundle import (
+    code_system_prompt,
     system_prompt,
     user_prompt,
 )
@@ -213,7 +214,7 @@ def get_robot_spec() -> RobotSpec:
         prompts=PromptBundle(
             system=system_prompt,
             user=user_prompt,
-            code_system=system_prompt,
+            code_system=code_system_prompt,
         ),
         add_cli_args=_add_cli_args,
         parse_config=_parse_config,

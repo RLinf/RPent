@@ -30,8 +30,6 @@ def system_prompt(
 ) -> PromptNode:
     """Return the RoboTwin system prompt for the selected run mode."""
     variables = variables or {}
-    if variables.get("policy_mode") == "code":
-        return code_parts.system_prompt(policy_kind=variables.get("policy_kind"))
 
     if variables.get("policy_backend") == "uniwam":
         from robots.robotwin.prompts.uniwam import evaluate
@@ -50,6 +48,11 @@ def system_prompt(
     ):
         return explore_parts.system_prompt()
     return evaluate_parts.system_prompt(variables)
+
+
+def code_system_prompt(variables: Mapping[str, object] | None = None) -> PromptNode:
+    """Return operating guidance for Python cells."""
+    return code_parts.system_prompt(policy_kind=(variables or {}).get("policy_kind"))
 
 
 def user_prompt(
@@ -81,4 +84,4 @@ def user_prompt(
     return prompt
 
 
-__all__ = ["system_prompt", "user_prompt"]
+__all__ = ["code_system_prompt", "system_prompt", "user_prompt"]

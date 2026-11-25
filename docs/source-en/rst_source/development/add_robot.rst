@@ -98,12 +98,15 @@ these two functions:
        config: RunConfig,
    ):
        from robots.myrobot.toolkit import MyRobotToolkit
+       memory = None
+       if config.use_memory:
+           memory = MemoryManager(
+               root=config.prompt_vars.get("memory_dir") or get_memory_dir("myrobot"),
+           )
        return MyRobotToolkit(
            runtime_kwargs=runtime_kwargs,
            dashboard_events=dashboard_events,
-           memory=MemoryManager(
-               root=config.prompt_vars.get("memory_dir") or get_memory_dir("myrobot"),
-           ),
+           memory=memory,
        )
 
    def _add_cli_args(parser, use_dashboard) -> None:
@@ -321,10 +324,10 @@ filenames rather than maintaining a parallel observation index.
 
 **Toolkit class** — subclass ``rpent.tools.toolkit.Toolkit``:
 
-- forward the required ``memory`` (a :class:`~rpent.memory.MemoryManager`) and ``state`` to
-  ``super().__init__(...)``. Configure ``memory_access`` and
-  ``inbox_cell_tag`` on the ``MemoryManager``; eval uses read-only access by
-  default.
+- Pass ``memory`` (``MemoryManager | None``) and ``state`` to
+  ``super().__init__(...)``. Construct the manager when ``config.use_memory``
+  is true. Configure ``memory_access`` and ``inbox_cell_tag`` on the manager.
+  Eval uses read-only memory by default.
 - build the primitives in ``__init__`` through a custom initialization
   helper (named ``init_primitives`` in LIBERO; it calls
   ``EnvState.reset()``, constructs the primitives, and dumps step 0),
@@ -350,12 +353,15 @@ restrict a server to specific tools or force ``sync_with_robot=True``, call
 .. code-block:: python
 
    def get_toolkit(*, runtime_kwargs, dashboard_events, config):
+       memory = None
+       if config.use_memory:
+           memory = MemoryManager(
+               root=config.prompt_vars.get("memory_dir") or get_memory_dir("myrobot"),
+           )
        toolkit = MyRobotToolkit(
            runtime_kwargs=runtime_kwargs,
            dashboard_events=dashboard_events,
-           memory=MemoryManager(
-               root=config.prompt_vars.get("memory_dir") or get_memory_dir("myrobot"),
-           ),
+           memory=memory,
        )
        if any(server.name == "dock" for server in config.mcp_servers):
            toolkit.add_mcp_tools(
@@ -516,11 +522,12 @@ it. Keep benchmark manifests, robot-specific runtime fields, and aggregation
 logic in the robot package rather than the shared CLI.
 
 Code Policy Without an Action Model
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+-----------------------------------
 
 The shared Python runner wraps the robot toolkit. ``PromptBundle`` supplies
-the Python instructions and the live ``robo.*`` API. Use its optional
-``code_system`` callback for robot-specific operating knowledge.
+the Python instructions and the live ``robo.*`` API. Set the optional
+``code_system`` callback to a factory that returns the robot's operating
+guidance for Python cells.
 
 To support ``--policy-mode code --no-am``:
 

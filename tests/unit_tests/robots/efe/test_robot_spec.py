@@ -136,6 +136,20 @@ def test_parse_config_uses_the_task_instruction(tmp_path):
     assert config.recipe_tag.startswith("task_")
 
 
+def test_parse_config_isolates_codex_home_before_memory_setup(tmp_path, monkeypatch):
+    args = _args(tmp_path)
+    args.planner = "codex"
+    args.policy_mode = "code"
+    args.memory_dir = tmp_path / "memory"
+    monkeypatch.setenv("CODEX_HOME", str(tmp_path / "ambient-codex"))
+
+    config = _parse_config(args)
+    codex_home = config.output_dir / "codex-home"
+    assert os.environ["CODEX_HOME"] == str(codex_home)
+    assert codex_home.is_dir()
+    assert not args.memory_dir.exists()
+
+
 def test_parse_config_uses_an_explicit_task_name(tmp_path):
     """An agent harness uploads the instruction away from the task directory."""
     args = _args(tmp_path)

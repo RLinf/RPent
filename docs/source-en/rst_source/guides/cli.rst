@@ -34,6 +34,18 @@ These options control the planner, memory, output directory, and Dashboard.
    * - ``--max-turns``
      - ``100``
      - Planner turn limit. For ``api``, counts model requests across the conversation, including retries and follow-ups.
+   * - ``--policy-mode``
+     - ``tools``
+     - Use ``code`` to submit Python cells instead of individual robot tool calls. See :doc:`pyrua` for setup and compatible planners.
+   * - ``--no-am``
+     - ``false``
+     - Disable action model services and tools with ``--policy-mode code`` on standard LIBERO and RoboDojo.
+   * - ``--code-timeout-s``
+     - ``120``
+     - Time limit in seconds per Python cell, including robot tool calls.
+   * - ``--code-max-calls``
+     - ``100``
+     - Maximum number of robot tool calls per Python cell.
    * - ``--max-tokens``
      - ``8192``
      - ``api`` only: token limit per model response.
@@ -59,7 +71,7 @@ These options control the planner, memory, output directory, and Dashboard.
      - Path to an external MCP YAML file whose ``mcp_servers`` section is registered on the robot's toolkit for every run; supported by ``api``, ``claude_code``, ``codex``, and ``gemini_cli`` (rejected by ``flash``). See :ref:`external-mcp-servers`.
    * - ``--no-images``
      - ``false``
-     - ``api`` only: omit images from model requests.
+     - Omit images from API planner requests. With ``--policy-mode code``, omit tool images from Python cell replies for every supported planner.
    * - ``--claude-code-max-budget-usd``
      - ``—``
      - Claude Code dollar budget; defaults to ``MAX_BUDGET_USD`` or 10.
@@ -255,6 +267,8 @@ The table uses LIBERO as an example. Files depend on the environment, recording,
      - Purpose
    * - ``transcript_*.json``
      - Planner conversation, tool calls, and completion information.
+   * - ``code_policy/``
+     - PyRUA cell source, execution results, robot call logs, worker diagnostics and scratch files. See :doc:`pyrua`.
    * - ``trajectories/<task_id>/``
      - Task records and attachments saved by ``--record-trajectory``. Exploration records are under each ``sessions/session_*/`` directory. See :doc:`flywheel`.
    * - ``episode.mp4``

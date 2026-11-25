@@ -222,6 +222,10 @@ def _parse_config(args: argparse.Namespace) -> RunConfig:
         if args.output_dir is not None
         else get_repo_root() / "logs" / f"{datetime.now():%Y%m%d-%H:%M:%S}_{tag}"
     )
+    if args.planner == "codex":
+        codex_home = (output_dir / "codex-home").resolve()
+        codex_home.mkdir(parents=True, exist_ok=True)
+        os.environ["CODEX_HOME"] = str(codex_home)
     prompt_vars = {
         **session_vars.prompt_vars(
             workdir=workdir,
@@ -242,15 +246,10 @@ def _parse_config(args: argparse.Namespace) -> RunConfig:
     )
 
 
-def _prepare_memory(args: argparse.Namespace, config: RunConfig) -> None:
-    """Create the run's memory and planner state roots without downloads."""
+def _prepare_memory(_args: argparse.Namespace, config: RunConfig) -> None:
+    """Create the run's memory root without downloads."""
     memory_dir = Path(config.prompt_vars["memory_dir"])
     memory_dir.mkdir(parents=True, exist_ok=True)
-    if args.planner == "codex":
-        codex_home = (config.output_dir / "codex-home").resolve()
-        codex_home.mkdir(parents=True, exist_ok=True)
-        # Keep Codex credentials and state inside this run's artifacts.
-        os.environ["CODEX_HOME"] = str(codex_home)
 
 
 def _finalize_run(context: RunFinalizationContext) -> Path:

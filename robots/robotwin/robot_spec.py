@@ -28,7 +28,7 @@ from typing import TYPE_CHECKING, Any, Literal
 
 from robots.robotwin.memory import prepare_memory, validate_options
 from robots.robotwin.observation import ROBOTWIN_CAMERAS
-from robots.robotwin.prompt_bundle import system_prompt, user_prompt
+from robots.robotwin.prompt_bundle import code_system_prompt, system_prompt, user_prompt
 from rpent.dashboard.events import DashboardEventSink, RuntimeStatusEvent
 from rpent.dashboard.spec import DashboardSpec
 from rpent.memory import MemoryManager
@@ -250,7 +250,7 @@ def get_robot_spec() -> RobotSpec:
     return RobotSpec(
         name="robotwin",
         prompts=PromptBundle(
-            system=system_prompt, user=user_prompt, code_system=system_prompt
+            system=system_prompt, user=user_prompt, code_system=code_system_prompt
         ),
         add_cli_args=_add_cli_args,
         parse_config=_parse_config,

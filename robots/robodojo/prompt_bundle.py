@@ -32,13 +32,15 @@ def system_prompt(
     """Select the RoboDojo system prompt for the selected run mode."""
     variables = variables or {}
 
-    if variables.get("policy_mode") == "code":
-        return code_parts.system_prompt(backend=variables.get("vla_backend"))
-
     if variables.get("mode") == "explore":
         return explore_parts.system_prompt(variables)
 
     return evaluate_parts.system_prompt(variables)
+
+
+def code_system_prompt(variables: Mapping[str, object] | None = None) -> PromptNode:
+    """Return operating guidance for Python cells."""
+    return code_parts.system_prompt(backend=(variables or {}).get("vla_backend"))
 
 
 def user_prompt(
@@ -63,4 +65,4 @@ def user_prompt(
     return sections
 
 
-__all__ = ["system_prompt", "user_prompt"]
+__all__ = ["code_system_prompt", "system_prompt", "user_prompt"]

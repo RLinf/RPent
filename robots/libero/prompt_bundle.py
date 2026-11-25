@@ -31,9 +31,6 @@ def system_prompt(
     """Assemble the LIBERO system prompt for the selected run mode."""
     variables = variables or {}
 
-    if variables.get("policy_mode") == "code":
-        return code_parts.system_prompt(policy_kind=variables.get("policy_kind", "vla"))
-
     if (
         variables.get("mode", "eval") == "explore"
         and variables.get("policy_kind") != "wam"
@@ -41,6 +38,13 @@ def system_prompt(
         return explore_parts.system_prompt(variables)
 
     return evaluate_parts.system_prompt(variables)
+
+
+def code_system_prompt(variables: Mapping[str, object] | None = None) -> PromptNode:
+    """Return operating guidance for Python cells."""
+    return code_parts.system_prompt(
+        policy_kind=(variables or {}).get("policy_kind", "vla")
+    )
 
 
 def user_prompt(variables: Mapping[str, object] | None = None) -> PromptNode:
@@ -65,4 +69,4 @@ def user_prompt(variables: Mapping[str, object] | None = None) -> PromptNode:
     }
 
 
-__all__ = ["system_prompt", "user_prompt"]
+__all__ = ["code_system_prompt", "system_prompt", "user_prompt"]

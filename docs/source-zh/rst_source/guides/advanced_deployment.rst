@@ -164,22 +164,7 @@ SAM3 服务只加载一次模型，可以由多个 RPent 运行复用。
 
 .. _code-as-policy-optional:
 
-Code as Policy（可选）
-------------------------------
+PyRUA 模式
+----------
 
-这个模式让模型编写 Python 代码，通过 ``robo.<工具名>()`` 操作机器人。代码可以用循环和条件判断组织多步操作，变量会在同一次会话中保留。
-
-先确认普通任务能正常运行，再在原来的命令后加上 ``--policy-mode code``，例如：
-
-.. code-block:: bash
-
-   rpent --robot libero --libero-type pro \
-     --suite libero_object_swap --task 2 --seed 0 \
-     --planner claude_code --model claude-opus-4-8 \
-     --policy-mode code
-
-每段代码默认最多运行 120 秒、调用 100 次机器人工具，可通过 ``--code-timeout-s`` 和 ``--code-max-calls`` 调整。代码和执行结果保存在运行输出目录下的 ``code_policy/`` 中。
-
-模型通过 ``robo.finish(...)`` 结束任务，finish 成功后同一段代码中后面的语句不会再执行。``request_scene_reset``、``request_operator_verdict`` 等操作员请求仍是 Python 之外的独立工具，因为等待操作员的时间可能超过单段代码的时间限制。
-
-该模式使用单独的提示词，不读取任务记忆，也不生成 recipe。支持 ``api``、``claude_code``、``codex`` 和 ``gemini_cli`` 规划器，不能与 ``--planner flash`` 或 ``--explore`` 一起使用。省略此参数可使用默认的工具调用模式。Python worker 的 Linux 和 Bubblewrap 环境要求见 :doc:`pyrua`。
+安装要求、远程服务配置和运行记录见 :doc:`pyrua`。

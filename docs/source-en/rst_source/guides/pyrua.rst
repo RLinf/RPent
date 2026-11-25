@@ -18,13 +18,13 @@ The workflow consists of three steps:
 3. RPent returns the execution output and latest tool result to the
    planner, which then determines the next step.
 
-First complete the LIBERO-PRO installation and model setup described in
-:doc:`../get_started/quickstart`. The example below uses the same
-environment and model services as a standard LIBERO-PRO run.
-
-
 Run a Task
 ----------
+
+Use a Linux host with user namespaces enabled and Bubblewrap (``bwrap``)
+installed. On Ubuntu, install it with ``sudo apt install bubblewrap``.
+For the example below, complete the LIBERO-PRO and model setup in
+:doc:`../get_started/quickstart` and configure access to the Codex model.
 
 Add ``--policy-mode code`` to a standard LIBERO-PRO task command to
 enable PyRUA mode. The following example runs task 2 in the LIBERO-PRO
@@ -36,27 +36,26 @@ at low reasoning effort:
    rpent --robot libero --libero-type pro \
      --suite libero_object_swap --task 2 --seed 0 \
      --planner codex --model gpt-6.1-sol \
-     --policy-mode code --reasoning-effort low
+     --policy-mode code --reasoning-effort low --output-dir ./runs/pyrua
+
+Look in ``./runs/pyrua/code_policy/`` for the executed cells. Check
+``environment_success`` in ``transcript_*.json`` for the native LIBERO result.
+If the worker fails to start, check that ``bwrap`` is installed and user
+namespaces are permitted. Once the worker starts launching, its startup
+diagnostics appear in ``code_policy/worker.stderr.log``.
 
 PyRUA mode supports the ``api``, ``claude_code``, ``codex``, and ``gemini_cli`` planners
 via either the CLI or the Dashboard. It cannot be combined with
 ``--planner flash`` or ``--explore``. PyRUA mode does not load task
 memory or generate an action recipe.
 
-PyRUA runs on Linux with Bubblewrap (``bwrap``) and user namespaces enabled.
-On Ubuntu, install it with ``sudo apt install bubblewrap``.
-The worker can write to ``code_policy/scratch/`` and import the Python
-standard library and NumPy. The host workspace, environment variables and
-network are outside the worker. Planner shell permissions are configured
-separately from the Python worker.
+Run Without an Action Model
+---------------------------
 
-On standard LIBERO, add ``--no-am`` to disable action model services and tools.
-RoboDojo also supports ``--no-am`` with its native ARX-X5 controls.
-The Python cell localizes objects with ``segment`` and ``back_project``,
-then checks motion and grasp feedback while calling ``move_to``, ``move_pose``,
-``set_gripper``, and ``release``. Set ``SAM3_CHECKPOINT_PATH`` for a local server
-or use ``--sam3-endpoint`` for an existing server. The run uses no action model
-service. Call ``view_env_state`` explicitly when images are needed.
+Use ``--policy-mode code --no-am`` to disable VLA and WAM services and tools.
+For LIBERO this combination supports standard suites. Set up standard LIBERO
+and Claude Code first, then set ``SAM3_CHECKPOINT_PATH`` for a local SAM3
+server or pass ``--sam3-endpoint`` to reuse one.
 
 .. code-block:: bash
 
@@ -65,36 +64,53 @@ service. Call ``view_env_state`` explicitly when images are needed.
      --planner claude_code --model deepseek-v4.1-flash-1017 \
      --policy-mode code --no-am
 
+The standard LIBERO controller uses SAM3 and RGB-D localization, then
+native motion and gripper tools. Its action replies carry state. Call
+``robo.view_env_state(step=-1)`` when you need images.
+
+RoboDojo also supports ``--policy-mode code --no-am`` using native ARX-X5
+controls. See :doc:`../simulators/robodojo` for its setup.
 
 How Code Execution Works
 ------------------------
 
-The CLI and Dashboard use the same Python policy adapter. The worker calls
-the active robot toolkit through ``robo``. The toolkit owns argument
-validation, action scheduling, and observation capture. A robot backend
-can opt in to ``--no-am`` when its tools can operate without an action model.
-
-In PyRUA mode, RPent loads robot-specific prompts that guide the planner
-in calling robot tools through Python. The planner submits code through
-``python(code)`` and invokes robot tools using
+The planner submits code through ``python(code)`` and invokes robot tools using
 ``robo.<tool_name>(argument=value)``. Use ``print(...)`` to display
 values; variables remain available in subsequent cells.
+
+Python can import the standard library and NumPy and write to the session's
+scratch directory. The sandbox separates the worker from the host workspace,
+environment variables and network. Planner shell permissions are configured
+separately.
 
 Each cell has a default timeout of 120 seconds, including tool calls,
 and allows up to 100 robot tool calls. These limits can be adjusted
 using ``--code-timeout-s`` and ``--code-max-calls``, respectively.
 When ``robo.finish(...)`` successfully returns a completion marker,
 RPent terminates the current code cell and ends the planning session.
+When available, use ``request_scene_reset`` and ``request_operator_verdict``
+as separate planner tools so human input can arrive outside the cell timeout.
 
 
 Inspect a Run
 -------------
 
-Execution logs are saved in the ``code_policy/`` directory under the
-task's output directory. Use ``--output-dir`` to specify the output
-directory. The ``cell_*.py`` files contain code cells, ``cell_*.json``
-files contain execution results, and ``calls.jsonl`` records robot
-tool calls.
+The following paths are relative to ``code_policy/`` in the run directory
+selected by ``--output-dir``.
+
+.. list-table::
+   :header-rows: 1
+
+   * - Path
+     - Contents
+   * - ``cell_*.py`` and ``cell_*.json``
+     - Submitted code and its execution result, including output and exceptions.
+   * - ``calls.jsonl``
+     - Robot calls made from Python, with their results and durations.
+   * - ``worker.stderr.log``
+     - Sandbox startup and worker process diagnostics.
+   * - ``scratch/``
+     - Files written by Python cells during the session.
 
 
 LIBERO-PRO Evaluation
@@ -102,13 +118,14 @@ LIBERO-PRO Evaluation
 
 This evaluation used the Codex planner with GPT-6 Astra at high reasoning
 effort. It covered the Spatial, Object, Goal, and Long LIBERO-PRO task
-families, each with task and swap suites. Tasks 0–9 were evaluated with
-seed 1 in each suite, for a total of 80 planned episodes and an overall
-success rate of 80.00% (64/80).
+families, each with task and swap suites. Tasks 0–9 used one seed per suite.
+The overall success rate was 80.00% (64/80 planned episodes).
 
 The table summarizes results by suite. Token usage, elapsed time, and
 planner turns are averaged over episodes with transcripts, including
-both successful and unsuccessful episodes.
+both successful and unsuccessful episodes. The historical summary lacks
+the transcript count, exact seed, action-model checkpoint, and the configured
+values of ``--code-timeout-s``, ``--code-max-calls`` and ``--max-turns``.
 
 .. list-table:: PyRUA single-seed evaluation on LIBERO-PRO
    :header-rows: 1

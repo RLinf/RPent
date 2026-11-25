@@ -28,11 +28,14 @@ def system_prompt(
     variables: Mapping[str, object] | None = None,
 ) -> PromptNode:
     """Return the RoboCasa system prompt tree."""
-    if (variables or {}).get("policy_mode") == "code":
-        return code_parts.system_prompt()
     if (variables or {}).get("mode", "eval") == "explore":
         return explore_parts.system_prompt()
     return evaluate_parts.system_prompt(variables)
+
+
+def code_system_prompt(_variables: Mapping[str, object] | None = None) -> PromptNode:
+    """Return operating guidance for Python cells."""
+    return code_parts.system_prompt()
 
 
 def user_prompt(

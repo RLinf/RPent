@@ -236,7 +236,12 @@ class CodePolicyTools(Toolkit):
                     child.finish("failed", f"{type(exc).__name__}: {exc}")
                 raise
             if not child.finished:
-                child.finish("failed", str(result.data.get("error", "")))
+                child.finish(
+                    "cancelled"
+                    if result.data.get("code") == "tool_cancelled"
+                    else "failed",
+                    str(result.data.get("error", "")),
+                )
             state.update_tool_call(
                 child.tool_call_id,
                 feedback=Payload(

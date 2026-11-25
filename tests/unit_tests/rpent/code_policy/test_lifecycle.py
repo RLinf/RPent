@@ -201,6 +201,23 @@ def test_cell_captures_each_primitive_once_and_returns_latest_feedback(policy):
         assert call.source_ids["rpent.parent_tool_call_id"] == cell_id
 
 
+def test_nested_call_cancelled_before_admission_has_no_execution_times(policy):
+    provider, robot = policy
+    state = robot.state
+    state.start_task(instruction="Move.", config=Payload("test", {}))
+    cell_id = state.register_tool_call(
+        planner_id=None, name="python", arguments=Payload("test", {})
+    )
+    robot.cancel_active_and_wait()
+    with ToolCallCapture(state, cell_id).bind():
+        _run(provider, "robo.move(distance=1)")
+    _, child = state.tool_call_records()
+    assert child.status == "cancelled"
+    assert child.started_at is None and child.ended_at is None
+    assert child.feedback.data["code"] == "tool_cancelled"
+    assert robot.observations == []
+
+
 @pytest.mark.parametrize("code", ["while True: pass", "import os; os._exit(2)"])
 def test_worker_failure_or_timeout_allows_a_fresh_cell(policy, code):
     provider, robot = policy

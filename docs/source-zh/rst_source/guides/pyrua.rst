@@ -11,11 +11,10 @@
 2. Python 运行时执行代码，机器人工具集处理每次 ``robo.<tool_name>(...)`` 调用。
 3. RPent 把执行输出和最近一次工具结果返回给规划器，再由规划器决定下一步。
 
-先按照 :doc:`../get_started/quickstart` 完成 LIBERO-PRO 的安装和模型配置。以下示例沿用普通 LIBERO-PRO 运行所需的环境与模型服务。
-
-
 运行一个任务
 ------------
+
+运行 PyRUA 需要启用用户命名空间的 Linux 环境，并安装 Bubblewrap（``bwrap``）。Ubuntu 上可用 ``sudo apt install bubblewrap`` 安装。运行下面的示例前，先按 :doc:`../get_started/quickstart` 安装 LIBERO-PRO、配置模型服务，并准备好 Codex 的模型访问。
 
 在普通 LIBERO-PRO 任务命令中加入 ``--policy-mode code``，即可启用 PyRUA 模式。下面的示例使用 Codex 规划器和 GPT-6.1 Sol 模型，推理强度设为 low，在 LIBERO-PRO Object Swap 套件中运行任务 2，seed 0。
 
@@ -24,15 +23,16 @@
    rpent --robot libero --libero-type pro \
      --suite libero_object_swap --task 2 --seed 0 \
      --planner codex --model gpt-6.1-sol \
-     --policy-mode code --reasoning-effort low
+     --policy-mode code --reasoning-effort low --output-dir ./runs/pyrua
+
+在 ``./runs/pyrua/code_policy/`` 查看执行过的代码片段，在 ``transcript_*.json`` 中查看 LIBERO 原生结果 ``environment_success``。如果 worker 启动失败，先确认已安装 ``bwrap`` 且系统允许用户命名空间。进入启动流程后，诊断信息会写入 ``code_policy/worker.stderr.log``。
 
 PyRUA 模式支持 ``api``、``claude_code``、``codex`` 和 ``gemini_cli`` 规划器，可通过 CLI 和 Dashboard 启动，不能与 ``--planner flash`` 或 ``--explore`` 一起使用。PyRUA 模式不加载任务记忆，也不生成动作序列（recipe）。
 
-PyRUA 需要安装 Bubblewrap（``bwrap``）并启用用户命名空间的 Linux 环境。在 Ubuntu 上可用 ``sudo apt install bubblewrap`` 安装。Python worker 可以写入 ``code_policy/scratch/``，并导入 Python 标准库和 NumPy。宿主机工作区、环境变量和网络均与 worker 隔离。规划器的 Shell 权限独立配置。
+关闭动作模型
+------------
 
-在标准 LIBERO 上加 ``--no-am`` 可关闭动作模型服务和工具。Python 代码通过 ``segment`` 和 ``back_project`` 定位，再用 ``move_to``、``move_pose``、``set_gripper`` 和 ``release`` 执行动作，根据返回的状态判断下一步。通过 ``SAM3_CHECKPOINT_PATH`` 指定本地权重，或用 ``--sam3-endpoint`` 连接已有服务。需要查看图片时显式调用 ``view_env_state``。
-
-RoboDojo 也支持 ``--no-am``，动作由原生 ARX-X5 控制接口执行。
+用 ``--policy-mode code --no-am`` 关闭 VLA 和 WAM 服务及工具。LIBERO 的此组合适用于标准套件。先配置标准 LIBERO 和 Claude Code，再用 ``SAM3_CHECKPOINT_PATH`` 指定本地 SAM3 权重，或用 ``--sam3-endpoint`` 连接已有服务。
 
 .. code-block:: bash
 
@@ -41,29 +41,48 @@ RoboDojo 也支持 ``--no-am``，动作由原生 ARX-X5 控制接口执行。
      --planner claude_code --model deepseek-v4.1-flash-1017 \
      --policy-mode code --no-am
 
+标准 LIBERO 使用 SAM3 与 RGB-D 定位，再调用原生的运动和夹爪工具执行动作。动作回复包含状态。需要查看图像时，调用 ``robo.view_env_state(step=-1)``。
+
+RoboDojo 也支持 ``--policy-mode code --no-am``，动作由原生 ARX-X5 控制接口执行。环境配置见 :doc:`../simulators/robodojo`。
 
 执行原理
 ------------
 
-CLI 和 Dashboard 共用同一个 Python 执行适配器。Python worker 通过
-``robo`` 调用当前机器人的工具集，由工具集验证参数、调度动作并采集观测。
-能在没有动作模型时提供工具的机器人后端，可以声明支持 ``--no-am``。
+规划器通过 ``python(code)`` 提交代码，用 ``robo.<tool_name>(argument=value)`` 调用机器人工具。用 ``print(...)`` 显示结果，变量可在后续代码片段中复用。
 
-启用 PyRUA 模式后，RPent 根据所选机器人加载专用提示词，引导规划器通过 Python 代码调用机器人工具。规划器通过 ``python(code)`` 提交代码，用 ``robo.<tool_name>(argument=value)`` 调用机器人工具。用 ``print(...)`` 显示结果；变量可在后续代码片段中复用。
+Python 可以导入标准库和 NumPy，并在会话的临时目录写入文件。沙箱隔离 worker 与宿主机的工作区、环境变量和网络。规划器的 Shell 权限独立配置。
 
 每段代码默认限时 120 秒（含工具调用），最多调用 100 次机器人工具，可分别用 ``--code-timeout-s`` 和 ``--code-max-calls`` 调整。调用 ``robo.finish(...)`` 并成功返回结束标记后，RPent 停止当前代码片段并结束本次规划。
+
+如果工具集提供 ``request_scene_reset`` 或 ``request_operator_verdict``，请让规划器单独调用这些工具，等待人工输入的时间由工具自身管理。
 
 
 查看运行记录
 ------------
 
-运行记录保存在任务输出目录下的 ``code_policy/``；可通过 ``--output-dir`` 指定输出目录。``cell_*.py`` 是代码片段，``cell_*.json`` 是执行结果，``calls.jsonl`` 记录机器人工具调用。
+下表路径相对于运行目录下的 ``code_policy/``。可通过 ``--output-dir`` 指定运行目录。
+
+.. list-table::
+   :header-rows: 1
+
+   * - 路径
+     - 内容
+   * - ``cell_*.py`` 和 ``cell_*.json``
+     - 提交的代码和执行结果，包括输出与异常。
+   * - ``calls.jsonl``
+     - Python 发起的机器人工具调用及其结果和耗时。
+   * - ``worker.stderr.log``
+     - 沙箱启动和 worker 运行诊断。
+   * - ``scratch/``
+     - 代码在本次会话中写入的文件。
 
 
 LIBERO-PRO 评测结果
 -------------------
 
-本评测采用 Codex 规划器和 GPT-6 Astra 模型，推理强度设为 high，覆盖 LIBERO-PRO 的 Spatial、Object、Goal 和 Long 四类任务。每类任务包含 task 和 swap 两个套件，各套件均使用 seed 1，运行任务 0–9，共评测 80 个回合，总体成功率为 80.00%（64/80）。下表展示各 suite 的评测结果；Token 用量、耗时和 Planner 轮数均在具有 transcript 记录的回合上取平均，包含成功与失败回合。
+本次评测使用 Codex 规划器和 GPT-6 Astra 模型，推理强度为 high，覆盖 LIBERO-PRO 的 Spatial、Object、Goal 和 Long 四类任务。每类任务含 task 和 swap 两个套件，每个套件用一个 seed 运行任务 0–9。总体成功率为 80.00%（64/80 个计划回合）。
+
+Token 用量、耗时和规划轮数以有 transcript 的回合为样本，包含成功和失败回合。历史汇总缺少 transcript 数量、确切的 seed、动作模型权重，以及当时的 ``--code-timeout-s``、``--code-max-calls`` 和 ``--max-turns`` 配置值。
 
 .. list-table:: PyRUA 在 LIBERO-PRO 上的单 Seed 评测
    :header-rows: 1

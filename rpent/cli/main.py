@@ -570,7 +570,9 @@ def main() -> int:
 
     try:
         run_config = configure_policy(
-            _with_shared_mcp_servers(robot_spec.parse_config(args), args.shared_mcp_servers),
+            _with_shared_mcp_servers(
+                robot_spec.parse_config(args), args.shared_mcp_servers
+            ),
             args,
         )
     except (OSError, ValueError) as exc:

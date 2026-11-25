@@ -21,7 +21,17 @@ def bubblewrap() -> str:
 def worker_command(scratch: Path) -> list[str]:
     """Mount the selected interpreter and its dependencies read-only."""
     python = Path(sys.executable).resolve()
-    stdlib = Path(sysconfig.get_path("stdlib"))
+    # A virtualenv can report its own lib directory as platstdlib.
+    library_roots = dict.fromkeys(
+        (
+            Path(sysconfig.get_path("stdlib")),
+            Path(
+                sysconfig.get_path(
+                    "platstdlib", vars={"platbase": sys.base_exec_prefix}
+                )
+            ),
+        )
+    )
     command = [
         bubblewrap(),
         "--unshare-all",
@@ -45,9 +55,6 @@ def worker_command(scratch: Path) -> list[str]:
         str(python),
         str(python),
         "--ro-bind",
-        str(stdlib),
-        str(stdlib),
-        "--ro-bind",
         str(Path(__file__).with_name("worker.py")),
         "/worker.py",
     ]
@@ -68,9 +75,11 @@ def worker_command(scratch: Path) -> list[str]:
         if library.is_file():
             command.extend(("--ro-bind", str(library), str(library)))
             command.extend(("--setenv", "LD_LIBRARY_PATH", str(library.parent)))
-    for name in ("site-packages", "dist-packages"):
-        if (stdlib / name).is_dir():
-            command.extend(("--tmpfs", str(stdlib / name)))
+    for root in library_roots:
+        command.extend(("--ro-bind", str(root), str(root)))
+        for name in ("site-packages", "dist-packages"):
+            if (root / name).is_dir():
+                command.extend(("--tmpfs", str(root / name)))
 
     # Expose NumPy without inheriting editable source paths or other packages.
     numpy = importlib.util.find_spec("numpy")

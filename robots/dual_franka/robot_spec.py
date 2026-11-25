@@ -25,7 +25,11 @@ from functools import partial
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from robots.dual_franka.prompt_bundle import system_prompt, user_prompt
+from robots.dual_franka.prompt_bundle import (
+    code_system_prompt,
+    system_prompt,
+    user_prompt,
+)
 from robots.dual_franka.runtime_config import DEFAULT_CONFIG
 from robots.dual_franka.tasks import DUAL_FRANKA_TASKS, get_dual_franka_task
 from robots.franka.runtime_config import (
@@ -96,7 +100,7 @@ def get_robot_spec() -> RobotSpec:
         name="dual_franka",
         run_flash=_run_flash,
         prompts=PromptBundle(
-            system=system_prompt, user=user_prompt, code_system=system_prompt
+            system=system_prompt, user=user_prompt, code_system=code_system_prompt
         ),
         add_cli_args=_add_cli_args,
         parse_config=_parse_config,

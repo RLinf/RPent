@@ -27,8 +27,6 @@ from rpent.prompt.utils import Numbered, PromptNode
 
 def system_prompt(variables: Mapping[str, object] | None = None) -> PromptNode:
     """Assemble the dual-Franka system prompt."""
-    if (variables or {}).get("policy_mode") == "code":
-        return code_parts.system_prompt()
     if (variables or {}).get("mode") == "explore":
         return explore_parts.system_prompt()
     node: dict[str, object] = {
@@ -40,6 +38,11 @@ def system_prompt(variables: Mapping[str, object] | None = None) -> PromptNode:
         "WORKFLOW": Numbered(system_parts.WORKFLOW),
     }
     return node
+
+
+def code_system_prompt(_variables: Mapping[str, object] | None = None) -> PromptNode:
+    """Return operating guidance for Python cells."""
+    return code_parts.system_prompt()
 
 
 def user_prompt(variables: Mapping[str, object] | None = None) -> PromptNode:

@@ -304,6 +304,27 @@ def test_robot_and_env_aliases_are_mutually_exclusive(
             ["--robot", "libero", "--policy-mode", "code", "--explore"],
             "cannot be used with --explore",
         ),
+        (["--robot", "libero", "--no-am"], "--no-am requires --policy-mode code"),
+        (
+            ["--robot", "robocasa", "--policy-mode", "code", "--no-am"],
+            "--no-am is not supported for robot",
+        ),
+        (
+            ["--robot", "libero", "--policy-mode", "code", "--planner", "flash"],
+            "cannot be used with --planner flash",
+        ),
+        (
+            ["--robot", "libero", "--policy-mode", "code", "--code-timeout-s", "nan"],
+            "--code-timeout-s must be finite and greater than 0",
+        ),
+        (
+            ["--robot", "libero", "--policy-mode", "code", "--code-max-calls", "0"],
+            "--code-max-calls must be greater than 0",
+        ),
+        (
+            ["--robot", "libero", "--policy-mode", "code"],
+            "requires Bubblewrap",
+        ),
         (
             ["--robot", "libero", "--explore", "--memory-profile", "hf"],
             "cannot be used with --memory-profile hf",
@@ -342,8 +363,12 @@ def test_shared_cli_validation_stops_before_robot_runtime(
     argv: list[str],
     message: str,
 ) -> None:
+    from rpent.code_policy import sandbox
+
     cli = _cli_module()
     parse_called = False
+    executable = None if message == "requires Bubblewrap" else "/usr/bin/bwrap"
+    monkeypatch.setattr(sandbox.shutil, "which", lambda _: executable)
 
     def add_cli_args(parser, use_dashboard: bool) -> None:
         del use_dashboard
@@ -365,6 +390,7 @@ def test_shared_cli_validation_stops_before_robot_runtime(
             add_cli_args=add_cli_args,
             parse_config=parse_config,
             supports_exploration=name == "libero",
+            supports_no_am=name == "libero",
             supports_human_interactive_exploration=False,
             is_real_robot=False,
         ),

@@ -1023,6 +1023,7 @@ def test_rejected_finish_item_is_not_promoted() -> None:
 
 
 @pytest.mark.parametrize("wrapped", [False, True])
+@pytest.mark.parametrize("tool_name", ["finish", "python"])
 @pytest.mark.parametrize(
     "payload, is_error, accepted",
     [
@@ -1034,7 +1035,7 @@ def test_rejected_finish_item_is_not_promoted() -> None:
     ],
 )
 def test_finish_uses_accepted_tool_result_over_requested_success(
-    wrapped, payload, is_error, accepted
+    wrapped, tool_name, payload, is_error, accepted
 ):
     recorder = codex_module._Recorder(max_turns=2, dashboard_events=RecordingSink())
     result = (
@@ -1051,15 +1052,38 @@ def test_finish_uses_accepted_tool_result_over_requested_success(
             "payload": {
                 "item": {
                     "type": "mcpToolCall",
-                    "tool": "mcp__rpent__finish",
+                    "tool": f"mcp__rpent__{tool_name}",
                     "status": "failed" if is_error and not wrapped else "completed",
-                    "arguments": {"status": "success"},
+                    "arguments": (
+                        {"code": "robo.finish(status='success', summary='done')"}
+                        if tool_name == "python"
+                        else {"status": "success"}
+                    ),
                     "result": result,
                 }
             },
         }
     )
     assert recorder.finish_result == (payload if accepted else None)
+    assert recorder.tool_calls == 1
+
+
+def test_python_without_a_result_does_not_finish_codex_session():
+    recorder = codex_module._Recorder(max_turns=2, dashboard_events=RecordingSink())
+    recorder.observe(
+        {
+            "method": "item/completed",
+            "payload": {
+                "item": {
+                    "type": "mcpToolCall",
+                    "tool": "mcp__rpent__python",
+                    "status": "completed",
+                    "arguments": {"code": "print('still working')"},
+                },
+            },
+        }
+    )
+    assert recorder.finish_result is None
     assert recorder.tool_calls == 1
 
 
