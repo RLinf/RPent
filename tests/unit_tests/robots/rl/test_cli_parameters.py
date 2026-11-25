@@ -1,0 +1,423 @@
+# Copyright 2026 The RPent Authors.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     https://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+
+"""Exercise editable launch defaults, CLI-to-wire settings, and resume boundaries offline."""
+
+import asyncio
+import json
+import signal
+from pathlib import Path
+
+import httpx
+import pytest
+from openai import AsyncOpenAI
+from pydantic_ai import RunContext, RunUsage
+from pydantic_ai.messages import (
+    ModelRequest,
+    ModelResponse,
+    SystemPromptPart,
+    ToolCallPart,
+    ToolReturnPart,
+    UserPromptPart,
+)
+from pydantic_ai.models import ModelRequestContext, ModelRequestParameters
+from pydantic_ai.models.function import FunctionModel
+from pydantic_ai.providers.openai import OpenAIProvider
+
+from rpent.dashboard.events import NullDashboardEventSink
+from rpent.planner.api_loop import sliding_window_compaction
+from rpent.planner.qwen import QwenChatModel, qwen_model_settings
+from tools.rl import run_batch as batch
+
+ROOT = Path(__file__).resolve().parents[4]
+
+
+def batch_args(tmp_path, *options):
+    parser, _ = batch.build_parser()
+    return parser.parse_args(
+        [
+            "run",
+            str(tmp_path / "batch"),
+            "--jobs",
+            str(tmp_path / "jobs.json"),
+            "--gpus",
+            "0",
+            "--endpoints",
+            "http://localhost:1/v1",
+            *options,
+        ]
+    )
+
+
+def clean_defaults(monkeypatch):
+    for name in (
+        "MODEL",
+        "REASONING_EFFORT",
+        "TEMPERATURE",
+        "TOP_P",
+        "TOP_K",
+        "MIN_P",
+        "PRESENCE_PENALTY",
+        "REPETITION_PENALTY",
+        "MAX_TOKENS",
+    ):
+        monkeypatch.delenv("RPENT_" + name, raising=False)
+
+
+def test_environment_run_defaults_and_explicit_cli_precedence(tmp_path, monkeypatch):
+    clean_defaults(monkeypatch)
+    monkeypatch.setenv("RPENT_MAX_TOKENS", "8192")
+    args = batch_args(tmp_path)
+    batch.resolve_run_options(args)
+    assert args.max_tokens == 8192
+    assert args.no_thinking is False
+    monkeypatch.setenv("RPENT_TEMPERATURE", "0.8")
+    args = batch_args(
+        tmp_path, "--max-tokens", "2048", "--temperature", ".65", "--thinking"
+    )
+    batch.resolve_run_options(args)
+    assert args.max_tokens == 2048
+    assert args.temperature == 0.65
+    assert args.no_thinking is False
+    assert "--thinking" in batch.episode_options(args)
+
+
+@pytest.mark.parametrize(
+    "flag,value",
+    [
+        ("--temperature", "nan"),
+        ("--top-p", "1.1"),
+        ("--min-p", "-.1"),
+        ("--top-k", "0"),
+        ("--presence-penalty", "3"),
+        ("--repetition-penalty", "0"),
+        ("--compaction-max-messages", "-1"),
+        ("--sam3-timeout-s", "0"),
+        ("--sam3-timeout-s", "nan"),
+    ],
+)
+def test_invalid_parameters_rejected_before_batch_launch(tmp_path, flag, value):
+    args = batch_args(tmp_path, flag, value)
+    with pytest.raises(ValueError):
+        batch.resolve_run_options(args)
+    assert not (tmp_path / "batch").exists()
+
+
+def test_official_thinking_defaults_are_explicit(monkeypatch):
+    clean_defaults(monkeypatch)
+    s = qwen_model_settings(max_tokens=32768, reasoning_effort="xhigh")
+    assert s["temperature"] == 1
+    assert s["top_p"] == 0.95
+    assert s["presence_penalty"] == 0
+    assert s["extra_body"]["top_k"] == 20
+    assert s["extra_body"]["min_p"] == 0
+    assert s["extra_body"]["repetition_penalty"] == 1
+    assert s["extra_body"]["chat_template_kwargs"]["enable_thinking"] is True
+    assert s["extra_body"]["chat_template_kwargs"]["reasoning_effort"] == "xhigh"
+    assert "openai_reasoning_effort" not in s
+
+
+def test_cli_overrides_reach_actual_http_wire_and_window(tmp_path, monkeypatch):
+    from rpent.cli import main as cli
+    from rpent.planner import base
+
+    bodies = []
+
+    def respond(request):
+        bodies.append(json.loads(request.content))
+        return httpx.Response(
+            200,
+            json={
+                "id": "offline",
+                "object": "chat.completion",
+                "created": 0,
+                "model": "qwen3.8-27b",
+                "choices": [
+                    {
+                        "index": 0,
+                        "message": {"role": "assistant", "content": "done"},
+                        "finish_reason": "stop",
+                    }
+                ],
+                "usage": {
+                    "prompt_tokens": 10,
+                    "completion_tokens": 1,
+                    "total_tokens": 11,
+                },
+            },
+        )
+
+    async def run():
+        async with httpx.AsyncClient(transport=httpx.MockTransport(respond)) as http:
+            client = AsyncOpenAI(
+                api_key="unused", base_url="http://offline/v1", http_client=http
+            )
+            model = QwenChatModel(
+                "qwen3.8-27b", provider=OpenAIProvider(openai_client=client)
+            )
+            monkeypatch.setattr(base, "build_api_model", lambda *a, **kw: model)
+            args = cli._build_argparser().parse_args(
+                [
+                    "--robot",
+                    "rl",
+                    "--max-tokens",
+                    "777",
+                    "--thinking",
+                    "--reasoning-effort",
+                    "low",
+                    "--context-window",
+                    "262144",
+                    "--compaction-fraction",
+                    ".6",
+                    "--compaction-max-messages",
+                    "0",
+                    "--compaction-keep-messages",
+                    "10",
+                    "--temperature",
+                    ".65",
+                    "--top-p",
+                    ".87",
+                    "--top-k",
+                    "13",
+                    "--min-p",
+                    ".03",
+                    "--presence-penalty",
+                    ".2",
+                    "--repetition-penalty",
+                    "1.1",
+                ]
+            )
+            planner = base.build_planner(
+                "api",
+                output_dir=tmp_path,
+                recipe_tag="test",
+                robot_name="rl",
+                max_tokens=args.max_tokens,
+                reasoning_effort=args.reasoning_effort,
+                dashboard_events=NullDashboardEventSink(),
+                **cli._api_planner_options(args),
+            )
+            window = planner.compaction()
+            assert window.max_messages is None and window.keep_messages == 10
+            assert window.max_fraction == 0.6
+            await model.request(
+                [ModelRequest(parts=[UserPromptPart("test")])],
+                planner.model_settings,
+                ModelRequestParameters(),
+            )
+            await client.close()
+
+    asyncio.run(run())
+    b = bodies[0]
+    assert b.get("max_completion_tokens", b.get("max_tokens")) == 777
+    assert b["temperature"] == 0.65 and b["top_p"] == 0.87
+    assert b["top_k"] == 13 and b["min_p"] == 0.03
+    assert b["presence_penalty"] == 0.2 and b["repetition_penalty"] == 1.1
+    assert b["reasoning_effort"] == "low"
+
+
+def test_configurable_message_window_keeps_pairs_and_zero_disables_trigger():
+    messages = [
+        ModelRequest(parts=[SystemPromptPart("system"), UserPromptPart("task")])
+    ]
+    for i in range(41):
+        messages += [
+            ModelResponse(parts=[ToolCallPart("view", {}, tool_call_id=str(i))]),
+            ModelRequest(
+                parts=[ToolReturnPart("view", "measured", tool_call_id=str(i))]
+            ),
+        ]
+    model = FunctionModel(lambda messages, info: ModelResponse(parts=[]))
+    ctx = RunContext(deps=None, model=model, usage=RunUsage(), prompt="task")
+
+    def apply(maximum, keep):
+        request = ModelRequestContext(
+            model=model,
+            messages=list(messages),
+            model_settings={},
+            model_request_parameters=ModelRequestParameters(),
+        )
+        window = sliding_window_compaction(
+            context_window=262144,
+            max_fraction=0.7,
+            max_messages=maximum,
+            keep_messages=keep,
+        )()
+        return asyncio.run(window.before_model_request(ctx, request)).messages
+
+    assert apply(0, 10) == messages
+    retained = apply(12, 10)
+    assert len(retained) == 11 and retained[0] == messages[0]
+    calls = {
+        p.tool_call_id for m in retained for p in m.parts if isinstance(p, ToolCallPart)
+    }
+    returns = {
+        p.tool_call_id
+        for m in retained
+        for p in m.parts
+        if isinstance(p, ToolReturnPart)
+    }
+    assert calls == returns == {"36", "37", "38", "39", "40"}
+
+
+@pytest.mark.parametrize(
+    "flag,change",
+    [
+        ("--temperature", ".8"),
+        ("--max-tokens", "8192"),
+        ("--compaction-max-messages", "0"),
+        ("--compaction-keep-messages", "20"),
+        ("--sam3-timeout-s", "600"),
+    ],
+)
+def test_batch_manifest_pins_generation_and_window(tmp_path, monkeypatch, flag, change):
+    monkeypatch.setenv("RPENT_MODEL", "openai-chat:qwen3.8-27b")
+    (tmp_path / "jobs.json").write_text("[]")
+    output = tmp_path / "batch"
+    output.mkdir()
+    args = batch_args(tmp_path, "--start-interval", "0")
+    previous = {s: signal.getsignal(s) for s in (signal.SIGINT, signal.SIGTERM)}
+    try:
+        batch.collect(args, output)
+        manifest = json.loads((output / "manifest.json").read_text())
+        assert manifest["run_options"]["--temperature"] == 1
+        assert manifest["run_options"]["--compaction-max-messages"] == 80
+        altered = batch_args(tmp_path, flag, change, "--start-interval", "0")
+        with pytest.raises(ValueError, match="Resume configuration differs"):
+            batch.collect(altered, output)
+    finally:
+        for sig, handler in previous.items():
+            signal.signal(sig, handler)
+
+
+def test_episode_cli_uses_fixed_coordinates(tmp_path):
+    from robots.rl.robot_spec import _parse_config, get_robot_spec
+    from rpent.cli.main import _build_argparser
+
+    cli = _build_argparser()
+    get_robot_spec().add_cli_args(cli, use_dashboard=False)
+    argv = ["--robot", "rl", "--suite", "libero_object", "--task", "0"]
+    config = _parse_config(cli.parse_args(argv))
+    assert "world_cord" not in config.task_desc
+    for option, value in (("--world-cord", "base"), ("--position-unit", "m")):
+        with pytest.raises(SystemExit):
+            cli.parse_args([*argv, option, value])
+        with pytest.raises(SystemExit):
+            batch_args(tmp_path, option, value)
+
+
+@pytest.mark.parametrize(
+    "options",
+    [
+        ["--workflow", "episode_image", "--perception-mode", "batch"],
+        ["--workflow", "zap_turn", "--perception-mode", "batch"],
+        ["--workflow", "zap_episode", "--max-observe-calls", "3"],
+        ["--workflow", "zap_subtask", "--observe-concurrency", "2"],
+        ["--perception-mode", "batch", "--max-observe-calls", "0"],
+        ["--perception-mode", "batch", "--observe-concurrency", "0"],
+        ["--observe-concurrency", "2"],
+    ],
+)
+def test_observe_cli_rejects_inapplicable_settings_before_launch(tmp_path, options):
+    with pytest.raises(SystemExit):
+        batch_args(tmp_path, *options)
+    assert not (tmp_path / "batch").exists()
+
+
+def test_launcher_budget_defaults_apply_to_every_batch(tmp_path, monkeypatch):
+    for name in ("MAX_TOKENS", "MAX_TURNS", "COMPACTION_KEEP_MESSAGES"):
+        monkeypatch.delenv("RPENT_" + name, raising=False)
+    args = batch_args(tmp_path)
+    batch.resolve_run_options(args)
+    assert args.max_tokens == 32768
+    assert args.max_turns == 100
+    assert args.compaction_keep_messages == 10
+    flags = batch.episode_options(args)
+    assert flags[flags.index("--max-tokens") + 1] == "32768"
+    assert flags[flags.index("--max-turns") + 1] == "100"
+    assert flags[flags.index("--compaction-keep-messages") + 1] == "10"
+
+
+def test_sam_queue_timeout_is_separate_from_planner_budget(tmp_path):
+    args = batch_args(tmp_path, "--sam3-timeout-s", "600")
+    batch.resolve_run_options(args)
+    flags = batch.episode_options(args)
+    assert flags[flags.index("--sam3-timeout-s") + 1] == "600.0"
+    assert args.planner_timeout_s == 7200
+    from robots.rl.robot_spec import get_robot_spec
+    from rpent.cli.main import _build_argparser
+
+    parser = _build_argparser()
+    get_robot_spec().add_cli_args(parser, use_dashboard=False)
+    parsed = parser.parse_args(
+        [
+            "--robot",
+            "rl",
+            "--suite",
+            "libero_object",
+            "--task",
+            "0",
+            "--sam3-timeout-s",
+            "600",
+        ]
+    )
+    assert parsed.sam3_timeout_s == 600
+
+
+def test_sam_transport_deadline_reaches_real_runtime_client(tmp_path, monkeypatch):
+    from types import SimpleNamespace
+    from unittest.mock import Mock
+
+    from robots.rl import robot_spec
+
+    rpc = Mock()
+    rpc.call.side_effect = lambda method, **kw: (
+        {"found": False} if method == "sam3.segment" else True
+    )
+    monkeypatch.setattr(robot_spec, "_start_sam3", lambda args, out: (None, rpc))
+    args = SimpleNamespace(env="libero", sam3_timeout_s=600)
+    _, runtime = robot_spec._init_runtime(
+        args, tmp_path, NullDashboardEventSink(), {"sam3"}
+    )
+    result = runtime["sam3_client"].segment(b"image", text_prompt="cup")
+    assert result.found is False
+    assert rpc.call.call_args.kwargs["timeout_s"] == 600
+
+
+@pytest.mark.parametrize("record", [False, True])
+def test_trainer_episode_recording_is_explicit(tmp_path, record):
+    from robots.rl.rl_episode import parse_args
+
+    argv = [
+        "--output-dir",
+        str(tmp_path),
+        "--request",
+        str(tmp_path / "request.json"),
+        "--simulator",
+        "libero",
+        "--max-actions-per-call",
+        "3",
+    ]
+    args = parse_args(argv + (["--record-api-trace"] if record else []))
+    assert args.record_api_trace is record
+    assert args.max_actions_per_call == 3
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_episode_batch_forwards_reasoning_choice(tmp_path):
+    args = batch_args(tmp_path, "--no-reasoning")
+    batch.resolve_run_options(args)
+    assert args.no_thinking
+    assert "--no-thinking" in batch.episode_options(args)

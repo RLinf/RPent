@@ -1,0 +1,11 @@
+# Python 3.11. Use robodojo-override.txt with the NVIDIA package index.
+-e .
+rlinf-robodojo-runtime @ git+https://github.com/RLinf/RoboDojo.git@6d76a0c4a49a7a47bf5ee3924de2ccd7ecb8a8b7
+torch==2.7.0
+torchvision==0.22.0
+transformers==4.57.6
+numpy==1.26.4
+omegaconf
+hydra-core
+gymnasium
+ray

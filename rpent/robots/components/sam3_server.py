@@ -30,10 +30,12 @@ import argparse
 import base64
 import hashlib
 import io
+import json
 import logging
 import os
 import threading
-from contextlib import nullcontext
+import time
+from contextlib import contextmanager, nullcontext
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -65,15 +67,16 @@ class Sam3Result:
 def _encode_mask_png(mask: np.ndarray) -> str:
     image = Image.fromarray(np.asarray(mask, dtype=np.uint8) * 255, mode="L")
     buffer = io.BytesIO()
-    image.save(buffer, format="PNG", optimize=True)
+    image.save(buffer, format="PNG", compress_level=1)
     return base64.b64encode(buffer.getvalue()).decode("ascii")
 
 
 class Sam3Facade(RpcFacade):
     """RPC server wrapping the local SAM 3.0 image segmentation model."""
 
-    def __init__(self, checkpoint: str) -> None:
+    def __init__(self, checkpoint: str, *, metrics_path: Path | None = None) -> None:
         super().__init__()
+        self._metrics_path = metrics_path
         self._load(checkpoint)
         self._register_rpc()
 
@@ -121,8 +124,128 @@ class Sam3Facade(RpcFacade):
         self._image_state: dict[str, Any] | None = None
 
     def _register_rpc(self) -> None:
+        self._metrics_path = getattr(self, "_metrics_path", None)
+        self._metrics_lock = threading.Lock()
+        self._metrics = {
+            "requests": 0,
+            "errors": 0,
+            "lock_wait_seconds": 0.0,
+            "model_lock_seconds": 0.0,
+            "total_seconds": 0.0,
+        }
         self._rpc["sam3.segment"] = self.segment
         self._readonly_methods.add("sam3.segment")
+        self._rpc["sam3.segment_queries"] = self.segment_queries
+        self._readonly_methods.add("sam3.segment_queries")
+        self._rpc["sam3.stats"] = self.stats
+        self._readonly_methods.add("sam3.stats")
+
+    def stats(self) -> dict:
+        """Read actual processing and feature-lock wait counters."""
+        with self._metrics_lock:
+            return dict(self._metrics)
+
+    @contextmanager
+    def _inference_lock(self):
+        started = time.perf_counter()
+        entered = finished = None
+        error = None
+        try:
+            with self._lock:
+                entered = time.perf_counter()
+                try:
+                    yield
+                finally:
+                    finished = time.perf_counter()
+        except Exception as exc:
+            error = f"{type(exc).__name__}: {exc}"
+            raise
+        finally:
+            if entered is not None and finished is not None:
+                timing = {
+                    "lock_wait_seconds": entered - started,
+                    "model_lock_seconds": finished - entered,
+                    "total_seconds": finished - started,
+                }
+                with self._metrics_lock:
+                    self._metrics["requests"] += 1
+                    self._metrics["errors"] += error is not None
+                    for key, value in timing.items():
+                        self._metrics[key] += value
+                    if self._metrics_path is not None:
+                        self._metrics_path.parent.mkdir(parents=True, exist_ok=True)
+                        with self._metrics_path.open("a") as stream:
+                            stream.write(
+                                json.dumps(
+                                    {
+                                        "time": time.time(),
+                                        "error": error,
+                                        **timing,
+                                    }
+                                )
+                                + "\n"
+                            )
+
+    def segment_queries(
+        self, image_base64: str, queries: list[str], *, min_score: float = 0.2
+    ) -> list[list[dict[str, Any]]]:
+        """Segment text queries on one exact frame, retaining all scored instances.
+
+        The image lock covers the complete query group so another episode cannot
+        replace its features between queries. The existing top-one RPC is unchanged.
+        """
+        if not isinstance(queries, list) or not 1 <= len(queries) <= 8:
+            raise ValueError("queries must contain 1 to 8 object descriptions")
+        if any(
+            not isinstance(query, str) or not query.strip() or len(query) > 120
+            for query in queries
+        ):
+            raise ValueError("each query must contain 1 to 120 characters")
+        if not 0 <= min_score <= 1:
+            raise ValueError("min_score must be between 0 and 1")
+        raw = base64.b64decode(image_base64, validate=True)
+        if not raw:
+            raise ValueError("image_base64 is empty")
+        groups = []
+        with self._inference_lock():
+            state = self._state_for_image(raw)
+            for query in queries:
+                with self._inference_context():
+                    output = self._processor.set_text_prompt(
+                        prompt=query.strip(), state=state
+                    )
+                masks, scores, boxes = (
+                    output.get(key) for key in ("masks", "scores", "boxes")
+                )
+                if masks is None or scores is None:
+                    groups.append([])
+                    continue
+
+                def array(value):
+                    return (
+                        value
+                        if isinstance(value, np.ndarray)
+                        else value.detach().float().cpu().numpy()
+                    )
+
+                masks, scores = array(masks), array(scores).reshape(-1)
+                if masks.ndim == 2:
+                    masks = masks[None]
+                boxes = None if boxes is None else array(boxes).reshape(-1, 4)
+                found = []
+                for index in np.argsort(-scores):
+                    if scores[index] < min_score:
+                        break
+                    result = self._select_top(
+                        masks=masks[index : index + 1],
+                        scores=scores[index : index + 1],
+                        boxes=None if boxes is None else boxes[index : index + 1],
+                        min_score=min_score,
+                    )
+                    if result.found:
+                        found.append(result.to_dict())
+                groups.append(found)
+        return groups
 
     def _segment_bytes(
         self,
@@ -133,7 +256,7 @@ class Sam3Facade(RpcFacade):
         min_score: float,
     ) -> Sam3Result:
         """Run one prompt against the cached latest-image features."""
-        with self._lock:
+        with self._inference_lock():
             state = self._state_for_image(image_bytes)
             height = int(state["original_height"])
             width = int(state["original_width"])
@@ -317,6 +440,7 @@ def _build_argparser() -> argparse.ArgumentParser:
     parser.add_argument("--transport", choices=["socket", "http"], default="http")
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=8114)
+    parser.add_argument("--metrics", type=Path)
     parser.add_argument(
         "--cuda-device",
         type=int,
@@ -351,7 +475,7 @@ def main() -> None:
             "SAM3_CHECKPOINT_PATH is not set; export the path to sam3.pt "
             "before starting RPent"
         )
-    facade = Sam3Facade(checkpoint)
+    facade = Sam3Facade(checkpoint, metrics_path=args.metrics)
     facade.serve(
         transport=args.transport,
         host=args.host,

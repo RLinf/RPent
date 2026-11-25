@@ -42,3 +42,18 @@ WAM_BEGIN = (
     "Call view_env_state at step 0, inspect the task and camera "
     "images, and use wam_act to begin."
 )
+
+
+# Without memory the agent writes its audit and recipe under ./files/.
+NO_MEMORY_CELL = """- suite:      {{suite}}
+- task:       {{task}}
+- seed:       {{seed}}
+- output_dir: .
+- audit:      ./files/{{recipe_tag}}.json
+- recipe:     ./files/{{recipe_tag}}_recipe.jsonl"""
+
+
+NO_MEMORY_BEGIN = (
+    'Call `view_env_state({"step": 0})`, read `task_language`, then use the '
+    "images and available tools to complete it."
+)

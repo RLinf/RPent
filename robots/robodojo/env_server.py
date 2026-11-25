@@ -55,6 +55,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--transport", choices=["http", "socket"], default="http")
     parser.add_argument("--parent-watch", action="store_true")
     parser.add_argument("--mode", choices=["dev", "eval-fair"], default="dev")
+    parser.add_argument(
+        "--episode-protocol",
+        action="store_true",
+        help="Expose native binary termination for unified episode tools; no score or hidden state.",
+    )
 
     parser.add_argument("--source-root", default=None)
     parser.add_argument("--headless", action="store_true")
@@ -83,10 +88,17 @@ def build_config(args: argparse.Namespace):
                 "task_name": args.task,
                 "env_cfg_type": args.env_cfg_type,
                 "source_root": args.source_root,
-                "cuda_device": args.cuda_device,
+                "cuda_device": 0,
+                "device": "cuda:0",
                 "save_dir": args.save_dir,
                 "headless": args.headless,
-                "kit_args": args.kit_args,
+                # Native camera buffers use CUDA ordinal zero. Isolate CUDA
+                # while selecting the physical Vulkan renderer explicitly.
+                "kit_args": (
+                    args.kit_args
+                    + " --/renderer/multiGpu/enabled=false"
+                    + f" --/renderer/activeGpu={args.cuda_device}"
+                ),
                 "random": args.random,
                 "max_episode_steps": args.max_episode_steps,
             },
@@ -96,6 +108,7 @@ def build_config(args: argparse.Namespace):
 
 def main() -> None:
     args = build_parser().parse_args()
+    os.environ["CUDA_VISIBLE_DEVICES"] = str(args.cuda_device)
     cfg = build_config(args)
     from robots.robodojo.rlinf_env import RoboDojoAgentEnv
 
@@ -112,6 +125,7 @@ def main() -> None:
             "num_envs": args.num_envs,
             "max_episode_steps": args.max_episode_steps,
             "random": args.random,
+            **({"episode_protocol": True} if args.episode_protocol else {}),
             **({"mode": "eval-fair"} if args.mode == "eval-fair" else {}),
         },
     )

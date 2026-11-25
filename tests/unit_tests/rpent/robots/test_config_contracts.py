@@ -121,6 +121,10 @@ def test_local_vla_gpu_override_reaches_worker(
     if hasattr(module, "ProcessDaemon"):
         monkeypatch.setattr(module, "ProcessDaemon", factory)
         monkeypatch.setattr(module, "pick_free_port", lambda: 8116)
+    if robot_name == "libero":
+        monkeypatch.setattr(
+            module, "wait_for_endpoint", lambda _: "http://127.0.0.1:8116"
+        )
     interpreter = tmp_path / "python"
     interpreter.touch(mode=0o755)
     args = _parser(robot_name, dashboard=True).parse_args(

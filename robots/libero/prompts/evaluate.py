@@ -367,9 +367,8 @@ CORE RULE:
 
 ALGORITHM (run this BEFORE manipulating):
 
-1. From the initial `task_language` + `agentview_high.png` +
-   object_names, infer the task-relevant TARGETS and DESTINATIONS (language only;
-   never BDDL/poses).
+1. From the initial `task_language` + `agentview_high.png`, infer the
+   task-relevant TARGETS and DESTINATIONS (language only; never BDDL/poses).
 
 2. GLOBAL SEMANTIC PASS (agentview hi-res): in `agentview_high.png` choose each
    target/destination candidate by RGB, label/shape, and global spatial relation.
@@ -474,7 +473,7 @@ CORE RULE:
 ALGORITHM (run this BEFORE manipulating):
 
 1. From the initial `task_language` + `agentview_high.png` +
-   object_names, infer the task-relevant TARGETS and DESTINATIONS (language only;
+   task description, infer the task-relevant TARGETS and DESTINATIONS (language only;
    never BDDL/poses).
 
 2. GLOBAL SEMANTIC PASS (agentview hi-res): in `agentview_high.png` choose each
@@ -555,7 +554,7 @@ overlay image to confirm the right object. Use `camera":"wrist"` (after parking 
 target) for ±1–2 cm refinement, or `"point":[row,col]` for a point prompt.
 Text `prompt` and `point` are mutually exclusive; provide exactly one.
 ⚠ PROMPT PHRASING (SAM3 is sensitive): use a plain colour+shape+RELATION phrase,
-NEVER the internal/brand name from `object_names`/BDDL. `"the akita black bowl"`
+NEVER the internal/brand name from the task definition. `"the akita black bowl"`
 scores ~0.03 (SAM3 can't ground "akita") whereas `"the black bowl on the stove"`
 scores ~0.76. Strip proper nouns (akita, glazed_rim_porcelain_…) — say what it
 LOOKS LIKE + where it is. Always inspect the returned overlay image to confirm
@@ -577,7 +576,7 @@ logical `segment_artifact` and `overlay_artifact` names. Inspect the embedded
 overlay image to confirm the right object. To refine a candidate visible in the
 wrist image, set `camera` to `"wrist"`. Use the pixel grid specified in LOCALIZATION.
 ⚠ PROMPT PHRASING (SAM3 is sensitive): use a plain colour+shape+RELATION phrase,
-NEVER the internal/brand name from `object_names`/BDDL. `"the akita black bowl"`
+NEVER the internal/brand name from the task definition. `"the akita black bowl"`
 scores ~0.03 (SAM3 can't ground "akita") whereas `"the black bowl on the stove"`
 scores ~0.76. Strip proper nouns (akita, glazed_rim_porcelain_…) — say what it
 LOOKS LIKE + where it is. Always inspect the returned overlay image to confirm
@@ -605,7 +604,7 @@ WORKFLOW_STEPS = (
 - `robots/libero/guides/env_calibration.md`
 """,
     """INSPECT INITIAL STATE: call `view_env_state({"step": 0})`; inspect
-  `task_language`, object_names, eef pose, `agentview_high.png`,
+  `task_language`, eef pose, `agentview_high.png`,
   `wrist_high.png` if useful, and call `view_camera_meta` if needed. Identify ALL target
 objects, destination surfaces, and relation landmarks named by task_language.
 """,
@@ -845,6 +844,29 @@ WAM_OUTCOME = (
 )
 
 
+NO_MEMORY_RULES = """Solve the task described by `task_language` using the current episode's
+camera observations, depth/calibration and robot proprioception. No prior task
+solutions, memory corpus, expert demonstrations or hidden object poses are available.
+
+You have one episode. Do not reset. Inspect the images after actions and recover
+in place if possible. Use the real structured tools; their schemas describe the
+arguments and action limits. Execute physical actions in sequence.
+
+Use `segment` or `back_project` to obtain coordinates from the current images.
+`pi0_pick` performs grasping; use the motion and release tools for placement.
+`pi0_doubled` performs contact skills. Check returned observations rather than
+treating a grasp heuristic as proof of task completion. Only environment
+`terminated` indicates success.
+
+Observation tools read a recorded step; repeated reads do not change the scene.
+Once the needed target is localized, choose an action using that observation.
+After an action, inspect its returned state before deciding what to do next.
+
+File tools can access only `files/` relative to this episode's directory, for notes and
+audit. Use the observation tools to read images and state. When successful or
+unable to continue, save an honest audit and call `finish`."""
+
+
 def system_prompt(
     variables: Mapping[str, object] | None = None,
 ) -> PromptNode:
@@ -860,17 +882,31 @@ def system_prompt(
         if geometry or variables.get("generic_tools"):
             prompt["LOCALIZATION"] = sampling_instructions(variables)
         return prompt
+    if variables.get("memory_profile") == "none":
+        return {
+            "EVALUATION": NO_MEMORY_RULES,
+            "RUNTIME": runtime(geometry),
+            "PRIMITIVES": allowed_primitives(
+                bool(variables.get("enable_direct_action"))
+            ),
+            "OUTPUT DISCIPLINE": OUTPUT_DISCIPLINE,
+        }
     if variables.get("memory_profile", "hf") == "local":
         return {
             "ROLE AND EVALUATION": ROLE_AND_EVALUATION,
-            "MEMORY PROFILE — LOCAL SUITE + TASK + GLOBAL": (LOCAL_MEMORY_PROFILE),
+            "MEMORY PROFILE — LOCAL SUITE + TASK + GLOBAL": LOCAL_MEMORY_PROFILE,
             "PROVEN LEVERS": proven_levers(geometry),
             "RUNTIME": runtime(geometry),
             "YOUR GOAL": GOAL,
             "RULES (NON-NEGOTIABLE)": rules(geometry),
             "LOCALIZATION": localization(variables),
             "FIRST-STEP ALGORITHM": perception_algorithm(variables),
-            "WORKFLOW": Numbered(workflow_steps(LOCAL_WORKFLOW_STEPS, variables)),
+            "WORKFLOW": Numbered(
+                workflow_steps(
+                    LOCAL_WORKFLOW_STEPS,
+                    variables,
+                )
+            ),
             "KEY HYPERPARAMETERS": KEY_HYPERPARAMETERS,
             "OUTPUT DISCIPLINE": OUTPUT_DISCIPLINE,
         }

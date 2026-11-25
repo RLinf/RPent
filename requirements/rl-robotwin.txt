@@ -1,0 +1,10 @@
+# Isolated simulator process; Python 3.11.
+# The versioned runtime pins its native simulator and numerical dependencies.
+-e .
+rlinf-robotwin-runtime==0.1.3
+omegaconf
+hydra-core
+psutil
+imageio-ffmpeg==0.6.0
+torchvision==0.23.0
+transformers==4.57.6

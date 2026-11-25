@@ -36,7 +36,8 @@ Pi0.5 VLA 服务
      --cuda-device 0 \
      --transport http --host 0.0.0.0 --port VLA_PORT
 
-VLA 服务只加载一次模型，可以由多个 RPent 运行复用。
+VLA 服务只加载一次模型，可以由多个 RPent 运行复用。并发预测请求按到达顺序排队，
+由同一个推理线程执行；增加客户端数量不会让模型同时执行多个预测。
 
 .. _apxinf-vla-service-optional:
 
@@ -143,6 +144,11 @@ SAM3 服务只加载一次模型，可以由多个 RPent 运行复用。
 .. note::
 
    通过 SSH 运行长时间评测时，请在 ``nohup`` 或 ``tmux`` / ``screen`` 会话中启动共享服务；直接使用 ``&`` 时，SSH shell 退出可能会结束服务。
+
+用于 RL 训练的 episode
+----------------------
+
+在各自的节点启动仿真器和 SAM3。RLinf 运行模型，通过 toolkit RPC 接入仿真器。安装、服务配置和采集命令见 :doc:`robot_episodes`。
 
 远程访问 Dashboard
 ----------------------

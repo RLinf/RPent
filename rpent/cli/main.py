@@ -44,6 +44,7 @@ import time
 from collections.abc import Callable
 from dataclasses import replace
 from pathlib import Path
+from typing import Any
 
 from rpent.cli.tui import (
     start_first_prompt_resolver,
@@ -173,6 +174,89 @@ def _build_argparser() -> argparse.ArgumentParser:
     ap.add_argument("--max-turns", type=int, default=100)
     ap.add_argument("--max-tokens", type=int, default=8192)
     ap.add_argument(
+        "--no-thinking",
+        "--no-reasoning",
+        action="store_true",
+        help="Ask a Qwen endpoint to answer without a reasoning block (api "
+        "planner). Thinking is on by default; --reasoning-effort selects a "
+        "tier on models that have them.",
+    )
+    ap.add_argument(
+        "--thinking",
+        "--reasoning",
+        dest="no_thinking",
+        action="store_false",
+        help="Enable Qwen thinking (default); --no-thinking disables it.",
+    )
+    ap.add_argument(
+        "--sequential-tools",
+        action="store_true",
+        help="Run physical tools one at a time and request one tool call per "
+        "turn (api planner). Robots whose tools share one arm force this.",
+    )
+    ap.add_argument(
+        "--context-window",
+        type=int,
+        default=None,
+        help="Context length of the served model in tokens, which sizes the "
+        "api planner's history compaction.",
+    )
+    ap.add_argument(
+        "--compaction-fraction",
+        type=float,
+        default=0.8,
+        help="Fraction of the model context window at which the api planner compacts "
+        "its history.",
+    )
+    ap.add_argument(
+        "--compaction-max-messages",
+        type=int,
+        default=80,
+        help="Independent message-count trigger; 0 disables it.",
+    )
+    ap.add_argument(
+        "--compaction-keep-messages",
+        type=int,
+        default=40,
+        help="Tail messages kept after compaction, plus opening/pinned context.",
+    )
+    ap.add_argument(
+        "--temperature",
+        type=float,
+        default=None,
+        help="Qwen API sampling temperature (default 1).",
+    )
+    ap.add_argument(
+        "--top-p",
+        type=float,
+        default=None,
+        help="Qwen API nucleus sampling probability (default .95).",
+    )
+    ap.add_argument(
+        "--top-k",
+        type=int,
+        default=None,
+        help="Qwen API top-k sampling (default 20); -1 disables it.",
+    )
+    ap.add_argument(
+        "--min-p",
+        type=float,
+        default=None,
+        help="Qwen API minimum relative probability (default 0).",
+    )
+    ap.add_argument(
+        "--presence-penalty",
+        type=float,
+        default=None,
+        help="Qwen API presence penalty (default 0; legacy env override supported).",
+    )
+    ap.add_argument(
+        "--repetition-penalty",
+        type=float,
+        default=None,
+        help="Qwen API repetition penalty (default 1; legacy env override supported).",
+    )
+    ap.add_argument(
         "--reasoning-effort",
         choices=REASONING_EFFORTS,
         default="none",
@@ -188,6 +272,14 @@ def _build_argparser() -> argparse.ArgumentParser:
         "Use for text-only models that reject image input "
         "(e.g. 400 \"message type 'image_url' is not supported\"); "
         "read_image then returns the image name instead, with a notice.",
+    )
+    ap.add_argument(
+        "--no-strict-tools",
+        action="store_true",
+        help="Omit strict tool definitions from OpenAI-family requests. Use for "
+        "servers such as SGLang that constrain decoding of the whole tool set "
+        "once any tool is strict, which corrupts tool call arguments. "
+        "Arguments are still validated locally.",
     )
     ap.add_argument(
         "--planner-timeout-s",
@@ -230,9 +322,9 @@ def _build_argparser() -> argparse.ArgumentParser:
     )
     ap.add_argument(
         "--memory-profile",
-        choices=["hf", "local"],
+        choices=["hf", "local", "none"],
         default=None,
-        help="Memory profile (default: hf for evaluation, local for exploration).",
+        help="Memory profile (default: hf for evaluation, local for exploration). none supports LIBERO API evaluation only.",
     )
     ap.add_argument(
         "--memory-dir",
@@ -298,6 +390,31 @@ def _build_argparser() -> argparse.ArgumentParser:
     return ap
 
 
+def _api_planner_options(args: argparse.Namespace) -> dict[str, Any]:
+    """Options the CLI adds for the api planner; other planners ignore them."""
+    spec = get_robot_spec(args.robot_name)
+    return {
+        "thinking": not args.no_thinking,
+        "sequential_tools": args.sequential_tools
+        or getattr(spec, "sequential_tools", False),
+        "context_window": args.context_window,
+        "compaction_fraction": args.compaction_fraction,
+        "compaction_max_messages": getattr(args, "compaction_max_messages", 80),
+        "compaction_keep_messages": getattr(args, "compaction_keep_messages", 40),
+        **{
+            name: getattr(args, name, None)
+            for name in (
+                "temperature",
+                "top_p",
+                "top_k",
+                "min_p",
+                "presence_penalty",
+                "repetition_penalty",
+            )
+        },
+    }
+
+
 def _handoff_message(
     output_dir,
     session_number: int,
@@ -361,6 +478,7 @@ def _start_continuation_session(
     dashboard_events,
     prompt_bundle,
     prompt_vars,
+    run_config,
     session_number: int,
     session_max: int,
 ):
@@ -380,8 +498,13 @@ def _start_continuation_session(
         claude_code_max_budget_usd=args.claude_code_max_budget_usd,
         dashboard_events=dashboard_events,
         no_images=args.no_images,
+        strict_tool_definitions=not args.no_strict_tools,
         interactive=args.tui,
+        **_api_planner_options(args),
     )
+    configure = get_robot_spec(args.robot_name).configure_planner
+    if configure is not None:
+        planner = configure(planner, run_config)
     system_prompt = prompt_bundle.render(
         "system",
         variables={
@@ -408,7 +531,7 @@ def main() -> int:
     # Two-phase argparse: first grab --robot / --env / --dashboard so we know
     # which robot's flags to add and whether to make its required flags optional.
     early, _ = parser.parse_known_args()
-    parser.set_defaults(reasoning_effort="high" if early.planner == "api" else "none")
+    parser.set_defaults(reasoning_effort=None)
 
     # --env is a deprecated alias for --robot; resolve it before loading the spec.
     if early.env_name is not None:
@@ -431,6 +554,10 @@ def main() -> int:
     )
     args = parser.parse_args()
     args.robot_name = early.robot_name
+    if args.reasoning_effort is None:
+        args.reasoning_effort = (
+            "high" if args.planner == "api" and not args.no_thinking else "none"
+        )
     if "--interactive" in sys.argv or "-i" in sys.argv:
         logger.warning("--interactive is deprecated; use --tui instead")
     human_interactive_exploration = (
@@ -508,6 +635,11 @@ def main() -> int:
         parser.error("--memory-dir requires --memory-profile local or --explore")
     if args.memory_repo is not None and args.memory_profile == "local":
         parser.error("--memory-repo requires HF evaluation")
+    if args.memory_profile == "none":
+        if args.memory_dir is not None or args.memory_repo is not None:
+            parser.error(
+                "--memory-profile none cannot use --memory-dir or --memory-repo"
+            )
     from rpent.memory.loading import prepare_run_memory
 
     try:
@@ -561,8 +693,12 @@ def main() -> int:
         claude_code_max_budget_usd=args.claude_code_max_budget_usd,
         dashboard_events=dashboard_events,
         no_images=args.no_images,
+        strict_tool_definitions=not args.no_strict_tools,
         interactive=args.tui,
+        **_api_planner_options(args),
     )
+    if robot_spec.configure_planner is not None:
+        planner = robot_spec.configure_planner(planner, run_config)
     prompt_bundle = robot_spec.prompts
     prompt_vars = {**prompt_vars, "output_dir": output_dir}
     user_msg = prompt_bundle.render(
@@ -644,7 +780,7 @@ def main() -> int:
 
     # --- agent loop --------------------------------------------------------
     t0 = time.time()
-    finish_result, messages, agent_error = None, [], None
+    finish_result, messages, agent_error, agent_error_kind = None, [], None, None
     stats: dict = {}
     first_user_msg: str | None = user_msg
     if await_first_prompt is not None:
@@ -679,6 +815,7 @@ def main() -> int:
                     dashboard_events=dashboard_events,
                     prompt_bundle=prompt_bundle,
                     prompt_vars=prompt_vars,
+                    run_config=run_config,
                     session_number=session_number,
                     session_max=sessions,
                 )
@@ -748,6 +885,7 @@ def main() -> int:
                 messages += result.messages
                 stats = result.stats
                 agent_error = result.error
+                agent_error_kind = getattr(result, "error_kind", None)
                 if getattr(toolkit, "direct_verdict_requested", False):
                     finish_result = toolkit.finalize_direct_verdict()
                     if agent_error:
@@ -811,6 +949,7 @@ def main() -> int:
                 break
     except Exception as exc:
         agent_error = f"{type(exc).__name__}: {exc}"
+        agent_error_kind = "runtime_error"
         logger.error("EXCEPTION in agent loop: %s", agent_error)
     finally:
         if operator_input is not None:
@@ -831,6 +970,7 @@ def main() -> int:
         "elapsed_s": round(elapsed, 1),
         "finish": finish_result,
         "error": agent_error,
+        "error_kind": agent_error_kind,
         "environment_success": environment_success,
         "stats": stats,
         "messages": _serialize_messages(messages),

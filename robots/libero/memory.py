@@ -42,7 +42,7 @@ def validate_options(args: argparse.Namespace) -> None:
     """Check memory options without starting services or downloading files."""
     if getattr(args, "memory_version", "auto") != "auto" and (
         getattr(args, "explore", False)
-        or getattr(args, "memory_profile", None) == "local"
+        or getattr(args, "memory_profile", None) in {"local", "none"}
     ):
         raise ValueError(
             "--memory-version requires --memory-profile hf; local memory and exploration use --memory-dir"
@@ -60,7 +60,7 @@ def prepare_memory(args: argparse.Namespace, config: RunConfig) -> None:
     profile = getattr(args, "memory_profile", None) or (
         "local" if getattr(args, "explore", False) else "hf"
     )
-    if profile == "local":
+    if profile in {"local", "none"}:
         return
     version = select_version(
         getattr(args, "memory_version", "auto"), model=args.model, planner=args.planner

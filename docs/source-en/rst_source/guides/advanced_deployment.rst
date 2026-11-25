@@ -47,6 +47,8 @@ On the VLA host, set the checkpoint path and start the HTTP service:
      --transport http --host 0.0.0.0 --port VLA_PORT
 
 The VLA service loads the model once and can be reused by multiple RPent runs.
+Concurrent predictions are queued in arrival order and run on one inference
+thread; increasing the number of clients does not run predictions in parallel.
 
 .. _apxinf-vla-service-optional:
 
@@ -193,6 +195,11 @@ their services do not need to be started again for each run.
    For long-running evaluations over SSH, start the shared services with
    ``nohup`` or in a ``tmux`` / ``screen`` session; a bare ``&`` may stop them
    when the SSH shell exits.
+
+RL Training Episodes
+--------------------
+
+Start the simulator and SAM3 services on their assigned hosts. RLinf runs the model and connects to each simulator over toolkit RPC. See :doc:`robot_episodes` for installation, service placement, and rollout commands.
 
 Access a Remote Dashboard
 -------------------------

@@ -124,6 +124,7 @@ RPent 面向以下四类用户：
 
 ## 快速开始
 
+
 **1. 选择一个环境并安装 RPent。**
 
 ```bash
@@ -140,6 +141,8 @@ pip install -e ".[franka]"      # Franka / 双臂 Franka
 
 `.[libero-pro]` 是默认推荐配置。其他环境见
 [安装文档](https://rpent.readthedocs.io/zh-cn/latest/rst_source/get_started/quickstart.html)。
+
+LIBERO、RoboTwin、RoboCasa 和 RoboDojo 共用一套 episode 工具。参见[安装与采集指南](https://rpent.readthedocs.io/zh-cn/latest/rst_source/guides/robot_episodes.html)。
 
 RoboLab 仿真环境安装、模型权重与单任务运行示例参见
 [RoboLab 指南](https://rpent.readthedocs.io/zh-cn/latest/rst_source/simulators/robolab.html)。

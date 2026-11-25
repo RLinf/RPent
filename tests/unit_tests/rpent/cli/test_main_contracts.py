@@ -14,6 +14,7 @@
 
 from __future__ import annotations
 
+import argparse
 import copy
 import json
 import os
@@ -30,6 +31,7 @@ from rpent.utils.mcp_servers import McpServerSpec
 
 REPO_ROOT = Path(__file__).resolve().parents[4]
 ROBOT_HELP_CASES = [
+    ("rl", ("--simulator", "--task-name", "--max-actions-per-call")),
     ("libero", ("--suite", "--task", "--libero-type")),
     ("robocasa", ("--task-name", "--split", "--hi-res")),
     ("robotwin", ("--task-name", "--task-config", "--robotwin-assets-path")),
@@ -200,6 +202,10 @@ def test_shared_cli_defaults_reach_robot_config_parser(
     assert args.max_turns == 100
     assert args.max_tokens == 8192
     assert args.reasoning_effort == "high"
+    assert args.no_thinking is False
+    assert args.sequential_tools is False
+    assert args.context_window is None
+    assert args.compaction_fraction == 0.8
     assert args.dashboard is False
     assert args.dashboard_host == "127.0.0.1"
     assert args.dashboard_port == 0
@@ -609,6 +615,9 @@ def test_full_cli_exploration_finalizes_memory_without_starting_gpu_runtime(
             self.closed = False
             self.memory = FakeMemoryManager()
 
+        def initial_observation(self) -> None:
+            return None
+
         def execute_tool(self, name: str, args: dict[str, Any]) -> ToolResult:
             self.calls.append((name, args))
             if outcome == "request_budget":
@@ -888,7 +897,12 @@ def test_full_cli_exploration_finalizes_memory_without_starting_gpu_runtime(
     ],
 )
 @pytest.mark.parametrize(
-    "planner_error", [None, "RuntimeError: Grasp not held; replay stopped"]
+    ("planner_error", "planner_error_kind"),
+    [
+        (None, None),
+        ("RuntimeError: Grasp not held; replay stopped", "model_error"),
+        ("planner response truncated", "response_truncated"),
+    ],
 )
 def test_full_cli_calls_robot_result_finalizer_without_robot_special_case(
     tmp_path: Path,
@@ -896,6 +910,7 @@ def test_full_cli_calls_robot_result_finalizer_without_robot_special_case(
     planner_name: str,
     planner_error: str | None,
     record_trajectory: bool,
+    planner_error_kind: str | None,
 ) -> None:
     cli = _cli_module()
     from rpent.evaluation import RunFinalizationContext, write_json_atomic
@@ -945,6 +960,7 @@ def test_full_cli_calls_robot_result_finalizer_without_robot_special_case(
                 messages=[],
                 stats={"tool_calls": 0},
                 error=planner_error,
+                error_kind=planner_error_kind,
             )
 
     def add_cli_args(parser: Any, use_dashboard: bool) -> None:
@@ -1041,6 +1057,7 @@ def test_full_cli_calls_robot_result_finalizer_without_robot_special_case(
     assert cli.main() == (1 if planner_error else 0)
     transcript = json.loads((tmp_path / "transcript_OpenDrawer_s1.json").read_text())
     assert transcript["error"] == planner_error
+    assert transcript["error_kind"] == planner_error_kind
 
     assert len(captured) == 1
     context = captured[0]
@@ -1243,6 +1260,7 @@ def test_cli_loads_mcp_config_and_merges_with_robot_servers(
             add_cli_args=add_cli_args,
             parse_config=parse_config,
             init_runtime=lambda *args: ([], {}),
+            configure_planner=None,
             prepare_memory=None,
             prepare_prompt_vars=None,
             prompts=SimpleNamespace(render=lambda *args, **kwargs: "prompt"),
@@ -1363,3 +1381,33 @@ def test_cli_rejects_a_missing_mcp_config(
         cli.main()
 
     assert "MCP config not found" in capsys.readouterr().err
+
+
+def test_api_planner_options_follow_flags_and_robot_spec(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    cli = _cli_module()
+    monkeypatch.setattr(
+        cli, "get_robot_spec", lambda name: SimpleNamespace(sequential_tools=True)
+    )
+    args = argparse.Namespace(
+        robot_name="rl",
+        no_thinking=True,
+        sequential_tools=False,
+        context_window=4096,
+        compaction_fraction=0.5,
+    )
+    assert cli._api_planner_options(args) == {
+        "thinking": False,
+        "sequential_tools": True,
+        "context_window": 4096,
+        "compaction_fraction": 0.5,
+        "compaction_max_messages": 80,
+        "compaction_keep_messages": 40,
+        "temperature": None,
+        "top_p": None,
+        "top_k": None,
+        "min_p": None,
+        "presence_penalty": None,
+        "repetition_penalty": None,
+    }

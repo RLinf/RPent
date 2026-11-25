@@ -1,0 +1,134 @@
+# Replace example addresses and /work paths with your deployment values.
+libero_env: &libero_env
+  LIBERO_TYPE: pro
+  LIBERO_CONFIG_PATH: /work/data/libero-config
+  MUJOCO_GL: egl
+  PYOPENGL_PLATFORM: egl
+robotwin_env: &robotwin_env
+  ROBOTWIN_ASSETS_PATH: /work/data/robotwin
+nodes:
+  sim:
+    output_dir: /work/runs/mixed384/services/sim
+    backends:
+      libero:
+        python: /work/envs/libero/bin/python
+        host: 10.23.0.10
+        port: 29830
+        endpoint: http://10.23.0.10:29830
+        gpu_slots: {0: 4, 1: 4, 2: 4, 3: 4, 4: 4, 5: 4, 6: 4, 7: 4}
+        sam3_endpoint: http://10.23.0.10:29820
+        env: *libero_env
+      robotwin:
+        python: /work/envs/robotwin/bin/python
+        host: 10.23.0.10
+        port: 29831
+        endpoint: http://10.23.0.10:29831
+        gpu_slots: {0: 6, 1: 6, 2: 6, 3: 6, 4: 6, 5: 6, 6: 6, 7: 6}
+        sam3_endpoint: http://10.23.0.10:29820
+        env: *robotwin_env
+    sam3:
+      python: /work/envs/sam3/bin/python
+      checkpoint: /work/models/sam3/sam3.pt
+      host: 10.23.0.10
+      port: 29820
+      replicas: {0: 2, 1: 2, 2: 2, 3: 2, 4: 2, 5: 2, 6: 2, 7: 2}
+      max_pending: 512
+      timeout_s: 600
+  model0:
+    output_dir: /work/runs/mixed384/services/model0
+    backends:
+      libero:
+        python: /work/envs/libero/bin/python
+        host: 10.23.0.11
+        port: 29830
+        endpoint: http://10.23.0.11:29830
+        gpu_slots: {0: 5, 1: 5, 2: 5, 3: 5, 4: 5, 5: 5, 6: 5, 7: 5}
+        sam3_endpoint: http://10.23.0.10:29820
+        env: *libero_env
+      robotwin:
+        python: /work/envs/robotwin/bin/python
+        host: 10.23.0.11
+        port: 29831
+        endpoint: http://10.23.0.11:29831
+        gpu_slots: {0: 2, 1: 2, 2: 2, 3: 2, 4: 2, 5: 2, 6: 2, 7: 2}
+        sam3_endpoint: http://10.23.0.10:29820
+        env: *robotwin_env
+    routers:
+      libero:
+        host: 10.23.0.11
+        port: 29840
+        group_size: 8
+        nodes: [sim, model0, model1, model2, model3]
+      robotwin:
+        host: 10.23.0.11
+        port: 29841
+        group_size: 8
+        nodes: [sim, model0, model1, model2, model3, twin]
+  model1:
+    output_dir: /work/runs/mixed384/services/model1
+    backends:
+      libero:
+        python: /work/envs/libero/bin/python
+        host: 10.23.0.12
+        port: 29830
+        endpoint: http://10.23.0.12:29830
+        gpu_slots: {0: 5, 1: 5, 2: 5, 3: 5, 4: 5, 5: 5, 6: 5, 7: 5}
+        sam3_endpoint: http://10.23.0.10:29820
+        env: *libero_env
+      robotwin:
+        python: /work/envs/robotwin/bin/python
+        host: 10.23.0.12
+        port: 29831
+        endpoint: http://10.23.0.12:29831
+        gpu_slots: {0: 2, 1: 2, 2: 2, 3: 2, 4: 2, 5: 2, 6: 2, 7: 2}
+        sam3_endpoint: http://10.23.0.10:29820
+        env: *robotwin_env
+  model2:
+    output_dir: /work/runs/mixed384/services/model2
+    backends:
+      libero:
+        python: /work/envs/libero/bin/python
+        host: 10.23.0.13
+        port: 29830
+        endpoint: http://10.23.0.13:29830
+        gpu_slots: {0: 5, 1: 5, 2: 5, 3: 5, 4: 5, 5: 5, 6: 5, 7: 5}
+        sam3_endpoint: http://10.23.0.10:29820
+        env: *libero_env
+      robotwin:
+        python: /work/envs/robotwin/bin/python
+        host: 10.23.0.13
+        port: 29831
+        endpoint: http://10.23.0.13:29831
+        gpu_slots: {0: 2, 1: 2, 2: 2, 3: 2, 4: 2, 5: 2, 6: 2, 7: 2}
+        sam3_endpoint: http://10.23.0.10:29820
+        env: *robotwin_env
+  model3:
+    output_dir: /work/runs/mixed384/services/model3
+    backends:
+      libero:
+        python: /work/envs/libero/bin/python
+        host: 10.23.0.14
+        port: 29830
+        endpoint: http://10.23.0.14:29830
+        gpu_slots: {0: 5, 1: 5, 2: 5, 3: 5, 4: 5, 5: 5, 6: 5, 7: 5}
+        sam3_endpoint: http://10.23.0.10:29820
+        env: *libero_env
+      robotwin:
+        python: /work/envs/robotwin/bin/python
+        host: 10.23.0.14
+        port: 29831
+        endpoint: http://10.23.0.14:29831
+        gpu_slots: {0: 2, 1: 2, 2: 2, 3: 2, 4: 2, 5: 2, 6: 2, 7: 2}
+        sam3_endpoint: http://10.23.0.10:29820
+        env: *robotwin_env
+  twin:
+    output_dir: /work/runs/mixed384/services/twin
+    backends:
+      robotwin:
+        python: /work/envs/robotwin/bin/python
+        host: 10.23.0.15
+        port: 29831
+        endpoint: http://10.23.0.15:29831
+        gpu_slots: {0: 10, 1: 10, 2: 10, 3: 10, 4: 10, 5: 10, 6: 10, 7: 10}
+        sam3_endpoint: http://10.23.0.10:29820
+        env: *robotwin_env

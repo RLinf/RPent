@@ -423,7 +423,8 @@ def test_libero_rpc_describes_active_controller(legacy, mode):
     if mode == "delta":
         assert "0.02" in description and "0.25" in description
         assert "normalized" in description
-    assert "env.get_action_spec" in facade._readonly_methods
+    # Fetching the spec uses the same native request/reply Pipe as actions.
+    assert "env.get_action_spec" not in facade._readonly_methods
 
 
 @pytest.mark.parametrize("base_first", [False, True])

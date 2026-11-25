@@ -1,0 +1,11 @@
+# Install in the RLinf image, then install RPent with --no-deps.
+# The image provides Torch, Transformers, NumPy and SciPy.
+pydantic-ai-slim[openai]==2.53.0
+pydantic-ai-harness==0.53.0
+openai==3.46.0
+httpx==0.28.1
+imageio>=2.0
+mcp>=1.23,<2.0.0
+jsonschema>=4.18
+PyYAML>=6.0
+prompt-toolkit>=3.0.48

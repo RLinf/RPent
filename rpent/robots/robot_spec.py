@@ -85,6 +85,9 @@ class RobotSpec:
     #: Physical scene restoration requires operator involvement, not simulator reset.
     #: Operator input requires an exclusive terminal unless an external ENV owns it.
     is_real_robot: bool = False
+    #: Run physical tools one at a time and ask the model for one tool call per
+    #: turn; a toolkit whose tools share one arm sets this.
+    sequential_tools: bool = False
     #: Whether the robot implements the exploration-time toolkit contract.
     #: The CLI uses this instead of hard-coding robot names so real-robot
     #: extensions can opt into exploration with their own reset semantics.
@@ -103,6 +106,8 @@ class RobotSpec:
     #: the task's model and configuration are known.
     prepare_memory: Callable[[argparse.Namespace, RunConfig], None] | None = None
     finalize_run: RunFinalizer | None = None
+    #: Adapt a constructed planner for a robot-owned execution workflow.
+    configure_planner: Callable[[Any, RunConfig], Any] | None = None
     #: Replay this robot's recorded plan for one cell, in place of a planner.
     #: Takes the toolkit, the cell tag, and a note sink; returns at least
     #: ``{"done": bool}``. Left unset by robots without Flash Mode.

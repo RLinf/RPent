@@ -46,6 +46,27 @@ class Sam3Client:
         self._client = client
         self._timeout_s = timeout_s
 
+    def segment_queries(
+        self, image: bytes, queries: list[str], *, min_score: float = 0.2
+    ) -> list[list[Sam3Result]]:
+        """Return instances per query, in input order, from the same image features."""
+        payload = self._client.call(
+            "sam3.segment_queries",
+            kwargs={
+                "image_base64": base64.b64encode(image).decode("ascii"),
+                "queries": queries,
+                "min_score": min_score,
+            },
+            timeout_s=self._timeout_s,
+        )
+        if (
+            not isinstance(payload, list)
+            or len(payload) != len(queries)
+            or any(not isinstance(group, list) for group in payload)
+        ):
+            raise RuntimeError("SAM3 returned a different number of query groups")
+        return [[self._decode_result(result) for result in group] for group in payload]
+
     def segment(
         self,
         image: bytes | bytearray | memoryview | np.ndarray,

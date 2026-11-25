@@ -16,9 +16,12 @@ from __future__ import annotations
 
 import base64
 import binascii
+import json
 import threading
+from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
+import numpy as np
 import pytest
 
 from rpent.robots.components.sam3_server import Sam3Facade, Sam3Result
@@ -143,3 +146,89 @@ def test_sam3_result_to_dict_drops_none_fields() -> None:
         "found": True,
         "score": 0.5,
     }
+
+
+def test_query_group_keeps_multiple_instances_and_uses_one_image_state():
+    from types import SimpleNamespace
+
+    facade = _StubSam3()
+    states, prompts = [], []
+
+    def state(raw):
+        states.append(raw)
+        return {"frame": raw}
+
+    def query(*, prompt, state):
+        prompts.append((prompt, state))
+        masks = np.zeros((3, 1, 8, 8), dtype=bool)
+        masks[0, 0, :3, :3] = True
+        masks[1, 0, 4:, 4:] = True
+        masks[2, 0, :2, :2] = True
+        return {"masks": masks, "scores": np.array([0.8, 0.95, 0.1])}
+
+    facade._state_for_image = state
+    facade._processor = SimpleNamespace(set_text_prompt=query)
+    result = facade.segment_queries(_image_b64(), ["cube", "bowl"])
+    assert states == [b"image-bytes"]
+    assert [prompt for prompt, _ in prompts] == ["cube", "bowl"]
+    assert [len(group) for group in result] == [2, 2]
+    assert [item["score"] for item in result[0]] == [0.95, 0.8]
+    assert all(item["mask_shape"] == [8, 8] for group in result for item in group)
+
+
+@pytest.mark.parametrize("queries", [[], [""], ["   "], ["x"] * 9, [123]])
+def test_query_group_validates_before_inference(queries):
+    with pytest.raises(ValueError):
+        _StubSam3().segment_queries(_image_b64(), queries)
+
+
+def test_metrics_keep_results_and_expose_contended_inference_lock(tmp_path):
+    facade = _StubSam3()
+    facade._metrics_path = tmp_path / "sam3-metrics.jsonl"
+    entered, waiting, release = (
+        threading.Event(),
+        threading.Event(),
+        threading.Event(),
+    )
+    native_lock = threading.Lock()
+
+    class ObservedLock:
+        def __enter__(self):
+            if native_lock.locked():
+                waiting.set()
+            native_lock.acquire()
+
+        def __exit__(self, *args):
+            native_lock.release()
+
+    facade._lock = ObservedLock()
+    original = facade._segment_text
+
+    def segment(state, prompt, min_score):
+        if prompt == "first":
+            entered.set()
+            assert release.wait(2)
+        return original(state, prompt, min_score)
+
+    facade._segment_text = segment
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        first = executor.submit(facade.segment, _image_b64(), text_prompt="first")
+        assert entered.wait(2)
+        second = executor.submit(facade.segment, _image_b64(), text_prompt="second")
+        try:
+            assert waiting.wait(2)
+        finally:
+            release.set()
+        assert first.result()["reason"] == "first"
+        assert second.result()["reason"] == "second"
+    stats = facade._dispatch("sam3.stats", (), {})
+    assert stats["requests"] == 2 and stats["errors"] == 0
+    assert stats["lock_wait_seconds"] > 0
+    assert stats["total_seconds"] == pytest.approx(
+        stats["lock_wait_seconds"] + stats["model_lock_seconds"]
+    )
+    records = [
+        json.loads(line) for line in facade._metrics_path.read_text().splitlines()
+    ]
+    assert len(records) == 2
+    assert all(record["error"] is None for record in records)
