@@ -77,7 +77,6 @@ CODE_SUFFIXES = {".py", ".yaml", ".yml", ".sh", ".toml", ".cfg", ".txt", ".md", 
 
 #: Illustrative names invented in tutorials and snippets.
 ALLOWED: set[str] = {
-    "MOLMO_ENDPOINT",  # illustrative shell variable in generic_toolkit.rst
     "MyEnvFacade",
     "MyPlanner",
     "MyRobot",

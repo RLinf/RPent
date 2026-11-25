@@ -78,7 +78,7 @@ Plug into an existing contract instead of adding robot- or planner-name branches
 | Planner | `rpent/planner/` subclassing `Planner` | `docs/source-en/rst_source/development/add_planner.rst` |
 | Action model (VLA/WAM) | `BaseVLAClient`/`BaseVLAFacade` in `rpent/robots/components/` | `docs/source-en/rst_source/development/add_action_model.rst` |
 | Primitive / tool | `Toolkit.add_tool` in `rpent/tools/toolkit.py` | `docs/source-en/rst_source/development/add_primitive.rst` |
-| RGB-D perception tool | `toolkits/` adapters over robot observations | `docs/source-en/rst_source/development/generic_toolkit.rst` |
+| RGB-D perception tool | `toolkits/` adapters over robot observations | `docs/source-en/rst_source/toolkits/rgbd.rst` |
 
 ## Tests
 

@@ -1,6 +1,6 @@
 # Concepts and Development Pages
 
-Pages under `development/` explain how RPent's layers cooperate (`architecture.rst`, `interfaces.rst`, `memory.rst`, `generic_toolkit.rst`) or show contributors how to extend RPent (`add_robot.rst`, `add_planner.rst`, `add_primitive.rst`, `add_action_model.rst`).
+Pages under `development/` explain how RPent's layers cooperate (`architecture.rst`, `interfaces.rst`, `memory.rst`) or show contributors how to extend RPent (`add_robot.rst`, `add_planner.rst`, `add_primitive.rst`, `add_action_model.rst`).
 
 ## Concepts (`architecture.rst`, `interfaces.rst`, `memory.rst`)
 
@@ -10,7 +10,7 @@ Pages under `development/` explain how RPent's layers cooperate (`architecture.r
 - **The outline test.** Reading only the introduction and the opening paragraph of each section should form a clear, logical outline.
 - **Frame examples.** Before a snippet, state the result it shows; afterwards, highlight key inputs, return values, and lifecycle ownership (who creates and cleans up resources). Keep illustrative snippets clearly distinct from executable code.
 
-## Extension guides (`add_robot.rst`, `add_planner.rst`, `add_primitive.rst`, `add_action_model.rst`, `generic_toolkit.rst`)
+## Extension guides (`add_robot.rst`, `add_planner.rst`, `add_primitive.rst`, `add_action_model.rst`)
 
 Contributors write code here, so public RPent names belong in the prose—limited to the symbols the contributor creates, calls, implements, or registers (`RobotSpec`, `RunConfig`, `PromptBundle`, `Toolkit`, `Planner`, `BaseEnvClient`, `BaseVLAClient`, `try_spawn_server`, etc.).
 
