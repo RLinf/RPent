@@ -3,14 +3,14 @@
 具身 RGB-D 工具包
 =================
 
-使用 RPent 提供的只读 RGB-D 感知工具，从已记录的相机观测中查询像素对应的三维表面位置、分割目标物体或测量物体指定部位。
+使用 RPent 的只读 RGB-D 感知工具放大已记录画面的局部细节、查询像素对应的三维表面位置、分割目标物体或测量物体指定部位。
 
 以杯子为例，选中杯壁上的一个像素后，``back_project`` 可返回对应表面点的三维坐标。规划器也可以把这个像素或“白色杯子”这样的描述传给 ``segment``，获取候选掩膜，并在叠加图上核对掩膜是否覆盖目标杯子的可见区域。观测充分时，``geometry`` 可拟合杯口，给出杯口中心和半径，也可根据杯口和杯底的位置估算杯高。结果中的 ``world_frame_id`` 标明杯壁表面点和杯口中心所在的世界坐标系。点的坐标分量、杯口半径和杯高都以米为单位。
 
 选择工具
 --------
 
-三个工具都接受相机名 ``camera`` 和观测步号 ``step``。传入 ``step=-1`` 表示最近一次记录。在预览图上选点时，用预览图的高和宽填写 ``image_shape``，像素按 [行, 列] 传入。
+四个工具都接受相机名 ``camera`` 和观测步号 ``step``。传入 ``step=-1`` 表示最近一次记录。在相机的整幅预览图上选点时，用该图的高和宽填写 ``image_shape``，像素按行、列顺序传入。
 
 .. list-table::
    :header-rows: 1
@@ -19,6 +19,9 @@
    * - 工具
      - 规划器提供的输入
      - 如何使用结果
+   * - ``crop_zoom``
+     - 传入整幅图的 ``image_shape`` 和矩形框 ``box_rc`` [上，左，下，右]。下、右两项分别填写框外紧邻的行号和列号。用 ``grid_step`` 设置网格间隔（原图像素），或用 ``marks_rc`` 按输入顺序给框内的点编号。每个标记须对应不同的原图像素。
+     - 工具返回放大后的 PNG，``source_box_rc`` 给出裁剪框在原图中的位置。如果输出边长超过 1024 像素，缩小选框或调低 ``zoom``。
    * - ``back_project``
      - 在 ``selection`` 中传入 ``image_shape``，并给出点列 ``points_rc`` 或矩形框 ``box_rc``。只想保留某个高度范围内的点时，可以设置 ``height_m``，高度按世界坐标系计算。
      - 选点时按顺序返回三维坐标，深度无效或被筛掉的点记为 ``null``。框选时返回一个实测表面点的坐标和框内可见表面的三维范围。
@@ -35,11 +38,11 @@
 LIBERO
 ~~~~~~
 
-LIBERO 的适配器按相机名（``agentview`` 或 ``wrist``）和步号读取 RGB 图像、世界坐标图和标定数据。LIBERO 默认仍使用自身的 ``back_project`` 和 ``segment``；加入 ``--rgbd-tools`` 后，无论使用哪种规划器，都会改用通用工具及其参数格式。
+LIBERO 的适配器按相机名（``agentview`` 或 ``wrist``）和步号读取 RGB 图像、世界坐标图和标定数据。LIBERO 默认使用自身的 ``back_project`` 和 ``segment``。加入 ``--rgbd-tools`` 后，可调用 ``crop_zoom``，并改用这两个工具的通用版本。
 
 ``geometry`` 是一项实验功能，需要 Molmo 服务支持原生选点和目标验证（``molmo.verify``）。服务启动步骤见\ `配置 Molmo <../guides/flash.html#molmo>`_。
 
-将 ``MOLMO_ENDPOINT`` 设为服务地址，在 LIBERO 运行命令中加入 ``--geometry --molmo-endpoint "$MOLMO_ENDPOINT"``。``--geometry`` 也会启用通用版 ``back_project`` 和 ``segment``。
+将 ``MOLMO_ENDPOINT`` 设为服务地址，在 LIBERO 运行命令中加入 ``--geometry --molmo-endpoint "$MOLMO_ENDPOINT"``。该选项同时启用 ``--rgbd-tools``。
 
 例如，规划器可以用一次 ``geometry`` 调用测量同一个杯子的杯口半径和完整高度。
 
@@ -49,6 +52,15 @@ LIBERO 的适配器按相机名（``agentview`` 或 ``wrist``）和步号读取 
     "required_geometry": ["rim_radius", "height"]}
 
 两项拟合都通过时返回 ``usable``。如果杯口清晰，但所有已记录视角都看不到杯底，则返回 ``partial``，给出以米为单位的杯口半径，并在 ``missing_geometry`` 中列出 ``height``。如果两项都能估算，但其中一项触发质量警告，则返回 ``warning``，只给出通过检查的那一项的值。两项都缺乏可靠证据时返回 ``insufficient_evidence``，由规划器选择下一步。
+
+查看局部细节
+------------
+
+可以用下面的提示词引导规划器查看按钮或接触点。
+
+   在已记录的整幅图上框住细节，调用 ``crop_zoom`` 后查看放大的 PNG。选中编号点时，直接取对应的 ``source_point_rc``。若 ``label_boxes_rc`` 中有一项为 ``null``，说明放大图上放不下对应的编号。可调高 ``zoom`` 或减少标记。如果选的是放大图上的其他像素，先将行号和列号分别除以 ``zoom``，再向下取整。行号加上 ``source_box_rc`` 的第一项，列号加上第二项，即可得到原图坐标。
+
+   需要三维坐标时，把原图坐标填入 ``selection.points_rc``，把返回的 ``image_shape`` 填入 ``selection.image_shape``。用该选区和返回的 ``camera``、``step`` 调用 ``back_project``。
 
 .. _generic-toolkit-registration:
 
@@ -65,17 +77,20 @@ LIBERO 的适配器按相机名（``agentview`` 或 ``wrist``）和步号读取 
 
    在平台的 ``toolkit`` 中注册工具前，先准备观测适配器 ``observations``、当前会话的状态对象 ``state``\ （``EnvState`` 实例）和已初始化的分割客户端 ``segmenter``。
 
-   下面的示例在平台初始化 ``toolkit`` 时注册 ``back_project`` 和 ``segment``，供规划器在任务中调用。只使用这两个工具时，将 ``grounder`` 设为 ``None``。提供 ``grounder`` 时，还会注册 ``geometry``。
+   示例会注册 ``back_project``、``crop_zoom`` 和 ``segment``。需要 ``geometry`` 时传入 ``grounder``，否则设为 ``None``。
 
    .. code-block:: python
 
       from functools import partial
 
       from toolkits.back_project import back_project
+      from toolkits.crop_zoom import crop_zoom
       from toolkits.segment import SegmentTool
 
       sample = back_project.with_handler(partial(back_project, observations=observations))
       toolkit.add_tool(sample)
+      crop = crop_zoom.with_handler(partial(crop_zoom, observations=observations))
+      toolkit.add_tool(crop)
       masks = SegmentTool(observations=observations, state=state, segmenter=segmenter)
       toolkit.add_tool(masks.segment)
 

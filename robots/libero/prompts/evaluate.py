@@ -434,7 +434,15 @@ For segment, supply text, a point, or both with the camera and step. For the
 same pixel, include the shape of the image you inspected:
     segment({"camera":"agentview","step":0,"point":[200,240],"image_shape":[1024,1024]})
 With both inputs the text mask must cover the point. Check the overlay before
-using the mask's world_xyz."""
+using the mask's world_xyz.
+For a small detail such as a button or contact point, crop the same full frame:
+    crop_zoom({"camera":"agentview","step":0,"image_shape":[1024,1024],"box_rc":[184,224,216,256],"grid_step":8,"marks_rc":[[200,240]]})
+Inspect the returned PNG. For a numbered mark, take its source_point_rc. A null in
+label_boxes_rc means that number did not fit. Increase zoom or use fewer marks. For another PNG
+pixel, floor-divide its row and column by zoom, then add the top of source_box_rc to
+the row and its left to the column. In back_project, pass that original pixel in
+selection.points_rc and the returned image_shape in selection.image_shape. Use the
+returned camera and step. If the crop is too large, tighten the box or lower zoom."""
 
 NAMED_GEOMETRY = """For geometry, give query (appearance and distinguishing relation), camera and step.
 The tool selects its own pixels and checks identity using the available calibrated views of that step.

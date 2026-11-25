@@ -3,8 +3,8 @@
 Embodied RGB-D Toolkit
 ======================
 
-Use RPent's read-only RGB-D perception tools to look up 3D surface positions at
-image pixels, segment objects, or measure object parts from recorded camera
+Use RPent's read-only RGB-D tools to magnify image details, sample 3D surface
+coordinates, segment objects, or measure object parts from recorded camera
 observations.
 
 For example, if the planner selects a pixel on the side of a cup,
@@ -21,9 +21,9 @@ are all in metres.
 Choose a Tool
 -------------
 
-All three tools take a ``camera`` and a recorded ``step``. Use ``step=-1`` for
-the latest record. When selecting a pixel on a preview, use the preview's
-``image_shape`` (height, width) and specify the pixel as [row, column].
+All four tools take a ``camera`` and a recorded ``step``. Use ``step=-1`` for
+the latest record. To select pixels on a full-frame camera preview, use the
+preview's ``image_shape`` (height, width) and specify each pixel as [row, column].
 
 .. list-table::
    :header-rows: 1
@@ -32,6 +32,9 @@ the latest record. When selecting a pixel on a preview, use the preview's
    * - Tool
      - Planner input
      - What the result means
+   * - ``crop_zoom``
+     - Pass the full-frame ``image_shape`` and ``box_rc`` [top, left, bottom, right]. For bottom and right, use the first row below the box and the first column to its right. Set ``grid_step`` for a grid spaced in original pixels or ``marks_rc`` to number points inside the box in input order. Use distinct original pixels for each mark.
+     - The tool returns a PNG and its position in the original image as ``source_box_rc``. Use a smaller box or lower ``zoom`` if an output edge would exceed 1024 pixels.
    * - ``back_project``
      - In ``selection``, provide ``image_shape`` and either a list of points (``points_rc``) or a rectangular box (``box_rc``). Set ``height_m`` to keep only points within a given height range in the world frame.
      - For selected points, the tool returns 3D coordinates in input order, with ``null`` for points with invalid depth or points excluded by the filter. For a box, it returns the coordinates of one measured surface point and the 3D bounds of the visible surfaces inside the box.
@@ -50,8 +53,8 @@ LIBERO
 
 For the requested camera (``agentview`` or ``wrist``) and step, LIBERO's
 adapter loads the RGB image, world XYZ map and calibration. LIBERO runs keep
-their own ``back_project`` and ``segment`` unless you add ``--rgbd-tools``,
-which replaces them with the generic tools and their schemas for any planner.
+their own ``back_project`` and ``segment`` by default. Add ``--rgbd-tools`` to
+enable ``crop_zoom`` and use the generic versions of those two tools.
 
 ``geometry`` is experimental and requires a Molmo service that supports native
 pointing and target verification (``molmo.verify``). For startup instructions,
@@ -59,7 +62,7 @@ see `Configure Molmo <../guides/flash.html#configure-molmo>`_.
 
 Set ``MOLMO_ENDPOINT`` to the service address and add
 ``--geometry --molmo-endpoint "$MOLMO_ENDPOINT"`` to the LIBERO run command.
-``--geometry`` also enables the generic ``back_project`` and ``segment`` tools.
+``--geometry`` also enables ``--rgbd-tools``.
 
 For example, a planner can request the rim radius and full height of the same cup
 in one ``geometry`` call.
@@ -75,6 +78,23 @@ in metres and ``height`` in ``missing_geometry``. If both quantities
 can be estimated but one fails a quality check, ``warning`` includes only the
 accepted value. If neither passes, ``insufficient_evidence`` lets the planner
 choose another action.
+
+Inspect a Small Detail
+----------------------
+
+To guide a planner to inspect a button or contact point, add this prompt.
+
+   Call ``crop_zoom`` on a tight box from the recorded full frame. Inspect the
+   enlarged PNG. For a numbered mark, use its ``source_point_rc``.
+   A ``null`` entry in ``label_boxes_rc`` means the number did not fit in the PNG.
+   Increase ``zoom`` or use fewer marks. For any
+   other PNG pixel, divide its row and column by ``zoom`` and round each down.
+   Add the top of ``source_box_rc`` to the row and its left to the column.
+
+   If you need the measured 3D position, put the original-image point in
+   ``selection.points_rc`` and the returned ``image_shape`` in
+   ``selection.image_shape``. Call ``back_project`` with that selection and
+   the returned ``camera`` and ``step``.
 
 .. _generic-toolkit-registration:
 
@@ -108,20 +128,21 @@ the tools on the robot's toolkit.
    adapter ``observations``, the current session's state object ``state`` (an
    ``EnvState`` instance), and an initialized segmentation client ``segmenter``.
 
-   The example below registers ``back_project`` and ``segment`` when the platform
-   initializes its ``toolkit``, so the planner can call them during a task. To use
-   only these two tools, set ``grounder`` to ``None``. If you provide a ``grounder``,
-   the example also registers ``geometry``.
+   The example registers ``back_project``, ``crop_zoom`` and ``segment``. Set
+   ``grounder`` to ``None`` to omit ``geometry``.
 
    .. code-block:: python
 
       from functools import partial
 
       from toolkits.back_project import back_project
+      from toolkits.crop_zoom import crop_zoom
       from toolkits.segment import SegmentTool
 
       sample = back_project.with_handler(partial(back_project, observations=observations))
       toolkit.add_tool(sample)
+      crop = crop_zoom.with_handler(partial(crop_zoom, observations=observations))
+      toolkit.add_tool(crop)
       masks = SegmentTool(observations=observations, state=state, segmenter=segmenter)
       toolkit.add_tool(masks.segment)
 
