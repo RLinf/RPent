@@ -351,6 +351,7 @@ def _run_dashboard_task(
                         robot_name=args.robot_name,
                         base_url=args.base_url,
                         model=task_args.model,
+                        subagent=task_args.subagent,
                         memory_dir=run_config.prompt_vars.get("memory_dir"),
                         max_tokens=args.max_tokens,
                         planner_timeout_s=args.planner_timeout_s,

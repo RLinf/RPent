@@ -89,11 +89,15 @@ class ClaudeCodePlanner(Planner):
         extra_dirs: list[str] | None = None,
         output_path: str | Path | None = None,
         reasoning_effort: str = "none",
+        subagent_name: str | None = None,
+        subagent_model: str | None = None,
     ):
-        """Initialize the Claude Agent SDK backend."""
+        """Initialize the backend with an optional role sharing the main model by default."""
         self._output_dir = str(output_dir)
         self._repo_root = str(repo_root) if repo_root else str(get_repo_root())
         self._model = model
+        self._subagent_name = subagent_name
+        self._subagent_model = subagent_model or model
         self._allowed_tools = allowed_tools
         self._timeout_s = timeout_s
         self._max_budget_usd = max_budget_usd
@@ -269,10 +273,22 @@ class ClaudeCodePlanner(Planner):
         allowed.extend(
             add_mcp_prefix(declaration.name) for declaration in toolkit.list_tools()
         )
+        agents = None
+        if self._subagent_name is not None:
+            from rpent.planner.subagents import build_claude_subagent
+
+            name, definition = build_claude_subagent(
+                self._subagent_name, sdk, toolkit=toolkit, model=self._subagent_model
+            )
+            agents = {name: definition}
+            if "Agent" not in builtins:
+                builtins.append("Agent")
+                allowed.append("Agent")
 
         thinking = {"type": "disabled"} if self._reasoning_effort == "none" else None
         effort = None if self._reasoning_effort == "none" else self._reasoning_effort
         return sdk.ClaudeAgentOptions(
+            agents=agents,
             cwd=self._repo_root,
             model=self._model,
             max_turns=max_turns,

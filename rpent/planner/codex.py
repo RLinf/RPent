@@ -26,6 +26,7 @@ import contextlib
 import json
 import os
 import queue
+from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -91,6 +92,8 @@ class CodexPlanner(Planner):
         model: str | None = None,
         reasoning_effort: str = "none",
         sandbox: str = "full-access",
+        subagent_name: str | None = None,
+        subagent_model: str | None = None,
     ):
         """Initialize the Codex SDK backend."""
         self._output_dir = str(output_dir)
@@ -99,6 +102,8 @@ class CodexPlanner(Planner):
         self._extra_dirs = extra_dirs or []
         self._output_path = Path(output_path) if output_path else None
         self._model = model or os.environ.get("CODEX_MODEL", None)
+        self._subagent_name = subagent_name
+        self._subagent_model = subagent_model or self._model
         self._base_url = os.environ.get("CODEX_BASE_URL", None)
         self._api_key = os.environ.get("CODEX_API_KEY", None)
         self._service_tier = os.environ.get("CODEX_SERVICE_TIER", None)
@@ -184,9 +189,28 @@ class CodexPlanner(Planner):
             max_turns=max_turns, dashboard_events=self._dashboard_events
         )
 
+        subagent = None
+        if self._subagent_name is not None:
+            from rpent.planner.subagents import build_codex_subagent
+
+            subagent = build_codex_subagent(
+                self._subagent_name, toolkit=toolkit, model=self._subagent_model
+            )
+
         def create_session(url, control, emit):
+            overrides = (
+                subagent.register(
+                    artifacts.output_path,
+                    url,
+                    model_provider=PROVIDER_ID if self._base_url else None,
+                )
+                if subagent is not None
+                else ()
+            )
             return _CodexSession(
-                config=self._build_config(url, trace_root=trace_root),
+                config=self._build_config(
+                    url, trace_root=trace_root, agent_overrides=overrides
+                ),
                 thread_options=self._thread_options,
                 turn_options=self._turn_options,
                 recorder=recorder,
@@ -219,7 +243,13 @@ class CodexPlanner(Planner):
 
     # -- config builder ----------------------------------------------------
 
-    def _build_config(self, mcp_url: str, *, trace_root: Path | None = None) -> Any:
+    def _build_config(
+        self,
+        mcp_url: str,
+        *,
+        trace_root: Path | None = None,
+        agent_overrides: tuple[str, ...] = (),
+    ) -> Any:
         return build_codex_config(
             mcp_url=mcp_url,
             base_url=self._base_url,
@@ -227,6 +257,7 @@ class CodexPlanner(Planner):
             cwd=self._repo_root,
             sandbox=self._sandbox,
             trace_root=trace_root,
+            agent_overrides=agent_overrides,
         )
 
 
@@ -260,6 +291,7 @@ class _CodexSession:
     async def run(self, prompt: str) -> None:
         self._codex = openai_codex.AsyncCodex(self._config)
         self._thread = await self._codex.thread_start(**self._thread_options)
+        self._recorder.main_thread_id = getattr(self._thread, "id", None)
         await self._submit_text(prompt)
         if self._control is None:
             await asyncio.shield(self._turn_task)
@@ -396,6 +428,7 @@ class _Recorder:
     final_response: str | None = None
     finish_result: dict[str, Any] | None = None
     error: str | None = None
+    main_thread_id: str | None = None
 
     def stats(self) -> dict[str, object]:
         """Return counters with the zeroed ``usage`` distinguishable from None.
@@ -419,6 +452,11 @@ class _Recorder:
         if method == "item/completed":
             return self._render_item(get_field(payload, "item"))
         if method == "thread/tokenUsage/updated":
+            thread_id = get_field(payload, "thread_id") or get_field(
+                payload, "threadId"
+            )
+            if self.main_thread_id and thread_id and thread_id != self.main_thread_id:
+                return ""
             if self._set_usage(get_field(payload, "token_usage")):
                 return f"\n[agent] === turn {self.turns}/{self.max_turns} ===\n"
             return ""
@@ -471,6 +509,11 @@ class _Recorder:
                 )
             return f"[codex-reasoning] {text}\n" if text else ""
 
+        if item_type == "collabAgentToolCall":
+            return self._render_collab_agent(item)
+        if item_type == "subAgentActivity":
+            return self._render_subagent_activity(item)
+
         if _is_tool_item(item):
             self.tool_calls += 1
             if item_type in {"mcpToolCall", "dynamicToolCall"}:
@@ -494,6 +537,32 @@ class _Recorder:
             return f"[tool<-] {name}: {json.dumps(payload, ensure_ascii=False)}\n"
 
         return ""
+
+    def _render_collab_agent(self, item: Any) -> str:
+        self.tool_calls += 1
+        tool = _enum_value(get_field(item, "tool", "collab"))
+        name = f"agent:{tool}"
+        payload = _collab_summary(item)
+        args: dict[str, Any] = {"tool": tool}
+        agents = get_field(item, "receiverThreadIds") or get_field(
+            item, "receiver_thread_ids"
+        )
+        if agents:
+            args["agents"] = list(agents)
+        self.dashboard_events.emit(
+            TranscriptEvent({"type": "tool_call", "tool": name, "args": args})
+        )
+        self.dashboard_events.emit(
+            TranscriptEvent({"type": "tool_result", "tool": name, "result": payload})
+        )
+        return f"[tool<-] {name}: {json.dumps(payload, ensure_ascii=False)}\n"
+
+    def _render_subagent_activity(self, item: Any) -> str:
+        kind = _enum_value(get_field(item, "kind", ""))
+        agent_path = get_field(item, "agentPath") or get_field(item, "agent_path") or ""
+        text = f"[subagent] {kind}: {agent_path}"
+        self.dashboard_events.emit(TranscriptEvent({"type": "text", "text": text}))
+        return text + "\n"
 
     def _render_turn_completed(self, turn: Any) -> str:
         status = str(
@@ -594,6 +663,34 @@ class _Recorder:
 # ---------------------------------------------------------------------------
 
 
+class CodexSubAgent(ABC):
+    """Define and register a native Codex role for one session."""
+
+    name: str
+    description: str
+
+    @abstractmethod
+    def render_config(self, mcp_url: str, *, model_provider: str | None = None) -> str:
+        """Return the role's TOML configuration for this session."""
+
+    def register(
+        self, output_path: Path, mcp_url: str, *, model_provider: str | None = None
+    ) -> tuple[str, ...]:
+        """Write a private role file and return its Codex config overrides."""
+        role_path = output_path.with_name(
+            f"{output_path.stem}.{self.name}.toml"
+        ).resolve()
+        role_path.write_text(
+            self.render_config(mcp_url, model_provider=model_provider), encoding="utf-8"
+        )
+        role_path.chmod(0o600)
+        return (
+            f"agents.{self.name}.description={json.dumps(self.description)}",
+            f"agents.{self.name}.config_file={json.dumps(str(role_path))}",
+            "features.multi_agent=true",
+        )
+
+
 def build_codex_config(
     *,
     mcp_url: str | None,
@@ -602,6 +699,7 @@ def build_codex_config(
     cwd: str,
     sandbox: str = "full-access",
     trace_root: Path | None = None,
+    agent_overrides: tuple[str, ...] = (),
 ) -> Any:
     """Build the Codex child config with optional native rollout tracing.
 
@@ -615,6 +713,7 @@ def build_codex_config(
             override to reach RPent tools under ``deny_all``.
         trace_root: Directory where Codex writes native rollout traces. If ``None``,
             the child inherits the parent's ``CODEX_ROLLOUT_TRACE_ROOT`` setting.
+        agent_overrides: Optional settings registering this session's subagent role.
 
     Returns:
         The ``openai_codex.CodexConfig`` to open a session with.
@@ -627,6 +726,7 @@ def build_codex_config(
     config_overrides = _codex_mcp_config_overrides(
         mcp_url=mcp_url, base_url=base_url, sandbox=sandbox
     )
+    config_overrides.extend(agent_overrides)
     # Project development instructions and skills are excluded from planner context.
     config_overrides.append("project_doc_max_bytes=0")
     disabled_skills = [
@@ -813,9 +913,31 @@ def _is_tool_item(item: Any) -> bool:
     }
 
 
-def _status(item: Any) -> str:
-    value = get_field(item, "status", "")
+def _enum_value(value: Any) -> str:
+    """Return the wire value of an enum-like SDK field."""
     return str(getattr(value, "value", value))
+
+
+def _status(item: Any) -> str:
+    return _enum_value(get_field(item, "status", ""))
+
+
+def _collab_summary(item: Any) -> dict[str, Any]:
+    """Summarise one subagent tool call without its full prompt."""
+    summary: dict[str, Any] = {"tool": _enum_value(get_field(item, "tool", ""))}
+    status = _status(item)
+    if status:
+        summary["status"] = status
+    agents = get_field(item, "receiverThreadIds") or get_field(
+        item, "receiver_thread_ids"
+    )
+    if agents:
+        summary["agents"] = list(agents)
+    if prompt := get_field(item, "prompt"):
+        summary["prompt_size"] = len(str(prompt))
+    if model := get_field(item, "model"):
+        summary["model"] = model
+    return summary
 
 
 def _summarise_item(item: Any) -> dict[str, Any]:

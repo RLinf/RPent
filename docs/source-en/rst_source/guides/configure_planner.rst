@@ -50,6 +50,42 @@ loop is orchestrated, and which model SDK or CLI is used.
      - You want to re-run a known-good plan on new layouts, without online
        LLM planning. Perception and VLA services are still required.
 
+.. _scene-narration:
+
+Narrate the Robot Camera View
+------------------------------
+
+Use the background narrator with ``api``, ``claude_code``, or ``codex``. It uses the
+main planner's model, credentials, and endpoint. This example assumes a working LIBERO
+environment, Claude authentication, and a model that accepts images. Run both commands
+from the RPent checkout.
+
+1. Start the speech service and leave it running. The default backend requires
+   the ``edge-tts`` Python package and network access.
+
+   .. code-block:: bash
+
+      python -m toolkits.narration.server
+
+2. In a second terminal, register the speech tool and the narrator role:
+
+   .. code-block:: bash
+
+      rpent --robot libero --suite libero_goal_task --task 1 --seed 0 \
+        --planner claude_code --tui --subagent narrator \
+        --mcp-config toolkits/narration/mcp.example.yaml
+
+   Append “Narrate the camera view in Chinese while you work” to the task in
+   the input box, then submit it. The main agent launches the narrator on
+   request. Each round reads the latest image and sends a short Chinese
+   description to ``tts__synthesize``. The service writes MP3 files under
+   ``logs/narration/`` on the service host without playing them.
+
+The example uses the default ``sync_with_robot: false``, so speech synthesis
+does not trigger another robot observation. Robot actions still wait for any
+in-flight synthesis call on the same toolkit. See :ref:`external-mcp-servers`
+for scheduling and timeout settings.
+
 The ``api`` Planner (direct Model API)
 ---------------------------------------
 
@@ -86,9 +122,10 @@ needed):
 Relevant ``api`` planner knobs:
 
 - ``--max-tokens`` — cap each LLM reply (default ``8192``).
-- ``--no-images`` — never send image bytes; this is required for
+- ``--no-images`` — omit image bytes from the main model; this is required for
   text-only models. The agent then reasons from textual state alone,
-  so task performance may not be satisfactory.
+  so task performance may not be satisfactory. The narrator still receives
+  images and requires a model that supports them.
 
 For ``--tui`` usage, see :ref:`Terminal interaction <quickstart-interactive>`.
 

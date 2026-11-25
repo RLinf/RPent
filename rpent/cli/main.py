@@ -62,6 +62,7 @@ from rpent.planner.base import (
     is_recoverable_agent_error,
 )
 from rpent.planner.check import EXTERNALLY_CONFIGURED_PLANNERS
+from rpent.planner.subagents import SUBAGENT_NAMES, validate_subagent
 from rpent.robots import RunConfig, enumerate_robots, get_robot_spec, get_toolkit
 from rpent.session.planner_capture import (
     end_planner_task,
@@ -161,6 +162,14 @@ def _build_argparser() -> argparse.ArgumentParser:
         "gemini_cli this overrides the backend or upstream default model.",
     )
     ap.add_argument(
+        "--subagent",
+        "--narrator",
+        choices=SUBAGENT_NAMES,
+        default=None,
+        help="Register a background subagent for api, claude_code, or codex; "
+        "it shares the main model and credentials. Request narration in the task.",
+    )
+    ap.add_argument(
         "--base-url",
         default=None,
         help=(
@@ -184,10 +193,11 @@ def _build_argparser() -> argparse.ArgumentParser:
     ap.add_argument(
         "--no-images",
         action="store_true",
-        help="Never send image bytes to the model (api planner only). "
+        help="Omit image bytes from the main model (api planner only). "
         "Use for text-only models that reject image input "
         "(e.g. 400 \"message type 'image_url' is not supported\"); "
-        "read_image then returns the image name instead, with a notice.",
+        "read_image then returns the image name instead, with a notice. "
+        "The narrator still receives images.",
     )
     ap.add_argument(
         "--planner-timeout-s",
@@ -373,6 +383,7 @@ def _start_continuation_session(
         robot_name=args.robot_name,
         base_url=args.base_url,
         model=args.model,
+        subagent=args.subagent,
         max_tokens=args.max_tokens,
         planner_timeout_s=args.planner_timeout_s,
         reasoning_effort=args.reasoning_effort,
@@ -431,6 +442,10 @@ def main() -> int:
     )
     args = parser.parse_args()
     args.robot_name = early.robot_name
+    try:
+        validate_subagent(args.planner, args.subagent)
+    except ValueError as exc:
+        parser.error(str(exc))
     if "--interactive" in sys.argv or "-i" in sys.argv:
         logger.warning("--interactive is deprecated; use --tui instead")
     human_interactive_exploration = (
@@ -554,6 +569,7 @@ def main() -> int:
         memory_dir=prompt_vars.get("memory_dir"),
         base_url=args.base_url,
         model=args.model,
+        subagent=args.subagent,
         max_tokens=args.max_tokens,
         planner_timeout_s=args.planner_timeout_s,
         reasoning_effort=args.reasoning_effort,

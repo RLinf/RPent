@@ -24,6 +24,55 @@ from pydantic_ai.models import ModelRequestParameters
 from rpent.planner.base import build_api_model
 
 
+def test_subagent_uses_the_main_api_endpoint_and_model(monkeypatch, tmp_path):
+    from rpent.dashboard.events import NullDashboardEventSink
+    from rpent.planner.base import build_planner
+
+    monkeypatch.setenv("OPENAI_API_KEY", "offline-key")
+    planner = build_planner(
+        "api",
+        output_dir=tmp_path,
+        recipe_tag="narration",
+        robot_name="libero",
+        model="openai:offline-model",
+        base_url="http://localhost:9999/v1",
+        subagent="narrator",
+        dashboard_events=NullDashboardEventSink(),
+    )
+
+    assert planner.subagent_name == "narrator"
+    assert planner.subagent_model is planner.model
+    assert planner.subagent_model.model_name == "offline-model"
+    assert (
+        str(planner.subagent_model.base_url).rstrip("/") == "http://localhost:9999/v1"
+    )
+
+
+@pytest.mark.parametrize(
+    ("backend", "role", "message"),
+    [
+        ("api", "missing", "unknown subagent"),
+        ("flash", "narrator", "not supported"),
+        ("gemini_cli", "narrator", "not supported"),
+    ],
+)
+def test_subagent_configuration_fails_before_model_initialization(
+    tmp_path, backend, role, message
+):
+    from rpent.dashboard.events import NullDashboardEventSink
+    from rpent.planner.base import build_planner
+
+    with pytest.raises(ValueError, match=message):
+        build_planner(
+            backend,
+            output_dir=tmp_path,
+            recipe_tag="narration",
+            robot_name="libero",
+            subagent=role,
+            dashboard_events=NullDashboardEventSink(),
+        )
+
+
 @pytest.mark.parametrize("source", ["argument", "environment", "override"])
 @pytest.mark.parametrize("complete_url", [False, True])
 def test_google_endpoint_configuration_preserves_request_url(

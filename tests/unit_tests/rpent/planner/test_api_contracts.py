@@ -119,6 +119,8 @@ def solve(tmp_path, model, toolkit=None, events=None, **kwargs):
             "no_images",
             "reasoning_effort",
             "interactive",
+            "subagent_name",
+            "subagent_model",
         )
         if key in kwargs
     }
@@ -1657,3 +1659,173 @@ def test_interrupted_tool_arguments_are_retained_without_execution(tmp_path):
     assert call.arguments.data == '{ "position":'
     assert call.arguments.completeness == "partial"
     assert call.status == "not_executed" and toolkit.calls == []
+
+
+def test_background_narrator_isolated_idempotent_and_cancelled(tmp_path):
+    events = Events()
+    toolkit = capturing_toolkit(tmp_path, events)
+    toolkit.register("speaker__synthesize", lambda: ToolResult())
+    toolkit.register("speaker__preview_synthesize", lambda: ToolResult())
+    toolkit.register("view_env_state", lambda: ToolResult())
+    child_ready = asyncio.Event()
+    child_stopped = asyncio.Event()
+    starts = []
+    child_prompts = []
+
+    async def stream(messages, info):
+        names = {tool_def.name for tool_def in info.function_tools}
+        if "start_scene_narrator" not in names:
+            assert names == {"view_env_state", "read_image", "speaker__synthesize"}
+            child_prompts.extend(
+                part.content
+                for message in messages
+                for part in message.parts
+                if isinstance(part, UserPromptPart)
+            )
+            child_ready.set()
+            try:
+                await asyncio.Event().wait()
+            finally:
+                child_stopped.set()
+        returned = [
+            part.content
+            for message in messages
+            for part in message.parts
+            if isinstance(part, ToolReturnPart)
+            and part.tool_name == "start_scene_narrator"
+        ]
+        if len(returned) < 2:
+            yield tool("start_scene_narrator")
+        else:
+            starts.extend(returned)
+            await asyncio.wait_for(child_ready.wait(), timeout=2)
+            yield finish()
+
+    result, _, _ = solve(
+        tmp_path,
+        FunctionModel(stream_function=stream),
+        toolkit,
+        events,
+        subagent_name="narrator",
+        max_turns=3,
+    )
+
+    assert result.error is None
+    assert starts == ["scene_narrator started.", "scene_narrator is already running."]
+    assert child_prompts == ["Start narrating the scene."]
+    assert child_stopped.is_set()
+    assert result.stats["turns_used"] == 3
+    calls = [
+        call for record in toolkit.state.planner_records() for call in record.tool_calls
+    ]
+    assert [(call.name, call.status) for call in calls] == [
+        ("start_scene_narrator", "completed"),
+        ("start_scene_narrator", "completed"),
+        ("finish", "completed"),
+    ]
+    assert calls[0].feedback.data["return_value"] == starts[0]
+
+
+def test_narrator_requires_registered_synthesis_tool(tmp_path):
+    with pytest.raises(ValueError, match="synthesize"):
+        solve(tmp_path, TestModel(), subagent_name="narrator")
+
+
+def test_dashboard_interrupt_stops_narrator_before_followup(tmp_path):
+    state = dashboard(tmp_path)
+    toolkit = RobotToolkit(state)
+    toolkit.register("tts__synthesize", lambda: ToolResult())
+    child_running = asyncio.Event()
+    child_cancelled = asyncio.Event()
+    requests = 0
+
+    async def narrator_stream(messages, info):
+        child_running.set()
+        try:
+            yield "Inspecting."
+            await asyncio.Event().wait()
+        finally:
+            child_cancelled.set()
+
+    async def main_stream(messages, info):
+        nonlocal requests
+        requests += 1
+        if requests == 1:
+            yield tool("start_scene_narrator")
+        elif requests == 2:
+            await asyncio.wait_for(child_running.wait(), timeout=2)
+            yield "Inspecting."
+            state.request_interrupt()
+            state.submit_input("Finish without narration.")
+            await asyncio.Event().wait()
+        else:
+            assert child_cancelled.is_set()
+            yield finish()
+
+    result, _, _ = solve(
+        tmp_path,
+        FunctionModel(stream_function=main_stream),
+        toolkit,
+        state,
+        dashboard_interaction=state,
+        subagent_name="narrator",
+        subagent_model=FunctionModel(stream_function=narrator_stream),
+        timeout_s=4,
+    )
+    assert result.error is None
+    assert result.finish_result["status"] == "success"
+
+
+def test_narrator_restart_after_its_request_limit_starts_fresh(tmp_path, monkeypatch):
+    from rpent.planner.subagents import scene_narrator
+
+    monkeypatch.setattr(scene_narrator, "_NARRATOR_MAX_REQUESTS", 1)
+    stopped = asyncio.Queue()
+
+    class NarrationEvents(Events):
+        def emit(self, event):
+            super().emit(event)
+            if isinstance(event, TranscriptEvent) and event.payload.get("text") == (
+                "[scene_narrator] stopped"
+            ):
+                stopped.put_nowait(None)
+
+    events = NarrationEvents()
+    toolkit = RobotToolkit(events)
+    toolkit.register("tts__synthesize", lambda: ToolResult())
+    toolkit.register("view_env_state", lambda: ToolResult())
+    child_histories = []
+    main_requests = 0
+
+    async def narrator_stream(messages, info):
+        child_histories.append(copy.deepcopy(messages))
+        yield tool("view_env_state")
+
+    async def main_stream(messages, info):
+        nonlocal main_requests
+        main_requests += 1
+        if main_requests > 1:
+            await asyncio.wait_for(stopped.get(), timeout=2)
+        yield tool("start_scene_narrator") if main_requests < 3 else finish()
+
+    result, _, _ = solve(
+        tmp_path,
+        FunctionModel(stream_function=main_stream),
+        toolkit,
+        events,
+        subagent_name="narrator",
+        subagent_model=FunctionModel(stream_function=narrator_stream),
+        max_turns=3,
+    )
+    assert result.error is None
+    assert len(child_histories) == 2
+    for history in child_histories:
+        assert user_texts(history) == ["Start narrating the scene."]
+        assert not any(
+            isinstance(part, ToolReturnPart) for m in history for part in m.parts
+        )
+    assert toolkit.calls == [
+        ("view_env_state", {}),
+        ("view_env_state", {}),
+        ("finish", FINISH_ARGS),
+    ]
