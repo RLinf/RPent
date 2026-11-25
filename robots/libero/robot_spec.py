@@ -46,7 +46,7 @@ from rpent.utils.config import (
     resolve_cuda_device,
 )
 from rpent.utils.daemon import ProcessDaemon, pick_free_port
-from rpent.utils.rpc import make_rpc_client
+from rpent.utils.rpc import make_rpc_client, wait_for_endpoint
 from rpent.utils.rpc.http_rpc import HttpRpcClient
 
 if TYPE_CHECKING:
@@ -174,14 +174,21 @@ def get_toolkit(
     mode: str = "evaluation",
     attempts_per_session: int = 0,
     state_output_dir: Path | str | None = None,
+    memory_file_root: Path | None = None,
 ):
     """Return the LIBERO toolkit for the current session."""
     from robots.libero.toolkit import LiberoToolkit
 
     explore = mode == "exploration"
+    no_memory = config.prompt_vars.get("memory_profile") == "none"
     memory = MemoryManager(
         root=config.prompt_vars.get("memory_dir") or get_memory_dir("libero"),
-        memory_access="inbox_write" if explore else "read_only",
+        memory_access="none"
+        if no_memory
+        else "inbox_write"
+        if explore
+        else "read_only",
+        file_root=config.output_dir / "files" if no_memory else memory_file_root,
         inbox_cell_tag=config.recipe_tag if explore else None,
     )
     primitive_kwargs = dict(runtime_kwargs)
@@ -361,6 +368,18 @@ def _parse_config(args: argparse.Namespace) -> RunConfig:
     memory_profile = requested_profile or (
         "local" if explore or wam is not None else "hf"
     )
+    if memory_profile == "none":
+        if planner != "api" or explore:
+            raise ValueError(
+                "--memory-profile none supports LIBERO API evaluation only"
+            )
+        if (
+            args.memory_dir is not None
+            or getattr(args, "memory_repo", None) is not None
+        ):
+            raise ValueError(
+                "No-memory evaluation cannot use a memory directory or repository"
+            )
     if memory_profile == "hf" and args.memory_dir is not None:
         raise ValueError("--memory-dir requires --memory-profile local or --explore")
     args.memory_profile = memory_profile
@@ -508,8 +527,9 @@ def _spawn_env_server(
     if args.env_endpoint is not None:
         return None, make_rpc_client(args.env_endpoint)
 
-    host, port = "127.0.0.1", pick_free_port()
     device = resolve_cuda_device(args, "env")
+    log = output_dir / "env_server.log"
+    log.unlink(missing_ok=True)
     daemon = ProcessDaemon(
         name="env_server",
         cmd=[
@@ -526,9 +546,10 @@ def _spawn_env_server(
             "--transport",
             "http",
             "--host",
-            host,
+            "127.0.0.1",
+            # Concurrent episodes start many env servers; each binds its own port.
             "--port",
-            str(port),
+            "0",
             "--parent-watch",
             *(["--cuda-device", str(device)] if device is not None else []),
         ],
@@ -537,10 +558,15 @@ def _spawn_env_server(
             "MUJOCO_GL": os.environ.get("MUJOCO_GL", "egl"),
             "ROBOT_PLATFORM": "LIBERO",
         },
-        log_path=str(output_dir / "env_server.log"),
+        log_path=str(log),
     )
     daemon.start()
-    return daemon, HttpRpcClient(f"http://{host}:{port}")
+    try:
+        endpoint = wait_for_endpoint(daemon)
+    except BaseException:
+        daemon.stop()
+        raise
+    return daemon, make_rpc_client(endpoint)
 
 
 def _spawn_sam3_server(
@@ -613,7 +639,6 @@ def _init_runtime(
     wam = am if am.is_wam else None
     policy_kind = "wam" if wam else "vla"
     starters = {
-        "env": lambda: _spawn_env_server(args, output_dir),
         policy_kind: lambda: (
             start_wam_service(wam, output_dir)
             if wam
@@ -621,6 +646,8 @@ def _init_runtime(
         ),
         "sam3": lambda: _spawn_sam3_server(args, output_dir),
         "molmo": lambda: _connect_molmo_server(args),
+        # Starts last: it returns only once its server has bound a port.
+        "env": lambda: _spawn_env_server(args, output_dir),
     }
     connectors = {
         "env": lambda rpc: {

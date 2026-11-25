@@ -95,14 +95,14 @@ def test_toolkit_and_common_tools_require_memory() -> None:
         common.CommonTools(memory=None)
 
 
-def test_toolkit_registers_common_specs_with_fresh_placeholder_substitution(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
+def test_toolkit_registers_common_specs_as_fresh_copies(
+    tmp_path: Path, monkeypatch
 ) -> None:
-    output_dir = tmp_path / "run-output"
+    from rpent.utils import logging
+
+    monkeypatch.setattr(logging, "_output_dir", tmp_path)
     original = common.CommonTools.list_dir
     original_schema = original.input_schema
-    monkeypatch.setattr("rpent.utils.templates.get_output_dir", lambda: output_dir)
     toolkit = _ContractToolkit(tmp_path / "state")
 
     first = toolkit.list_tools()
@@ -115,7 +115,6 @@ def test_toolkit_registers_common_specs_with_fresh_placeholder_substitution(
         "finish",
     ]
     list_dir = next(definition for definition in first if definition.name == "list_dir")
-    assert str(output_dir) in list_dir.description
     assert common.CommonTools.list_dir is original
     assert original.input_schema == original_schema
     assert first == second

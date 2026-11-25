@@ -119,6 +119,7 @@ class RoboCasaEnvFacade(MainThreadServeMixin, BaseEnvFacade):
             **_split_kwargs(split),
         )
         self.env = robosuite.make(**env_kwargs)
+        self._support_surface_cache = None
         self._meta = {
             "task_name": self.task_name,
             "split": self.split,
@@ -130,6 +131,7 @@ class RoboCasaEnvFacade(MainThreadServeMixin, BaseEnvFacade):
     def _register_rpc(self):
         """Register all RPC methods."""
         super()._register_rpc()
+        self._rpc["env.coordinate_calibration"] = self.coordinate_calibration
         self._rpc["env.check_success"] = self.check_success
         self._rpc["env.get_camera_transform"] = self.get_camera_transform
         self._rpc["env.grasp_contact"] = self.grasp_contact
@@ -139,6 +141,7 @@ class RoboCasaEnvFacade(MainThreadServeMixin, BaseEnvFacade):
         # Read-only methods
         self._readonly_methods.update(
             [
+                "env.coordinate_calibration",
                 "env.check_success",
                 "env.get_camera_transform",
                 "env.grasp_contact",
@@ -146,6 +149,160 @@ class RoboCasaEnvFacade(MainThreadServeMixin, BaseEnvFacade):
                 "env.get_task_progress",
             ]
         )
+
+    @staticmethod
+    def _id_name(model, kind: str, idx: int) -> str:
+        fn = getattr(model, f"{kind}_id2name", None)
+        if callable(fn):
+            return str(fn(idx) or "")
+        names = getattr(model, f"{kind}_names", None)
+        if names is not None and 0 <= idx < len(names):
+            return str(names[idx] or "")
+        return ""
+
+    def _support_surface(self) -> tuple[str, np.ndarray, str]:
+        """Measure the task counter top or fall back to compiled floor collision geometry."""
+        if self._support_surface_cache is not None:
+            return self._support_surface_cache
+        counter = getattr(self.env, "counter", None)
+        if counter is not None and hasattr(counter, "get_ext_sites"):
+            try:
+                sites = counter.get_ext_sites(relative=False)
+            except (KeyError, ValueError):
+                # Fixtures without a main or bbox region have no measured top.
+                sites = None
+            try:
+                top = np.asarray(sites[3], dtype=np.float64)
+            except (IndexError, KeyError, TypeError, ValueError):
+                top = None
+            if top is not None and top.shape == (3,) and np.isfinite(top).all():
+                source = str(getattr(counter, "name", "counter"))
+                self._support_surface_cache = ("table", top.copy(), source)
+                return self._support_surface_cache
+
+        model, data = self.env.sim.model, self.env.sim.data
+        floor_geoms = set()
+        fixtures = getattr(self.env, "fixtures", {})
+        if fixtures:
+            from robocasa.models.fixtures.others import Floor
+
+            for fixture in fixtures.values():
+                if isinstance(fixture, Floor):
+                    floor_geoms.update(fixture.contact_geoms)
+        floor_bodies: set[int] = set()
+        arena = getattr(getattr(self.env, "model", None), "mujoco_arena", None)
+        for field in ("floor_body", "floor"):
+            body = getattr(arena, field, None)
+            name = body.get("name") if hasattr(body, "get") else None
+            if name:
+                try:
+                    root = int(model.body_name2id(name))
+                    floor_bodies.add(root)
+                    for b in range(root + 1, int(model.nbody)):
+                        if int(model.body_parentid[b]) in floor_bodies:
+                            floor_bodies.add(b)
+                except Exception:
+                    pass
+
+        named_floor_surfaces: list[tuple[np.ndarray, str]] = []
+        plane_surfaces: list[tuple[np.ndarray, str]] = []
+        for geom in range(int(model.ngeom)):
+            if not (model.geom_contype[geom] or model.geom_conaffinity[geom]):
+                continue
+            geom_type = int(model.geom_type[geom])
+            rotation = np.asarray(data.geom_xmat[geom], dtype=np.float64).reshape(3, 3)
+            point = np.asarray(data.geom_xpos[geom], dtype=np.float64).copy()
+            # MuJoCo box=6 and plane=0. A plane's size is not its thickness.
+            if geom_type == 6:
+                if np.max(np.abs(rotation[2])) < 1 - 1e-6:
+                    continue
+                point[2] += float(
+                    np.abs(rotation[2])
+                    @ np.asarray(model.geom_size[geom], dtype=np.float64)
+                )
+            elif geom_type == 0:
+                if rotation[2, 2] < 1 - 1e-6:
+                    continue
+            else:
+                continue
+
+            body_id = int(model.geom_bodyid[geom])
+            geom_name = self._id_name(model, "geom", geom)
+            body_name = self._id_name(model, "body", body_id)
+            source = geom_name or body_name or f"geom_{geom}"
+            # Appliances also have collision parts named e.g. slotR_floor.
+            # Only use fixture-owned floors, arena floor bodies or world ground.
+            world_floor = body_id == 0 and (
+                geom_name.lower() == "floor" or geom_name.lower().startswith("floor_")
+            )
+            if geom_name in floor_geoms or body_id in floor_bodies or world_floor:
+                named_floor_surfaces.append((point, source))
+            elif body_id == 0 and geom_type == 0:
+                plane_surfaces.append((point, source))
+
+        if named_floor_surfaces:
+            surface, source = max(named_floor_surfaces, key=lambda item: item[0][2])
+        elif plane_surfaces:
+            surface, source = min(plane_surfaces, key=lambda item: item[0][2])
+        else:
+            raise ValueError(
+                "general requires a calibrated RoboCasa counter or measured floor collision geometry"
+            )
+        self._support_surface_cache = ("floor", surface.copy(), source)
+        return self._support_surface_cache
+
+    def coordinate_calibration(self):
+        """Measure the arm mount, native grip site, jaw axes and support surface."""
+        model, data = self.env.sim.model, self.env.sim.data
+        robot = self.env.robots[0]
+        mount = model.site_name2id("mobilebase0_center")
+        support = model.body_name2id("mobilebase0_support")
+        if int(model.site_bodyid[mount]) != int(support):
+            raise ValueError("Panda mounting centre is not on the lifting support")
+        gripper = robot.gripper["right"]
+        site = robot.eef_site_id["right"]
+        hand = model.body_name2id(robot.robot_model.eef_name["right"])
+        site_rotation = (
+            np.asarray(data.site_xmat[site], dtype=np.float64).reshape(3, 3).copy()
+        )
+        jaw_axes = []
+        for name in gripper.joints:
+            joint = model.joint_name2id(name)
+            joint_body = model.jnt_bodyid[joint]
+            axis_world = np.asarray(
+                data.body_xmat[joint_body], dtype=np.float64
+            ).reshape(3, 3) @ np.asarray(model.jnt_axis[joint], dtype=np.float64)
+            jaw_axes.append(site_rotation.T @ axis_world)
+        mobile_base = model.body_name2id("mobilebase0_base")
+        kind, surface, source = self._support_surface()
+        return {
+            "coordinate_calibration": {
+                "tcp": "grip_site",
+                "base_xyz": np.asarray(data.site_xpos[mount], dtype=np.float64).copy(),
+                "base_rotation": np.asarray(data.body_xmat[support], dtype=np.float64)
+                .reshape(3, 3)
+                .copy(),
+                f"{kind}_top_xyz": surface.copy(),
+            },
+            "support_surface_kind": kind,
+            "support_surface_source": source,
+            "mobile_base_xyz": np.asarray(
+                data.body_xpos[mobile_base], dtype=np.float64
+            ).copy(),
+            "mobile_base_rotation": np.asarray(
+                data.body_xmat[mobile_base], dtype=np.float64
+            )
+            .reshape(3, 3)
+            .copy(),
+            "lift_m": float(
+                data.qpos[model.get_joint_qpos_addr("mobilebase0_joint_torso_height")]
+            ),
+            "site_xyz": np.asarray(data.site_xpos[site], dtype=np.float64).copy(),
+            "site_rotation": site_rotation,
+            "wrist_to_site_in_site": site_rotation.T
+            @ (data.site_xpos[site] - data.body_xpos[hand]),
+            "jaw_slide_axes_site": np.asarray(jaw_axes, dtype=np.float64),
+        }
 
     def get_action_spec(self) -> dict:
         """Describe the active PandaOmron composite layout and native bounds."""
@@ -215,6 +372,7 @@ class RoboCasaEnvFacade(MainThreadServeMixin, BaseEnvFacade):
                 self.env.seed = sd
             if hasattr(self.env, "rng"):
                 self.env.rng = np.random.default_rng(sd)
+        self._support_surface_cache = None
         return self.env.reset()
 
     def step(self, flat_action):
@@ -230,9 +388,12 @@ class RoboCasaEnvFacade(MainThreadServeMixin, BaseEnvFacade):
     def check_success(self):
         return bool(self.env._check_success())
 
-    def render_camera(self, camera_name, height, width, depth):
-        """sim.render in ROBOSUITE-NATIVE orientation (matches the camera
-        transform matrices). rgb uint8 HxWx3, depth metric HxW."""
+    def render_camera(
+        self, camera_name, height, width, depth, *, mask_invalid_depth=False
+    ):
+        """Return native RGB and optional metric depth. With mask_invalid_depth,
+        background, nonfinite and clipped samples are returned as NaN in metric depth.
+        """
         import robosuite.utils.camera_utils as CU
 
         out = self.env.sim.render(
@@ -240,15 +401,28 @@ class RoboCasaEnvFacade(MainThreadServeMixin, BaseEnvFacade):
         )
         if depth:
             rgb, d = out
+            if d.ndim == 3:
+                d = d[..., 0]
+            if mask_invalid_depth:
+                # A float32 far-plane sample can round below metric depth_far.
+                valid = np.isfinite(d) & (d > 0) & (d < 1)
+                # The rendered skybox also writes interior depth values. Its
+                # native object ID is -1 even when its metric depth is finite.
+                ids = self.env.sim.render(
+                    width=width,
+                    height=height,
+                    camera_name=camera_name,
+                    segmentation=True,
+                )
+                valid &= ids[..., 1] >= 0
             # Sanitize the raw OpenGL normalized depth into [0,1]: replace NaN/inf
             # (degenerate camera pose) then clip numerical overshoot. Otherwise an
             # assertion inside get_real_depth_map crashes the whole env server process.
             d = np.nan_to_num(d, nan=1.0, posinf=1.0, neginf=0.0)
             d = np.clip(d, 0.0, 1.0)
-            if d.ndim == 3:
-                depth = CU.get_real_depth_map(self.env.sim, d)[..., 0]
-            else:
-                depth = CU.get_real_depth_map(self.env.sim, d[..., None])[..., 0]
+            depth = CU.get_real_depth_map(self.env.sim, d[..., None])[..., 0]
+            if mask_invalid_depth:
+                depth[~valid] = np.nan
             return rgb, depth
         return out
 
@@ -438,8 +612,7 @@ def main():
         "--cuda-device",
         type=int,
         default=None,
-        help="GPU device to pin MuJoCo EGL rendering and the torch "
-        "default device to (physical CUDA ordinal).",
+        help="Physical GPU used for MuJoCo EGL rendering.",
     )
     p.add_argument("--task-name", default="OpenDrawer")
     p.add_argument("--split", default="target")
@@ -447,32 +620,11 @@ def main():
     args = p.parse_args()
 
     if args.cuda_device is not None:
-        # Deliberately do NOT set CUDA_VISIBLE_DEVICES. robosuite (imported
-        # transitively via libero) asserts at import time that
-        # ``MUJOCO_EGL_DEVICE_ID in CUDA_VISIBLE_DEVICES`` (substring check),
-        # which assumes the EGL index equals the CUDA ordinal and crashes on
-        # multi-GPU boxes where the EGL order differs. That assertion is gated
-        # on ``CUDA_VISIBLE_DEVICES != ""``, so leaving it unset skips it in
-        # both this process and the multiprocessing-spawned render workers
-        # (which inherit the env). Pin the two backends directly instead:
-        #   - MuJoCo render device <- MUJOCO_EGL_DEVICE_ID (configure_egl_device)
-        #   - torch default device  <- torch.cuda.set_device(N)
-        prev = os.environ.get("CUDA_VISIBLE_DEVICES")
-        if prev is not None:
-            logger.warning(
-                "CUDA_VISIBLE_DEVICES=%s is set; clearing it and pinning via "
-                "MUJOCO_EGL_DEVICE_ID + torch.cuda.set_device(--cuda-device=%s) "
-                "instead (robosuite's CVD assertion is incompatible with EGL<->CUDA mapping)",
-                prev,
-                args.cuda_device,
-            )
-            os.environ.pop("CUDA_VISIBLE_DEVICES", None)
         from rpent.utils.egl import configure_egl_device
 
+        # robosuite checks CUDA_VISIBLE_DEVICES as if it were an EGL ordinal.
+        os.environ.pop("CUDA_VISIBLE_DEVICES", None)
         configure_egl_device(args.cuda_device)
-        import torch
-
-        torch.cuda.set_device(args.cuda_device)
 
     facade = RoboCasaEnvFacade(
         args.task_name,

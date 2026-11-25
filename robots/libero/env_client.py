@@ -35,6 +35,8 @@ class LiberoEnvClient(BaseEnvClient):
 
     _TIMEOUT_S = {
         **BaseEnvClient._TIMEOUT_S,
+        # The first reset waits for the spawned simulator and EGL initialization.
+        "env.reset": 900.0,
         "env.render_camera": 120.0,
     }
 

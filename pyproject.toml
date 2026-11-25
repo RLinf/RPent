@@ -21,7 +21,6 @@ classifiers = [
     #   4 - Beta
     #   5 - Production/Stable
     "Development Status :: 2 - Pre-Alpha",
-    "Environment :: GPU :: NVIDIA CUDA :: 12 :: 12.4",
     "Intended Audience :: Developers",
     "Programming Language :: Python :: 3",
 ]
@@ -307,6 +306,7 @@ exclude = ["tests*", "docs*", "examples*", "docker*"]
 "robots.robodojo" = ["guides/*.md"]
 "rpent.dashboard" = ["*.html", "static/*.css", "static/*.js"]
 "robots.yam" = ["config/*.yaml", "config/*.json", "guides/*.md"]
+"robots.rl" = ["prompts/*.md"]
 
 [tool.pytest.ini_options]
 addopts = ["--import-mode=importlib"]

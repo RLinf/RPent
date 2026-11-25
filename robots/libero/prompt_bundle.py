@@ -46,11 +46,19 @@ def user_prompt(variables: Mapping[str, object] | None = None) -> PromptNode:
             "MEMORY": user_parts.WAM_MEMORY,
             "BEGIN": user_parts.WAM_BEGIN,
         }
+    if (variables or {}).get("memory_profile") == "none":
+        return {
+            "CELL": user_parts.NO_MEMORY_CELL,
+            "MODE": user_parts.MODE,
+            "BEGIN": user_parts.NO_MEMORY_BEGIN,
+        }
     mode = user_parts.GEOMETRY_MODE if variables.get("geometry") else user_parts.MODE
     return {
         "CELL": user_parts.CELL,
         "MODE": mode,
-        "BEGIN": user_parts.BEGIN,
+        "BEGIN": user_parts.BEGIN_WITH_TASK_MEMORY
+        if variables.get("memory_in_task")
+        else user_parts.BEGIN,
     }
 
 

@@ -175,3 +175,8 @@ Astra 发布版合并了 Long 与 Spatial/Object/Goal 两批探索 memory；三�
 - :doc:`../simulators/robocasa` 和 :doc:`../simulators/robotwin` 支持探索；任务参数、复位行为和记忆范围见各自页面。
 - :doc:`../real_world_robots/dual_franka` 探索需要现场操作员复位场景并确认结果，默认不自动合并记忆。先完成部署与自检，再开始探索。
 - :doc:`../real_world_robots/franka` 当前不支持探索模式。
+
+不使用 Memory 的评测
+---------------------
+
+LIBERO 使用 ``--planner api`` 时，可添加 ``--memory-profile none``，不加载历史任务解法。该模式保留正常的感知和动作工具，以及当前 Episode 的对话历史。文件工具仅能访问 ``<output-dir>/files/``，状态和图片通过观测工具读取。此模式不能与探索、``--memory-dir`` 或 ``--memory-repo`` 同时使用。其他 Memory 模式保持不变。

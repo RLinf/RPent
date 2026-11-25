@@ -18,9 +18,13 @@ from __future__ import annotations
 
 import os
 import select
+import signal
 import socket
 import subprocess
 import threading
+import time
+from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Callable
 
 from rpent.utils.config import get_repo_root, get_rlinf_repo_path
@@ -99,6 +103,130 @@ def pick_free_port(host: str = "127.0.0.1") -> int:
         return int(s.getsockname()[1])
 
 
+@dataclass
+class _ProcessGroupCheck:
+    group_id: int
+    ready: threading.Event = field(default_factory=threading.Event)
+    processes: list[int] = field(default_factory=list)
+    error: Exception | None = None
+
+
+class _ProcessGroupScanner:
+    """Coalesce pending checks; each request uses a snapshot begun after it arrived."""
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._pending: list[_ProcessGroupCheck] = []
+        self._running = False
+
+    def live(self, group_id: int) -> list[int]:
+        check = _ProcessGroupCheck(group_id)
+        with self._lock:
+            self._pending.append(check)
+            if not self._running:
+                self._running = True
+                try:
+                    threading.Thread(
+                        target=self._run, name="process-group-scan", daemon=True
+                    ).start()
+                except BaseException:
+                    self._running = False
+                    self._pending.remove(check)
+                    raise
+        check.ready.wait()
+        if check.error is not None:
+            raise check.error
+        return check.processes
+
+    def _run(self) -> None:
+        while True:
+            with self._lock:
+                pending, self._pending = self._pending, []
+            try:
+                snapshot = self._snapshot({check.group_id for check in pending})
+            except Exception as error:
+                for check in pending:
+                    check.error = error
+            else:
+                for check in pending:
+                    check.processes = list(snapshot.get(check.group_id, []))
+            finally:
+                for check in pending:
+                    check.ready.set()
+            with self._lock:
+                if not self._pending:
+                    self._running = False
+                    return
+
+    @staticmethod
+    def _snapshot(group_ids: set[int]) -> dict[int, list[int]]:
+        if not Path("/proc/self/stat").is_file():
+            rows = subprocess.check_output(
+                ["ps", "-axo", "pid=,pgid=,stat="], text=True
+            ).splitlines()
+            live: dict[int, list[int]] = {}
+            for row in rows:
+                pid, group, state = row.split()
+                group_id = int(group)
+                if group_id in group_ids and not state.startswith("Z"):
+                    live.setdefault(group_id, []).append(int(pid))
+            return live
+        live: dict[int, list[int]] = {}
+        for stat in Path("/proc").glob("[0-9]*/stat"):
+            try:
+                fields = stat.read_text().rpartition(")")[2].split()
+            except (FileNotFoundError, ProcessLookupError, PermissionError):
+                continue
+            group_id = int(fields[2])
+            if group_id in group_ids and fields[0] != "Z":
+                live.setdefault(group_id, []).append(int(stat.parent.name))
+        return live
+
+
+_PROCESS_GROUPS = _ProcessGroupScanner()
+
+
+def process_start_ticks(pid: int) -> int | None:
+    """Read a Linux process start time for subsequent ownership checks."""
+    try:
+        fields = Path(f"/proc/{pid}/stat").read_text().rpartition(")")[2].split()
+    except (FileNotFoundError, ProcessLookupError):
+        return None
+    return int(fields[19])
+
+
+def _live_process_group(group_id: int) -> list[int]:
+    try:
+        os.killpg(group_id, 0)
+    except ProcessLookupError:
+        return []
+    return _PROCESS_GROUPS.live(group_id)
+
+
+def stop_owned_process_group(
+    group_id: int, leader_start_ticks: int | None, timeout: float
+) -> None:
+    """Terminate an owned session, including children surviving the leader."""
+    for sig in (signal.SIGTERM, signal.SIGKILL):
+        if not _live_process_group(group_id):
+            return
+        current = process_start_ticks(group_id)
+        if current is not None and current != leader_start_ticks:
+            raise RuntimeError(f"owned process group {group_id} identifier was reused")
+        try:
+            os.killpg(group_id, sig)
+        except ProcessLookupError:
+            return
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            if not _live_process_group(group_id):
+                return
+            time.sleep(0.02)
+    remaining = _live_process_group(group_id)
+    if remaining:
+        raise RuntimeError(f"owned process group {group_id} did not exit: {remaining}")
+
+
 class ProcessDaemon:
     """Wraps a subprocess server with ready-detection and lifecycle."""
 
@@ -110,7 +238,13 @@ class ProcessDaemon:
         env_overrides: dict[str, str] | None = None,
         log_path: str | None = None,
         cwd: str | None = None,
+        start_new_session: bool = False,
     ) -> None:
+        if start_new_session and not Path("/proc/self/stat").is_file():
+            raise RuntimeError("owned process-group cleanup requires Linux /proc")
+        self.start_new_session = start_new_session
+        self._process_group: int | None = None
+        self._process_group_start_ticks: int | None = None
         self.name = name
         self.cmd = cmd
         self.subprocess_env = os.environ.copy()
@@ -149,11 +283,15 @@ class ProcessDaemon:
                 stderr=subprocess.STDOUT,
                 env=self.subprocess_env,
                 cwd=self.cwd or get_repo_root(),
+                start_new_session=self.start_new_session,
             )
         except Exception:
             self._log_f.close()
             self._log_f = None
             raise
+        if self.start_new_session:
+            self._process_group = self._proc.pid
+            self._process_group_start_ticks = process_start_ticks(self._proc.pid)
         logger.info("%s spawned (pid=%s)", self.name, self._proc.pid)
 
     def stop(self, timeout: float = 15.0) -> None:
@@ -166,13 +304,16 @@ class ProcessDaemon:
                     self._proc.wait(timeout=timeout)
                 except (BrokenPipeError, OSError, subprocess.TimeoutExpired):
                     pass
-            if self._proc.poll() is None:
+            if self._process_group is None and self._proc.poll() is None:
                 self._proc.terminate()
                 try:
                     self._proc.wait(timeout=timeout)
                 except subprocess.TimeoutExpired:
                     self._proc.kill()
                     self._proc.wait()
+        if self._process_group is not None:
+            self._stop_process_group(timeout)
+            self._proc.wait(timeout=timeout)
         if self._proc is not None and self._proc.stdin is not None:
             self._proc.stdin.close()
         if self._log_f is not None:
@@ -181,3 +322,9 @@ class ProcessDaemon:
             except Exception:
                 pass
             self._log_f = None
+
+    def _stop_process_group(self, timeout: float) -> None:
+        stop_owned_process_group(
+            self._process_group, self._process_group_start_ticks, timeout
+        )
+        self._process_group = None

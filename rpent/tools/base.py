@@ -41,6 +41,7 @@ class ToolResult:
 
     data: dict[str, Any] = field(default_factory=dict)
     images: list[bytes] = field(default_factory=list)
+    model_text: str | None = None
 
     @property
     def is_error(self) -> bool:
@@ -52,6 +53,8 @@ class ToolResult:
 
     def to_text(self) -> str:
         """Encode the original tool payload without truncating internal state."""
+        if self.model_text is not None:
+            return self.model_text[:MAX_TOOL_TEXT_BYTES]
         # ASCII output makes character counts equal to UTF-8 byte counts.
         text = json.dumps(
             self.to_dict(), indent=2, allow_nan=False, ensure_ascii=True, default=str
@@ -140,6 +143,18 @@ class Tool(Generic[ParamsT]):
     def input_schema(self) -> dict[str, Any]:
         """Return JSON Schema for the same parameters that Toolkit validates."""
         return deepcopy(self._input_schema)
+
+    def validate_arguments(self, arguments: dict[str, Any]) -> BaseModel:
+        """Validate the published JSON contract and the typed runtime parameters."""
+        from jsonschema import Draft202012Validator
+
+        parameters = self.args_schema.model_validate(arguments, strict=True)
+        errors = list(Draft202012Validator(self._input_schema).iter_errors(arguments))
+        if errors:
+            error = errors[0]
+            location = ".".join(str(item) for item in error.absolute_path)
+            raise ValueError(f"{location or self.name}: {error.message}")
+        return parameters
 
     def with_handler(self, handler: Callable[..., ToolResult]) -> Tool:
         """Bind resources or an execution guard while retaining the declaration."""

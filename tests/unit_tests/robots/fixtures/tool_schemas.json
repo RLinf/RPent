@@ -9,7 +9,7 @@
         "input_schema": {
           "type": "object",
           "properties": {
-            "path": {"type": "string", "description": "Absolute or repo-relative path"},
+            "path": {"type": "string", "description": "Absolute or relative path within the active file boundary"},
             "max_chars": {"type": "integer", "description": "Max chars (default 40000)"}
           },
           "required": ["path"]
@@ -29,11 +29,11 @@
       },
       {
         "name": "list_dir",
-        "description": "List files in a directory (non-recursive). Default = {{output_dir}}. Use to inspect the working directory or discover existing resource files. Published memory is read-only. During exploration, you may write only to your current memory inbox. Memory for other robots is unavailable.",
+        "description": "List files in a directory (non-recursive). Default = the current episode's file directory. Use to inspect the working directory or discover existing resource files. Published memory is read-only. During exploration, you may write only to your current memory inbox. Memory for other robots is unavailable.",
         "input_schema": {
           "type": "object",
           "properties": {
-            "path": {"type": "string", "description": "Default: {{output_dir}}"}
+            "path": {"type": "string", "description": "Defaults to the current episode's file directory"}
           }
         }
       },
@@ -307,7 +307,7 @@
       },
       {
         "name": "view_camera_meta",
-        "description": "Read per-step camera calibration metadata from recorded artifacts.",
+        "description": "Read camera calibration from a recorded step. This does not capture a new image or advance the environment. segment and back_project already apply calibration; this tool is only needed to inspect the calibration itself.",
         "input_schema": {
           "type": "object",
           "properties": {
@@ -318,7 +318,7 @@
       },
       {
         "name": "segment",
-        "description": "SAM3 visual segmentation over an existing run artifact. It never renders a new camera view. Provide exactly one text prompt or single positive point. A successful top-ranked mask is projected through the matching world map to produce world_xyz.",
+        "description": "Locate an object in a recorded image with SAM3. Use either prompt or point, never both. When found and world_error is null, world_xyz is the object's world position in meters, ready for motion tools; no back_project call is needed. The box is a floating-point [left, top, right, bottom] image rectangle, not a [row, col] pixel or world position. This tool does not move the robot or render a new view.",
         "input_schema": {
           "type": "object",
           "properties": {
@@ -336,8 +336,8 @@
         "input_schema": {
           "type": "object",
           "properties": {
-            "row": {"type": ["integer", "null"], "description": "Pixel row (0=top) in the selected resolution image."},
-            "col": {"type": ["integer", "null"], "description": "Pixel column (0=left) in the selected resolution image."},
+            "row": {"type": ["integer", "null"], "description": "Integer pixel row (0=top) in the selected resolution image, not a bounding-box coordinate."},
+            "col": {"type": ["integer", "null"], "description": "Integer pixel column (0=left) in the selected resolution image, not a bounding-box coordinate."},
             "step": {"type": "integer", "default": -1, "description": "Depth/world-map step; 0 = initial, -1 = latest."},
             "camera": {"type": "string", "enum": ["agentview", "wrist"], "description": "Camera to back-project from (default agentview)."},
             "resolution": {"type": "string", "enum": ["high", "low"], "description": "Coordinate system for row/col (default high). Use low only when row/col came from the embedded/standard 256 image."},

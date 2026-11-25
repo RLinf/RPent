@@ -12,12 +12,22 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Helpers for converting values into pickle-safe wire formats."""
+"""Serialize wire values and publish JSON artifacts."""
 
 from __future__ import annotations
 
 import dataclasses
+import json
+from pathlib import Path
 from typing import Any
+
+
+def write_json(path: Path, value: Any) -> None:
+    """Publish JSON atomically without exposing partially written records."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_suffix(path.suffix + ".tmp")
+    temporary.write_text(json.dumps(value, ensure_ascii=False, default=str))
+    temporary.replace(path)
 
 
 def to_numpy_tree(value: Any) -> Any:

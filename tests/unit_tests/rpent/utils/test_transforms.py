@@ -21,10 +21,19 @@ from scipy.spatial.transform import Rotation
 from rpent.utils.transforms import (
     compose_transforms,
     invert_transform,
+    quaternion_wxyz,
+    rotation_from_wxyz,
     transform_points,
     transform_pose,
     transform_vectors,
 )
+
+
+def test_simulator_quaternion_is_scalar_first():
+    s = np.sqrt(0.5)
+    rotation = rotation_from_wxyz([s, 0, 0, s])
+    np.testing.assert_allclose(rotation.apply([1, 0, 0]), [0, 1, 0], atol=1e-12)
+    np.testing.assert_allclose(quaternion_wxyz(rotation), [s, 0, 0, s])
 
 
 def example_transform():

@@ -12,6 +12,8 @@
      - 内容
    * - :doc:`libero`
      - 桌面操作；LIBERO、LIBERO-PRO 与 LIBERO-plus。
+   * - :doc:`rl`
+     - LIBERO、RoboCasa、RoboTwin 的共享 adaptive multiturn / snapshot 工具，无动作模型。
    * - :doc:`robocasa`
      - 厨房操作；RoboCasa365 与 Target50 实验。
    * - :doc:`robotwin`

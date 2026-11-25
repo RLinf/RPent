@@ -22,13 +22,15 @@ RPent's runner saves the returned transcript through its existing output flow.
 import asyncio
 import json
 import threading
-from collections.abc import AsyncIterator, Sequence
+from collections.abc import AsyncIterator, Callable, Sequence
 from contextlib import asynccontextmanager, nullcontext
 from functools import partial
 from typing import Any
 from uuid import uuid4
 
 from jsonschema import Draft202012Validator
+from openai import APIConnectionError
+from pydantic import ValidationError
 from pydantic_ai import (
     Agent,
     BinaryContent,
@@ -56,6 +58,8 @@ from pydantic_ai.agent import WrapperAgent
 from pydantic_ai.capabilities import AbstractCapability, Thinking, on_event
 from pydantic_ai.capabilities.abstract import AgentNode, NodeResult, WrapRunHandler
 from pydantic_ai.exceptions import (
+    ModelAPIError,
+    ModelHTTPError,
     UnexpectedModelBehavior,
     UsageLimitExceeded,
     UserError,
@@ -63,6 +67,7 @@ from pydantic_ai.exceptions import (
 from pydantic_ai.messages import ModelMessage, UserContent, UserPromptPart
 from pydantic_ai.models import Model, ModelRequestContext
 from pydantic_ai.run import AgentRun, AgentRunResult
+from pydantic_ai.tools import ToolDefinition
 from pydantic_ai_harness.compaction import SlidingWindowCompaction
 
 from rpent.dashboard.events import DashboardEventSink, TranscriptEvent, UsageEvent
@@ -70,12 +75,14 @@ from rpent.dashboard.interaction import DashboardInteractionPort, DashboardMessa
 from rpent.dashboard.planner_control import PlannerInteractionControl
 from rpent.planner.base import (
     REASONING_EFFORTS,
+    InvalidActionResponse,
     Planner,
     PlannerResult,
     _wait_for_cleanup,
     cancel_and_wait,
     execute_tool,
 )
+from rpent.planner.compaction.window import RequestAwareSlidingWindow
 from rpent.prompt.api import API_PLANNER_INSTRUCTIONS, render_environment_context
 from rpent.session.env_capture import current_tool_call
 from rpent.session.planner_capture import CapturingModel, sdk_payload
@@ -84,6 +91,19 @@ from rpent.utils.logging import get_logger
 from rpent.utils.templates import substitute
 
 logger = get_logger("api")
+_IMAGE_OMITTED = "[Image omitted: --no-images is enabled.]"
+
+
+class _InvalidToolArguments(ModelRetry):
+    """Model-supplied arguments rejected before tool execution."""
+
+
+class _AutomaticCompletion(Exception):
+    """The toolkit completed the task before another model request."""
+
+
+class _EnvironmentFailure(RuntimeError):
+    """The native environment failed; no subsequent model request is useful."""
 
 
 class _RequestBudgetExhausted(Exception):
@@ -96,8 +116,66 @@ def _is_response_truncation(exc: UnexpectedModelBehavior) -> bool:
     return "token limit" in message and "before any response was generated" in message
 
 
+def _is_context_overflow(exc: ModelHTTPError) -> bool:
+    """Match an endpoint that rejects a request longer than its context."""
+    if not isinstance(exc.body, dict):
+        return False
+    if exc.body.get("code") == "context_length_exceeded":
+        return True
+    message = str(exc.body.get("message", "")).lower()
+    return (
+        exc.status_code == 400
+        and "requested token count exceeds" in message
+        and "maximum context length" in message
+    )
+
+
+def _default_compaction() -> SlidingWindowCompaction:
+    return RequestAwareSlidingWindow(
+        max_messages=80, max_fraction=0.8, keep_messages=40
+    )
+
+
+def sliding_window_compaction(
+    *,
+    context_window: int | None = None,
+    max_fraction: float = 0.8,
+    max_messages: int = 80,
+    keep_messages: int = 40,
+) -> Callable[[], SlidingWindowCompaction]:
+    """Return the default message window sized for a known model context.
+
+    Without ``context_window`` the Harness falls back to its own default window
+    for a model it does not know, so a self-hosted model compacts at the wrong
+    point unless the served context is named here.
+    """
+
+    if max_messages < 0 or keep_messages < 0:
+        raise ValueError(
+            "Compaction message counts must be nonnegative; 0 disables the message trigger"
+        )
+
+    def build() -> SlidingWindowCompaction:
+        return RequestAwareSlidingWindow(
+            max_messages=max_messages or None,
+            max_fraction=max_fraction,
+            keep_messages=keep_messages,
+            context_window=context_window,
+        )
+
+    return build
+
+
 class ApiAgentLoop(Planner):
-    """Implement ``Planner`` with a native Agent and reusable Harness capabilities."""
+    """Implement ``Planner`` with a native Agent and reusable Harness capabilities.
+
+    ``compaction`` builds each run's history compaction, and ``None`` disables
+    compaction; ``model_settings`` replaces the settings derived from
+    ``max_tokens``, ``reasoning_effort`` and ``thinking``; ``sequential_tools``
+    runs physical tools one at a time. ``thinking`` keeps a Qwen model's
+    reasoning on when no effort tier is requested; other models read it only
+    through the ``Thinking`` capability. Defaults preserve ordinary runs.
+    """
 
     def __init__(
         self,
@@ -109,6 +187,14 @@ class ApiAgentLoop(Planner):
         no_images: bool = False,
         timeout_s: float = 1200,
         interactive: bool = False,
+        compaction: Callable[[], SlidingWindowCompaction] | None = _default_compaction,
+        model_settings: ModelSettings | None = None,
+        sequential_tools: bool = False,
+        thinking: bool = True,
+        capabilities_factory: Callable[
+            [Toolkit, str, str, int], Sequence[AbstractCapability]
+        ]
+        | None = None,
     ) -> None:
         if reasoning_effort not in REASONING_EFFORTS:
             raise ValueError(f"unsupported reasoning effort: {reasoning_effort}")
@@ -118,9 +204,14 @@ class ApiAgentLoop(Planner):
         self.dashboard_events = dashboard_events
         self.max_tokens = max_tokens
         self.reasoning_effort = reasoning_effort
+        self.thinking = thinking
         self.no_images = no_images
         self.timeout_s = timeout_s
         self.interactive = interactive
+        self.compaction = compaction
+        self.model_settings = model_settings
+        self.sequential_tools = sequential_tools
+        self.capabilities_factory = capabilities_factory
 
     def solve(
         self,
@@ -133,30 +224,49 @@ class ApiAgentLoop(Planner):
         dashboard_interaction: DashboardInteractionPort | None = None,
     ) -> PlannerResult:
         """Run a conversation and return its transcript for RPent to save."""
-        if max_turns < 1:
-            raise ValueError("max_turns must be positive")
         if input_queue is not None:
             raise ValueError("api does not use RPent's terminal input queue")
-        if self.interactive and dashboard_interaction is not None:
-            raise ValueError("clai and Dashboard cannot run together")
         return asyncio.run(
-            self._solve(
-                system_prompt,
-                user_message,
-                toolkit,
-                max_turns,
-                dashboard_interaction,
+            self.solve_async(
+                system_prompt=system_prompt,
+                user_message=user_message,
+                toolkit=toolkit,
+                max_turns=max_turns,
+                dashboard_interaction=dashboard_interaction,
             )
         )
 
-    async def _solve(
+    def _thinking_level(self) -> bool | str:
+        """Thinking requested from the model: an effort tier, or on/off.
+
+        A Qwen endpoint keeps thinking on without a tier, which is how Qwen3.5
+        runs since its template has no effort tiers; elsewhere ``"none"`` keeps
+        its established meaning of thinking off.
+        """
+        from rpent.planner.qwen import QwenChatModel
+
+        if self.reasoning_effort != "none":
+            return self.reasoning_effort
+        return self.thinking if isinstance(self.model, QwenChatModel) else False
+
+    async def solve_async(
         self,
+        *,
         system_prompt: str,
         user_message: str,
         toolkit: Toolkit,
         max_turns: int,
-        interaction: DashboardInteractionPort | None,
+        dashboard_interaction: DashboardInteractionPort | None = None,
     ) -> PlannerResult:
+        """Run ``solve`` on the caller's event loop, which may cancel the run.
+
+        Exhausting the run's own time budget drains tools and returns
+        ``error_kind="episode_timeout"``. Backend timeouts remain model errors.
+        """
+        if max_turns < 1:
+            raise ValueError("max_turns must be positive")
+        if self.interactive and dashboard_interaction is not None:
+            raise ValueError("clai and Dashboard cannot run together")
         conversation_id = uuid4().hex
         try:
             state = toolkit.state
@@ -172,65 +282,113 @@ class ApiAgentLoop(Planner):
             dashboard_events=self.dashboard_events,
             no_images=self.no_images,
             capture=capture,
+            sequential_tools=self.sequential_tools,
+        )
+        prompt = _opening_prompt(
+            user_message, toolkit.initial_observation(), no_images=self.no_images
         )
         session = _Session(
-            adapter, conversation_id, max_turns, interactive=self.interactive
+            adapter,
+            conversation_id,
+            max_turns,
+            interactive=self.interactive,
+        )
+        trace = getattr(self.model, "request_trace", None)
+        session.request_trace = trace
+        compaction_factory = self.compaction
+        if trace is not None and compaction_factory is not None:
+            from functools import partial
+
+            from rpent.planner.request_trace import traced_compaction
+
+            compaction_factory = partial(traced_compaction, compaction_factory, trace)
+        capabilities = (
+            list(
+                self.capabilities_factory(
+                    toolkit, system_prompt, user_message, max_turns
+                )
+            )
+            if self.capabilities_factory is not None
+            else []
         )
         agent = Agent(
             capture if capture is not None else self.model,
             name="rpent_api",
-            system_prompt=(API_PLANNER_INSTRUCTIONS, system_prompt),
+            system_prompt=(API_PLANNER_INSTRUCTIONS, system_prompt)
+            if getattr(toolkit, "api_environment_context", True)
+            else system_prompt,
             output_type=adapter.output_types,
             toolsets=[adapter],
             # Accepted finish skips sibling tool calls in the same response.
             end_strategy="early",
             # Finish refusals may span attempts; the request budget still applies.
             retries={"output": max_turns},
-            model_settings=_build_model_settings(
-                self.model, self.max_tokens, self.reasoning_effort
+            model_settings=self.model_settings
+            if self.model_settings is not None
+            else _build_model_settings(
+                self.model,
+                self.max_tokens,
+                self.reasoning_effort,
+                thinking=self.thinking,
+                parallel_tool_calls=not self.sequential_tools,
             ),
             capabilities=[
-                SlidingWindowCompaction(
-                    max_messages=80, max_fraction=0.8, keep_messages=40
-                ),
-                Thinking(
-                    False if self.reasoning_effort == "none" else self.reasoning_effort
-                ),
                 session,
+                *capabilities,
+                *([compaction_factory()] if compaction_factory is not None else []),
+                Thinking(self._thinking_level()),
             ],
         )
-        if interaction is not None:
+        if dashboard_interaction is not None:
             session.control = PlannerInteractionControl(
-                interaction=interaction,
+                interaction=dashboard_interaction,
                 cancel_active_and_wait=adapter.cancel_active_and_wait,
                 resume_calls=toolkit.resume_calls,
                 emit_user=session.emit_user,
-                emit_initial_user=lambda: session.emit_user(user_message),
+                emit_initial_user=lambda: session.emit_user(_prompt_text(prompt)),
                 defer_message_ack=True,
                 submit_while_busy=True,
             )
+        run = asyncio.create_task(session.run(_ConversationAgent(agent), prompt))
+        admission = getattr(self.model, "admission_clock", None)
+        queue_start = admission.excluded() if admission is not None else 0.0
         try:
-            await asyncio.wait_for(
-                session.run(_ConversationAgent(agent), user_message),
-                timeout=None if self.interactive else self.timeout_s,
+            if admission is not None and not self.interactive:
+                from rpent.planner.admission import await_task_budget
+
+                await await_task_budget(run, self.timeout_s, admission)
+            else:
+                await asyncio.wait_for(
+                    run,
+                    timeout=None if self.interactive else self.timeout_s,
+                )
+        except (_RequestBudgetExhausted, _AutomaticCompletion) as exc:
+            session.stop_reason = (
+                "request_limit"
+                if isinstance(exc, _RequestBudgetExhausted)
+                else "environment_terminal"
             )
-        except asyncio.TimeoutError:
-            session.stop_reason = "timeout"
-            session.error = f"planner timed out after {self.timeout_s:g}s"
-        except _RequestBudgetExhausted as exc:
-            session.stop_reason = "request_limit"
             session.error = None
             logger.info("%s", exc)
         except Exception as exc:
             session.stop_reason = "planner_error"
-            if isinstance(exc, UnexpectedModelBehavior) and _is_response_truncation(
+            if isinstance(exc, asyncio.TimeoutError) and run.cancelled():
+                # wait_for cancels this task only when its own deadline expires.
+                session.error = f"planner timed out after {self.timeout_s:g}s"
+                session.error_kind = "episode_timeout"
+                session.stop_reason = "timeout"
+            elif isinstance(exc, UnexpectedModelBehavior) and _is_response_truncation(
                 exc
             ):
                 session.error = f"planner response truncated (length): {exc}"
                 logger.warning("%s", session.error)
             else:
                 session.error = f"{type(exc).__name__}: {exc}"
-                logger.exception("Harness planner failed")
+                if isinstance(exc, InvalidActionResponse):
+                    session.error_kind = "invalid_action"
+                    logger.warning("%s", session.error)
+                else:
+                    logger.exception("Harness planner failed")
         finally:
             session.emit_usage()
         return PlannerResult(
@@ -242,20 +400,75 @@ class ApiAgentLoop(Planner):
                 "total_cached_input_tokens": session.usage.cache_read_tokens,
                 "turns_used": session.usage.requests,
                 "tool_calls": adapter.tool_calls,
+                **(
+                    {"model_queue_seconds": admission.excluded() - queue_start}
+                    if admission is not None
+                    else {}
+                ),
             },
             error=session.error,
             stop_reason=session.stop_reason,
+            error_kind=session.error_kind,
         )
 
 
+def _opening_prompt(
+    user_message: str, observation: ToolResult | None, *, no_images: bool
+) -> str | list[UserContent]:
+    """Append a toolkit's initial observation to the opening user message.
+
+    The measured state belongs to the first request: without it the planner is
+    asked to act on a scene it has never seen, and text-only runs get no
+    observation at all. Images are dropped when the run suppresses them.
+    """
+    if observation is None:
+        return user_message
+    text = f"{user_message}\n\n{observation.to_text()}"
+    if not observation.images:
+        return text
+    return [
+        text,
+        *(
+            _IMAGE_OMITTED
+            if no_images
+            else BinaryContent(data=image, media_type="image/png")
+            for image in observation.images
+        ),
+    ]
+
+
+def _prompt_text(prompt: str | Sequence[UserContent]) -> str:
+    """Return the text of an opening prompt that may carry images."""
+    return prompt if isinstance(prompt, str) else str(prompt[0])
+
+
 def _build_model_settings(
-    model: Model, max_tokens: int, reasoning_effort: str | None = None
+    model: Model,
+    max_tokens: int,
+    reasoning_effort: str | None = None,
+    *,
+    thinking: bool = True,
+    parallel_tool_calls: bool = True,
 ) -> ModelSettings:
-    """Enable parallel tool requests and preserve Anthropic prompt caching."""
+    """Enable parallel tool requests and preserve Anthropic prompt caching.
+
+    A Qwen chat endpoint gets its sampling defaults and an explicit thinking
+    switch; ``parallel_tool_calls`` reaches only that path, other OpenAI-family
+    endpoints keep the established settings.
+    """
     from pydantic_ai.models.anthropic import AnthropicModel, AnthropicModelSettings
     from pydantic_ai.models.openai import OpenAIChatModel, OpenAIChatModelSettings
     from pydantic_ai.profiles.openai import OPENAI_REASONING_EFFORT_MAP
 
+    from rpent.planner.qwen import QwenChatModel, qwen_model_settings
+
+    if isinstance(model, QwenChatModel):
+        return qwen_model_settings(
+            max_tokens=max_tokens,
+            reasoning_effort=reasoning_effort or "none",
+            thinking=thinking,
+            parallel_tool_calls=parallel_tool_calls,
+        )
     if isinstance(model, AnthropicModel):
         return AnthropicModelSettings(
             max_tokens=max_tokens,
@@ -326,9 +539,11 @@ class _HarnessToolkit(FunctionToolset):
         dashboard_events: DashboardEventSink,
         no_images: bool,
         capture: CapturingModel | None = None,
+        sequential_tools: bool = False,
     ) -> None:
         super().__init__(id="rpent")
         self.toolkit = toolkit
+        self.completion_result = getattr(toolkit, "completion_result", lambda: None)
         self.dashboard_events = dashboard_events
         self.no_images = no_images
         self.capture = capture
@@ -338,7 +553,9 @@ class _HarnessToolkit(FunctionToolset):
         self.stopping = threading.Event()
         self.validators: dict[str, Draft202012Validator] = {}
         self.output_types: list[Any] = [str]
-        self.add_tool(Tool(self.read_image, takes_ctx=True, sequential=True))
+        # A toolkit that exposes only its own tools opts out of read_image.
+        if getattr(toolkit, "planner_builtin_tools", True):
+            self.add_tool(Tool(self.read_image, takes_ctx=True, sequential=True))
         for declaration in toolkit.list_tools():
             spec = {
                 "name": declaration.name,
@@ -379,6 +596,7 @@ class _HarnessToolkit(FunctionToolset):
                         description=spec.get("description"),
                         json_schema=spec["input_schema"],
                         takes_ctx=True,
+                        sequential=sequential_tools,
                     )
                 )
 
@@ -447,7 +665,9 @@ class _HarnessToolkit(FunctionToolset):
         """Validate and run one physical operation, retaining cancellation ownership."""
         error = next(self.validators[name].iter_errors(arguments), None)
         if error is not None:
-            raise ModelRetry(f"Invalid arguments for {name}: {error.message}")
+            raise _InvalidToolArguments(
+                f"Invalid arguments for {name}: {error.message}"
+            )
         self._record_call(name, arguments, ctx)
         try:
             result = await execute_tool(self.toolkit, name, arguments)
@@ -522,6 +742,8 @@ class _Session(AbstractCapability):
     native run only for a follow-up after completion or interruption.
     """
 
+    request_trace = None
+
     def __init__(
         self,
         toolkit: _HarnessToolkit,
@@ -538,6 +760,7 @@ class _Session(AbstractCapability):
         self.error: str | None = None
         self.stop_reason = "model_output"
         self.control: PlannerInteractionControl | None = None
+        self.error_kind: str | None = None
         self.inbox: asyncio.Queue[DashboardMessage] = asyncio.Queue()
         self.enqueued: dict[str, DashboardMessage] = {}
         self.run_done = asyncio.Event()
@@ -552,6 +775,7 @@ class _Session(AbstractCapability):
             raise UserError("The task has finished. Use /exit to close the session.")
         self.toolkit.toolkit.resume_calls()
         self.toolkit.stopping.clear()
+        self.error_kind = None
         if self.interactive and ctx.prompt:
             self.emit_user(ctx.prompt)
         try:
@@ -561,9 +785,13 @@ class _Session(AbstractCapability):
                 "finish" if self.toolkit.finish_result is not None else "model_output"
             )
             return result
-        except _RequestBudgetExhausted:
+        except (_RequestBudgetExhausted, _AutomaticCompletion) as exc:
             # The native CLI catches run exceptions before _solve can see them.
-            self.stop_reason = "request_limit"
+            self.stop_reason = (
+                "request_limit"
+                if isinstance(exc, _RequestBudgetExhausted)
+                else "environment_terminal"
+            )
             self.error = None
             raise
         except RunCancelled:
@@ -572,9 +800,39 @@ class _Session(AbstractCapability):
             raise
         except Exception as exc:
             self.stop_reason = "planner_error"
+            self.error_kind = (
+                "infrastructure_error"
+                if isinstance(exc, _EnvironmentFailure)
+                else "invalid_action"
+                if isinstance(exc, InvalidActionResponse)
+                else None
+            )
+            if isinstance(exc, APIConnectionError) or (
+                isinstance(exc, ModelAPIError)
+                and isinstance(exc.__cause__, APIConnectionError)
+            ):
+                self.error_kind = "model_transport"
+            if isinstance(exc, ModelHTTPError) and _is_context_overflow(exc):
+                self.error_kind = "context_limit"
+            if isinstance(exc, UnexpectedModelBehavior):
+                cause = exc.__cause__
+                if isinstance(cause, _InvalidToolArguments) or (
+                    isinstance(cause, ValidationError)
+                    and any(
+                        error["type"] in {"json_invalid", "dict_type"}
+                        and not error["loc"]
+                        for error in cause.errors()
+                    )
+                ):
+                    self.error_kind = "tool_arguments"
+                elif isinstance(cause, ModelRetry) and str(cause).startswith(
+                    "Unknown tool name:"
+                ):
+                    self.error_kind = "tool_name"
             if isinstance(exc, UnexpectedModelBehavior) and _is_response_truncation(
                 exc
             ):
+                self.error_kind = "response_truncated"
                 self.error = f"planner response truncated (length): {exc}"
             else:
                 self.error = f"{type(exc).__name__}: {exc}"
@@ -592,6 +850,14 @@ class _Session(AbstractCapability):
     async def before_model_request(
         self, ctx: RunContext, request_context: ModelRequestContext
     ) -> ModelRequestContext:
+        completion = self.toolkit.completion_result()
+        if completion is not None:
+            self.toolkit.finish_result = completion
+            if completion.get("status") == "error":
+                raise _EnvironmentFailure(
+                    completion.get("reason", "environment failed")
+                )
+            raise _AutomaticCompletion("Native episode completed.")
         try:
             self.limits.check_before_request(self.usage + ctx.usage)
         except UsageLimitExceeded:
@@ -604,6 +870,21 @@ class _Session(AbstractCapability):
             self.toolkit.capture.before_request(ctx)
         return request_context
 
+    async def after_tool_validate(
+        self,
+        ctx: RunContext,
+        *,
+        call: ToolCallPart,
+        tool_def: ToolDefinition,
+        args: Any,
+    ) -> Any:
+        # Tool.from_schema skips schema validation, including the object root type.
+        if not isinstance(args, dict):
+            raise _InvalidToolArguments(
+                f"Arguments for {call.tool_name} must be a JSON object"
+            )
+        return args
+
     async def before_node_run(self, ctx: RunContext, *, node: AgentNode) -> AgentNode:
         if self.toolkit.stopping.is_set():
             # Dashboard drains physical calls before awaiting the SDK interrupt.
@@ -612,7 +893,11 @@ class _Session(AbstractCapability):
             return node
         if not isinstance(node, ModelRequestNode):
             return node
-        if not ctx.messages and ctx.prompt:
+        if (
+            not ctx.messages
+            and ctx.prompt
+            and getattr(self.toolkit.toolkit, "api_environment_context", True)
+        ):
             # The SDK puts the task last. Keep it with the context during compaction.
             parts = list(node.request.parts)
             parts.insert(-1, UserPromptPart(render_environment_context()))
@@ -629,6 +914,8 @@ class _Session(AbstractCapability):
         self, ctx: RunContext, *, node: AgentNode, result: NodeResult
     ) -> NodeResult:
         if isinstance(node, ModelRequestNode) and isinstance(result, CallToolsNode):
+            if self.request_trace is not None:
+                self.request_trace.response(result.model_response)
             # Retain completed turns even when request history is later compacted.
             content: list[dict[str, Any]] = []
             for part in result.model_response.parts:
@@ -637,12 +924,19 @@ class _Session(AbstractCapability):
                 elif isinstance(part, ThinkingPart) and part.content:
                     content.append({"type": "thinking", "thinking": part.content})
                 elif isinstance(part, ToolCallPart):
+                    arguments = part.args if part.args is not None else {}
+                    if isinstance(arguments, str):
+                        try:
+                            arguments = json.loads(arguments)
+                        except json.JSONDecodeError:
+                            # Retain malformed arguments in the audit without rewriting them.
+                            pass
                     content.append(
                         {
                             "type": "tool_use",
                             "id": part.tool_call_id,
                             "name": part.tool_name,
-                            "input": part.args_as_dict(),
+                            "input": arguments,
                         }
                     )
             self.toolkit.messages.append({"role": "assistant", "content": content})
@@ -714,12 +1008,16 @@ class _Session(AbstractCapability):
         # Only submissions that never entered it need to be subtracted here.
         return discarded
 
-    async def run_cli(self, agent: _ConversationAgent, prompt: str) -> None:
+    async def run_cli(
+        self, agent: _ConversationAgent, prompt: str | Sequence[UserContent]
+    ) -> None:
         """Run the preset task, then hand its history to the native CLI."""
         from rich.console import Console
 
         console = Console()
-        console.print("Task context:\n" + prompt, markup=False, highlight=False)
+        console.print(
+            "Task context:\n" + _prompt_text(prompt), markup=False, highlight=False
+        )
         console.print(
             "Starting the task. You can enter follow-up instructions after it "
             "responds, or use /exit to close.",
@@ -738,14 +1036,16 @@ class _Session(AbstractCapability):
             usage_limits=self.limits,
         )
 
-    async def run(self, agent: _ConversationAgent, prompt: str) -> None:
+    async def run(
+        self, agent: _ConversationAgent, prompt: str | Sequence[UserContent]
+    ) -> None:
         tasks: list[asyncio.Task] = []
         try:
             if self.interactive:
                 await self.run_cli(agent, prompt)
                 return
             if self.control is None:
-                self.emit_user(prompt)
+                self.emit_user(_prompt_text(prompt))
                 await self._run_conversation(agent, prompt)
                 return
             await self.control.start()
@@ -769,7 +1069,9 @@ class _Session(AbstractCapability):
                 task.cancel()
             await asyncio.gather(*tasks, return_exceptions=True)
 
-    async def _run_conversation(self, agent: _ConversationAgent, prompt: str) -> None:
+    async def _run_conversation(
+        self, agent: _ConversationAgent, prompt: str | Sequence[UserContent]
+    ) -> None:
         """Run the SDK, then wait for Dashboard follow-ups in the same conversation."""
         while True:
             self.cancellation = CancellationToken()

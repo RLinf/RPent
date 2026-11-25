@@ -22,6 +22,16 @@ import numpy as np
 from scipy.spatial.transform import Rotation
 
 
+def rotation_from_wxyz(quaternion: np.ndarray) -> Rotation:
+    """Build a rotation from a simulator's scalar-first quaternion."""
+    return Rotation.from_quat(np.asarray(quaternion)[..., [1, 2, 3, 0]])
+
+
+def quaternion_wxyz(rotation: Rotation) -> np.ndarray:
+    """Express a rotation as a scalar-first quaternion for the simulator."""
+    return rotation.as_quat()[..., [3, 0, 1, 2]]
+
+
 def _rigid_matrix(transform: np.ndarray) -> np.ndarray:
     matrix = np.asarray(transform, dtype=np.float64)
     if matrix.shape != (4, 4) or not np.isfinite(matrix).all():
