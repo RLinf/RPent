@@ -613,6 +613,7 @@ def test_codex_probe_timeout_reports_network_error(
 @pytest.mark.parametrize("backend", ["gemini_cli", "opencode"])
 def test_acp_probe_uses_harness_configuration_and_exact_optional_model(
     monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
     key_present: bool,
     timeout_s: int | None,
     backend: str,
@@ -620,6 +621,8 @@ def test_acp_probe_uses_harness_configuration_and_exact_optional_model(
     import rpent.planner.gemini_cli as gemini_cli
     from rpent.planner.opencode import OpenCodePlanner
 
+    caplog.set_level("INFO", logger=check_mod.logger.name)
+    monkeypatch.setattr(check_mod.logger, "handlers", [caplog.handler])
     seen: dict[str, Any] = {}
     if key_present:
         monkeypatch.setenv("GEMINI_API_KEY", SENTINEL_KEY)
@@ -640,6 +643,7 @@ def test_acp_probe_uses_harness_configuration_and_exact_optional_model(
 
     assert result.ok is True
     assert result.reply == "ok"
+    assert f"probe budget: {seen['timeout_s']}s" in caplog.text
     assert result.credential_env is None
     assert result.credential_present is None
     assert result.base_url_env is None

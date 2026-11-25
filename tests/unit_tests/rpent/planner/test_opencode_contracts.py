@@ -19,6 +19,7 @@ import pytest
 from rpent.dashboard.events import NullDashboardEventSink
 from rpent.planner.base import build_planner
 from rpent.planner.check import LlmCheckRequest, check_llm
+from rpent.planner.opencode import OpenCodePlanner
 
 
 @pytest.mark.parametrize("probe", [False, True])
@@ -73,3 +74,36 @@ def test_missing_opencode_is_reported_without_guessing_credentials(monkeypatch):
     assert result.status == "sdk_error"
     assert "OPENCODE_BIN" in result.detail
     assert result.credential_present is None
+
+
+def test_redaction_snapshots_environment_and_inline_provider_keys(monkeypatch):
+    env_key = "opencode-env-secret"
+    inline_key = "opencode-inline-secret"
+    monkeypatch.setenv("TEST_API_KEY", env_key)
+    monkeypatch.setenv(
+        "OPENCODE_CONFIG_CONTENT",
+        json.dumps({"provider": {"local": {"options": {"apiKey": inline_key}}}}),
+    )
+    redact = OpenCodePlanner._load_secret_redactor()
+    monkeypatch.setenv("TEST_API_KEY", "replacement-env-secret")
+    monkeypatch.delenv("OPENCODE_CONFIG_CONTENT")
+    detail = redact(f"Request failed: {env_key} {inline_key}")
+    assert detail == "Request failed: <TEST_API_KEY> <provider.local.options.apiKey>"
+    assert redact("replacement-env-secret") == "replacement-env-secret"
+
+
+def test_check_redacts_inline_provider_key(monkeypatch):
+    secret = "opencode-inline-secret"
+    monkeypatch.setenv(
+        "OPENCODE_CONFIG_CONTENT",
+        json.dumps({"provider": {"local": {"options": {"apiKey": secret}}}}),
+    )
+
+    def fail(self, prompt):
+        raise RuntimeError(f"API key rejected: {secret}")
+
+    monkeypatch.setattr(OpenCodePlanner, "probe", fail)
+    result = check_llm(LlmCheckRequest(planner="opencode"))
+    assert result.status == "auth_failed"
+    assert "<provider.local.options.apiKey>" in result.detail
+    assert secret not in result.detail

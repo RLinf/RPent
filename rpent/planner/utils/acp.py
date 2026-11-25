@@ -41,18 +41,6 @@ from rpent.planner.utils.agent_session import run_agent
 from rpent.planner.utils.sdk import int_field, jsonable
 from rpent.tools.toolkit import Toolkit
 
-
-def redact_agent_secrets(text: str) -> str:
-    """Redact conventional harness credential variables from emitted text."""
-    for name, value in os.environ.items():
-        if (
-            name.endswith(("_API_KEY", "_PROVIDER_KEY", "_TOKEN", "_SECRET"))
-            and len(value) >= 8
-        ):
-            text = text.replace(value, f"<{name}>")
-    return text
-
-
 # ---------------------------------------------------------------------------
 # Shared planner base
 # ---------------------------------------------------------------------------
@@ -70,8 +58,24 @@ class AcpPlanner(Planner):
     label: str
 
     @staticmethod
-    def _load_secret_redactor() -> Callable[[str], str]:
-        return redact_agent_secrets
+    def _load_secret_redactor(
+        extra_secrets: dict[str, str] | None = None,
+    ) -> Callable[[str], str]:
+        """Snapshot environment and adapter credentials for one session."""
+        secrets = {
+            name: value
+            for name, value in os.environ.items()
+            if name.endswith(("_API_KEY", "_PROVIDER_KEY", "_TOKEN", "_SECRET"))
+        }
+        secrets.update(extra_secrets or {})
+        values = [(name, value) for name, value in secrets.items() if len(value) >= 8]
+
+        def redact(text: str) -> str:
+            for name, value in values:
+                text = text.replace(value, f"<{name}>")
+            return text
+
+        return redact
 
     def __init__(
         self,
@@ -253,7 +257,7 @@ class AcpSession:
         cwd: Path,
         env: dict[str, str],
         mcp_url: str | None = None,
-        redact: Callable[[str], str] = redact_agent_secrets,
+        redact: Callable[[str], str],
         model: str | None,
         control: PlannerInteractionControl | None,
         emit_event: Callable[[dict[str, Any]], Any],

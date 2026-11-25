@@ -19,6 +19,7 @@ from __future__ import annotations
 import json
 import os
 import shutil
+from collections.abc import Callable
 
 from rpent.planner.utils.acp import AcpPlanner, AcpSession
 from rpent.planner.utils.agent_runtime import agent_environment
@@ -29,6 +30,16 @@ class OpenCodePlanner(AcpPlanner):
 
     backend = "opencode"
     label = "OpenCode"
+
+    @staticmethod
+    def _load_secret_redactor() -> Callable[[str], str]:
+        config = json.loads(os.environ.get("OPENCODE_CONFIG_CONTENT") or "{}")
+        secrets = {}
+        for name, provider in config.get("provider", {}).items():
+            key = provider.get("options", {}).get("apiKey")
+            if isinstance(key, str):
+                secrets[f"provider.{name}.options.apiKey"] = key
+        return AcpPlanner._load_secret_redactor(secrets)
 
     def _create_session(
         self,

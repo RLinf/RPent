@@ -924,14 +924,11 @@ def _check_acp(request: LlmCheckRequest) -> LlmCheckResult:
     planner_class = (
         GeminiCliPlanner if request.planner == "gemini_cli" else OpenCodePlanner
     )
-    timeout_s = request.resolved_timeout_s()
-    if request.planner == "gemini_cli":
-        timeout_s = _sdk_probe_budget(
-            request,
-            cli_login_only=not (
-                os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
-            ),
-        )
+    timeout_s = _sdk_probe_budget(
+        request,
+        cli_login_only=request.planner == "gemini_cli"
+        and not (os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")),
+    )
     started = time.monotonic()
     try:
         reply = planner_class(
