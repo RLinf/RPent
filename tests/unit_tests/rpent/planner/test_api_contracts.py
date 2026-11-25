@@ -1362,22 +1362,28 @@ def test_reasoning_effort_reaches_openai_chat_request_body(tmp_path, effort):
     ]
 
 
-def test_api_executes_readonly_calls_concurrently(tmp_path):
-    from weakref import ref
-
+def test_api_executes_readonly_calls_concurrently(tmp_path, monkeypatch):
     from rpent.session.env_capture import current_tool_call
+    from rpent.session.planner_capture import CapturingModel
 
     events = Events()
     toolkit = capturing_toolkit(tmp_path, events)
     rendezvous = threading.Barrier(2)
-    completed = []
-    captures = []
+    completed = {}
+    before_request = CapturingModel.before_request
+
+    def check_settled_calls(capture, ctx):
+        assert not capture.calls
+        before_request(capture, ctx)
+
+    monkeypatch.setattr(CapturingModel, "before_request", check_settled_calls)
 
     @declare_tool(readonly=True)
     def sense(label: str) -> ToolResult:
-        captures.append(ref(current_tool_call.get()))
+        capture = current_tool_call.get()
+        assert capture is not None
         rendezvous.wait(timeout=5)
-        completed.append(label)
+        completed[label] = capture.tool_call_id
         return ToolResult(data={"label": label})
 
     toolkit.add_tool(sense)
@@ -1391,16 +1397,16 @@ def test_api_executes_readonly_calls_concurrently(tmp_path):
                 "sense", {"label": "right"}, 1
             )
         else:
-            assert all(capture() is None for capture in captures)
+            assert current_tool_call.get() is None
             yield finish()
 
     result, _, _ = solve(
         tmp_path, FunctionModel(stream_function=stream), toolkit, events
     )
     assert result.error is None
-    assert sorted(completed) == ["left", "right"]
     calls = toolkit.state.planner_records()[0].tool_calls
     assert [c.raw_result.data["data"]["label"] for c in calls] == ["left", "right"]
+    assert completed == {"left": calls[0].tool_call_id, "right": calls[1].tool_call_id}
     assert all(c.status == "completed" for c in calls)
     assert result.finish_result == {"_finish": True, **FINISH_ARGS}
     assert result.stats["tool_calls"] == 3
