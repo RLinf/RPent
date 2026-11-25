@@ -1,7 +1,7 @@
 RoboLab
 =======
 
-通过 RPent 的观测和动作工具，调用 RLinf 的 RoboLab 环境运行 Isaac Lab 任务，每次运行连接一个 DROID 关节位置控制环境。任务成功由 RoboLab 原生评估器判定。
+通过 RPent 的观测与动作工具，在 Isaac Lab 中运行 RoboLab 基准任务。
 
 概览
 ----
@@ -15,30 +15,29 @@ RoboLab
 
    .. grid-item-card:: 规划器
 
-      ``api``、``claude_code``、``codex``。
+      ``api``、``claude_code``、``codex``、``gemini_cli``。
 
    .. grid-item-card:: 任务
 
-      RoboLab 基准任务类，例如 ``BananaInBowlTask``。
+      RoboLab-120，共 120 个任务，由已安装的 RoboLab 版本提供。
 
    .. grid-item-card:: 硬件
 
-      Linux、NVIDIA GPU、Python 3.11、Isaac Sim 5.0 / Isaac Lab 2.2.0。
+      Ubuntu 22.04 及以上、带可用 Vulkan 驱动的 NVIDIA GPU（推荐 48 GB 以上显存）；Python 3.11；Isaac Sim 5.0 / Isaac Lab 2.2.0。
 
 任务
 ~~~~
 
+RoboLab-120 是 RoboLab 的基准套件，包含 120 个任务，涵盖抓放、堆叠、重排与工具使用。任务类位于源码的 ``robolab/tasks/benchmark/`` 下，用 ``ls <检出目录>/robolab/tasks/benchmark`` 列出，类名就是 ``--task`` 的取值。`RoboLab 任务目录 <https://github.com/NVlabs/RoboLab/blob/main/robolab/tasks/README.md>`_ 给出每个任务的指令、难度与回合时长。
+
 .. list-table::
    :header-rows: 1
+   :widths: 22 78
 
    * - 选项
      - 作用
-   * - ``--task BananaInBowlTask``
-     - 从已安装的 RoboLab 中选择一个基准任务，创建一个仿真环境。
-   * - ``--seed 0``
-     - 将种子传入原生环境配置。
-
-任务类由已安装的 RoboLab 版本提供。RPent 不包含其任务定义或场景资产。
+   * - 套件与回合上限
+     - RoboLab-120 共 120 个任务；回合上限由任务自身决定，RPent 不截断，各任务在 20 到 300 秒之间。
 
 观测与动作
 ~~~~~~~~~~
@@ -49,23 +48,48 @@ RoboLab
    * - 项目
      - 说明
    * - 观测
-     - 外部与腕部 RGB 图像、八个 DROID 关节/夹爪状态值和任务指令。策略使用 224 像素图像；保存给规划器的图像保持相机原始分辨率。
+     - DROID 本体（固定底座 Franka 臂、Robotiq 2F-85 夹爪、腕部相机、高增益关节控制）的外部与腕部 RGB 图像、八个关节与夹爪状态值、任务指令。策略接收 224×224 图像；保存给规划器的图像保持相机原始分辨率。
    * - 动作
-     - ``pi05_act`` 执行一次 Pi0.5 预测中的 1–15 个动作。``execute_action`` 执行一个八维 DROID 关节位置动作。
+     - ``pi05_act`` 执行一次 Pi0.5 预测中的 1–15 个动作，默认 5 个。``execute_action`` 发送一个八维关节位置动作：七个臂关节加夹爪。
    * - 奖励与成功判定
-     - RoboLab 的原生环境结果写入 ``view_env_state`` 的 ``state.success``；规划器的 ``finish`` 状态与其分开。
+     - RoboLab 的原生结果写入 ``view_env_state`` 的 ``state.success``；规划器的 ``finish`` 状态与其分开。读取方法见“查看结果”。
    * - 任务指令
      - 当前环境的任务指令，也会传给 Pi0.5。
 
 安装与资源准备
 --------------
 
-在 Linux 主机上准备两个 Python 3.11 环境。RPent 和 Pi0.5 使用策略环境，Isaac Sim 5.0 和 Isaac Lab 2.2.0 使用仿真环境。两边依赖的 PyTorch 版本不同。
+验证过的配置使用两个 Python 3.11 环境：RPent 与 Pi0.5 在策略环境，Isaac Sim 5.0 和 Isaac Lab 2.2.0 在仿真环境。已有可用的 RoboLab 仿真环境时，把 ``SIM_PYTHON`` 设为它的解释器，跳到“模型权重”。
+
+.. list-table::
+   :header-rows: 1
+   :widths: 22 78
+
+   * - 项目
+     - 要求
+   * - 操作系统
+     - Ubuntu 22.04 及以上。
+   * - GPU 与驱动
+     - 带可用 Vulkan 驱动的 NVIDIA GPU。上游 RoboLab 要求 RTX，推荐 48 GB 以上显存；RLinf 实测使用 A800 80 GB 显卡与 570.172.08 驱动。
+   * - 磁盘
+     - 约 8 GB，其中资产约 7 GB，不含 Isaac Sim 和两个 Python 环境。
+   * - 软件
+     - Python 3.11、``uv``、Git LFS、ffmpeg，以及 EGL、GLU、OpenGL、Vulkan 运行库。
+
+在 Ubuntu 上安装系统软件包和 `uv <https://docs.astral.sh/uv/getting-started/installation/>`_：
+
+.. code-block:: bash
+
+   sudo apt update
+   sudo apt install -y git-lfs ffmpeg \
+     libegl1 libglu1-mesa libgl1 libvulkan1 vulkan-tools
+   git lfs install
+   curl -LsSf https://astral.sh/uv/install.sh | sh
+
+NVIDIA 专有驱动按 Isaac Sim 5.0 的系统要求单独安装，见 `RLinf RoboLab 指南 <https://rlinf.readthedocs.io/zh-cn/latest/rst_source/evaluations/guides/robolab.html>`_。
 
 安装 RPent 和策略
-~~~~~~~~~~~~~~~~~~~~~~
-
-从 RPent 仓库根目录执行：
+~~~~~~~~~~~~~~~~~
 
 .. code-block:: bash
 
@@ -73,38 +97,26 @@ RoboLab
    source .venv-robolab-policy/bin/activate
    uv pip install -e ".[robolab]"
 
-复用已有仿真环境
-~~~~~~~~~~~~~~~~~~~~~~~~
+``robolab`` extra 提供 RPent、RLinf 的 Pi0.5 加载器和策略服务使用的 OpenPI 客户端；Isaac Sim 与 RoboLab 由下文的仿真环境提供。
 
-如果已有按 RLinf 流程安装、能运行 RoboLab 任务的环境，将下面的路径换成该环境的 Python。后续运行命令通过 ``--sim-python`` 使用它。设置后可直接跳到“模型权重”。
+安装仿真环境
+~~~~~~~~~~~~
 
-.. code-block:: bash
-
-   export SIM_PYTHON=/path/to/robolab-env/bin/python
-
-首次安装仿真环境
-~~~~~~~~~~~~~~~~~~~~~~~~
-
-首次安装需要兼容的 NVIDIA 驱动、Git LFS、ffmpeg 和 EGL、GLU、OpenGL、Vulkan 运行库。按 `RLinf RoboLab 指南 <https://rlinf.readthedocs.io/zh-cn/latest/rst_source/evaluations/guides/robolab.html>`_ 准备系统依赖，然后从 RPent 根目录运行：
+RLinf 安装器会克隆 RoboLab 并切换到固定版本，把 Isaac Sim 5.0、Isaac Lab 2.2.0 和以 editable 模式安装的 RoboLab 及其场景资产装入新的 ``.venv``。把 ``ROBOLAB_PATH`` 指向已有的 RoboLab 目录可跳过克隆和切换版本。
 
 .. code-block:: bash
 
-   git lfs install
    git clone https://github.com/RLinf/RLinf.git "$HOME/RLinf"
    cd "$HOME/RLinf"
    bash requirements/install.sh embodied --env robolab --install-rlinf
-   git -C .venv/robolab lfs pull
+   ROBOLAB_DIR="${ROBOLAB_PATH:-$PWD/.venv/robolab}"
+   git -C "$ROBOLAB_DIR" lfs pull
    export SIM_PYTHON="$PWD/.venv/bin/python"
+   "$SIM_PYTHON" -c 'from rlinf.envs.sim.robolab.robolab_env import RoboLabEnv'
    cd -
 
-示例将 RLinf 放在主目录下，安装器默认在该源码目录内创建 ``.venv``。请保留源码目录。若已设置 ``ROBOLAB_PATH``，在该目录拉取 LFS 资产。系统依赖已装好时，可给安装器加 ``--no-root``。检查仿真环境能否导入适配器：
-
-.. code-block:: bash
-
-   "$SIM_PYTHON" -c 'from rlinf.envs.sim.robolab.robolab_env import RoboLabEnv'
-
 模型权重
-~~~~~~~~
+--------
 
 在已激活的策略环境中，从 Hugging Face 下载公开的 `RLinf-Pi05-RoboLab-droid-jointpos 权重 <https://huggingface.co/RLinf/RLinf-Pi05-RoboLab-droid-jointpos>`_：
 
@@ -114,12 +126,12 @@ RoboLab
    hf download RLinf/RLinf-Pi05-RoboLab-droid-jointpos \
      --local-dir "$PI05_CHECKPOINT_PATH"
 
-目录包含 ``model.safetensors``、``config.json`` 和 ``assets/droid/norm_stats.json``，请保持目录结构完整。策略使用 RLinf 的 ``pi05_droid_polaris`` 配置：两路图像、10 步去噪、15 步预测长度和八维环境动作。加载器接收 PyTorch 权重，不能直接使用 JAX checkpoint。在新终端中重新设置 ``PI05_CHECKPOINT_PATH``，或通过 ``--am-checkpoint`` 指定该目录。
+该权重是 RoboLab 的 ``pi05_droid_jointpos`` checkpoint，由 RLinf 转换为 PyTorch 并使用 ``pi05_droid_polaris`` 配置。加载器不能直接使用 JAX checkpoint。在新终端中重新设置 ``PI05_CHECKPOINT_PATH``，或通过 ``--am-checkpoint`` 指定该目录。
 
 运行一个任务
 ------------
 
-按照 :doc:`../guides/configure_planner` 配置规划器。示例使用当前用户的 Codex 登录和已配置的模型，此登录方式无需 API Key。在设置好 ``SIM_PYTHON`` 和 ``PI05_CHECKPOINT_PATH`` 的终端中，从 RPent 仓库根目录运行：
+规划器配置见 :doc:`../guides/configure_planner`，全部参数见 :doc:`../guides/cli`。示例使用当前用户的 Codex 登录，无需 API Key；此时 ``SIM_PYTHON`` 与 ``PI05_CHECKPOINT_PATH`` 已设置：
 
 .. code-block:: bash
 
@@ -130,31 +142,59 @@ RoboLab
      --cuda-device 0 --planner codex \
      --output-dir ./logs/first-robolab
 
-动作模型部署使用共享的 ``--am-checkpoint``、``--am-python``、``--am-root`` 和 ``--am-cuda-device`` 参数。复用已有模型服务时，传入 ``--am-endpoint``，不要同时传入本地部署参数。
+``rpent-check-llm`` 在规划器应答时以 0 退出，否则显示 ``FAILED`` 状态。运行时 RPent 把仿真器和 Pi0.5 服务作为子进程启动，再把任务交给规划器；用 ``--env-endpoint`` 或 ``--am-endpoint`` 指向已在运行的服务时，对应组件不在本地启动。首次启动较慢：Isaac Sim 需要几分钟构建渲染上下文。RPent 等待仿真器最多 900 秒、等待模型服务最多 1800 秒，超时后报错并指出未连上的组件。
 
-示例中仿真和模型共用 GPU 0。若要让模型用 GPU 0、仿真用 GPU 1，使用 ``--cuda-device 0 --env-cuda-device 1``。连接已有仿真服务时，使用 ``--env-endpoint`` 并指定与服务匹配的任务和 seed。
+.. list-table::
+   :header-rows: 1
+   :widths: 22 78
 
-不加载模型权重、仅使用环境动作时，加入 ``--policy-backend none``。此时可使用 ``execute_action`` 和 ``view_env_state``，但没有 ``pi05_act``。
+   * - 参数
+     - 作用
+   * - ``--task``
+     - RoboLab 任务类；加 ``--dashboard`` 时可以不填，用法见 :doc:`../guides/dashboard`。
+   * - ``--seed``
+     - 原生环境的随机种子，默认 ``0``。更换种子是否改变场景布局取决于任务。
+   * - ``--sim-python``
+     - 仿真环境的 Python，不要指向策略环境。
+   * - ``--output-dir``
+     - 日志与结果目录，默认 ``<仓库>/logs/<时间戳>_robolab_<task>_s<seed>``。
+   * - ``--cuda-device`` / ``--env-cuda-device``
+     - 模型服务与仿真器的 GPU；后者单独指定仿真器，如 ``--cuda-device 0 --env-cuda-device 1``。
+   * - ``--env-endpoint``
+     - 已在运行的仿真服务 URL；其任务与随机种子必须和 ``--task``、``--seed`` 一致。
 
-要使用 Dashboard，将 ``--task BananaInBowlTask --seed 0`` 改为 ``--dashboard``，再通过 ``/rpent-task BananaInBowlTask 0`` 创建任务。Dashboard 在多个任务间共用 Pi0.5，并为每个任务创建新环境；传入 ``--policy-backend none`` 时，仅启动环境并提供原生动作，不显示 VLA 组件或 ``pi05_act``。
+动作模型部署使用共享的 ``--am-checkpoint``、``--am-python``、``--am-root`` 和 ``--am-cuda-device`` 参数，复用已有模型服务时传入 ``--am-endpoint``；不加载模型权重时加入 ``--policy-backend none``，仍可使用 ``execute_action`` 和 ``view_env_state``，但没有 ``pi05_act``。
 
 查看结果
 --------
 
-``logs/first-robolab/states.json`` 保存 RPent 步骤记录；``main.png`` 和 ``wrist.png`` 目录保存观测图像。``result.json`` 单独记录原生任务成功状态；RoboLab 尚未返回终止结果时，``success`` 为 ``null``。``env_server.log`` 保存环境日志，启动本地模型时还会生成 ``vla_server.log``。RoboLab 原生输出位于 ``logs/first-robolab/native/``。
+.. list-table::
+   :header-rows: 1
+   :widths: 30 70
 
-查看最后一次 ``view_env_state``：只有 RoboLab 报告成功时，``state.success`` 才为 ``true``。原生任务尚未结束时，该值为 ``null``；达到步数上限不代表成功。
+   * - 文件
+     - 内容
+   * - ``result.json``
+     - 每次运行一条记录，包含 ``task``、``seed``、``success``、``elapsed_s``、规划器后端与模型，以及两个标志：``environment_result_available`` 在回合结束时没有原生终止结果时为 ``false``，``agent_error_present`` 在规划器报错时为 ``true``。
+   * - ``states.json``、``main.png``、``wrist.png``、``native/``
+     - RPent 步骤记录（含每次工具调用及结果）、保存给规划器的图像，以及 RoboLab 原生的回合输出。
+   * - ``env_server.log``、``vla_server.log``、``run.log``、``transcript_*.json``
+     - 服务与规划器日志；``vla_server.log`` 只在 RPent 启动本地模型时生成。
+
+查看最后一次 ``view_env_state`` 返回的 ``state.success``。RoboLab 判定成功时为 ``true``，失败时为 ``false``，尚无原生判定时为 ``null``。运行摘要将该值写入 ``result.json``。
 
 任务记忆
 --------
 
-目前没有公开提供的 RoboLab 任务记忆库。RPent 会创建本地 RoboLab 记忆目录，全新安装时该目录为空，默认不下载记忆库。传入 ``--memory-profile local --memory-dir /path/to/memory`` 可复用自己的任务笔记。也可通过 ``--memory-repo owner/repo@revision``，将指定 Hugging Face 数据集的 ``robolab/`` 子目录下载到 RPent 记忆缓存；不要与 ``--memory-profile local`` 或 ``--memory-dir`` 同时使用。RoboLab 暂不支持 RPent 探索模式。
+RPent 在 RPent 仓库下创建空的 ``memory/robolab/`` 并默认从这里读取记忆；RoboLab 没有公开的记忆库。要复用自己的记录，传入 ``--memory-profile local --memory-dir /path/to/memory``。``--memory-repo owner/repo@revision`` 会改为下载指定 Hugging Face 数据集中 ``robolab/`` 子目录，不能与上述本地选项同时使用。RoboLab 不支持探索模式；记忆来源与文件结构见 :doc:`记忆指南 <../guides/memory>`。
 
-问题排查
+常见问题
 --------
 
-若环境启动失败，查看 ``env_server.log``，确认 ``--sim-python`` 指向通过 RLinf 安装器创建的仿真环境，能够导入 ``rlinf.envs.sim.robolab.robolab_env``，并以 editable 模式安装了带完整 ``assets/`` 的 RoboLab。若策略启动失败，查看 ``vla_server.log`` 和 checkpoint 路径。
+若环境启动失败，查看 ``env_server.log``；``--sim-python`` 必须指向 RLinf 安装的仿真环境，且能导入 ``rlinf.envs.sim.robolab.robolab_env``。若策略启动失败，查看 ``vla_server.log``；常见原因是当前终端没有设置 ``PI05_CHECKPOINT_PATH``。
 
-遇到 Vulkan 初始化错误或缺少 ``libGLU.so.1`` 时，检查 NVIDIA 驱动及图形运行库。在调度器或容器中，先省略示例中的 ``--cuda-device 0``，让服务继承分配的 GPU。若设备编号无效或渲染到了其他卡，请核对 Isaac 日志中的设备与容器可见的设备。
+遇到 Vulkan 错误或缺少 ``libGLU.so.1`` 时，检查驱动及安装与资源准备表格中的图形库；在调度器或容器中省略 ``--cuda-device 0``，让服务继承分配的 GPU。下载 wheel 超时时，用相同的 ``--venv`` 路径和缓存重新运行安装器，系统软件包已装好时加 ``--no-root``；依赖冲突分别查看两个环境的 ``uv pip check`` 输出。
 
-下载 wheel 超时时，可使用相同的 ``--venv`` 路径和缓存重新运行 RLinf 安装器。依赖冲突应分别查看两个环境的 ``uv pip check`` 输出。进程正常退出本身不能证明原生任务成功。
+.. note::
+
+   本页于 2026-11-24 对照 RPent ``3ed1dbc`` 与 RLinf 安装器（RoboLab ``b6cfcf6``）核对；A800 80 GB / 驱动 570.172.08 是 RLinf 实测的配置，不是最低要求。
