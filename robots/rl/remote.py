@@ -278,7 +278,7 @@ class RemoteToolkit(Toolkit):
     ):
         state = EnvState(config.output_dir)
         super().__init__(state=state, dashboard_events=dashboard_events, memory=memory)
-        self._rpc = make_rpc_client(endpoint)
+        self.environment = request["task"]["environment"]
         self._output = config.output_dir
         self.output_dir = Path(config.output_dir)
         options = remote_options(request["task"])
@@ -307,9 +307,12 @@ class RemoteToolkit(Toolkit):
             open_kwargs["owner_id"] = owner_id
         if group := os.environ.get("RPENT_REMOTE_GROUP"):
             open_kwargs["group"] = group
-        metadata = self._rpc.call("backend.open", kwargs=open_kwargs, timeout_s=1800)
-        self._session = metadata["session"]
+        self._rpc = make_rpc_client(endpoint)
         try:
+            metadata = self._rpc.call(
+                "backend.open", kwargs=open_kwargs, timeout_s=2160
+            )
+            self._session = metadata["session"]
             if owner_id is not None and metadata.get("owner_id") != owner_id:
                 raise ValueError("remote toolkit attempt owner does not match")
             if metadata.get("episode_contract_version") != EPISODE_CONTRACT_VERSION:
@@ -378,17 +381,18 @@ class RemoteToolkit(Toolkit):
             if self._heartbeat is not None:
                 self._heartbeat.join(timeout=16)
             try:
-                self._rpc.call(
-                    "backend.release", kwargs={"session": self._session}, timeout_s=60
-                )
+                if self._session is not None:
+                    self._release()
             except Exception:
                 logger.exception("Failed to release a rejected remote episode")
+            finally:
+                self._rpc.close()
             raise
 
     def _register_common_tools(self) -> None:
         """Expose only the same clean-workflow declarations as the local toolkit."""
 
-    def _invoke(self, method: str, *, timeout_s: float = 600, **kwargs) -> dict:
+    def _invoke(self, method: str, *, timeout_s: float = 620, **kwargs) -> dict:
         return self._rpc.call(
             "backend.call",
             kwargs={"session": self._session, "method": method, "arguments": kwargs},
@@ -402,7 +406,7 @@ class RemoteToolkit(Toolkit):
         self._solved = payload["solved"]
         self.infrastructure_error = payload.get("infrastructure_error")
         self._completion = payload.get("completion_result")
-        self.workflow_stats = payload["workflow_stats"]
+        self.workflow_stats.update(payload["workflow_stats"])
         trace = self._output / "remote-transfer.jsonl"
         with trace.open("a") as file:
             file.write(
@@ -502,15 +506,20 @@ class RemoteToolkit(Toolkit):
             self._stopped.set()
             if self._heartbeat is not None:
                 self._heartbeat.join(timeout=16)
-            failing = sys.exception() is not None
+            failing = sys.exc_info()[1] is not None
             try:
-                self._rpc.call(
-                    "backend.release", kwargs={"session": self._session}, timeout_s=60
-                )
+                self._release()
             except Exception:
                 if not failing:
                     raise
                 logger.exception("Failed to release remote episode during cleanup")
+            finally:
+                self._rpc.close()
+
+    def _release(self) -> None:
+        self._rpc.call(
+            "backend.release", kwargs={"session": self._session}, timeout_s=140
+        )
 
 
 def main() -> None:

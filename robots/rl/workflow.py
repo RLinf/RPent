@@ -22,6 +22,9 @@ from pydantic_ai import ModelRetry, ToolCallPart
 from pydantic_ai.capabilities import AbstractCapability
 from pydantic_ai.exceptions import UnexpectedModelBehavior
 
+from robots.rl.contracts import argument_hint, validate_relations
+from rpent.planner.api_loop import _InvalidToolArguments
+
 
 class WorkflowCapability(AbstractCapability):
     """Validate complete replies before executing any tool."""
@@ -75,30 +78,29 @@ class WorkflowCapability(AbstractCapability):
         if trace is not None:
             trace.response(response)
         calls = [part for part in response.parts if isinstance(part, ToolCallPart)]
-        error = None
         if response.state != "complete" or response.finish_reason == "length":
             raise UnexpectedModelBehavior(
                 "Token limit reached before any response was generated"
             )
         if len(calls) > 1:
-            error = "Use one tool call per response."
-        if error is None:
-            for call in calls:
-                try:
-                    if call.tool_name not in self.allowed:
-                        raise ValueError(f"unknown tool {call.tool_name}")
-                    arguments = call.args_as_dict()
-                    self.allowed[call.tool_name].validate_arguments(arguments)
-                    from robots.rl.contracts import validate_relations
-
-                    validate_relations(call.tool_name, arguments)
-                except (ValueError, TypeError) as exc:
-                    from robots.rl.contracts import argument_hint
-
-                    error = f"Invalid tool arguments: {exc}. {argument_hint(call.tool_name, getattr(self.toolkit, 'environment', 'libero'))}"
-                    break
-        if error:
             self.stats["invalid_tool_responses"] += 1
-            feedback = error + " No tool executed."
-            raise ModelRetry(feedback)
+            raise _InvalidToolArguments(
+                "Use one tool call per response. No tool executed."
+            )
+        for call in calls:
+            if call.tool_name not in self.allowed:
+                self.stats["invalid_tool_responses"] += 1
+                raise ModelRetry(
+                    f"Unknown tool name: {call.tool_name}. No tool executed."
+                )
+            try:
+                arguments = call.args_as_dict()
+                self.allowed[call.tool_name].validate_arguments(arguments)
+                validate_relations(call.tool_name, arguments)
+            except (AssertionError, ValueError, TypeError) as exc:
+                self.stats["invalid_tool_responses"] += 1
+                hint = argument_hint(call.tool_name, self.toolkit.environment)
+                raise _InvalidToolArguments(
+                    f"Invalid tool arguments: {exc}. {hint} No tool executed."
+                ) from exc
         return response

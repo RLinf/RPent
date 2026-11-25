@@ -473,7 +473,7 @@ CORE RULE:
 ALGORITHM (run this BEFORE manipulating):
 
 1. From the initial `task_language` + `agentview_high.png` +
-   object_names, infer the task-relevant TARGETS and DESTINATIONS (language only;
+   task description, infer the task-relevant TARGETS and DESTINATIONS (language only;
    never BDDL/poses).
 
 2. GLOBAL SEMANTIC PASS (agentview hi-res): in `agentview_high.png` choose each
@@ -554,7 +554,7 @@ overlay image to confirm the right object. Use `camera":"wrist"` (after parking 
 target) for ±1–2 cm refinement, or `"point":[row,col]` for a point prompt.
 Text `prompt` and `point` are mutually exclusive; provide exactly one.
 ⚠ PROMPT PHRASING (SAM3 is sensitive): use a plain colour+shape+RELATION phrase,
-NEVER the internal/brand name from `object_names`/BDDL. `"the akita black bowl"`
+NEVER the internal/brand name from the task definition. `"the akita black bowl"`
 scores ~0.03 (SAM3 can't ground "akita") whereas `"the black bowl on the stove"`
 scores ~0.76. Strip proper nouns (akita, glazed_rim_porcelain_…) — say what it
 LOOKS LIKE + where it is. Always inspect the returned overlay image to confirm
@@ -576,7 +576,7 @@ logical `segment_artifact` and `overlay_artifact` names. Inspect the embedded
 overlay image to confirm the right object. To refine a candidate visible in the
 wrist image, set `camera` to `"wrist"`. Use the pixel grid specified in LOCALIZATION.
 ⚠ PROMPT PHRASING (SAM3 is sensitive): use a plain colour+shape+RELATION phrase,
-NEVER the internal/brand name from `object_names`/BDDL. `"the akita black bowl"`
+NEVER the internal/brand name from the task definition. `"the akita black bowl"`
 scores ~0.03 (SAM3 can't ground "akita") whereas `"the black bowl on the stove"`
 scores ~0.76. Strip proper nouns (akita, glazed_rim_porcelain_…) — say what it
 LOOKS LIKE + where it is. Always inspect the returned overlay image to confirm
@@ -738,21 +738,6 @@ LOCAL_WORKFLOW_STEPS = (
     STEP_FINISH,
 )
 
-# An RL episode puts the task's frozen memory in the task message, so
-# the planner neither reads the guides nor reads the memory files again.
-TASK_MEMORY_PROFILE = """The task message includes this task's frozen memory: the
-seed-0 audit and recipe and the task-family strategy. Recipes are technique
-references, not coordinates: re-localize every entity in the current image."""
-
-TASK_MEMORY_WORKFLOW_STEPS = (
-    STEP_INSPECT_INITIAL,
-    STEP_PERCEPTION_PASS,
-    STEP_EXECUTE,
-    STEP_PRIMITIVES,
-    STEP_RECOVERY,
-    STEP_FINISH,
-)
-
 
 def allowed_primitives(enable_direct_action: bool = False) -> str:
     """List motion tools available in this run, excluding mode-specific reset."""
@@ -907,14 +892,9 @@ def system_prompt(
             "OUTPUT DISCIPLINE": OUTPUT_DISCIPLINE,
         }
     if variables.get("memory_profile", "hf") == "local":
-        frozen = variables.get("memory_in_task")
         return {
             "ROLE AND EVALUATION": ROLE_AND_EVALUATION,
-            (
-                "MEMORY PROFILE — FROZEN TASK MEMORY"
-                if frozen
-                else "MEMORY PROFILE — LOCAL SUITE + TASK + GLOBAL"
-            ): TASK_MEMORY_PROFILE if frozen else LOCAL_MEMORY_PROFILE,
+            "MEMORY PROFILE — LOCAL SUITE + TASK + GLOBAL": LOCAL_MEMORY_PROFILE,
             "PROVEN LEVERS": proven_levers(geometry),
             "RUNTIME": runtime(geometry),
             "YOUR GOAL": GOAL,
@@ -923,7 +903,7 @@ def system_prompt(
             "FIRST-STEP ALGORITHM": perception_algorithm(variables),
             "WORKFLOW": Numbered(
                 workflow_steps(
-                    TASK_MEMORY_WORKFLOW_STEPS if frozen else LOCAL_WORKFLOW_STEPS,
+                    LOCAL_WORKFLOW_STEPS,
                     variables,
                 )
             ),

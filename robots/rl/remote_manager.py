@@ -206,18 +206,36 @@ class BackendManager(RpcFacade):
                     start_new_session=True,
                 )
                 with self._lock:
-                    row = self._workers[session]
-                    if row["closing"] or owner_id in self._cancelled_owners:
+                    row = self._workers.get(session)
+                    if (
+                        row is None
+                        or row["closing"]
+                        or owner_id in self._cancelled_owners
+                    ):
                         raise RuntimeError(f"remote attempt {owner_id} was cancelled")
                     row["daemon"] = daemon
                     daemon.start()
                 rpc = make_rpc_client(wait_for_endpoint(daemon, timeout_s=1800))
                 with self._lock:
-                    self._workers[session]["rpc"] = rpc
+                    row = self._workers.get(session)
+                    if (
+                        row is None
+                        or row["closing"]
+                        or owner_id in self._cancelled_owners
+                    ):
+                        rpc.close()
+                        raise RuntimeError(f"remote attempt {owner_id} was cancelled")
+                    row["rpc"] = rpc
                 metadata = rpc.call("rl.describe", timeout_s=300)
-                self._worker(session)
                 with self._lock:
-                    self._workers[session]["ready"] = True
+                    row = self._workers.get(session)
+                    if (
+                        row is None
+                        or row["closing"]
+                        or owner_id in self._cancelled_owners
+                    ):
+                        raise RuntimeError(f"remote attempt {owner_id} was cancelled")
+                    row.update(ready=True, last_seen=time.monotonic())
                 (output / "identity.json").write_text(
                     json.dumps(
                         {
@@ -298,7 +316,11 @@ class BackendManager(RpcFacade):
             row["cleanup_error"] = repr(error)
             raise
         finally:
-            row["released"].set()
+            try:
+                if row["rpc"] is not None:
+                    row["rpc"].close()
+            finally:
+                row["released"].set()
         return {"released": True}
 
     @staticmethod
@@ -397,12 +419,18 @@ class BackendManager(RpcFacade):
                 expired = [
                     session
                     for session, row in self._workers.items()
-                    if row["rpc"] is not None
+                    if row["ready"]
+                    and not row["closing"]
                     and time.monotonic() - row["last_seen"] > 300
                 ]
             for session in expired:
                 logger.warning("Releasing expired remote episode %s", session)
-                self.release(session)
+                try:
+                    self.release(session)
+                except Exception:
+                    logger.exception(
+                        "Failed to release expired remote episode %s", session
+                    )
 
     def close(self) -> None:
         self._shutdown_event.set()

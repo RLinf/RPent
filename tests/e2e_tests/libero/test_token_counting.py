@@ -30,9 +30,8 @@ from pydantic_ai.models import ModelRequestContext, ModelRequestParameters
 from pydantic_ai.tools import ToolDefinition
 from pydantic_ai.usage import RequestUsage
 
-from robots.rl.contracts import strict_tool
 from robots.rl.history import retained_history
-from robots.rl.tools import LiberoRLPrimitives
+from robots.rl.toolkit import episode_tools
 from rpent.planner.compaction.window import RequestAwareSlidingWindow
 from rpent.planner.qwen import QwenChatModel, qwen_model_settings
 from rpent.tools import ToolResult
@@ -90,22 +89,16 @@ def transcript(pairs=8):
 
 
 def parameters():
-    definitions = []
-    for name in ["view_env", "segment", "back_project", "finish"]:
-        declaration = strict_tool(
-            getattr(LiberoRLPrimitives, name),
-            image_size=1024,
-            latest=False,
-            cameras=("agentview", "wrist"),
-        )
-        definitions.append(
+    return ModelRequestParameters(
+        function_tools=[
             ToolDefinition(
-                name=name,
-                description=declaration.description,
-                parameters_json_schema=declaration.input_schema,
+                name=tool.name,
+                description=tool.description,
+                parameters_json_schema=tool.input_schema,
             )
-        )
-    return ModelRequestParameters(function_tools=definitions)
+            for tool in episode_tools(None, "libero", 3)
+        ]
+    )
 
 
 def make_model(base_url, client):

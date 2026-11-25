@@ -124,7 +124,6 @@ RPent is built for four kinds of users:
 
 ## Quick Start
 
-Run LIBERO, RoboTwin, RoboCasa or RoboDojo with the shared episode tools. See the [installation and rollout guide](docs/source-en/rst_source/simulators/rl.rst).
 
 **1. Choose an environment and install RPent.**
 
@@ -140,6 +139,8 @@ pip install -e ".[franka]"      # Franka and dual Franka
 ```
 
 `.[libero-pro]` is the recommended default. See the [installation docs](https://rpent.readthedocs.io/en/latest/rst_source/get_started/quickstart.html) for other environments.
+
+Run LIBERO, RoboTwin, RoboCasa or RoboDojo with the shared episode tools. See the [installation and rollout guide](https://rpent.readthedocs.io/en/latest/rst_source/guides/robot_episodes.html).
 
 For RoboLab simulator setup, model checkpoints, and a single-task example, see the
 [RoboLab guide](https://rpent.readthedocs.io/en/latest/rst_source/simulators/robolab.html).

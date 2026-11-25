@@ -22,15 +22,15 @@
    * - 仿真器
      - 主机上的依赖和资产
    * - LIBERO
-     - Python 3.12、EGL 和 MuJoCo。设置 ``LIBERO_TYPE=pro`` 与 ``LIBERO_CONFIG_PATH``，配置中给出资产、BDDL 和原生初态文件的位置。见 :doc:`libero`。
+     - Python 3.12、EGL 和 MuJoCo。设置 ``LIBERO_TYPE=pro`` 与 ``LIBERO_CONFIG_PATH``，配置中给出资产、BDDL 和原生初态文件的位置。见 :doc:`../simulators/libero`。
    * - RoboTwin
-     - Python 3.11、NVIDIA Vulkan 和与 Torch 匹配的 CUDA 工具链，用于构建 cuRobo。在环境中运行 ``robotwin-download-assets``，将快照根目录设为 ``ROBOTWIN_ASSETS_PATH``。见 :doc:`robotwin`。
+     - Python 3.11、NVIDIA Vulkan 和与 Torch 匹配的 CUDA 工具链，用于构建 cuRobo。在环境中运行 ``robotwin-download-assets``，将快照根目录设为 ``ROBOTWIN_ASSETS_PATH``。见 :doc:`../simulators/robotwin`。
    * - RoboCasa
-     - Python 3.11 和 EGL。在环境中运行 ``robocasa-download-assets --assets-path /work/data/robocasa --no-macros -y``。见 :doc:`robocasa`。
+     - Python 3.11 和 EGL。在环境中运行 ``robocasa-download-assets --assets-path /work/data/robocasa --no-macros -y``。见 :doc:`../simulators/robocasa`。
    * - RoboDojo
-     - Python 3.11、Isaac Sim 5.1 和 RTX GPU。将 RoboDojo 资产和评测布局放在 ``ROBODOJO_ASSETS_ROOT``。见 :doc:`robodojo`。
+     - Python 3.11、Isaac Sim 5.1 和 RTX GPU。将 RoboDojo 资产和评测布局放在 ``ROBODOJO_ASSETS_ROOT``。见 :doc:`../simulators/robodojo`。
 
-准备兼容 OpenAI API 的模型服务和 SAM3 服务。在负责 SAM3 的 Python 环境中安装 ``sam3`` extra，按 :doc:`libero` 中的 SAM3 配置下载权重，并设置 ``SAM3_CHECKPOINT_PATH``。用分配给 SAM3 的 GPU 启动服务。
+准备兼容 OpenAI API 的模型服务和 SAM3 服务。在负责 SAM3 的 Python 环境中安装 ``sam3`` extra，按 :doc:`../simulators/libero` 中的 SAM3 配置下载权重，并设置 ``SAM3_CHECKPOINT_PATH``。用分配给 SAM3 的 GPU 启动服务。
 
 .. code-block:: bash
 
@@ -92,11 +92,11 @@ RoboTwin、RoboCasa 和 RoboDojo 使用 ``--simulator`` 和 ``--task-name``。Ro
 
 ``backends.<simulator>.gpu_slots`` 描述该节点的实际 GPU 槽位，``endpoint`` 是路由节点访问该后端的地址。SAM3 的 ``replicas`` 描述每卡进程数，``max_pending`` 控制感知排队容量。跨网段时使用受限转发，把转发地址填入对应 endpoint。进程日志和仿真轨迹存入该节点配置的 ``output_dir``，每次启动使用新的服务目录。停止节点命令会回收它拥有的服务及环境进程。
 
-训练主机与仿真端使用相同 RPent 提交版本。模型和推理进程由 RLinf 管理。参照 `RLinf 混合训练指南 <https://github.com/zhexuanxu/RLinf/blob/codex/rpent-mixed-grpo/docs/source-zh/rst_source/examples/agentic/rpent_episode_sync.rst>`_ 启动 Ray 和训练。
+训练主机与仿真端使用相同 RPent 提交版本。模型和推理进程由 RLinf 管理。参照 `RLinf 混合训练指南 <https://github.com/RLinf/RLinf/blob/main/docs/source-zh/rst_source/examples/agentic/rpent_episode_sync.rst>`_ 启动 Ray 和训练。
 
 坐标与动作
 ----------
 
-模型接口用厘米表示位置、长度和线速度。姿态为固定轴 XYZ 的 roll、pitch、yaw，单位为弧度。单臂取实测安装座为原点，双臂取两个安装座的中点。X 向前，Y 向机器人左侧，Z 向上。感知工具在该坐标系内回报可见表面的几何，原始深度和仿真点云仍用米。
+模型接口用厘米表示位置和长度，用厘米每秒表示线速度。姿态为固定轴 XYZ 的 roll、pitch、yaw，单位为弧度。单臂取实测安装座为原点，双臂取两个安装座的中点。X 向前，Y 向机器人左侧，Z 向上。感知工具在该坐标系内回报可见表面的几何，原始深度和仿真点云仍用米。
 
-每批最多三个顺序动作，每项控制一个部件。RoboCasa 的手臂目标相对于该项开始时实测的坐标系，包括前一项刚移动底盘或升降的情况。观察和感知回执记录拍摄及结果所用的坐标版本，动作输入只写目标。
+每批最多三个顺序动作，每项控制一个部件。RoboCasa 的手臂目标相对于该项开始时实测的坐标系，包括前一项刚移动底盘或升降的情况。观察和感知回执记录拍摄及结果所用的坐标版本，动作输入无需填写坐标系版本。

@@ -534,7 +534,7 @@ def test_cancel_owner_during_cold_start_never_spawns_it(tmp_path, monkeypatch):
             assert receipt["cleanup_complete"]
             assert manager.status()["reserved"] == 0
             manager._cold[0].release()
-            with pytest.raises(KeyError):
+            with pytest.raises(RuntimeError, match="was cancelled"):
                 future.result(timeout=3)
         # The wrapper can be constructed after the semaphore wakes, but start()
         # is never reached for the removed reservation.
@@ -1056,15 +1056,19 @@ def test_router_reports_real_readiness_and_releases_only_cohort_owners():
         try:
             assert router.acquire_group("first:0") == "admitted"
             assert router.acquire_group("second:0") == "waiting"
-            router.open({"gpu": None}, "owner1", "first:0")
-            router.open({"gpu": None}, "owner2", "first:0")
+            router.open({"gpu": None}, "1" * 32, "first:0")
+            router.open({"gpu": None}, "2" * 32, "first:0")
             assert router.status("first")["ready"] == 0
-            rows["owner1"] = rows["owner2"] = True
+            rows["1" * 32] = rows["2" * 32] = True
             assert router.status("first")["ready"] == 2
             assert router.status("second")["reserved"] == 0
             router.finish_group("first:0")
             assert router.acquire_group("first:0") == "closed"
             assert router.acquire_group("second:0") == "admitted"
+            owner = "3" * 32
+            router.cancel_owners([owner])
+            with pytest.raises(ValueError, match="new attempt owner"):
+                router.open({"gpu": None}, owner, "second:0")
             assert rows == {"unrelated": True}
         finally:
             router.close()

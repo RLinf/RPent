@@ -115,11 +115,11 @@ class Sam3Pool(RpcFacade):
         dispatched = time.monotonic()
         error = None
         try:
+            remaining = deadline - dispatched
+            if remaining <= 0:
+                raise TimeoutError("SAM3 pool deadline exceeded before dispatch")
             return self.clients[worker].call(
-                method,
-                args=args,
-                kwargs=kwargs,
-                timeout_s=max(0.001, deadline - dispatched),
+                method, args=args, kwargs=kwargs, timeout_s=remaining
             )
         except Exception as exc:
             error = f"{type(exc).__name__}: {exc}"
@@ -147,6 +147,13 @@ class Sam3Pool(RpcFacade):
                             + "\n"
                         )
                 self._condition.notify_all()
+
+    def _builtin_dispatch(self, method: str, args: tuple, kwargs: dict):
+        if method == "shutdown":
+            with self._condition:
+                self._closed = True
+                self._condition.notify_all()
+        return super()._builtin_dispatch(method, args, kwargs)
 
     def close(self) -> None:
         """Wake queued requests and release this pool's client handles."""

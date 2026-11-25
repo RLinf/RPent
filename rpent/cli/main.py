@@ -172,7 +172,7 @@ def _build_argparser() -> argparse.ArgumentParser:
         ),
     )
     ap.add_argument("--max-turns", type=int, default=100)
-    ap.add_argument("--max-tokens", type=int, default=32768)
+    ap.add_argument("--max-tokens", type=int, default=8192)
     ap.add_argument(
         "--no-thinking",
         "--no-reasoning",
@@ -197,15 +197,15 @@ def _build_argparser() -> argparse.ArgumentParser:
     ap.add_argument(
         "--context-window",
         type=int,
-        default=262144,
+        default=None,
         help="Context length of the served model in tokens, which sizes the "
         "api planner's history compaction.",
     )
     ap.add_argument(
         "--compaction-fraction",
         type=float,
-        default=0.7,
-        help="Fraction of --context-window at which the api planner compacts "
+        default=0.8,
+        help="Fraction of the model context window at which the api planner compacts "
         "its history.",
     )
     ap.add_argument(
@@ -478,6 +478,7 @@ def _start_continuation_session(
     dashboard_events,
     prompt_bundle,
     prompt_vars,
+    run_config,
     session_number: int,
     session_max: int,
 ):
@@ -501,6 +502,9 @@ def _start_continuation_session(
         interactive=args.tui,
         **_api_planner_options(args),
     )
+    configure = get_robot_spec(args.robot_name).configure_planner
+    if configure is not None:
+        planner = configure(planner, run_config)
     system_prompt = prompt_bundle.render(
         "system",
         variables={
@@ -527,7 +531,7 @@ def main() -> int:
     # Two-phase argparse: first grab --robot / --env / --dashboard so we know
     # which robot's flags to add and whether to make its required flags optional.
     early, _ = parser.parse_known_args()
-    parser.set_defaults(reasoning_effort="high" if early.planner == "api" else "none")
+    parser.set_defaults(reasoning_effort=None)
 
     # --env is a deprecated alias for --robot; resolve it before loading the spec.
     if early.env_name is not None:
@@ -550,6 +554,10 @@ def main() -> int:
     )
     args = parser.parse_args()
     args.robot_name = early.robot_name
+    if args.reasoning_effort is None:
+        args.reasoning_effort = (
+            "high" if args.planner == "api" and not args.no_thinking else "none"
+        )
     if "--interactive" in sys.argv or "-i" in sys.argv:
         logger.warning("--interactive is deprecated; use --tui instead")
     human_interactive_exploration = (
@@ -628,8 +636,6 @@ def main() -> int:
     if args.memory_repo is not None and args.memory_profile == "local":
         parser.error("--memory-repo requires HF evaluation")
     if args.memory_profile == "none":
-        if args.robot_name != "libero" or args.planner != "api" or args.explore:
-            parser.error("--memory-profile none supports LIBERO API evaluation only")
         if args.memory_dir is not None or args.memory_repo is not None:
             parser.error(
                 "--memory-profile none cannot use --memory-dir or --memory-repo"
@@ -809,6 +815,7 @@ def main() -> int:
                     dashboard_events=dashboard_events,
                     prompt_bundle=prompt_bundle,
                     prompt_vars=prompt_vars,
+                    run_config=run_config,
                     session_number=session_number,
                     session_max=sessions,
                 )

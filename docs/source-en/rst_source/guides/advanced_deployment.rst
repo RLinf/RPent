@@ -199,23 +199,7 @@ their services do not need to be started again for each run.
 RL Training Episodes
 --------------------
 
-An RL trainer such as RLinf runs each LIBERO episode as one
-``robots.libero.rl_episode`` process on the machine that hosts the simulator.
-``--request`` names a JSON file with the task (``suite``, ``task``, ``seed``,
-and optionally ``vla_seed`` and ``memory_entries``) and the planner options: the
-OpenAI-compatible endpoint that serves the policy being trained, the model name,
-the turn and token limits, the timeouts, and the history compaction. The native
-Evaluation planner solves the task with a fresh environment, and the process
-writes ``outcome.json`` to ``--output-dir`` once the environment is released.
-
-Start one Pi0.5 and one SAM3 service as described above and give their endpoints
-to the trainer, which passes ``--vla-endpoint`` and ``--sam3-endpoint`` to every
-episode. With ``--frozen-memory-dir``, each task supplies its memory entries,
-which the first task message carries, so the planner reads neither the guides
-nor the memory files. History compaction counts tokens with
-``--tokenizer-path``; without it, compaction estimates four characters per
-token. The process exits with status 75 when the environment or a shared service
-does not start, so the trainer can run the episode again.
+Start the simulator and SAM3 services on their assigned hosts. RLinf runs the model and connects to each simulator over toolkit RPC. See :doc:`robot_episodes` for installation, service placement, and rollout commands.
 
 Access a Remote Dashboard
 -------------------------

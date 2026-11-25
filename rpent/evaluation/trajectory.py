@@ -27,7 +27,9 @@ from typing import Any
 def restore(value: Any, root: Path, *, paths: bool = False) -> Any:
     """Restore saved assets after verifying their original byte hashes."""
     if isinstance(value, dict) and "$asset" in value:
-        path = root / value["$asset"]
+        path = (root / value["$asset"]).resolve()
+        if not path.is_relative_to(root.resolve()):
+            raise ValueError(f"asset path escapes trace root: {value['$asset']}")
         data = path.read_bytes()
         if hashlib.sha256(data).hexdigest() != value["sha256"]:
             raise ValueError(f"asset checksum mismatch: {path}")

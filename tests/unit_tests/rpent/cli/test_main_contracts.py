@@ -200,12 +200,12 @@ def test_shared_cli_defaults_reach_robot_config_parser(
 
     assert args.model is None
     assert args.max_turns == 100
-    assert args.max_tokens == 32768
+    assert args.max_tokens == 8192
     assert args.reasoning_effort == "high"
     assert args.no_thinking is False
     assert args.sequential_tools is False
-    assert args.context_window == 262144
-    assert args.compaction_fraction == 0.7
+    assert args.context_window is None
+    assert args.compaction_fraction == 0.8
     assert args.dashboard is False
     assert args.dashboard_host == "127.0.0.1"
     assert args.dashboard_port == 0

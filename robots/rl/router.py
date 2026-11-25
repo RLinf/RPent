@@ -16,10 +16,12 @@
 
 import argparse
 import threading
-from collections import Counter, deque
+import time
+from collections import Counter
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 
+from robots.rl.remote_manager import BackendManager
 from rpent.utils.rpc import RpcFacade
 from rpent.utils.rpc.http_rpc import EncodedRpcResponse, HttpRpcClient
 
@@ -31,6 +33,9 @@ class Attempt:
     backend: int
     group: str
     session: str | None = None
+
+
+GROUP_START_LEASE_S = 60
 
 
 class ToolkitRouter(RpcFacade):
@@ -54,9 +59,10 @@ class ToolkitRouter(RpcFacade):
         if self.capacity == 0:
             raise ValueError("toolkit capacity cannot fit a complete group")
         self.lock = threading.Lock()
-        self.waiting: deque[str] = deque()
-        self.admitted: set[str] = set()
+        self.waiting: dict[str, float] = {}
+        self.admitted: dict[str, float] = {}
         self.closed: set[str] = set()
+        self.cancelled_owners: set[str] = set()
         self.attempts: dict[str, Attempt] = {}
         self.sessions: dict[str, str] = {}
         self._rpc.update(
@@ -79,21 +85,32 @@ class ToolkitRouter(RpcFacade):
         with self.lock:
             if group in self.closed:
                 return "closed"
+            expiry = time.monotonic() + GROUP_START_LEASE_S
             if group in self.admitted:
-                return "admitted"
-            if group not in self.waiting:
-                self.waiting.append(group)
-            if len(self.admitted) < self.capacity and self.waiting[0] == group:
-                self.admitted.add(self.waiting.popleft())
-                return "admitted"
-            return "waiting"
+                if self.admitted[group] != float("inf"):
+                    self.admitted[group] = expiry
+            else:
+                self.waiting[group] = expiry
+            self._admit_waiting()
+            return "admitted" if group in self.admitted else "waiting"
+
+    def _admit_waiting(self) -> None:
+        now = time.monotonic()
+        occupied = {attempt.group for attempt in self.attempts.values()}
+        for group, expiry in tuple(self.admitted.items()):
+            if expiry <= now and group not in occupied and group not in self.closed:
+                self.admitted.pop(group)
+        for group, expiry in tuple(self.waiting.items()):
+            if expiry <= now:
+                self.waiting.pop(group)
+            elif len(self.admitted) < self.capacity:
+                self.admitted[group] = self.waiting.pop(group)
 
     def finish_group(self, group: str) -> None:
         """Reject late opens and release all owned attempts before returning capacity."""
         with self.lock:
             self.closed.add(group)
-            if group in self.waiting:
-                self.waiting.remove(group)
+            self.waiting.pop(group, None)
             owners = [
                 owner
                 for owner, attempt in self.attempts.items()
@@ -102,7 +119,8 @@ class ToolkitRouter(RpcFacade):
         if owners:
             self.cancel_owners(owners)
         with self.lock:
-            self.admitted.discard(group)
+            self.admitted.pop(group, None)
+            self._admit_waiting()
 
     def group_status(self, cohort_id: str | None = None) -> dict:
         """Report admission for the requested cohort and total configured capacity."""
@@ -121,12 +139,14 @@ class ToolkitRouter(RpcFacade):
 
     def open(self, request: dict, owner_id: str, group: str) -> dict:
         """Allocate a physical backend slot and initialize the native episode."""
+        BackendManager._validate_owner(owner_id)
         if request["gpu"] is not None:
             raise ValueError("routed episodes let the backend assign the GPU")
         with self.lock:
             if (
                 group not in self.admitted
                 or group in self.closed
+                or owner_id in self.cancelled_owners
                 or owner_id in self.attempts
             ):
                 raise ValueError("expected an admitted group and a new attempt owner")
@@ -139,12 +159,13 @@ class ToolkitRouter(RpcFacade):
             backend = min(
                 range(len(self.clients)), key=lambda i: used[i] / self.capacities[i]
             )
+            self.admitted[group] = float("inf")
             attempt = self.attempts[owner_id] = Attempt(backend, group)
         try:
             reply = self.clients[backend].call(
                 "backend.open",
                 kwargs={"request": request, "owner_id": owner_id},
-                timeout_s=1760,
+                timeout_s=2120,
             )
         except Exception:
             self.cancel_owners([owner_id])
@@ -201,8 +222,13 @@ class ToolkitRouter(RpcFacade):
 
     def cancel_owners(self, owner_ids: list[str]) -> dict:
         """Cancel exact owners, including initializations, on their assigned backends."""
+        if not isinstance(owner_ids, list):
+            raise ValueError("owner_ids must be a list of episode UUIDs")
+        for owner in owner_ids:
+            BackendManager._validate_owner(owner)
         owners = list(dict.fromkeys(owner_ids))
         with self.lock:
+            self.cancelled_owners.update(owners)
             by_backend = self._owners_by_backend(owners)
 
         def cancel(backend: int, subset: list[str]) -> None:

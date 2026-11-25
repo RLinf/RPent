@@ -229,7 +229,9 @@ class Sam3Facade(RpcFacade):
                     )
 
                 masks, scores = array(masks), array(scores).reshape(-1)
-                boxes = None if boxes is None else array(boxes)
+                if masks.ndim == 2:
+                    masks = masks[None]
+                boxes = None if boxes is None else array(boxes).reshape(-1, 4)
                 found = []
                 for index in np.argsort(-scores):
                     if scores[index] < min_score:
