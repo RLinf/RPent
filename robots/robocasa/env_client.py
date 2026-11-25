@@ -39,6 +39,13 @@ CAM_ALIAS = {
 }
 
 
+def world_from_depth(depth: np.ndarray, transform: np.ndarray) -> np.ndarray:
+    """Back-project top-down metric depth with a pixel-to-world transform."""
+    rows, cols = np.indices(depth.shape)
+    points = np.stack([cols * depth, rows * depth, depth, np.ones_like(depth)], axis=-1)
+    return (points @ transform.T)[..., :3]
+
+
 class RoboCasaEnvClient(BaseEnvClient):
     _TIMEOUT_S = {
         **BaseEnvClient._TIMEOUT_S,
@@ -121,28 +128,25 @@ class RoboCasaEnvClient(BaseEnvClient):
         w = width or self.camera_w
         return super().get_camera_meta(cam, height=h, width=w)
 
-    def world_map(self, camera_name, height=None, width=None):
-        """HxWx3 world xyz per pixel, TOP-DOWN (row 0 = image top), pixel-aligned
-        with render_camera()'s rgb. Uses robosuite's camera transform matrix; the
-        sim's OpenGL depth is bottom-up, so it is vertically flipped to match the
-        transform's top-down convention (VERIFIED: GT object back-projects within
-        ~2cm). Dense vectorized: world = T_p2w @ [col*z, row*z, z, 1]."""
+    def get_camera_transform(
+        self, camera_name: str, height: int | None = None, width: int | None = None
+    ) -> np.ndarray:
+        """Read the current pixel-to-world transform for a render size."""
         cam = self._resolve_cam(camera_name)
         h = height or self.camera_h
         w = width or self.camera_w
-        _, z_native = super().render_camera(
-            cam, height=h, width=w, depth=True
-        )  # metric depth, bottom-up
-        z = z_native[::-1]  # -> top-down
-        T_p2w = self._client.call(
+        return self._client.call(
             "env.get_camera_transform",
             kwargs={"camera_name": cam, "height": h, "width": w},
             timeout_s=self._TIMEOUT_S["default"],
         )
-        rows, cols = np.meshgrid(np.arange(h), np.arange(w), indexing="ij")
-        homog = np.stack([cols * z, rows * z, z, np.ones_like(z)], axis=-1)  # HxWx4
-        world = homog @ T_p2w.T  # HxWx4
-        return world[..., :3]  # top-down, aligned with rgb
+
+    def world_map(self, camera_name, height=None, width=None):
+        """Return a world XYZ map pixel-aligned with the top-down RGB image."""
+        _, depth = self.render_camera(camera_name, height, width, depth=True)
+        return world_from_depth(
+            depth, self.get_camera_transform(camera_name, height, width)
+        )
 
     def world_xyz_at(self, camera_name, row, col, height=None, width=None):
         return self.world_map(camera_name, height, width)[row, col]

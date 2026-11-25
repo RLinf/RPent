@@ -21,6 +21,8 @@ import re
 import threading
 from collections.abc import Callable
 from contextlib import nullcontext
+from copy import deepcopy
+from functools import partial
 from pathlib import Path
 from typing import TYPE_CHECKING, Annotated, Any, Literal
 
@@ -892,7 +894,7 @@ class LiberoPrimitives:
                 world_result = _mask_to_world(mask, world_map)
                 world_result["world_artifact"] = world_name
             overlay = _make_segment_overlay(state.load(image_name, step=nn), mask)
-            if overlay is not None and state.save(
+            if overlay is not None and state.save_async(
                 overlay_name,
                 overlay,
                 step=nn,
@@ -952,8 +954,14 @@ class LiberoPrimitives:
             result["error"] = segment_blob["error"]
             result["fallback"] = "Use manual visual localization and back_project."
         if saved_overlay is not None:
-            result["overlay_artifact"] = saved_overlay
-            images.append(state.load_bytes(saved_overlay, step=nn))
+            try:
+                images.append(state.load_bytes(saved_overlay, step=nn))
+            except OSError as exc:
+                logger.warning(
+                    "could not return segment overlay %s: %s", saved_overlay, exc
+                )
+            else:
+                result["overlay_artifact"] = saved_overlay
         return ToolResult(data=result, images=images)
 
 
@@ -1057,19 +1065,23 @@ def _metric_depth(depth: Any, camera_meta: dict) -> np.ndarray:
     return d
 
 
-def _world_from_depth(depth_metric: np.ndarray, camera_meta: dict) -> np.ndarray:
+def _world_from_depth(
+    depth: np.ndarray, camera_meta: dict, *, dtype, raw: bool = False
+) -> np.ndarray:
+    if raw:
+        depth = _metric_depth(depth, camera_meta)[::-1]
     k_matrix = np.array(camera_meta["intrinsic_K"], dtype=np.float64)
     extrinsic = np.array(camera_meta["extrinsic_cam2world"], dtype=np.float64)
     fx, fy = k_matrix[0, 0], k_matrix[1, 1]
     cx, cy = k_matrix[0, 2], k_matrix[1, 2]
-    height, width = depth_metric.shape
+    height, width = depth.shape
     rr, cc = np.mgrid[0:height, 0:width]
-    z = depth_metric.astype(np.float64)
+    z = depth.astype(np.float64)
     camera_points = np.stack(
         [(cc - cx) * z / fx, (rr - cy) * z / fy, z, np.ones_like(z)],
         axis=-1,
     )
-    return (camera_points @ extrinsic.T)[..., :3]
+    return (camera_points @ extrinsic.T)[..., :3].astype(dtype)
 
 
 def dump_state(
@@ -1111,7 +1123,7 @@ def _save_observation_artifacts(
     step_idx: int,
     raw: dict[str, Any],
 ) -> None:
-    env_state.save(
+    env_state.save_async(
         "agentview_policy.png",
         primitives._last_obs["main_images"],
         step=step_idx,
@@ -1152,7 +1164,7 @@ def _save_observation_artifacts(
             ci = np.asarray(ci)
             if ci.dtype != np.uint8:
                 ci = ci.astype(np.uint8)
-            env_state.save(
+            env_state.save_async(
                 "agentview.png",
                 ci[::-1],
                 step=step_idx,
@@ -1172,16 +1184,20 @@ def _save_observation_artifacts(
             # Pixels in agentview.png align with agentview_depth.npz and the
             # per-step agentview metadata saved with the record artifacts.
             d = _metric_depth(d, agentview_meta)[::-1]
-            env_state.save(
+            env_state.save_async(
                 "agentview_depth.npz",
                 d.astype(np.float32),
                 step=step_idx,
             )
-            world = _world_from_depth(d, agentview_meta).astype(np.float32)
-            env_state.save(
+            env_state.save_async(
                 "agentview_world.npz",
-                world,
+                d,
                 step=step_idx,
+                transform=partial(
+                    _world_from_depth,
+                    camera_meta=deepcopy(agentview_meta),
+                    dtype=np.float32,
+                ),
             )
     except Exception as e:
         logger.warning("depth dump failed: %s", e)
@@ -1195,7 +1211,7 @@ def _save_observation_artifacts(
             wimg = np.asarray(wimg)
             if wimg.dtype != np.uint8:
                 wimg = wimg.astype(np.uint8)
-            env_state.save(
+            env_state.save_async(
                 "wrist.png",
                 wimg[::-1],
                 step=step_idx,
@@ -1219,16 +1235,18 @@ def _save_observation_artifacts(
                 logger.warning("wrist camera meta missing; skipping wrist depth/world")
             else:
                 wdpt_metric = _metric_depth(wdpt_arr, wmeta)[::-1]
-                env_state.save(
+                env_state.save_async(
                     "wrist_depth.npz",
                     wdpt_metric.astype(np.float32),
                     step=step_idx,
                 )
-                world_w = _world_from_depth(wdpt_metric, wmeta).astype(np.float32)
-                env_state.save(
+                env_state.save_async(
                     "wrist_world.npz",
-                    world_w,
+                    wdpt_metric,
                     step=step_idx,
+                    transform=partial(
+                        _world_from_depth, camera_meta=deepcopy(wmeta), dtype=np.float32
+                    ),
                 )
 
                 wmeta_out = dict(wmeta)
@@ -1256,19 +1274,21 @@ def _save_observation_artifacts(
         meta_hi = primitives.env.get_camera_meta("agentview", 1024, 1024)
         if meta_hi is None:
             raise RuntimeError("agentview camera metadata missing")
-        env_state.save(
+        env_state.save_async(
             "agentview_high.png",
             np.asarray(rgb_hi)[::-1],
             step=step_idx,
         )
-        world_hi = _world_from_depth(
-            _metric_depth(depth_hi, meta_hi)[::-1],
-            meta_hi,
-        ).astype(np.float16)
-        env_state.save(
+        env_state.save_async(
             "agentview_world_high.npz",
-            world_hi,
+            depth_hi,
             step=step_idx,
+            transform=partial(
+                _world_from_depth,
+                camera_meta=deepcopy(meta_hi),
+                dtype=np.float16,
+                raw=True,
+            ),
         )
     except Exception as e:
         logger.warning("agentview high-res dump failed: %s", e)
@@ -1283,19 +1303,21 @@ def _save_observation_artifacts(
         meta_wrist_hi = primitives.env.get_camera_meta("robot0_eye_in_hand", 1024, 1024)
         if meta_wrist_hi is None:
             raise RuntimeError("robot0_eye_in_hand camera metadata missing")
-        env_state.save(
+        env_state.save_async(
             "wrist_high.png",
             np.asarray(rgb_wrist_hi)[::-1],
             step=step_idx,
         )
-        world_wrist_hi = _world_from_depth(
-            _metric_depth(depth_wrist_hi, meta_wrist_hi)[::-1],
-            meta_wrist_hi,
-        ).astype(np.float16)
-        env_state.save(
+        env_state.save_async(
             "wrist_world_high.npz",
-            world_wrist_hi,
+            depth_wrist_hi,
             step=step_idx,
+            transform=partial(
+                _world_from_depth,
+                camera_meta=deepcopy(meta_wrist_hi),
+                dtype=np.float16,
+                raw=True,
+            ),
         )
     except Exception as e:
         logger.warning("wrist high-res dump failed: %s", e)
@@ -1306,11 +1328,12 @@ def _save_observation_artifacts(
 # ---------------------------------------------------------------------------
 
 
-@tool(readonly=True, exclude=("state",))
+@tool(readonly=True, exclude=("state", "include_images"))
 def view_env_state(
     step: Annotated[int, Field(json_schema_extra={"default": -1})] = -1,
     *,
     state: EnvState,
+    include_images: bool = True,
 ) -> ToolResult:
     """Read one recorded state and its observation artifacts. Step -1 selects the latest entry. Embeds policy, agentview, and wrist images when available. Use the calibration-frame images for pixel back-projection; JSON state alone is not enough. Use agentview for global tabletop layout and object locations; use wrist for close-range details near the gripper, occlusions, and container/cabinet interiors.
 
@@ -1338,6 +1361,8 @@ def view_env_state(
         "result": record.result,
         "elapsed_s": record.elapsed_s,
     }
+    if not include_images:
+        return ToolResult(data=out)
     for names in (
         ("agentview_policy.png",),
         ("agentview_high.png", "agentview.png"),

@@ -621,6 +621,9 @@ def test_full_cli_exploration_finalizes_memory_without_starting_gpu_runtime(
         def close(self) -> None:
             self.closed = True
 
+        def artifact_write_failures(self) -> dict[str, str]:
+            return {}
+
         def list_tools(self):
             return (
                 common.CommonTools.finish.with_handler(
@@ -912,7 +915,7 @@ def test_full_cli_calls_robot_result_finalizer_without_robot_special_case(
     class FakeToolkit:
         memory = SimpleNamespace()
         closed = False
-        state = EnvState(tmp_path / "state")
+        state = EnvState(tmp_path / "state", async_artifacts=True)
         drained = False
 
         def cancel_active_and_wait(self) -> None:
@@ -927,7 +930,12 @@ def test_full_cli_calls_robot_result_finalizer_without_robot_special_case(
             return False
 
         def close(self) -> None:
+            self.state.close_artifacts()
             self.closed = True
+
+        def artifact_write_failures(self) -> dict[str, str]:
+            assert self.closed
+            return self.state.artifact_write_failures()
 
     class FakePlanner:
         def solve(self, **kwargs: Any) -> PlannerResult:
@@ -937,6 +945,7 @@ def test_full_cli_calls_robot_result_finalizer_without_robot_special_case(
                 assert task.status == "running"
             else:
                 assert task is None
+            robot_toolkit.state.save_async("missing.png", [[0]], step=None)
             return PlannerResult(
                 finish_result={"status": "success", "summary": "planner claim"},
                 messages=[],
@@ -989,6 +998,11 @@ def test_full_cli_calls_robot_result_finalizer_without_robot_special_case(
 
     daemon = FakeDaemon()
     robot_toolkit = FakeToolkit()
+
+    def fail_write(*args, **kwargs):
+        raise OSError("disk full")
+
+    monkeypatch.setattr(robot_toolkit.state, "_write_artifact", fail_write)
     robot_spec = RobotSpec(
         name="testrobot",
         prompts=PromptBundle(
@@ -1050,7 +1064,16 @@ def test_full_cli_calls_robot_result_finalizer_without_robot_special_case(
     assert context.reasoning_effort == "xhigh"
     assert context.max_turns == 100
     assert context.planner_timeout_s == 1800
-    assert context.stats == {"tool_calls": 0}
+    assert (
+        transcript["stats"]
+        == context.stats
+        == {
+            "tool_calls": 0,
+            "artifact_write_failures": {
+                str(tmp_path / "state" / "missing.png"): "OSError: disk full"
+            },
+        }
+    )
     assert json.loads((tmp_path / "result.json").read_text(encoding="utf-8")) == {
         "robot": "testrobot",
         "task": {"task_name": "OpenDrawer", "seed": 1},

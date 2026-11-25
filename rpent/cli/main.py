@@ -604,6 +604,7 @@ def main() -> int:
     t0 = time.time()
     finish_result, messages, agent_error = None, [], None
     stats: dict = {}
+    write_failures: dict[str, str] = {}
     first_user_msg: str | None = user_msg
     if await_first_prompt is not None:
         # Block until the opening prompt typed during startup is ready.
@@ -740,6 +741,7 @@ def main() -> int:
                     try:
                         toolkit.close()
                     finally:
+                        write_failures.update(toolkit.artifact_write_failures())
                         end_planner_task(
                             task_state,
                             result,
@@ -781,6 +783,8 @@ def main() -> int:
             d.stop()
 
     elapsed = time.time() - t0
+    if write_failures:
+        stats["artifact_write_failures"] = write_failures
 
     transcript_path = Path(output_dir) / f"transcript_{recipe_tag}.json"
     record = {

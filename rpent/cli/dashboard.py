@@ -217,6 +217,7 @@ def _run_dashboard_task(
     finish_result = None
     messages: list[dict] = []
     stats: dict = {}
+    write_failures: dict[str, str] = {}
     agent_error: str | None = None
     task_daemons: list[ProcessDaemon] = []
     recipe_path = ""
@@ -389,6 +390,7 @@ def _run_dashboard_task(
                         try:
                             toolkit.close()
                         finally:
+                            write_failures.update(toolkit.artifact_write_failures())
                             end_planner_task(
                                 task_state,
                                 result,
@@ -448,6 +450,8 @@ def _run_dashboard_task(
             else:
                 logger.warning("%s", cleanup_error)
 
+        if write_failures:
+            stats["artifact_write_failures"] = write_failures
         transcript_path = output_dir / f"transcript_{run_config.recipe_tag}.json"
         record = {
             **run_config.task_desc,

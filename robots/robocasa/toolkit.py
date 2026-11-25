@@ -60,7 +60,9 @@ class RoboCasaToolkit(Toolkit):
         """Create a RoboCasa toolkit, wiring the primitives and tools."""
         if mode not in {"evaluation", "exploration"}:
             raise ValueError(f"unsupported RoboCasa toolkit mode: {mode!r}")
-        state = EnvState(Path(state_output_dir or get_output_dir()))
+        state = EnvState(
+            Path(state_output_dir or get_output_dir()), async_artifacts=True
+        )
         super().__init__(
             dashboard_events=dashboard_events,
             state=state,
@@ -167,7 +169,7 @@ class RoboCasaToolkit(Toolkit):
                 frames = self._primitives.frame_slice(frame_start)
                 if frames:
                     candidate = f"action_{command['action']}.mp4"
-                    self._state.save(
+                    self._state.save_async(
                         candidate,
                         frames,
                         step=record.step_idx,
@@ -179,7 +181,9 @@ class RoboCasaToolkit(Toolkit):
                     record.step_idx,
                     e,
                 )
-        out = robocasa_tools.view_env_state(record.step_idx, state=self._state)
+        out = robocasa_tools.view_env_state(
+            record.step_idx, state=self._state, include_images=False
+        )
         out.data["agent_elapsed_s"] = elapsed_s
         if result.get("interrupted"):
             out.data.update(result)

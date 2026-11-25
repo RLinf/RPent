@@ -84,7 +84,9 @@ class RoboDojoToolkit(Toolkit):
         self._attempts_per_session = attempts_per_session
         if eval_fair and not getattr(primitives_kwargs.get("env"), "eval_fair", False):
             raise ValueError("eval-fair requires a mode-validated environment client")
-        state = EnvState(Path(state_output_dir or get_output_dir()))
+        state = EnvState(
+            Path(state_output_dir or get_output_dir()), async_artifacts=True
+        )
         super().__init__(
             dashboard_events=dashboard_events,
             state=state,
@@ -308,7 +310,11 @@ class RoboDojoToolkit(Toolkit):
             perception=self._pending_perception,
         )
         self._pending_perception = []
-        return robodojo_tools.view_env_state(record.step_idx, state=self._state)
+        return robodojo_tools.view_env_state(
+            record.step_idx,
+            state=self._state,
+            include_images=command["action"] == "render",
+        )
 
     def close(self) -> None:
         """Drain tools; the runtime owns the environment across planner sessions."""

@@ -234,7 +234,7 @@ def test_generic_localization_is_registered_with_libero_observations(
         command={"action": "release"}, result={}, elapsed_s=0.5
     )
     assert after_action == ToolResult(
-        data={**expected_view.data, "agent_elapsed_s": 0.5}, images=expected_view.images
+        data={**expected_view.data, "agent_elapsed_s": 0.5}
     )
 
     selected = tk.execute_tool(
@@ -507,6 +507,39 @@ def test_toolkit_modes_construct_with_fake_primitives(
         "finish", {"status": "failure", "summary": "budget spent"}
     )
     assert allowed.data.get("_finish", False) is True
+
+
+def test_segment_preserves_world_coordinates_when_overlay_encoding_fails(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    state = EnvState(tmp_path, async_artifacts=True)
+    with state.record_step(state={}):
+        state.save("agentview.png", np.zeros((4, 4, 3), dtype=np.uint8))
+        state.save("agentview_world.npz", np.ones((4, 4, 3)))
+    primitives = toolkit.libero_tools.LiberoPrimitives(
+        env=object(),
+        model=object(),
+        sam3_client=SimpleNamespace(
+            segment=lambda *args, **kwargs: Sam3Result(
+                found=True, mask=np.ones((4, 4), dtype=bool), score=1.0
+            )
+        ),
+        check_cancelled=lambda: None,
+    )
+
+    def fail_encode(*args, **kwargs):
+        raise OSError("PNG encoding failed")
+
+    monkeypatch.setattr("imageio.v2.imwrite", fail_encode)
+    try:
+        result = primitives.segment(prompt="cup", state=state)
+    finally:
+        state.close_artifacts()
+    assert result.data["found"] and not result.is_error
+    assert result.data["world_xyz"] == [1.0, 1.0, 1.0]
+    assert state.load(result.data["segment_artifact"])["found"]
+    assert "overlay_artifact" not in result.data
+    assert not result.images
 
 
 def test_parallel_segments_preserve_artifacts_without_capturing_state(

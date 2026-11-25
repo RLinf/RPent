@@ -96,6 +96,10 @@ def end_planner_task(
     else:
         status = "completed"
         reason = reason or ("finish" if finish_result is not None else "model_output")
+    stats = result.stats if result is not None else {}
+    failures = state.artifact_write_failures()
+    if failures:
+        stats["artifact_write_failures"] = failures
     state.end_task(
         status=status,
         stop_reason=reason,
@@ -105,7 +109,7 @@ def end_planner_task(
             data={
                 "finish_result": finish_result,
                 "environment_success": environment_success,
-                "stats": result.stats if result is not None else {},
+                "stats": stats,
                 "error": error,
             },
             completeness="complete",

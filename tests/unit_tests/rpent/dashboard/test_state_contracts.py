@@ -14,6 +14,8 @@
 
 from __future__ import annotations
 
+import threading
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from unittest.mock import MagicMock
 
@@ -388,6 +390,49 @@ def test_dashboard_step_events_offset_new_traces_and_resolve_action_video(
     assert detail["timeline"][1]["terminated"] is True
     assert state.frame("camera") == second_env.load_bytes("camera.png")
     assert state.action_video_path(0) == first_env.artifact_path("action.mp4", step=0)
+
+
+def test_dashboard_publishes_frames_before_action_clip_is_written(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    dashboard = _ready_state(tmp_path / "dashboard")
+    _claim_started_task(dashboard)
+    state = EnvState(tmp_path / "env", async_artifacts=True)
+    release = threading.Event()
+    requested = threading.Event()
+    write = state._write_artifact
+    wait = state.wait_artifact
+
+    def blocked_write(*args, **kwargs):
+        assert release.wait(timeout=5)
+        write(*args, **kwargs)
+
+    def request_video(*args, **kwargs):
+        requested.set()
+        return wait(*args, **kwargs)
+
+    monkeypatch.setattr(state, "_write_artifact", blocked_write)
+    monkeypatch.setattr(state, "wait_artifact", request_video)
+    try:
+        with state.record_step(state={}, command={"action": "move"}):
+            state.save_async("camera.png", np.zeros((2, 2, 3), dtype=np.uint8))
+            state.save_async("action.mp4", b"clip")
+        dashboard.emit(StepRecordEvent(state.get(), state))
+        assert dashboard.frame("camera") == state.load_bytes("camera.png")
+        assert dashboard.session_detail()["timeline"][0]["has_action_video"]
+        assert not state.artifact_path("action.mp4").exists()
+
+        with ThreadPoolExecutor(max_workers=1) as executor:
+            video = executor.submit(dashboard.action_video_path, 0)
+            try:
+                assert requested.wait(timeout=5)
+                assert not video.done()
+            finally:
+                release.set()
+            assert video.result(timeout=5).read_bytes() == b"clip"
+    finally:
+        release.set()
+        state.close_artifacts()
 
 
 @pytest.mark.parametrize("wrapped", [False, True])

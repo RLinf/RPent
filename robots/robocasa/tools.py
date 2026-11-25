@@ -23,12 +23,14 @@ state automatically through :meth:`RoboCasaToolkit.get_env_state`.
 
 from __future__ import annotations
 
+from functools import partial
 from pathlib import Path
 from typing import Annotated, Literal
 
 import numpy as np
 from pydantic import Field
 
+from robots.robocasa.env_client import world_from_depth
 from robots.robocasa.primitives import RoboCasaPrimitives
 from rpent.session import EnvState, StepRecord
 from rpent.tools import ToolResult
@@ -125,39 +127,55 @@ def _save_observation_artifacts(
         ),
     ):
         rgb, depth = env.render_camera(cam, depth=True)
-        env_state.save(image_name, rgb, step=step_idx)
-        env_state.save(depth_name, depth.astype(np.float32), step=step_idx)
-        env_state.save(world_name, env.world_map(cam).astype(np.float32), step=step_idx)
+        transform = np.asarray(env.get_camera_transform(cam)).copy()
+        env_state.save_async(image_name, rgb, step=step_idx)
+        env_state.save_async(depth_name, depth.astype(np.float32), step=step_idx)
+        env_state.save_async(
+            world_name,
+            depth,
+            step=step_idx,
+            transform=partial(_project_world, transform=transform, dtype=np.float32),
+        )
         if cam not in primitives._cam_meta_cache or cam == "wrist":
             primitives._cam_meta_cache[cam] = env.get_camera_meta(cam)
         env_state.save(meta_name, primitives._cam_meta_cache[cam], step=step_idx)
 
     # ---- hi-res agentview (SAM grounding / fine localize) ----
     if hi_res:
-        hrgb, _ = env.render_camera("agentview", hi_res, hi_res, depth=True)
-        env_state.save("agentview_high.png", hrgb, step=step_idx)
-        env_state.save(
+        hrgb, depth = env.render_camera("agentview", hi_res, hi_res, depth=True)
+        transform = np.asarray(
+            env.get_camera_transform("agentview", hi_res, hi_res)
+        ).copy()
+        env_state.save_async("agentview_high.png", hrgb, step=step_idx)
+        env_state.save_async(
             "agentview_world_high.npz",
-            env.world_map("agentview", hi_res, hi_res).astype(np.float16),
+            depth,
             step=step_idx,
+            transform=partial(_project_world, transform=transform, dtype=np.float16),
         )
 
     # ---- navview: base-mounted forward-down floor camera (follows the base) ----
-    nrgb, _ = env.render_camera("navview", depth=True)
-    nworld = env.world_map("navview").astype(np.float32)
-    env_state.save("navview.png", nrgb, step=step_idx)
-    env_state.save("navview_world.npz", nworld, step=step_idx)
+    nrgb, depth = env.render_camera("navview", depth=True)
+    nworld = _project_world(depth, env.get_camera_transform("navview"), np.float32)
+    env_state.save_async("navview.png", nrgb, step=step_idx)
+    env_state.save_async("navview_world.npz", nworld, step=step_idx)
     floor = (nworld[:, :, 2] < 0.12) & (nworld[:, :, 2] > -0.2)
     overlay = nrgb.copy()
     overlay[floor] = [0, 255, 0]
-    env_state.save("navview_floor.png", overlay, step=step_idx)
+    env_state.save_async("navview_floor.png", overlay, step=step_idx)
+
+
+def _project_world(depth: np.ndarray, transform: np.ndarray, dtype) -> np.ndarray:
+    return world_from_depth(depth, transform).astype(dtype)
 
 
 # ---- tool handlers (perception tools read the recorded EnvState) ----
 
 
-@tool(readonly=True, exclude=("state",))
-def view_env_state(step: int | None = None, *, state: EnvState) -> ToolResult:
+@tool(readonly=True, exclude=("state", "include_images"))
+def view_env_state(
+    step: int | None = None, *, state: EnvState, include_images: bool = True
+) -> ToolResult:
     """Read step NN from states.json + the matching state images in the output dir. If step is null, returns the latest entry. Each entry contains the env state, robocasa_terminated flag, task_progress, vla_desync status, and log. Embeds available PNGs as multimodal image content blocks. Use calibration-frame agentview images for pixel back-projection; use navview for base navigation and floor walkability; use wrist for close-range details near the gripper.
 
     Args:
@@ -187,6 +205,8 @@ def view_env_state(step: int | None = None, *, state: EnvState) -> ToolResult:
         "images": [],
     }
 
+    if not include_images:
+        return ToolResult(data=out)
     for kind, candidates in (
         ("camera", _CAMERA_IMAGE_ARTIFACTS["agentview"]),
         ("navigation", _CAMERA_IMAGE_ARTIFACTS["navview"]),

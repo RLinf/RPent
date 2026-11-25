@@ -243,6 +243,16 @@ Output Files
 
 The table uses LIBERO as an example. Files depend on the environment, recording, and run outcome.
 
+LIBERO, RoboCasa365, RoboTwin, RoboDojo, and RoboLab write camera and array
+artifacts in the background. Motion tools return state and action results.
+Call ``view_env_state`` when you need images for a recorded step. LIBERO,
+RoboCasa365, RoboTwin, and RoboDojo also compute manipulation-camera world
+maps from captured depth and calibration on the writer thread. Geometry tools
+wait for the matching artifact when needed. File-based scripts can read the
+output after the run ends. Background write failures appear in ``run.log``
+and in the transcript under ``stats.artifact_write_failures``, even when
+trajectory recording is off.
+
 .. list-table::
    :header-rows: 1
 

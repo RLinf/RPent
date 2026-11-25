@@ -221,7 +221,9 @@ def test_dashboard_exploration_finalizes_memory_and_reports_merge_failures(
         closed = False
 
         def __init__(self):
-            self.state = EnvState(tmp_path / f"state-{len(stores)}")
+            self.state = EnvState(
+                tmp_path / f"state-{len(stores)}", async_artifacts=True
+            )
             stores.append(self.state)
 
         def cancel_active_and_wait(self) -> None:
@@ -243,7 +245,12 @@ def test_dashboard_exploration_finalizes_memory_and_reports_merge_failures(
                 assert task.status == "running"
             else:
                 assert task is None
+            self.state.close_artifacts()
             self.closed = True
+
+        def artifact_write_failures(self) -> dict[str, str]:
+            assert self.closed
+            return self.state.artifact_write_failures()
 
     class FakeState:
         task_replacement_requested = False
@@ -272,11 +279,19 @@ def test_dashboard_exploration_finalizes_memory_and_reports_merge_failures(
 
     class FakePlanner:
         def solve(self, **kwargs: Any) -> PlannerResult:
-            task = kwargs["toolkit"].state.get_task()
+            env_state = kwargs["toolkit"].state
+            task = env_state.get_task()
             if record_trajectory:
                 assert task.status == "running"
             else:
                 assert task is None
+            if not planner_runs:
+
+                def fail_write(*args, **kwargs):
+                    raise OSError("disk full")
+
+                monkeypatch.setattr(env_state, "_write_artifact", fail_write)
+                env_state.save_async("missing.png", [[0]], step=None)
             planner_runs.append(True)
             return PlannerResult(
                 finish_result={"status": "success"},
@@ -344,6 +359,12 @@ def test_dashboard_exploration_finalizes_memory_and_reports_merge_failures(
         assert len(finalized) == 1
         assert finalized[0].environment_metrics == {"score": 10 * sessions}
     assert error is None
+    transcript = json.loads((output_dir / "transcript_libero_s0.json").read_text())
+    assert transcript["stats"]["artifact_write_failures"] == {
+        str(tmp_path / "state-0" / "missing.png"): "OSError: disk full"
+    }
+    if collect_metrics:
+        assert finalized[0].stats == transcript["stats"]
     assert state.toolkit_lifecycle == ["bound", "unbound"] * sessions
     assert len(stores) == sessions
     if record_trajectory:

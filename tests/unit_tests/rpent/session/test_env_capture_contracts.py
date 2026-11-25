@@ -12,8 +12,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import json
+import threading
 from unittest.mock import Mock
 
+import numpy as np
 import pytest
 
 from rpent.session import EnvState, Payload
@@ -121,3 +124,53 @@ def test_a_failed_camera_write_keeps_the_executed_action(capture, monkeypatch):
         obs.completeness == "partial"
         and obs.missing["/camera"].reason == "capture_failed"
     )
+
+
+@pytest.mark.parametrize("fail", [False, True])
+def test_trajectory_export_resolves_background_camera_attachment(
+    tmp_path, monkeypatch, fail
+):
+    state = EnvState(tmp_path, async_artifacts=True)
+    state.start_task(instruction="Move.", config=Payload("json", {}))
+    tool = state.register_tool_call(
+        planner_id=None, name="move", arguments=Payload("json", {})
+    )
+    capture = ToolCallCapture(state, tool)
+    camera = np.array([42], dtype=np.uint8)
+    client = Mock()
+    client.step.return_value = captured_step(0, {"position": 1, "camera": camera})
+    env = CapturingEnvClient(client, state)
+    release = threading.Event()
+    write = state._write_trajectory_artifact
+
+    def blocked_write(path, value):
+        assert release.wait(timeout=5)
+        if fail:
+            raise OSError("disk full")
+        write(path, value)
+
+    monkeypatch.setattr(state, "_write_trajectory_artifact", blocked_write)
+    try:
+        with capture.bind():
+            env.step([1])
+        (action,) = state.action_records()
+        observation = state.get_observation(action.after_observation_id)
+        reference = observation.payload.data["camera"]
+        assert not (state.trajectory_dir / reference.path).exists()
+        camera[0] = 0
+    finally:
+        release.set()
+        state.close_artifacts()
+
+    state.end_task(status="completed", stop_reason="finish")
+    root = state.save_planner_trajectory()
+    saved_action = json.loads((root / "actions.jsonl").read_text())
+    assert saved_action["action_id"] == action.action_id
+    payload = saved_action["after_observation"]["payload"]
+    if fail:
+        assert payload["completeness"] == "partial"
+        assert payload["missing"]["/camera"]["reason"] == "capture_failed"
+        assert payload["data"] == {"position": 1, "camera": None}
+    else:
+        np.testing.assert_array_equal(np.load(root / reference.path), [42])
+        assert payload["data"]["camera"]["path"] == reference.path

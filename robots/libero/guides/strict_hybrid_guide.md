@@ -182,8 +182,8 @@ goal is past OSC reach and no physical approach works, write an honest
 
 ## Rule 0 — Use images for reasoning, not just JSON state
 
-After every primitive tool call, inspect the returned state and embedded images
-(the tool returns them — no separate read needed). Inspect
+After a primitive tool call, check the returned state and action result.
+Call `view_env_state` when you need fresh images. Inspect
 `agentview_high.png` (calibration frame — the one you pick pixels in)
 and, when close to a target, `wrist_high.png`. Even more
 important here than in oracle mode: this is *the* signal you use to find
@@ -251,14 +251,12 @@ Pick the target purely from where things ARE. (You never need to know which
 1. **The runner (`rpent/cli/main.py`) owns a long-lived env server** — Pi0.5 + a
    single-env LIBERO sim. It launches and manages the server; you do NOT start,
    stop, or restart it.
-2. **You call one structured MCP tool per step.** The tool BLOCKS until the
-   toolkit runs that one primitive and dumps the new step, then RETURNS the new
-  state + log + embedded images. There is no file bus and no polling — the
-  tool's return value IS your signal. Each dumped step records logical artifact
-  names such as `agentview_high.png`, `agentview_world_high.npz`,
-  `wrist_high.png`, and `wrist_world_high.npz` in that step's `artifacts` list.
-3. **You read the returned state, localize via `back_project`, decide the next
-   move, and call the next tool.**
+2. **Call one structured MCP tool per step.** The tool executes one primitive,
+   captures the observation, and returns the new state, action log, and
+   artifact names for that step. Background writes may still be pending.
+3. **Get images when you need to localize.** Call `view_env_state` for the
+   recorded step, then pass pixels from that image to `back_project` using the
+   same step number.
 
 ## Launch a session
 
@@ -309,9 +307,9 @@ Tips:
 
 ## The command vocabulary
 
-Call one structured tool per step. The full primitive set (only the *control
-signals* are listed here) — every one blocks until the step is dumped and
-returns the new state, log, artifact names, and embedded images:
+Call one structured tool per step. Each primitive returns the captured state,
+action log, and artifact names. Call `view_env_state` when you need the images
+for that step. The primitive tools below take control signals:
 
 ```jsonc
 // === physics-only primitives (the entire allowed set) =====================
@@ -453,14 +451,12 @@ you do **not** need a separate read. When you need an older step, call
 
 1. Check `log.result.success`, `log.result.final_dist_m`,
   `log.result.peak_lift_m`, etc.
-2. Inspect the embedded `agentview_high.png` image → visual confirmation; pick
-   pixels for any new localization.
+2. For visual confirmation or new localization, call `view_env_state` and
+   inspect `agentview_high.png`.
 3. Check `state.robot0_eef_pos`, `state.robot0_gripper_qpos`, and top-level
   `terminated` in the returned view.
 
 You **do not** open the depth maps yourself — feed a pixel to `back_project`.
-Don't call `view_env_state` immediately after a primitive that already
-returned the new state.
 
 ## Common failure modes
 

@@ -204,7 +204,9 @@ def test_toolkit_constructs_and_captures_an_initial_observation(
         toolkit.tools,
         "view_env_state",
         toolkit.tools.view_env_state.with_handler(
-            lambda step=-1, *, state: ToolResult(data={"step": step})
+            lambda step=-1, *, state, include_images=True: ToolResult(
+                data={"step": step}, images=[b"image"] if include_images else []
+            )
         ),
     )
 

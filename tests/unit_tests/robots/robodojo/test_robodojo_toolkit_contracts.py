@@ -87,7 +87,7 @@ def test_partial_rgb_delivery_is_independent_of_policy_history(
             result = kit.execute_tool("render", {})
         assert "cam_head.png" not in kit.state.get().artifacts
     else:
-        kit.state.artifact_path("cam_head.png").unlink()
+        kit.state.wait_artifact("cam_head.png").unlink()
         result = kit.execute_tool("view_env_state", {})
     assert not result.is_error
     assert len(result.images) == 2
@@ -330,7 +330,7 @@ def test_policy_result_is_saved_once_and_read_without_mutation(
     env, policy, kit = policy_toolkit(backend)
     arguments = {"instruction": "stack blocks"} if backend == "vpp2" else {}
     result = kit.execute_tool(f"{backend}_act", arguments)
-    assert not result.is_error and len(result.images) == 3
+    assert not result.is_error and not result.images
     receipt = deepcopy(report(result))
     assert receipt["executed_steps"] == horizon
     assert kit.state.latest_step == 1
@@ -339,7 +339,7 @@ def test_policy_result_is_saved_once_and_read_without_mutation(
     assert json.loads(saved)["steps"][-1]["result"] == kit.state.get().result == receipt
     before = list(policy.events)
     viewed = kit.execute_tool("view_env_state", {"step": 1})
-    assert report(viewed) == receipt and viewed.images == result.images
+    assert report(viewed) == receipt and len(viewed.images) == 3
     report(viewed)["executed_chunks"] = -1
     assert kit.state.get().result == receipt
     assert manifest_path.read_text() == saved

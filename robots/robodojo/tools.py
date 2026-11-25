@@ -17,6 +17,7 @@
 from __future__ import annotations
 
 from contextlib import nullcontext
+from functools import partial
 from typing import Annotated, Any, Literal
 
 import numpy as np
@@ -38,8 +39,10 @@ CAMERA_ARTIFACTS: tuple[tuple[str, str], ...] = tuple(
 )
 
 
-@tool(readonly=True, exclude=("state",))
-def view_env_state(step: int = -1, *, state: Any) -> ToolResult:
+@tool(readonly=True, exclude=("state", "include_images"))
+def view_env_state(
+    step: int = -1, *, state: Any, include_images: bool = True
+) -> ToolResult:
     """Read one recorded RoboDojo state: robot joint/ee state, camera shapes and available calibration, the task instruction, action budget and available camera RGB images (cam_head, cam_left_wrist, cam_right_wrist). Step -1 selects the latest record. episode_status contains native step, step_limit and remaining_steps at capture time; the top-level step is the observation index.
 
     Args:
@@ -62,6 +65,8 @@ def view_env_state(step: int = -1, *, state: Any) -> ToolResult:
         "result": record.result,
         "elapsed_s": record.elapsed_s,
     }
+    if not include_images:
+        return ToolResult(data=result)
     images: list[bytes] = []
     for _, artifact in CAMERA_ARTIFACTS:
         if artifact in record.artifacts:
@@ -270,12 +275,10 @@ def _recorded_camera(
     return cam or None, record.step_idx
 
 
-def _world_from_depth(depth, intrinsic, cam2world) -> np.ndarray:
-    """Project optical-axis metres using USD camera axes (+X, +Y up, -Z)."""
-    depth = np.asarray(depth, dtype=np.float64)
-    intrinsic = np.asarray(intrinsic, dtype=np.float64)
-    cam2world = np.asarray(cam2world, dtype=np.float64)
-    if depth.ndim != 2:
+def _camera_matrices(depth, intrinsic, cam2world) -> tuple[np.ndarray, np.ndarray]:
+    intrinsic = np.array(intrinsic, dtype=np.float64)
+    cam2world = np.array(cam2world, dtype=np.float64)
+    if np.ndim(depth) != 2:
         raise ValueError("depth must have shape [H,W]")
     if (
         intrinsic.shape != (3, 3)
@@ -288,6 +291,14 @@ def _world_from_depth(depth, intrinsic, cam2world) -> np.ndarray:
         raise ValueError(
             "camera calibration must be finite with positive focal lengths"
         )
+    return intrinsic, cam2world
+
+
+def _world_from_depth(
+    depth: np.ndarray, intrinsic: np.ndarray, cam2world: np.ndarray
+) -> np.ndarray:
+    """Project optical-axis metres using USD camera axes (+X, +Y up, -Z)."""
+    depth = np.asarray(depth, dtype=np.float64)
     valid = np.isfinite(depth) & (depth > 0)
     depth = np.where(valid, depth, np.nan)
     rows, cols = np.indices(depth.shape)
@@ -471,6 +482,7 @@ def dump_state(primitives, state, *, log: dict | None = None, perception=None):
     step_idx = 0 if state.latest_step is None else state.latest_step + 1
     summary.update(step_idx=step_idx, artifacts={}, view_specs={})
     views = {}
+    projections = {}
     for camera, cam in obs.get("vision", {}).items():
         if camera not in dict(CAMERA_ARTIFACTS):
             continue
@@ -490,27 +502,31 @@ def dump_state(primitives, state, *, log: dict | None = None, perception=None):
             depth = cam.get("depth")
         if depth is not None:
             try:
-                if np.asarray(depth).shape != shape:
+                depth = np.asarray(depth)
+                if depth.shape != shape:
                     raise ValueError(
                         "RGB and depth must have the same image dimensions"
                     )
-                world = _world_from_depth(
+                intrinsic, cam2world = _camera_matrices(
                     depth, cam.get("intrinsic_matrix"), cam.get("extrinsic_matrix")
                 )
             except (ValueError, TypeError) as exc:
                 summary["cameras"][camera]["geometry_error"] = str(exc)
                 continue
             views[view] = {
-                "depth": np.asarray(depth),
-                "world_xyz": world,
+                "depth": depth,
                 "camera_meta": {
                     "intrinsic_matrix": _jsonable(cam.get("intrinsic_matrix")),
                     "extrinsic_matrix": _jsonable(cam.get("extrinsic_matrix")),
                 },
             }
+            projections[view] = partial(
+                _world_from_depth, intrinsic=intrinsic, cam2world=cam2world
+            )
             summary["artifacts"][view].update(
                 {field: artifact_name(view, field) for field in views[view]}
             )
+            summary["artifacts"][view]["world_xyz"] = artifact_name(view, "world_xyz")
     with state.record_step(
         state=summary,
         # Exploration records termination for successful-attempt recipe export.
@@ -533,11 +549,19 @@ def dump_state(primitives, state, *, log: dict | None = None, perception=None):
         for camera, artifact in CAMERA_ARTIFACTS:
             color = (vision.get(camera) or {}).get("color")
             if color is not None:
-                if state.save(artifact, color, step=step_idx) is None:
+                if state.save_async(artifact, color, step=step_idx) is None:
                     raise OSError(f"could not save observation artifact: {artifact}")
         for view, fields in views.items():
             for field, value in fields.items():
                 artifact = artifact_name(view, field)
-                if state.save(artifact, value, step=step_idx) is None:
+                if state.save_async(artifact, value, step=step_idx) is None:
                     raise OSError(f"could not save observation artifact: {artifact}")
+            world = artifact_name(view, "world_xyz")
+            if (
+                state.save_async(
+                    world, fields["depth"], step=step_idx, transform=projections[view]
+                )
+                is None
+            ):
+                raise OSError(f"could not save observation artifact: {world}")
     return state.get(step_idx)
