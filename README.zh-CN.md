@@ -133,7 +133,7 @@ pip install -e ".[libero-pro]"
 # 其他环境配置：
 pip install -e ".[robocasa]"    # RoboCasa
 pip install -e ".[robotwin]"    # RoboTwin
-pip install -e ".[robolab]"     # RoboLab 策略环境
+pip install -e ".[robolab]"     # RoboLab
 pip install -e ".[franka]"      # Franka / 双臂 Franka
 ```
 

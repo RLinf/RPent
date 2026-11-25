@@ -132,7 +132,7 @@ pip install -e ".[libero-pro]"  # Recommended default (LIBERO-PRO)
 # Other environment configurations:
 pip install -e ".[robocasa]"    # RoboCasa
 pip install -e ".[robotwin]"    # RoboTwin
-pip install -e ".[robolab]"     # RoboLab policy environment
+pip install -e ".[robolab]"     # RoboLab
 pip install -e ".[franka]"      # Franka and dual Franka
 ```
 

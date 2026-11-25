@@ -41,6 +41,8 @@ RPent 的三条核心设计原则是服务化、标准化和可组合（service-
      - LingBot-VLA、双臂仿真任务和 C2R 复现。
    * - :doc:`RoboDojo <../simulators/robodojo>`
      - Isaac Sim 双臂 ARX-X5 操作，使用 RLinf Pi0.5 策略。
+   * - :doc:`RoboLab <../simulators/robolab>`
+     - Isaac Lab 上的 RoboLab-120 任务，使用 RLinf Pi0.5 DROID 策略。
    * - :doc:`单臂 Franka <../real_world_robots/franka>`
      - 硬件准备、标定、自检和运行。
    * - :doc:`双臂 Franka <../real_world_robots/dual_franka>`

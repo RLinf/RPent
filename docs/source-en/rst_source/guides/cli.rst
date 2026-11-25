@@ -102,6 +102,10 @@ Environment Options
 
 LIBERO selects tasks with ``--suite``, ``--task``, ``--seed``, and ``--libero-type``; the variant defaults to ``LIBERO_TYPE`` or ``pro``. RoboCasa365 and RoboTwin use ``--task-name``. Franka uses ``--task-id`` and ``--robot-config``. See :doc:`../simulators/libero`, :doc:`../simulators/robocasa`, :doc:`../simulators/robotwin`, :doc:`../real_world_robots/franka`, and :doc:`../real_world_robots/dual_franka` for details.
 
+RoboLab uses ``--task`` and ``--seed`` to select a task and seed.
+Set ``--sim-python`` to the RLinf simulator interpreter and ``--device`` to the Isaac device.
+Use ``--policy-backend pi05`` (default) for model actions or ``--policy-backend none`` for direct actions.
+
 ``--env-endpoint``, ``--am-endpoint``, and LIBERO’s ``--sam3-endpoint`` connect to existing environment, action-model (VLA or WAM), and SAM3 services respectively. RPent RPC addresses use ``[protocol://]host:port``, defaulting to ``http``. LingBot uses native WebSocket; see :doc:`../simulators/robotwin`. See :doc:`advanced_deployment` for GPU assignment and remote services.
 
 ``--am-backend`` selects one action model supported by the platform. LIBERO
@@ -129,10 +133,10 @@ Configure it when starting the worker if connecting with ``--am-endpoint``.
 RPent does not yet use these outputs for planning.
 
 ``--am-cuda-device`` selects the local model GPU independently of the simulator.
-Local model deployment is supported by LIBERO, RoboTwin, RoboCasa, RoboDojo and
+Local model deployment is supported by LIBERO, RoboTwin, RoboCasa, RoboDojo, RoboLab and
 dual-Franka. Franka and YAM connect to externally deployed VLA services;
 select their GPU when deploying the service.
-LIBERO, RoboTwin, RoboCasa and RoboDojo use ``--env-cuda-device`` for the environment.
+LIBERO, RoboTwin, RoboCasa, RoboDojo and RoboLab use ``--env-cuda-device`` for the environment.
 LIBERO, RoboDojo and dual-Franka use ``--sam3-cuda-device`` for local SAM3.
 These services may share a GPU when memory permits. External endpoints
 use the GPU configuration set when their services were started.

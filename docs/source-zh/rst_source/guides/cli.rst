@@ -97,6 +97,8 @@
 
 LIBERO 使用 ``--suite``、``--task``、``--seed`` 和 ``--libero-type`` 选择任务；默认类型为 ``LIBERO_TYPE`` 或 ``pro``。RoboCasa365 和 RoboTwin 使用 ``--task-name``。Franka 使用 ``--task-id`` 和 ``--robot-config``。具体选项见 :doc:`../simulators/libero`、:doc:`../simulators/robocasa`、:doc:`../simulators/robotwin`、:doc:`../real_world_robots/franka` 和 :doc:`../real_world_robots/dual_franka`。
 
+RoboLab 使用 ``--task`` 和 ``--seed`` 指定任务和种子。通过 ``--sim-python`` 指定 RLinf 仿真环境的解释器，通过 ``--device`` 指定 Isaac 设备。默认使用 ``--policy-backend pi05`` 调用模型，也可使用 ``--policy-backend none`` 直接执行动作。
+
 ``--env-endpoint``、``--am-endpoint`` 和 LIBERO 的 ``--sam3-endpoint`` 分别连接已有的环境、动作模型（VLA 或 WAM）和 SAM3 服务。RPent RPC 地址格式为 ``[protocol://]host:port``，默认协议为 ``http``；LingBot 使用原生 WebSocket，见 :doc:`../simulators/robotwin`。GPU 分配和远程服务见 :doc:`advanced_deployment`。
 
 ``--am-backend`` 选择当前平台支持的一个动作模型；LIBERO 默认使用 ``pi05``，RoboTwin 支持 ``lingbot``（默认）、``fast-wam`` 和 ``uniwam``。VLA 和 WAM 共用 ``--am-endpoint`` 连接已有服务，共用 ``--am-checkpoint``、``--am-python``、``--am-root`` 和 ``--am-cuda-device`` 配置本地部署。使用 endpoint 时，显式传入本地部署参数会报错。
@@ -107,7 +109,7 @@ Cosmos Policy、Cosmos3 和 Fast-WAM 采用 ``local`` 记忆模式并注册记�
 
 ``--predict-future`` 在本地部署时开启未来状态和价值输出，目前仅 Cosmos Policy 支持，其他后端会拒绝此参数。使用 ``--am-endpoint`` 连接已有服务时，应在启动 worker 时配置。RPent 尚不利用这些输出进行规划。
 
-``--am-cuda-device`` 独立选择本地模型的 GPU。LIBERO、RoboTwin、RoboCasa、RoboDojo 和 dual-Franka 支持本地模型部署；外部模型服务的 GPU 在部署时选择。LIBERO、RoboTwin、RoboCasa、RoboDojo 使用 ``--env-cuda-device`` 选择环境 GPU。LIBERO、RoboDojo 和 dual-Franka 使用 ``--sam3-cuda-device`` 选择本地 SAM3 的 GPU。
+``--am-cuda-device`` 独立选择本地模型的 GPU。LIBERO、RoboTwin、RoboCasa、RoboDojo、RoboLab 和 dual-Franka 支持本地模型部署；外部模型服务的 GPU 在部署时选择。LIBERO、RoboTwin、RoboCasa、RoboDojo、RoboLab 使用 ``--env-cuda-device`` 选择环境 GPU。LIBERO、RoboDojo 和 dual-Franka 使用 ``--sam3-cuda-device`` 选择本地 SAM3 的 GPU。
 
 显存允许时，各服务可共用同一张 GPU。连接外部 endpoint 时，设备由该服务启动时的配置决定。
 
