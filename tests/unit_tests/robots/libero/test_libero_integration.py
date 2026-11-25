@@ -514,12 +514,14 @@ def test_close_saves_video_and_handles_video_errors(tmp_path, monkeypatch, failu
     if failure is not None:
         {"stop": stop, "save": save}[failure].side_effect = RuntimeError(failure)
     toolkit._primitives = SimpleNamespace(stop_recording=stop)
-    toolkit._state = SimpleNamespace(save=save)
+    state = Mock(spec=EnvState, save=save)
+    toolkit._state = state
     logger = Mock()
     monkeypatch.setattr(libero_toolkit, "logger", logger)
 
     toolkit.close()
 
+    state.close_artifacts.assert_called_once_with()
     stop.assert_called_once_with()
     if failure == "stop":
         save.assert_not_called()
