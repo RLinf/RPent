@@ -89,3 +89,23 @@ LIBERO 的适配器按相机名（``agentview`` 或 ``wrist``）和步号读取 
           toolkit.add_tool(geometry.geometry)
 
    ``geometry`` 会缓存当前观测步的测量结果。如果新 episode 会从相同的步号重新计数，且沿用同一个几何工具实例，请在新 episode 开始时调用 ``geometry.reset_cache()`` 清除旧缓存。
+
+读取标签或显示屏
+----------------
+
+在运行工具包的主机上安装 Tesseract 和英文语言数据。确保 ``tesseract`` 在 ``PATH`` 中，且 ``tesseract --list-langs`` 的输出包含 ``eng``。运行 LIBERO 时添加 ``--rgbd-tools``，即可调用 ``read_text_ocr``。
+
+用 ``camera`` 和 ``step`` 选择已记录的画面。只读局部时，在 ``region`` 里用 ``image_shape`` 传入整幅预览图的高度和宽度，用 ``box_rc`` 按上、左、下、右传入预览图中的选框坐标。上边和左边包括在框内，下边和右边除外。省略 ``region`` 时读取整幅图。单行用 ``line``，分散标签用 ``sparse``，默认的 ``block`` 适合集中排列的文字。
+
+.. code-block:: json
+
+   {"camera": "agentview", "step": 0, "layout": "line",
+    "region": {"image_shape": [1024, 1024], "box_rc": [96, 128, 240, 544]}}
+
+识别文本保存在 ``text`` 中。``words`` 的每项都包含原图上的词框和 0 到 1 的置信度。置信度阈值 ``min_confidence`` 默认为 0.5。状态为 ``no_text`` 表示工具没有保留识别结果。如果该区域应有文字，请对照原图检查选框。
+
+图像过大时缩小选框或调低 ``upscale``。若 ``truncated`` 为真，用更小的选框读取余下区域。
+
+可以用下面的提示词引导规划器。
+
+   用 ``read_text_ocr`` 读取标签或显示屏，先框住要读的区域，再对照原图核查文字和词框。

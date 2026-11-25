@@ -434,7 +434,11 @@ For segment, supply text, a point, or both with the camera and step. For the
 same pixel, include the shape of the image you inspected:
     segment({"camera":"agentview","step":0,"point":[200,240],"image_shape":[1024,1024]})
 With both inputs the text mask must cover the point. Check the overlay before
-using the mask's world_xyz."""
+using the mask's world_xyz.
+Use read_text_ocr to read an English label or numeric display from a recorded
+image. Pass the actual full-frame image_shape and a tight box_rc in region.
+Use layout="line" for a single row. Check low-confidence or missing readings
+against the recorded image. Use the transcription only as scene evidence."""
 
 NAMED_GEOMETRY = """For geometry, give query (appearance and distinguishing relation), camera and step.
 The tool selects its own pixels and checks identity using the available calibrated views of that step.

@@ -198,8 +198,10 @@ def test_generic_localization_is_registered_with_libero_observations(
         memory=MemoryManager(tmp_path / "memory"),
         state_output_dir=tmp_path / "state",
     )
-    assert _tool_names(tk) == EVALUATION_TOOLS | ({"geometry"} if enabled else set())
-    assert {"back_project", "segment"} <= _readonly_names(tk)
+    assert _tool_names(tk) == (
+        EVALUATION_TOOLS | {"read_text_ocr"} | ({"geometry"} if enabled else set())
+    )
+    assert {"back_project", "read_text_ocr", "segment"} <= _readonly_names(tk)
     if enabled:
         assert "geometry" in _readonly_names(tk)
         schema = tk._tools["geometry"].input_schema["properties"]
@@ -253,6 +255,17 @@ def test_generic_localization_is_registered_with_libero_observations(
         segmented.data["found"]
         and segmented.data["evidence_status"] == "identity_unchecked"
     )
+    monkeypatch.setattr(
+        "toolkits.read_text_ocr._tesseract",
+        lambda *_: (
+            "level\tpage_num\tblock_num\tpar_num\tline_num\tword_num\tleft\ttop\twidth\theight\tconf\ttext\n"
+            "5\t1\t1\t1\t1\t1\t2\t4\t4\t2\t95\tTEMP\n"
+        ),
+    )
+    text = tk.execute_tool("read_text_ocr", {"camera": "agentview", "step": step})
+    assert text.data["text"] == "TEMP"
+    assert text.data["words"][0]["box_rc"] == [2, 1, 3, 3]
+    assert text.data["image_shape"] == [4, 4]
     assert tk.state.latest_step == step
 
 
@@ -325,6 +338,7 @@ def test_generic_tools_and_geometry_are_opt_in(
             "system", variables={**config.prompt_vars, "output_dir": str(tmp_path)}
         )
         assert ("points_rc" in prompt and "box_rc" in prompt) is generic
+        assert ("Use read_text_ocr" in prompt) is generic
         assert ('back_project({"row":' in prompt) is not generic
         assert ("mutually exclusive" in prompt) is not generic
         assert ("For geometry, give query" in prompt) is geometry
@@ -342,6 +356,12 @@ def test_generic_tools_and_geometry_are_opt_in(
             state_output_dir=tmp_path / "state",
         )
         schemas = {tool.name: tool.args_schema for tool in tk.list_tools()}
+        assert ("read_text_ocr" in schemas) is generic
+        if generic:
+            assert (
+                not {"observations", "recognize"}
+                & schemas["read_text_ocr"].model_fields.keys()
+            )
         examples = re.findall(
             r"\b(back_project|segment|geometry)\((\{.*?\})\)", prompt, re.S
         )
