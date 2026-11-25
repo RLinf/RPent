@@ -20,7 +20,7 @@ A mismatch with RPent conventions, bloated workaround, or dead boilerplate is a 
 
 - [ ] **Sibling**: matches the newest idiomatic sibling on `main` (`git log "$BASE" -- <dir>`), not legacy boilerplate.
 - [ ] **Patterns**: follows [code/patterns.md § Design](../code/patterns.md#design) (no robot/planner-name branches in shared code, contained robot code under `robots/<robot>/`, single-owner abstractions, fix at owning layer, direct common path, preserved behavior).
-- [ ] **Extension points**: plugs into `RobotSpec`, `Toolkit`, `BasePlanner`, `BaseEnvClient`/`BaseVLAClient`, `runtime.py` helpers, and `toolkits/`.
+- [ ] **Extension points**: plugs into `RobotSpec`, `Toolkit`, `Planner`, `BaseEnvClient`/`BaseVLAClient`/`BaseWAMClient`, `runtime.py` helpers, and `toolkits/`.
 - [ ] **Lazy imports and packaging**: optional simulator/VLA/hardware imports stay inside use sites; `import rpent`, `enumerate_robots()`, and `rpent --help` work with base dependencies only.
 - [ ] **Test-driven guards**: no product code weakened for incomplete test mocks/stubs (`getattr`/`hasattr` or fallback branches); fix the test instead.
 - [ ] **Prompts and tools**: rendered variables and tool names match `Toolkit.list_tools()` across planners; large payloads stay out of tool-result text; instructions stay concise.
@@ -43,4 +43,4 @@ Area scripts and checklists run in step 6 ([code § Check](../code/SKILL.md#chec
 
 Flag only real problems; Ruff lint/format, `__init__.py`, and license headers come from `code/check.py`, and code conventions from [code/patterns.md § Code](../code/patterns.md#code).
 
-- [ ] **Commits and PR metadata**: `Signed-off-by:` and Conventional Commits on commits; valid PR title, filled Description/Testing/Manual verification/Checklist (`lint_pr.py lint --pr <N>`).
+- [ ] **Commits and PR metadata**: Conventional Commits on commits; valid PR title, filled Description/Testing/Manual verification/Checklist (`lint_pr.py lint --pr <N>`).

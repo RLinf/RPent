@@ -34,7 +34,7 @@ python3 .agents/skills/review-pr/lint_review.py update --pr "$N" --review <id> r
 
 - **Inline (`comments[]`)**: any finding anchored to a diff line (or range `start_line`..`line`, setting both `start_side` and `side`). Use `"side": "LEFT"` only for a deleted line that should stay. For a docs-style rule repeated on many lines of one page, comment on the first line and note the remaining lines rather than opening a thread per line.
 - **Main comment (`here`)**: findings with no diff line (missing doc page, missing test, untouched file that should have changed, PR metadata).
-- **Existing threads**: reply instead of opening a duplicate thread on the same line:
+- **Existing threads (`thread`)**: reply instead of opening a duplicate thread on the same line, and mark the carried-forward row `Posted = thread` in the Findings table (omitting it from `comments[]` and from `####` sections):
 
 ```bash
 gh api "repos/RLinf/RPent/pulls/$N/comments/<id>/replies" -f body="..."

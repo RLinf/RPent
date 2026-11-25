@@ -271,7 +271,9 @@ def check_page(
             for token in LITERAL.findall(text):
                 token = token.strip().removesuffix("()")
                 internal = (
-                    token.startswith(("rpent/", "robots/")) and ":" not in token
+                    token.startswith(("rpent/", "robots/"))
+                    and ":" not in token
+                    and not token.endswith((".yaml", ".yml", ".json"))
                 ) or (
                     "/" not in token
                     and not FILE_NAME.search(token)

@@ -156,17 +156,68 @@ def test_code_names_excludes_registered_user_facing_tools():
 def test_build_docs_falls_back_to_stderr_when_sphinx_fails_without_warning_prefix(
     tmp_path, monkeypatch
 ):
-    fake_result = subprocess.CompletedProcess(
-        args=["sphinx"],
-        returncode=2,
-        stdout="",
-        stderr="Extension error (sphinx_sitemap): boom\n",
-    )
-    monkeypatch.setattr(subprocess, "run", lambda *a, **kw: fake_result)
+    captured_cmd: list[str] = []
+
+    def fake_run(cmd, *a, **kw):
+        captured_cmd.extend(cmd)
+        return subprocess.CompletedProcess(
+            args=cmd,
+            returncode=2,
+            stdout="",
+            stderr="Extension error (sphinx_sitemap): boom\n",
+        )
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
     records = build_docs["build"](Path(sys.executable), tmp_path, tmp_path / "out")
     assert len(records) == 1
     assert "sphinx-build exited 2" in records[0]
     assert "Extension error (sphinx_sitemap): boom" in records[0]
+    for flag in ("-E", "-N", "-W", "--keep-going"):
+        assert flag in captured_cmd
+
+
+def test_check_writing_allows_robot_config_and_eval_data_paths(tmp_path):
+    guide = tmp_path / "franka.rst"
+    guide.write_text(
+        "Franka\n======\n\n"
+        "Edit ``robots/franka/config/example.yaml``, ``robots/yam/config/example.yml``, "
+        "and ``robots/robocasa/eval/target50.json``.\n\n"
+        "Do not open ``robots/franka/env_server.py``.\n",
+        encoding="utf-8",
+    )
+    findings = writing["check_page"](
+        guide,
+        "docs/source-en/rst_source/real_world_robots/franka.rst",
+        frozenset(),
+        False,
+    )
+    code_hits = [f for f in findings if f.rule == "docs/code-name"]
+    assert len(code_hits) == 1
+    assert "robots/franka/env_server.py" in code_hits[0].message
+
+
+def test_docs_check_skips_docutils_and_repo_scans_for_non_rst_changes(
+    tmp_path, monkeypatch
+):
+    Change = route["Change"]
+    Selection = route["Selection"]
+    selection = Selection("main", (Change("M", "README.md"),), False)
+
+    def fail(*args, **kwargs):
+        raise AssertionError("must not run when no .rst page changed")
+
+    monkeypatch.setitem(
+        docs_check["main"].__globals__["route"].__dict__,
+        "select",
+        lambda area, args: selection,
+    )
+    monkeypatch.setitem(docs_check["main"].__globals__, "_ensure_docutils", fail)
+    monkeypatch.setitem(
+        docs_check["main"].__globals__["check_doc_symbols"].__dict__,
+        "vocabulary",
+        fail,
+    )
+    assert docs_check["main"]([]) == 0
 
 
 def test_docs_check_help_does_not_provision_docs_venv(monkeypatch):

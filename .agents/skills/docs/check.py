@@ -307,9 +307,6 @@ def main(argv: list[str] | None = None) -> int:
     parser = route.check_parser(__doc__.splitlines()[0])
     parser.add_argument("--no-build", action="store_true", help="skip the Sphinx build")
     args = parser.parse_args(argv)
-    _ensure_docutils(argv)
-    import check_writing
-
     selection = route.select("docs", args)
     changes = selection.changes
     pages = [
@@ -317,20 +314,26 @@ def main(argv: list[str] | None = None) -> int:
         for c in changes
         if c.status != "D" and c.path.endswith(".rst") and c.path.startswith("docs/")
     ]
-    known = (
-        check_doc_symbols.vocabulary(route.REPO_ROOT)
-        | check_doc_symbols.ALLOWED
-        | check_doc_symbols.EXTERNAL
-        | check_doc_symbols.KNOWN_DRIFT
-    )
-    names = check_writing.code_names(route.REPO_ROOT)
-    added = {c.path for c in changes if c.status == "A"}
     findings = check_parity(changes) + check_toctrees(pages)
-    for page in pages:
-        path = route.REPO_ROOT / page
-        page_findings = check_page(path, page, known)
-        page_findings += check_writing.check_page(path, page, names, page in added)
-        findings += selection.relevant(page_findings)
+    if pages:
+        _ensure_docutils(argv)
+        import check_writing
+
+        known = (
+            check_doc_symbols.vocabulary(route.REPO_ROOT)
+            | check_doc_symbols.ALLOWED
+            | check_doc_symbols.EXTERNAL
+            | check_doc_symbols.KNOWN_DRIFT
+            if any(p.startswith(check_doc_symbols.DOC_ROOTS) for p in pages)
+            else set()
+        )
+        names = check_writing.code_names(route.REPO_ROOT)
+        added = {c.path for c in changes if c.status == "A"}
+        for page in pages:
+            path = route.REPO_ROOT / page
+            page_findings = check_page(path, page, known)
+            page_findings += check_writing.check_page(path, page, names, page in added)
+            findings += selection.relevant(page_findings)
     if args.no_build:
         print("skipped: the Sphinx build (--no-build)")
     elif any(c.path.startswith("docs/") for c in changes):

@@ -33,7 +33,7 @@ gh api "repos/RLinf/RPent/pulls/$N/comments" --paginate
 
 Check out `$PR_HEAD` in a separate git worktree (with an isolated `uv` `.venv` when installing dependencies) for steps 3, 6, and verification; never edit or push the PR branch. Without `gh`, read `<PR URL>.diff` and files on `github.com/RLinf/RPent/blob/main/<path>`; the review can still run, though posting needs `gh`.
 
-On a re-review, inspect every earlier review summary, discussion comment, and inline thread first. Verify each fix in the current code (never trust commit messages alone) and check for regressions or shifted bugs. Carry open findings forward (reply on open inline threads; keep earlier IDs on open main-comment findings; number new findings after the highest earlier ID), name fixed earlier findings in the verdict, and do not reopen minor preferences the author already answered reasonably.
+On a re-review, inspect every earlier review summary, discussion comment, and inline thread first. Verify each fix in the current code (never trust commit messages alone) and check for regressions or shifted bugs. Carry open findings forward (reply on open inline threads and mark those rows `Posted = thread`; keep earlier IDs on open main-comment findings; number new findings after the highest earlier ID), name fixed earlier findings in the verdict, and do not reopen minor preferences the author already answered reasonably.
 
 ## 2. Understand the PR
 
@@ -115,7 +115,7 @@ Keep the output tight and free of repetition: print the main comment, then each 
 
 - **Verdict**: bold recommendation (`Ready for senior review`, `Changes requested`, or `Blocked`) + severity counts + head/base SHA, then one short sentence on what blocks merge or needs a maintainer decision.
 - **Reproduction**: two short bullets (under ~300 chars each). `Result:` starts with `**Passed**`, `**Failed**`, `**Partial**`, or `**Not run**` + one-sentence functional/metric conclusion. `Setup:` names only hardware and command/config (omit host, OS, driver, venv paths, and SHA).
-- **No duplicate findings**: the table indexes every finding (`F1`, `F2`, ...), sorted by severity then category. Write a `#### F<n>` section in the main comment **only for `Posted = here` findings**. `inline` findings live once in `### Inline comments` (each carrying problem, `Suggested fix:`, and one-line `Evidence:`).
+- **No duplicate findings**: the table indexes every finding (`F1`, `F2`, ...), sorted by severity then category. Write a `#### F<n>` section in the main comment **only for `Posted = here` findings**. `inline` findings live once in `### Inline comments` (each carrying problem, `Suggested fix:`, and one-line `Evidence:`), and carried-forward replies on existing threads use `Posted = thread` (with no `####` section or new `comments[]` entry).
 - **No trailing noise**: no `Dismissed:` list, no restated Goal/Idea/Changes/Risk bullets, and no tables of passing doc pages.
 
 ````markdown

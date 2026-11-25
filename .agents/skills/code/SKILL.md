@@ -44,7 +44,7 @@ Findings use the shared format of [README.md](../README.md#findings):
 
 Then judge what a script cannot decide, comparing every changed function against its version on `main` ([mistakes.md](mistakes.md) lists the concrete forms):
 
-- [ ] Shared code (`rpent/cli/`, `rpent/dashboard/`, `rpent/planner/`, `rpent/session/`, `rpent/tools/`) gains no branch that names a specific robot or planner (patterns.md § Generalize; don't special-case, § Contain component code).
+- [ ] Shared orchestration code (`rpent/cli/`, `rpent/dashboard/`, `rpent/session/`, `rpent/tools/`) gains no branch that names a specific robot or planner, and `rpent/planner/` gains no robot-specific branch (patterns.md § Generalize; don't special-case, § Contain component code).
 - [ ] Each resource has one owner: owned daemons tear down on partial startup failure via `rpent/robots/runtime.py`, and borrowed external endpoints are never stopped (§ Small abstractions with one owner).
 - [ ] No protection code for states callers cannot produce, validation happens once at the owning boundary, and no product code is weakened with `getattr`/`hasattr` for incomplete mocks (§ No unnecessary protection code).
 - [ ] Behavior is preserved across affected planners (`api`, `claude_code`, `codex`, `gemini_cli`, `flash`), CLI and Dashboard entry points, and robots, or the difference is named, documented, and tested (§ Preserve behavior).

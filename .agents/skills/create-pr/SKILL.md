@@ -33,7 +33,7 @@ git diff --stat origin/main...HEAD
 
 Record concretely:
 
-- **Which component the diff touches** (`planner`, `toolkit`, `cli`, `dashboard`, `flywheel`, `libero`, `robocasa`, `robotwin`, `robodojo`, `efe`, `franka`, `yam`, `docs`, `skills`, etc.) — that becomes the scope.
+- **Which component the diff touches** (`planner`, `toolkit`, `cli`, `dashboard`, `flywheel`, `libero`, `robocasa`, `robotwin`, `robodojo`, `robolab`, `efe`, `franka`, `yam`, `docs`, `skills`, etc.) — that becomes the scope.
 - **Every user-visible change** — new CLI flags, config keys, install extras, tool contracts, moved doc pages, or compatibility changes. Leave internal churn out of the summary.
 - **Exact automated checks run** — `pre-commit run --all-files`, `pytest tests/unit_tests/... -v`, `python3 .agents/skills/docs/check.py`. "Tested locally" is not an answer.
 - **Manual verification** — GPU, simulator, model-service, or real-robot runs with command and result, or `Not needed` when offline tests cover the change.
@@ -103,7 +103,7 @@ Pass `--docs-only` on documentation-only PRs to suppress the missing-testing war
 gh pr create --base main --title "$TITLE" --body-file /tmp/pr-body.md
 ```
 
-Commits must carry a `Signed-off-by:` trailer (`git commit -s`) under the human author's Git identity and follow Conventional Commits.
+Commits must follow Conventional Commits.
 
 ## 5. Fixing an open PR
 
@@ -114,16 +114,17 @@ python3 .agents/skills/create-pr/lint_pr.py lint --pr 364
 To mechanically strip paste-indentation, pull headings/tables flush left, drop leftover HTML template hints, and optionally unwrap hard-wrapped paragraphs:
 
 ```bash
-python3 .agents/skills/create-pr/lint_pr.py fix --pr 364 --unwrap > /tmp/fixed.md
-python3 .agents/skills/create-pr/lint_pr.py lint --title "$TITLE" --body-file /tmp/fixed.md
+python3 .agents/skills/create-pr/lint_pr.py fix --pr 364 --unwrap > /tmp/fixed.md \
+    && python3 .agents/skills/create-pr/lint_pr.py lint --body-file /tmp/fixed.md
 ```
 
 Read `/tmp/fixed.md` and confirm `lint` exits 0 before updating GitHub:
 
 ```bash
 gh pr edit 364 --body-file /tmp/fixed.md
-gh pr edit 364 --title "$TITLE"
 ```
+
+If the title also needs fixing, set `TITLE="..."`, run `lint` with `--title "$TITLE"`, and update it with `gh pr edit 364 --title "$TITLE"`.
 
 ## Gotchas
 

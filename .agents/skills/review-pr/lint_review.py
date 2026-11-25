@@ -61,7 +61,7 @@ RECOMMENDATIONS = ("Ready for senior review", "Changes requested", "Blocked")
 SEVERITIES = ("critical", "major", "minor")
 CATEGORIES = ("correctness", "design", "reuse", "tests", "docs", "docs-style", "style")
 STATUSES = ("confirmed", "unresolved")
-POSTED = ("inline", "here")
+POSTED = ("inline", "here", "thread")
 REPRODUCTION, FINDINGS = "### Reproduction", "### Findings"
 SECTIONS = (REPRODUCTION, FINDINGS)
 REPRO_LABELS = ("- Result:", "- Setup:")
@@ -515,6 +515,13 @@ class ReviewLinter:
                         f"line {section.n}: {row.id} is posted inline; do not repeat it as a section in the main comment",
                     )
                 continue
+            if row.posted == "thread":
+                if section is not None:
+                    self.error(
+                        "body",
+                        f"line {section.n}: {row.id} is replied on an existing thread; do not repeat it as a section in the main comment",
+                    )
+                continue
             if section is None:
                 self.error(
                     "body",
@@ -580,7 +587,7 @@ class ReviewLinter:
             )
 
     def check_inline_rows(self, rows: list[Row]) -> None:
-        """Pairs every inline row with the inline comment at its location."""
+        """Pairs inline rows with comments[] and checks carried-forward thread rows."""
         assert isinstance(self.payload, dict)
         comments = [
             (i, c)
@@ -589,16 +596,34 @@ class ReviewLinter:
         ]
         matched: set[int] = set()
         for row in rows:
-            if row.posted != "inline":
+            if row.posted not in ("inline", "thread"):
                 continue
             m = self.LOCATION.search(row.location)
             if not m:
                 self.error(
                     f"body {row.id}",
-                    "an inline finding's Location must be `path:line` or `path:start-end`",
+                    f"a{'n inline' if row.posted == 'inline' else ' thread'} finding's Location must be `path:line` or `path:start-end`",
                 )
                 continue
             path, start, end = m[1], int(m[2]), int(m[3] or m[2])
+            if row.posted == "thread":
+                if self.pr is not None:
+                    if any(
+                        (path, side, end) in self.pr.commented_lines
+                        for side in ("RIGHT", "LEFT")
+                    ):
+                        continue
+                    if any(p == path for p, _, _ in self.pr.commented_lines):
+                        self.warn(
+                            f"body {row.id}",
+                            f"marked 'thread' at {m[0]}, but no active thread sits on line {end} of {path}",
+                        )
+                    else:
+                        self.error(
+                            f"body {row.id}",
+                            f"marked 'thread' at {m[0]}, but no existing inline thread sits on {path}; post it inline or here",
+                        )
+                continue
             hits = [
                 i
                 for i, c in comments

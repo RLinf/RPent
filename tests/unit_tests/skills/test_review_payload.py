@@ -246,3 +246,49 @@ def test_update_validates_body_against_posted_inline_comments(tmp_path, monkeypa
 
     assert review["main"](["update", "--pr", "364", "--review", "9", str(path)]) == 0
     update.assert_called_once_with(9, BODY_WITH_INLINE)
+
+
+def test_thread_posted_row_supports_carried_forward_replies(monkeypatch):
+    body_with_thread = BODY_WITH_INLINE.replace("| inline |", "| thread |")
+
+    # Offline lint accepts a carried-forward thread row with no new comments[] entry.
+    findings = review["ReviewLinter"](
+        {"body": body_with_thread, "comments": []}, None
+    ).run()
+    assert [f for f in findings if f.level == "ERROR"] == []
+
+    # Repeating a thread finding as a #### section in the main body fails.
+    duplicated = (
+        body_with_thread
+        + "\n#### F1 · major · correctness: Duplicate\n\nBody.\n\nSuggested fix: x.\n\nEvidence: y.\n"
+    )
+    findings = review["ReviewLinter"]({"body": duplicated, "comments": []}, None).run()
+    assert any("replied on an existing thread" in f.message for f in findings)
+
+    # With --pr, exact thread match passes, shifted line warns, missing file errors.
+    pr = review["PullRequest"]("RLinf/RPent", 372)
+    monkeypatch.setattr(
+        review["PullRequest"],
+        "commented_lines",
+        {("rpent/x.py", "RIGHT", 2): "reviewer"},
+    )
+    findings = review["ReviewLinter"](
+        {"body": body_with_thread, "comments": []}, pr
+    ).run()
+    assert findings == []
+
+    shifted_body = body_with_thread.replace("`rpent/x.py:2`", "`rpent/x.py:10`")
+    findings = review["ReviewLinter"]({"body": shifted_body, "comments": []}, pr).run()
+    assert [f for f in findings if f.level == "ERROR"] == []
+    assert any(
+        f.level == "WARN" and "no active thread sits on line 10" in f.message
+        for f in findings
+    )
+
+    missing_body = body_with_thread.replace("`rpent/x.py:2`", "`rpent/other.py:2`")
+    findings = review["ReviewLinter"]({"body": missing_body, "comments": []}, pr).run()
+    assert any(
+        f.level == "ERROR"
+        and "no existing inline thread sits on rpent/other.py" in f.message
+        for f in findings
+    )

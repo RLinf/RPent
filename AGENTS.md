@@ -53,7 +53,7 @@ python3 .agents/skills/docs/check.py
 - `rpent/planner/`, `rpent/session/`, `rpent/prompt/` – planner adapters (`api`, `claude_code`, `codex`, `gemini_cli`, `flash`), execution sessions, observation/step capture, and shared prompt construction.
 - `rpent/tools/` and `rpent/memory/` – `Toolkit` container, scheduling/cancellation, common/HIL tools, and task memory sync and retrieval.
 - `rpent/robots/` – robot discovery (`base.py`), `RobotSpec`/`RunConfig`/`PromptBundle`, shared daemon lifecycle (`runtime.py`), and shared Env/VLA/SAM3 RPC components (`components/`).
-- `robots/<robot>/` – concrete robot integrations (`libero`, `robocasa`, `robotwin`, `robodojo`, `efe`, `franka`, `dual_franka`, `yam`), each exposing `get_robot_spec` and `get_toolkit`.
+- `robots/<robot>/` – concrete robot integrations (`libero`, `robocasa`, `robotwin`, `robodojo`, `robolab`, `efe`, `franka`, `dual_franka`, `yam`), each exposing `get_robot_spec` and `get_toolkit`.
 - `toolkits/` – opt-in RGB-D perception tools (`back_project`, `segment`, experimental `geometry`) over observations that each robot adapts.
 - `rpent/cli/`, `rpent/dashboard/`, `rpent/evaluation/`, `rpent/flywheel/`, `rpent/utils/` – CLI entry points, interactive Dashboard, run finalization, trajectory data flywheel, and RPC/daemon/logging helpers.
 - `calibration_tools/`, `requirements/`, `tests/` (`unit_tests/`, `e2e_tests/`), and `docs/` (`source-en/`, `source-zh/`, `STYLE_GUIDE.md`).
@@ -75,7 +75,7 @@ Plug into an existing contract instead of adding robot- or planner-name branches
 | Component | Extension point | Guide |
 |---|---|---|
 | Robot / simulator | `robots/<robot>/` exposing `get_robot_spec()` (`RobotSpec`) and `get_toolkit()` (`Toolkit`) | `docs/source-en/rst_source/development/add_robot.rst` |
-| Planner | `rpent/planner/` subclassing `BasePlanner` | `docs/source-en/rst_source/development/add_planner.rst` |
+| Planner | `rpent/planner/` subclassing `Planner` | `docs/source-en/rst_source/development/add_planner.rst` |
 | Action model (VLA/WAM) | `BaseVLAClient`/`BaseVLAFacade` in `rpent/robots/components/` | `docs/source-en/rst_source/development/add_action_model.rst` |
 | Primitive / tool | `Toolkit.add_tool` in `rpent/tools/toolkit.py` | `docs/source-en/rst_source/development/add_primitive.rst` |
 | RGB-D perception tool | `toolkits/` adapters over robot observations | `docs/source-en/rst_source/development/generic_toolkit.rst` |
@@ -96,7 +96,7 @@ Plug into an existing contract instead of adding robot- or planner-name branches
 
 ## Commits, PRs, and writing
 
-- Commit subjects follow Conventional Commits (`<type>(<scope>): <description>`, imperative) and carry a `Signed-off-by:` trailer (`git commit -s`) under the human author's Git identity.
+- Commit subjects follow Conventional Commits (`<type>(<scope>): <description>`, imperative).
 - PR titles keep the description after `: ` at most 72 characters, starting with a lowercase letter, imperative mood, plain ASCII, no trailing period. Use `create-pr` to fill `.github/PULL_REQUEST_TEMPLATE.md` and run `python3 .agents/skills/create-pr/lint_pr.py lint --title "<title>" --body-file <body.md>`.
 - All project writing—docs, PR descriptions, review comments, and commit messages—follows [english.md](.agents/skills/docs/rules/english.md) and [chinese.md](.agents/skills/docs/rules/chinese.md). Change English and Chinese docs together, writing Chinese natively instead of translating sentence by sentence.
 

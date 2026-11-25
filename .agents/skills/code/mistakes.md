@@ -6,7 +6,7 @@ Coding agents repeat a small set of mistakes in RPent, and reviewers send them b
 
 | Mistake | Fix | Rule |
 |---|---|---|
-| A branch in `rpent/cli/`, `rpent/dashboard/`, or `rpent/session/` that checks `robot == "..."` or `planner == "..."` | Put the behavior behind a `RobotSpec` hook/flag, `Toolkit` method, or `BasePlanner` method | patterns.md § Generalize; don't special-case |
+| A branch in `rpent/cli/`, `rpent/dashboard/`, `rpent/session/`, or `rpent/tools/` that checks `robot == "..."` or `planner == "..."` | Put the behavior behind a `RobotSpec` hook/flag, `Toolkit` method, or `Planner` method | patterns.md § Generalize; don't special-case |
 | Copying an existing Env/VLA client, server, or toolkit with minor edits for a new robot | Reuse or parameterize `BaseEnvClient`/`BaseEnvFacade`/`BaseVLAClient`/`BaseVLAFacade` or `Toolkit` | § Generalize; don't special-case |
 | Spawning a daemon before registering it in `daemons`, or tearing down an externally provided endpoint | Register owned daemons via `try_spawn_server`/`try_wait_server` (`rpent/robots/runtime.py`) and stop only owned daemons | § Small abstractions with one owner |
 | Treating planner `finish` or a clean CLI exit as benchmark task success | Report native environment `terminated`/verifier outcome separately from bounded `finish` completion | AGENTS.md § Runtime ownership and success semantics |

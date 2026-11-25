@@ -12,7 +12,7 @@ Pages under `development/` explain how RPent's layers cooperate (`architecture.r
 
 ## Extension guides (`add_robot.rst`, `add_planner.rst`, `add_primitive.rst`, `add_action_model.rst`, `generic_toolkit.rst`)
 
-Contributors write code here, so public RPent names belong in the prose—limited to the symbols the contributor creates, calls, implements, or registers (`RobotSpec`, `RunConfig`, `PromptBundle`, `Toolkit`, `BasePlanner`, `BaseEnvClient`, `BaseVLAClient`, `try_spawn_server`, etc.).
+Contributors write code here, so public RPent names belong in the prose—limited to the symbols the contributor creates, calls, implements, or registers (`RobotSpec`, `RunConfig`, `PromptBundle`, `Toolkit`, `Planner`, `BaseEnvClient`, `BaseVLAClient`, `try_spawn_server`, etc.).
 
 1. **What you add and what works afterwards**, in one paragraph.
 2. **Prerequisites** (working checkout, upstream packages, assets/checkpoints).

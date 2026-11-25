@@ -4,9 +4,9 @@ This page is the standard for code that goes into RPent: authors follow it while
 
 ## Design philosophy
 
-RPent coordinates heterogeneous planners, robot toolkits, RPC-backed services, and task memory through a small set of explicit contracts. `RobotSpec` describes a robot's identity, prompts, CLI arguments, config parsing, runtime lifecycle, and optional hooks (`prepare_memory`, `prepare_prompt_vars`, `resolve_dashboard`, `finalize_run`, `run_flash`, `flywheel`). `Toolkit` owns tool schemas, admission/cancellation scheduling, and execution. `BasePlanner` adapts each reasoning backend (`api`, `claude_code`, `codex`, `gemini_cli`, `flash`) to the same tool and prompt interfaces. A new robot, planner, action model, or perception tool plugs into these contracts instead of opening a parallel path through the CLI or session runner.
+RPent coordinates heterogeneous planners, robot toolkits, RPC-backed services, and task memory through a small set of explicit contracts. `RobotSpec` describes a robot's identity, prompts, CLI arguments, config parsing, runtime lifecycle, and optional hooks (`prepare_memory`, `prepare_prompt_vars`, `resolve_dashboard`, `finalize_run`, `run_flash`, `flywheel`). `Toolkit` owns tool schemas, admission/cancellation scheduling, and execution. `Planner` adapts each reasoning backend (`api`, `claude_code`, `codex`, `gemini_cli`, `flash`) to the same tool and prompt interfaces. A new robot, planner, action model, or perception tool plugs into these contracts instead of opening a parallel path through the CLI or session runner.
 
-1. **One general mechanism, with each robot or planner as an instance of it.** Extend `RobotSpec`, `Toolkit`, `BasePlanner`, or shared RPC clients/facades until the new case falls out naturally, rather than branching on robot or planner names in shared code. See [Generalize; don't special-case](#generalize-dont-special-case).
+1. **One general mechanism, with each robot or planner as an instance of it.** Extend `RobotSpec`, `Toolkit`, `Planner`, or shared RPC clients/facades until the new case falls out naturally, rather than branching on robot or planner names in shared code. See [Generalize; don't special-case](#generalize-dont-special-case).
 2. **Each layer knows only its own concern.** The CLI and Dashboard orchestrate runs without knowing robot internals; planners drive tool calls without knowing simulator APIs; `robots/<robot>/` owns robot-specific policy, prompts, and adapters. Shared code meets concrete robots only through `RobotSpec`, `Toolkit`, and shared RPC contracts. See [Contain component code](#contain-component-code) and [Fix at the owning layer](#fix-at-the-owning-layer).
 3. **Every resource has one owner.** A subprocess daemon (`ProcessDaemon`), RPC client, lock, temp directory, or borrowed endpoint has one explicit owner and lifecycle. Owned daemons are registered with `try_spawn_server`/`try_wait_server` and stopped in reverse order on startup failure or exit; borrowed external endpoints are never stopped by RPent. See [Small abstractions with one owner](#small-abstractions-with-one-owner).
 4. **Keep the common path direct.** Avoid extra indirection, forwarding wrappers, or dynamic dispatch when a direct method or `RobotSpec` hook expresses the behavior clearly. Keep optional simulator/model imports lazy so basic imports and CLI help remain fast and dependency-free. See [Keep the common path direct](#keep-the-common-path-direct) and [Optional dependencies and lazy imports](#optional-dependencies-and-lazy-imports).
@@ -22,7 +22,7 @@ Expect a change to plug into RPent's existing extension points:
 
 - `RobotSpec` hooks and capability flags in `rpent/robots/robot_spec.py` (`add_cli_args`, `validate_args`, `parse_config`, `init_runtime`, `prepare_memory`, `prepare_prompt_vars`, `resolve_dashboard`, `finalize_run`, `run_flash`, `flywheel`, `is_real_robot`, `supports_exploration`, `supports_human_interactive_exploration`).
 - `Toolkit` (`rpent/tools/toolkit.py`) and shared RGB-D adapters (`toolkits/`).
-- `BasePlanner` (`rpent/planner/base.py`).
+- `Planner` (`rpent/planner/base.py`).
 - Shared Env/VLA/SAM3 RPC bases in `rpent/robots/components/` and lifecycle helpers in `rpent/robots/runtime.py`.
 
 Flag:
@@ -31,7 +31,7 @@ Flag:
 - A copy of an existing client, server, toolkit, or runner with a few lines changed for a new robot or action model instead of parameterizing or subclassing the shared base.
 - A new CLI flag or config key whose only purpose is toggling a one-off branch in shared code.
 
-Ask for a hook or capability field on `RobotSpec`, a method on `Toolkit` or `BasePlanner`, or a parameter on the shared RPC component.
+Ask for a hook or capability field on `RobotSpec`, a method on `Toolkit` or `Planner`, or a parameter on the shared RPC component.
 
 ### Contain component code
 
