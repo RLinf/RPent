@@ -76,6 +76,7 @@ Documentation = "https://rpent.readthedocs.io/en/latest/"
 [project.optional-dependencies]
 test = [
     "coverage",
+    "docutils",
     "pytest",
     "pytest-timeout",
     "gymnasium",
