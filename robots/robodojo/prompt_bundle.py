@@ -25,6 +25,7 @@ from robots.robodojo.prompts import user as user_parts
 from robots.robodojo.prompts.policy import POLICY_PROMPTS
 from rpent.prompt.utils import PromptNode
 
+
 def system_prompt(
     variables: Mapping[str, object] | None = None,
 ) -> PromptNode:
@@ -32,31 +33,22 @@ def system_prompt(
     variables = variables or {}
 
     if variables.get("policy_mode") == "code":
-        return code_parts.system_prompt()
+        return code_parts.system_prompt(backend=variables.get("vla_backend"))
 
     if variables.get("mode") == "explore":
         return explore_parts.system_prompt(variables)
 
     return evaluate_parts.system_prompt(variables)
 
+
 def user_prompt(
     variables: Mapping[str, object] | None = None,
 ) -> PromptNode:
     variables = variables or {}
-    backend = variables.get("vla_backend") or "vpp2"
-
     if variables.get("policy_mode") == "code":
-        return {
-            "TASK": user_parts.TASK.replace(
-                "{{policy_control}}",
-                POLICY_PROMPTS[backend]["policy_control"],
-            ),
-            "BEGIN": (
-                "The task instruction comes from `task_language` in "
-                "`robo.view_env_state(step=0)`."
-            ),
-        }
+        return {"TASK": "{{task}} / layout {{layout}} / seed group {{seed}}"}
 
+    backend = variables.get("vla_backend") or "vpp2"
     sections = {
         "TASK": user_parts.TASK.replace(
             "{{policy_control}}",

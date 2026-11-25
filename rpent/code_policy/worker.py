@@ -22,10 +22,34 @@ import json
 import os
 import sys
 import traceback
-from typing import Any
+from collections.abc import Callable
+from typing import Any, BinaryIO
 
 MAX_MESSAGE_BYTES = 16 * 1024 * 1024
 MAX_OUTPUT_BYTES = 24 * 1024
+
+
+def encode_message(
+    message: dict[str, Any], *, default: Callable[[Any], Any] | None = None
+) -> bytes:
+    """Encode one bounded JSON line for the host or worker."""
+    data = json.dumps(message, allow_nan=False, default=default).encode() + b"\n"
+    if len(data) > MAX_MESSAGE_BYTES:
+        raise ValueError("Code-policy message exceeds the 16 MiB limit")
+    return data
+
+
+def read_message(stream: BinaryIO) -> dict[str, Any]:
+    """Read one bounded JSON object, raising EOFError when the pipe closes."""
+    data = stream.readline(MAX_MESSAGE_BYTES + 1)
+    if not data:
+        raise EOFError("Code-policy peer closed its pipe")
+    if len(data) > MAX_MESSAGE_BYTES or not data.endswith(b"\n"):
+        raise ValueError("Invalid or oversized code-policy message")
+    message = json.loads(data)
+    if not isinstance(message, dict):
+        raise ValueError("Code-policy message must be an object")
+    return message
 
 
 class _Output(io.TextIOBase):
@@ -58,29 +82,12 @@ class _Channel:
             os.dup2(sink.fileno(), sys.stdout.fileno())
 
     def send(self, message: dict[str, Any]) -> None:
-        data = (
-            json.dumps(message, allow_nan=False, default=_json_value).encode("utf-8")
-            + b"\n"
-        )
-        if len(data) > MAX_MESSAGE_BYTES:
-            raise ValueError("Python message exceeds the 16 MiB limit")
-        self.output.write(data)
+        self.output.write(encode_message(message, default=_json_value))
         self.output.flush()
-
-    def receive(self) -> dict[str, Any]:
-        data = self.input.readline(MAX_MESSAGE_BYTES + 1)
-        if not data:
-            raise EOFError
-        if len(data) > MAX_MESSAGE_BYTES or not data.endswith(b"\n"):
-            raise ValueError("Invalid or oversized host message")
-        result = json.loads(data)
-        if not isinstance(result, dict):
-            raise ValueError("Host message must be an object")
-        return result
 
     def call(self, name: str, arguments: dict[str, Any]) -> dict[str, Any]:
         self.send({"kind": "call", "name": name, "arguments": arguments})
-        response = self.receive()
+        response = read_message(self.input)
         if response.get("kind") != "return":
             raise RuntimeError("Unexpected host response")
         if "error" in response:
@@ -116,7 +123,11 @@ class _Robot:
 
         def call(**arguments: Any) -> dict[str, Any]:
             result = self._channel.call(name, arguments)
-            if result.get("_finish") is True and "error" not in result:
+            if (
+                name == "finish"
+                and result.get("_finish") is True
+                and result.get("error") is None
+            ):
                 raise _Finished
             return result
 
@@ -132,7 +143,7 @@ def main() -> None:
     namespace: dict[str, Any] = {"__name__": "__policy__"}
     while True:
         try:
-            message = channel.receive()
+            message = read_message(channel.input)
         except EOFError:
             return
         if message.get("kind") != "execute":

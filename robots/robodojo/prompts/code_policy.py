@@ -14,6 +14,7 @@
 
 """Code-policy instructions for robodojo."""
 
+from robots.robodojo.prompts.policy import POLICY_PROMPTS
 from rpent.prompt.utils import PromptNode
 
 OBSERVE_AND_LOCALIZE = r"""
@@ -21,31 +22,22 @@ Two ARX-X5 arms, left and right, stand side by side at the near edge of a table.
 World positions use metres, with z up. Read the current frame, end-effector poses
 and camera calibration from `robo.view_env_state(step=-1)`; its `task_language`
 is authoritative. Read object heights from the scene, never assume them.
-Use `segment` and `back_project` on the recorded images, with keyword arguments
-from the API reference. Head and wrist views must describe the same candidate.
+Use `segment` and `back_project` on matching recorded images and geometry.
+Head and wrist views must describe the same candidate.
 Check returned fields before using a localization: a point on a rim, an arm or
 background is not the object's centre. Re-localize after contact or scene changes.
 """
 
 MOTION_AND_GRIPPER = r"""
-Use the registered `move_to(xyz=..., arm=..., gripper=...)` tool. The current
-RPent tool commands an end-effector position; do not apply a separate SDK grasp
-point offset or pass unsupported orientation, path or speed arguments.
+Use `move_to` for world-metre end-effector positions and optional wxyz
+orientation. Check `log.result` for `stop_reason` and `final_dist_m`.
 Approach high, descend in small observed increments and retreat straight up
 before travelling. Keep the other arm and surrounding objects clear.
 
-Commands are signed: gripper=1 closes/holds, -1 opens and 0 keeps the command
-where supported by the tool schema. Carry with gripper=1. A closed gripper alone
-proves nothing: verify that the target leaves its place and moves with the arm.
-Use `set_gripper(arm=..., gripper=...)` to open or close. Inspect the actual result
-and fresh visual evidence; do not assume a full stroke or an adjustable opening.
-"""
-
-SKILLS_AND_FEEDBACK = r"""
-Verify the grasp in the wrist and head images and check that the object moves
-with the arm. After a failed grasp, adjust the approach or staging before retrying.
-The original motion result is in the returned observation's `log.result`.
-Check its error/outcome fields and the observation after every step.
+Use `set_gripper(arm=..., val=...)` with 0 closed and 1 open. Omit the
+gripper argument during `move_to` to preserve the command. Confirm that
+the target moves with the arm before carrying. On failure, re-localize and
+change the approach.
 """
 
 JUDGING_PROGRESS = r"""
@@ -74,12 +66,12 @@ failure/stuck when no justified recovery remains.
 """
 
 
-def system_prompt() -> dict[str, PromptNode]:
+def system_prompt(*, backend: str | None) -> dict[str, PromptNode]:
     """Assemble code execution rules and robodojo operating knowledge."""
     return {
         "Observe and localize": OBSERVE_AND_LOCALIZE,
         "Motion and gripper": MOTION_AND_GRIPPER,
-        "Skills and feedback": SKILLS_AND_FEEDBACK,
+        "Action model": POLICY_PROMPTS[backend]["policy_tools"] if backend else None,
         "Judging progress": JUDGING_PROGRESS,
         "Recovery and budget": RECOVERY_AND_BUDGET,
     }

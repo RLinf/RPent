@@ -17,7 +17,6 @@
 from __future__ import annotations
 
 import enum
-import json
 import math
 import subprocess
 import sys
@@ -27,8 +26,9 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
+from rpent.code_policy.worker import encode_message, read_message
+
 MAX_SOURCE_BYTES = 64 * 1024
-MAX_MESSAGE_BYTES = 16 * 1024 * 1024
 
 
 class _State(enum.Enum):
@@ -89,28 +89,6 @@ class CodeSession:
             )
         self._process = process
         return process
-
-    @staticmethod
-    def _write(process: subprocess.Popen[bytes], message: dict[str, Any]) -> None:
-        payload = json.dumps(message, allow_nan=False).encode("utf-8") + b"\n"
-        if len(payload) > MAX_MESSAGE_BYTES:
-            raise ValueError("Code-policy message exceeds the 16 MiB limit")
-        assert process.stdin is not None
-        process.stdin.write(payload)
-        process.stdin.flush()
-
-    @staticmethod
-    def _read(process: subprocess.Popen[bytes]) -> dict[str, Any]:
-        assert process.stdout is not None
-        payload = process.stdout.readline(MAX_MESSAGE_BYTES + 1)
-        if not payload:
-            raise RuntimeError("Python worker exited before completing the cell")
-        if len(payload) > MAX_MESSAGE_BYTES or not payload.endswith(b"\n"):
-            raise ValueError("Invalid or oversized Python worker message")
-        message = json.loads(payload)
-        if not isinstance(message, dict):
-            raise ValueError("Python worker message must be an object")
-        return message
 
     def _interrupt(
         self, reason: str, *, timeout: bool = False, cell: int | None = None
@@ -175,24 +153,28 @@ class CodeSession:
         result: dict[str, Any] = {"stdout": "", "stderr": "", "exception": None}
         try:
             (self._workspace / filename).write_text(code, encoding="utf-8")
-            self._write(
-                process,
-                {
-                    "kind": "execute",
-                    "code": code,
-                    "filename": filename,
-                    "tools": sorted(self._tools),
-                },
+            assert process.stdin is not None and process.stdout is not None
+            process.stdin.write(
+                encode_message(
+                    {
+                        "kind": "execute",
+                        "code": code,
+                        "filename": filename,
+                        "tools": sorted(self._tools),
+                    }
+                )
             )
+            process.stdin.flush()
             while True:
-                message = self._read(process)
+                message = read_message(process.stdout)
                 self._raise_if_interrupted()
                 if message.get("kind") == "result":
                     result.update(message["result"])
                     break
                 if message.get("kind") != "call":
                     raise ValueError("Unexpected Python worker message")
-                self._write(process, self._call(message))
+                process.stdin.write(self._call(message))
+                process.stdin.flush()
         except Exception as exc:
             self._interrupt("Python worker failed; namespace was discarded")
             result["exception"] = {
@@ -230,18 +212,21 @@ class CodeSession:
                 self._condition.notify_all()
         return result
 
-    def _call(self, message: dict[str, Any]) -> dict[str, Any]:
+    def _call(self, message: dict[str, Any]) -> bytes:
         name, arguments = message.get("name"), message.get("arguments")
         if name not in self._tools:
             raise ValueError(f"Unregistered Python tool: {name}")
         if not isinstance(arguments, dict):
             raise ValueError("Python tool arguments must be an object")
         try:
-            response = {"kind": "return", "data": self._dispatch(name, arguments)}
-            # Serialization errors are reported to Python, like tool errors.
-            json.dumps(response, allow_nan=False)
+            response = encode_message(
+                {"kind": "return", "data": self._dispatch(name, arguments)},
+                default=str,
+            )
         except Exception as exc:
-            response = {"kind": "return", "error": f"{type(exc).__name__}: {exc}"}
+            response = encode_message(
+                {"kind": "return", "error": f"{type(exc).__name__}: {exc}"}
+            )
         self._raise_if_interrupted()
         return response
 

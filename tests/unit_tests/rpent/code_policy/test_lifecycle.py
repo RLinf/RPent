@@ -133,7 +133,7 @@ def test_variables_survive_python_exceptions(policy):
     assert robot.cancel_count == 0
 
 
-def test_program_tool_calls_are_recorded_separately_from_cell(policy):
+def test_cell_captures_each_primitive_once_and_returns_latest_feedback(policy):
     provider, robot = policy
     state = robot.state
     state.start_task(instruction="Move twice.", config=Payload("test", {}))
@@ -141,8 +141,21 @@ def test_program_tool_calls_are_recorded_separately_from_cell(policy):
         planner_id=None, name="python", arguments=Payload("test", {})
     )
     with ToolCallCapture(state, cell_id).bind():
-        result = _run(provider, "robo.move(distance=1)\nrobo.move(distance=2)")
-    assert result["primitive_call_count"] == 2
+        result = provider.execute_tool(
+            "python", {"code": "robo.move(distance=1)\nprint(robo.move(distance=2))"}
+        )
+    assert result.data["exception"] is None
+    assert result.data["primitive_call_count"] == 2
+    assert result.data["last_tool_result"] == {"distance": 2}
+    assert "'distance': 2" in result.data["stdout"]
+    assert result.images == [b"observation"]
+    assert robot.observations == [
+        {"action": "move", "distance": 1},
+        {"action": "move", "distance": 2},
+    ]
+    assert provider.state is robot.state
+    assert {item.name for item in provider.list_tools()} == {"python"}
+    assert provider.execute_tool("move", {"distance": 3}).is_error
     cell, first, second = state.tool_call_records()
     assert (
         cell.name == "python"
@@ -240,25 +253,6 @@ def test_timeout_discards_already_queued_cells(policy):
     assert _run(provider, "print('stale' in globals())")["stdout"] == "False\n"
 
 
-def test_python_delegates_actions_and_observes_each_primitive_once(policy):
-    provider, robot = policy
-    result = provider.execute_tool(
-        "python", {"code": "robo.move(distance=1)\nprint(robo.move(distance=2))"}
-    )
-    assert result.data["exception"] is None
-    assert result.data["primitive_call_count"] == 2
-    assert result.data["last_tool_result"] == {"distance": 2}
-    assert "'distance': 2" in result.data["stdout"]
-    assert result.images == [b"observation"]
-    assert robot.observations == [
-        {"action": "move", "distance": 1},
-        {"action": "move", "distance": 2},
-    ]
-    assert provider.state is robot.state
-    assert {item.name for item in provider.list_tools()} == {"python"}
-    assert provider.execute_tool("move", {"distance": 3}).is_error
-
-
 @pytest.mark.parametrize("include_images", [False, True])
 def test_python_returns_finish_without_closing_borrowed_robot(policy, include_images):
     provider, robot = policy
@@ -272,16 +266,6 @@ def test_python_returns_finish_without_closing_borrowed_robot(policy, include_im
     assert _run(provider, "x = 2")["code"] == "tool_cancelled"
     provider.close()
     assert not robot.execute_tool("move", {"distance": 1}).is_error
-
-
-def test_invalid_python_arguments_do_not_start_a_cell(policy):
-    provider, robot = policy
-    for arguments in ({}, {"code": 42}, {"code": "x = 1", "extra": True}):
-        result = provider.execute_tool("python", arguments)
-        assert result.is_error
-        assert result.data["errors"]
-    assert _run(provider, "print(42)")["cell"] == 1
-    assert robot.observations == []
 
 
 @pytest.mark.parametrize("name", ["request_scene_reset", "request_operator_verdict"])

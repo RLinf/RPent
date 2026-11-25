@@ -48,13 +48,7 @@ def user_prompt(variables: Mapping[str, object] | None = None) -> PromptNode:
     variables = variables or {}
 
     if variables.get("policy_mode") == "code":
-        return {
-            "CELL": "- suite: {{suite}}\n- task: {{task}}\n- seed: {{seed}}",
-            "BEGIN": (
-                "The task instruction comes from `task_language` in "
-                "`robo.view_env_state(step=0)`."
-            ),
-        }
+        return {"CELL": "- suite: {{suite}}\n- task: {{task}}\n- seed: {{seed}}"}
 
     if variables.get("policy_kind") == "wam":
         return {

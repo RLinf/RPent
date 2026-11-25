@@ -18,7 +18,6 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 
-from robots.franka.prompts import code_policy as code_parts
 from robots.franka.prompts import system as system_parts
 from robots.franka.prompts import user as user_parts
 from rpent.prompt.utils import Numbered, PromptNode
@@ -26,8 +25,6 @@ from rpent.prompt.utils import Numbered, PromptNode
 
 def system_prompt(variables: Mapping[str, object] | None = None) -> PromptNode:
     """Assemble the Franka system prompt."""
-    if (variables or {}).get("policy_mode") == "code":
-        return code_parts.system_prompt()
     return {
         "ROLE": system_parts.ROLE,
         "RUNTIME": system_parts.RUNTIME,

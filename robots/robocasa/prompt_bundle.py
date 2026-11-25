@@ -40,11 +40,7 @@ def user_prompt(
 ) -> dict[str, PromptNode]:
     """Return the first user message tree."""
     if (variables or {}).get("policy_mode") == "code":
-        return {
-            "Task": "- task: {{task_name}} / {{split}}\n- seed: {{seed}}",
-            "Begin": "The task instruction comes from `task_language` in "
-            "`robo.view_env_state(step=0)`.",
-        }
+        return {"Task": "- task: {{task_name}} / {{split}}\n- seed: {{seed}}"}
     mode = (
         explore_parts.USER_MODE
         if (variables or {}).get("mode", "eval") == "explore"

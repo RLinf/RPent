@@ -117,13 +117,6 @@ class CodePolicyTools(Toolkit):
     def python(self, code: str) -> ToolResult:
         """Execute Python with the robot API `robo` in a persistent session.
 
-        Call registered tools as robo.<name>(**keyword_arguments). Results retain
-        their original dictionaries and error fields. Variables persist between
-        calls; use print(...) to return values in stdout alongside the latest
-        tool images. End the cell for required visual checks. A successful
-        robo.finish(...) ends the cell and the task. Timeout/cancellation
-        discards variables, but does not undo executed actions.
-
         Args:
             code: Python source. Prefer bounded loops with explicit feedback checks.
         """
@@ -208,14 +201,7 @@ class CodePolicyTools(Toolkit):
                     if not self._scheduler.paused:
                         self._stop = "external"
                 self._session.cancel()
-            # Match ToolResult's public JSON representation without its text limit.
-            return json.loads(
-                json.dumps(
-                    self._last_result,
-                    allow_nan=False,
-                    default=str,
-                )
-            )
+            return self._last_result
         except Exception as exc:
             entry["error"] = f"{type(exc).__name__}: {exc}"
             raise
