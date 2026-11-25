@@ -88,7 +88,6 @@ RPent（Recursive Physical Agent）是一个开源框架，用于构建在与物
    :caption: 使用指南
 
    使用记忆与探索模式 <rst_source/guides/memory>
-   动作原语与工具 <rst_source/guides/configure_primitives>
    规划器配置 <rst_source/guides/configure_planner>
    命令行参考 <rst_source/guides/cli>
    交互使用 <rst_source/guides/dashboard>
@@ -96,6 +95,17 @@ RPent（Recursive Physical Agent）是一个开源框架，用于构建在与物
    使用 PyRUA 模式 <rst_source/guides/pyrua>
    采集轨迹与数据飞轮 <rst_source/guides/flywheel>
    远程服务与并行运行 <rst_source/guides/advanced_deployment>
+
+.. toctree::
+   :maxdepth: 2
+   :includehidden:
+   :titlesonly:
+   :hidden:
+   :caption: 工具包
+
+   动作原语与工具 <rst_source/toolkits/overview>
+   具身 RGB-D 工具包 <rst_source/toolkits/rgbd>
+   外部 MCP 工具 <rst_source/toolkits/mcp>
 
 .. toctree::
    :maxdepth: 2
@@ -133,7 +143,6 @@ RPent（Recursive Physical Agent）是一个开源框架，用于构建在与物
    系统架构与执行流程 <rst_source/development/architecture>
    核心接口 <rst_source/development/interfaces>
    记忆机制 <rst_source/development/memory>
-   通用 RGB-D 工具包 <rst_source/development/generic_toolkit>
    添加机器人或仿真环境 <rst_source/development/add_robot>
    添加动作原语 <rst_source/development/add_primitive>
    添加动作模型 <rst_source/development/add_action_model>

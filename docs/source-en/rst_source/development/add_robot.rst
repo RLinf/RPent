@@ -338,6 +338,40 @@ filenames rather than maintaining a parallel observation index.
 the toolkit passes verbatim to your primitives' ``__init__`` — typically
 ``{"env": MyEnvClient(...), "model": VLAClient(...), ...}``.
 
+Customizing External MCP Registration
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+By default, RPent registers every server from ``--mcp-config`` (a YAML file
+path) and ``RunConfig.mcp_servers`` automatically after ``get_toolkit`` returns,
+so most robots need no extra code (see :ref:`external-mcp-servers`). To
+restrict a server to specific tools or force ``sync_with_robot=True``, call
+``Toolkit.add_mcp_tools`` before returning from ``get_toolkit``:
+
+.. code-block:: python
+
+   def get_toolkit(*, runtime_kwargs, dashboard_events, config):
+       toolkit = MyRobotToolkit(
+           runtime_kwargs=runtime_kwargs,
+           dashboard_events=dashboard_events,
+           memory=MemoryManager(
+               root=config.prompt_vars.get("memory_dir") or get_memory_dir("myrobot"),
+           ),
+       )
+       if any(server.name == "dock" for server in config.mcp_servers):
+           toolkit.add_mcp_tools(
+               config.mcp_servers,
+               tools={"dock": ["set_charging_dock", "read_battery"]},
+               sync_with_robot=True,
+           )
+       return toolkit
+
+Automatic attachment skips any server already registered through
+``add_mcp_tools`` so tools are never duplicated. Calling ``add_mcp_tools`` for
+an undeclared server or a tool excluded by the server's YAML ``tools`` list
+raises ``ValueError``. Setting ``sync_with_robot=True`` runs those tools
+mutually exclusively with robot actions, triggers ``get_env_state``, and
+preserves the remote response under ``tool_result``.
+
 Conventions Worth Keeping
 -------------------------
 
@@ -384,6 +418,10 @@ validates those fields and returns a
 - ``task_desc`` — robot-specific dict of task-identifying fields, written into
   the transcript JSON record verbatim (LIBERO:
   ``{"suite": ..., "task": ..., "seed": ...}``).
+- ``mcp_servers`` — optional tuple of robot-owned MCP servers (parsed with
+  ``parse_mcp_servers``), merged at runtime with
+  the servers loaded from the ``--mcp-config`` YAML file; see
+  :ref:`external-mcp-servers`.
 
 .. code-block:: python
 

@@ -23,20 +23,30 @@ import shlex
 import sys
 import threading
 import time
-from dataclasses import asdict
 from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from rpent.cli.main import _handoff_message, _serialize_messages
+from rpent.cli.main import (
+    _handoff_message,
+    _serialize_messages,
+    _with_shared_mcp_servers,
+)
 from rpent.cli.policy import configure_policy, planner_policy
 from rpent.dashboard.events import RunStartedEvent
 from rpent.evaluation import RunFinalizationContext
 from rpent.memory import MemoryManager
-from rpent.planner.base import build_planner, is_recoverable_agent_error
+from rpent.planner.base import (
+    build_planner,
+    is_recoverable_agent_error,
+)
 from rpent.robots import get_toolkit
 from rpent.robots.runtime import select_runtime_components
-from rpent.session.planner_capture import end_planner_task, start_planner_task
+from rpent.session.planner_capture import (
+    end_planner_task,
+    start_planner_task,
+    task_config_snapshot,
+)
 from rpent.utils.config import get_memory_dir
 from rpent.utils.logging import get_logger, init_output_dir
 
@@ -207,7 +217,13 @@ def _run_dashboard_task(
     if task_args.explore and getattr(task_args, "policy_mode", "tools") == "code":
         raise ValueError("--policy-mode code cannot be used with --explore")
     task_args.output_dir = str(claimed.output_dir)
-    run_config = configure_policy(robot_spec.parse_config(task_args), task_args)
+    run_config = configure_policy(
+        _with_shared_mcp_servers(
+            robot_spec.parse_config(task_args),
+            getattr(task_args, "shared_mcp_servers", ()),
+        ),
+        task_args,
+    )
     from rpent.memory.loading import prepare_run_memory
 
     if getattr(task_args, "policy_mode", "tools") == "tools":
@@ -325,10 +341,7 @@ def _run_dashboard_task(
                         task_state = start_planner_task(
                             toolkit.state,
                             instruction=session_message,
-                            config={
-                                "arguments": vars(task_args),
-                                "run": asdict(run_config),
-                            },
+                            config=task_config_snapshot(vars(task_args), run_config),
                         )
                     planner = build_planner(
                         task_args.planner,

@@ -43,7 +43,7 @@ import shlex
 import sys
 import time
 from collections.abc import Callable
-from dataclasses import asdict
+from dataclasses import replace
 from pathlib import Path
 
 from rpent.cli.policy import configure_policy, planner_policy, validate_policy_options
@@ -65,9 +65,18 @@ from rpent.planner.base import (
     resolve_model,
 )
 from rpent.planner.check import EXTERNALLY_CONFIGURED_PLANNERS
-from rpent.robots import enumerate_robots, get_robot_spec, get_toolkit
-from rpent.session.planner_capture import end_planner_task, start_planner_task
+from rpent.robots import RunConfig, enumerate_robots, get_robot_spec, get_toolkit
+from rpent.session.planner_capture import (
+    end_planner_task,
+    start_planner_task,
+    task_config_snapshot,
+)
 from rpent.utils.logging import get_logger, init_output_dir
+from rpent.utils.mcp_servers import (
+    McpServerSpec,
+    load_mcp_config,
+    merge_mcp_servers,
+)
 
 logger = get_logger("agent")
 
@@ -229,6 +238,13 @@ def _build_argparser() -> argparse.ArgumentParser:
         "Defaults to MAX_BUDGET_USD env or 10.",
     )
 
+    ap.add_argument(
+        "--mcp-config",
+        default=None,
+        help="Path to an MCP config YAML file. Its mcp_servers section is "
+        "registered on the robot's toolkit for every run.",
+    )
+
     # other config
     ap.add_argument("--output-dir", default=None)
     ap.add_argument(
@@ -342,6 +358,24 @@ def _handoff_message(
         "working notes are in the memory inbox under wip/.\n\n"
         "Read every archive and the working notes before acting. Do not repeat "
         f"failed approaches. {reset_note}"
+    )
+
+
+def _with_shared_mcp_servers(
+    run_config: RunConfig,
+    shared_servers: tuple[McpServerSpec, ...],
+) -> RunConfig:
+    """Merge shared MCP servers into a robot's run config.
+
+    The shared config applies to every robot, so the CLI adds its servers
+    after the robot's own ``parse_config``. Duplicate names are rejected: a
+    robot must not silently shadow a server from the shared config.
+    """
+    if not shared_servers:
+        return run_config
+    return replace(
+        run_config,
+        mcp_servers=merge_mcp_servers(run_config.mcp_servers, shared_servers),
     )
 
 
@@ -470,6 +504,11 @@ def main() -> int:
             parser.error("--policy-mode code cannot be used with --planner flash")
         if args.explore:
             parser.error("Flash Mode is evaluation-only; remove --explore")
+        if args.mcp_config is not None:
+            parser.error(
+                "--mcp-config is not supported with --planner flash; "
+                "Flash Mode replays recorded plans without an LLM planner"
+            )
         if robot_spec.run_flash is None:
             parser.error(f"Flash Mode is not supported for robot {args.robot_name!r}")
     if args.explore and not robot_spec.supports_exploration:
@@ -521,7 +560,8 @@ def main() -> int:
             parse_repo(args.memory_repo)
         if robot_spec.validate_args is not None:
             robot_spec.validate_args(args)
-    except ValueError as exc:
+        args.shared_mcp_servers = load_mcp_config(args.mcp_config)
+    except (OSError, ValueError) as exc:
         parser.error(str(exc))
     if args.dashboard:
         from rpent.cli.dashboard import run_dashboard_session
@@ -529,7 +569,10 @@ def main() -> int:
         return run_dashboard_session(args, robot_spec, parser=parser)
 
     try:
-        run_config = configure_policy(robot_spec.parse_config(args), args)
+        run_config = configure_policy(
+            _with_shared_mcp_servers(robot_spec.parse_config(args), args.shared_mcp_servers),
+            args,
+        )
     except (OSError, ValueError) as exc:
         parser.error(str(exc))
     recipe_tag = run_config.recipe_tag
@@ -736,10 +779,7 @@ def main() -> int:
                     task_state = start_planner_task(
                         toolkit.state,
                         instruction=session_msg,
-                        config={
-                            "arguments": vars(args),
-                            "run": asdict(run_config),
-                        },
+                        config=task_config_snapshot(vars(args), run_config),
                     )
                 with planner_policy(
                     toolkit, args, Path(state_output_dir), session_prompt_vars
