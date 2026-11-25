@@ -14,7 +14,6 @@
 
 """Code-policy instructions for dual_franka."""
 
-from rpent.prompt import code_policy as common
 from rpent.prompt.utils import PromptNode
 
 FRAMES_AND_UNITS = r"""
@@ -72,12 +71,10 @@ before completing the task; do not infer it from a successful tool call.
 def system_prompt() -> dict[str, PromptNode]:
     """Assemble code execution rules and dual_franka operating knowledge."""
     return {
-        **common.system_prompt(),
         "Frames and units": FRAMES_AND_UNITS,
         "Observation": OBSERVATION,
         "Motion": MOTION,
         "VLA skills": VLA_SKILLS,
         "Safety and recovery": SAFETY_AND_RECOVERY,
         "Task success": TASK_SUCCESS,
-        "API reference": "{{code_policy_api}}",
     }

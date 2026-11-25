@@ -469,6 +469,28 @@ hook is currently limited to normal terminal runs; the Dashboard does not call
 it. Keep benchmark manifests, robot-specific runtime fields, and aggregation
 logic in the robot package rather than the shared CLI.
 
+Code Policy Without an Action Model
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+The shared Python runner wraps the robot toolkit. ``PromptBundle`` supplies
+the Python instructions and the live ``robo.*`` API. Use its optional
+``code_system`` callback for robot-specific operating knowledge.
+
+To support ``--policy-mode code --no-am``:
+
+1. Set ``RobotSpec.supports_no_am=True`` when the robot has native controls
+   and feedback suitable for running without an action model.
+2. Resolve the model with ``select_optional_am``. Mark its service with
+   ``role="action_model"`` in the runtime component declarations and use
+   ``select_runtime_components`` in the runtime hook. The Dashboard uses the
+   same selection rule. Keep environment and perception services available.
+3. Pass ``action_model_available`` to ``Toolkit`` based on the run's model
+   connection. Mark dependent tools with ``@tool(requires_action_model=True)``.
+   The toolkit omits those tools from dispatch, planner schemas, and Python.
+
+LIBERO and RoboDojo are reference implementations. Test the native action and
+observation path and verify that disabled models are neither resolved nor started.
+
 .. _add-robot-testing:
 
 6. Tests to Add

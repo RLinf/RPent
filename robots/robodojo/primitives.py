@@ -272,7 +272,7 @@ class RoboDojoPrimitives:
         )
         return result
 
-    @tool
+    @tool(requires_action_model=True)
     def vpp2_act(
         self,
         *,
@@ -297,7 +297,7 @@ class RoboDojoPrimitives:
         result["instruction"] = instruction
         return ToolResult(data=result)
 
-    @tool
+    @tool(requires_action_model=True)
     def awomo05_act(
         self,
         *,

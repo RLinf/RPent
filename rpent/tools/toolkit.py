@@ -147,11 +147,13 @@ class Toolkit:
         dashboard_events: DashboardEventSink,
         state: Any = None,
         memory: "MemoryManager | None",
+        action_model_available: bool = True,
     ) -> None:
         self._tools: dict[str, Tool] = {}
         self._dashboard_events = dashboard_events
         self._state = state
         self._memory = memory
+        self._action_model_available = action_model_available
         self._scheduler = _Scheduler()
         self._register_common_tools()
 
@@ -169,6 +171,8 @@ class Toolkit:
         """
         if tool._unbound_method:
             raise TypeError("Register an instance's tool method, not an unbound method")
+        if tool.requires_action_model and not self._action_model_available:
+            return
         if tool.name in self._tools and not replace:
             raise ValueError(f"Tool already registered: {tool.name}")
         self._tools[tool.name] = tool
@@ -180,13 +184,12 @@ class Toolkit:
 
     def _register_common_tools(self) -> None:
         from rpent.tools.common import CommonTools
+
         declarations = iter_tools(CommonTools(memory=self._memory))
 
         if self._memory is None:
             # File tools require memory; only register finish.
-            self.add_tools(
-                item for item in declarations if item.name == "finish"
-            )
+            self.add_tools(item for item in declarations if item.name == "finish")
             return
 
         self._memory.check_layout()

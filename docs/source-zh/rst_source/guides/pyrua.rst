@@ -30,6 +30,8 @@ PyRUA 模式支持 ``api``、``claude_code``、``codex`` 和 ``gemini_cli`` 规�
 
 在标准 LIBERO 上加 ``--no-am`` 可关闭动作模型服务和工具。Python 代码通过 ``segment`` 和 ``back_project`` 定位，再用 ``move_to``、``move_pose``、``set_gripper`` 和 ``release`` 执行动作，根据返回的状态判断下一步。通过 ``SAM3_CHECKPOINT_PATH`` 指定本地权重，或用 ``--sam3-endpoint`` 连接已有服务。需要查看图片时显式调用 ``view_env_state``。
 
+RoboDojo 也支持 ``--no-am``，动作由原生 ARX-X5 控制接口执行。
+
 .. code-block:: bash
 
    rpent --robot libero --libero-type standard \

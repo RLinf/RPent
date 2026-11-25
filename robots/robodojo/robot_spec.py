@@ -34,10 +34,16 @@ from rpent.memory import MemoryManager
 from rpent.robots.components.am_runtime import (
     add_am_args,
     select_am,
+    select_optional_am,
 )
 from rpent.robots.prompt_bundle import PromptBundle
 from rpent.robots.robot_spec import RobotSpec, RunConfig
-from rpent.robots.runtime import stop_owned_daemons, try_spawn_server, try_wait_server
+from rpent.robots.runtime import (
+    select_runtime_components,
+    stop_owned_daemons,
+    try_spawn_server,
+    try_wait_server,
+)
 from rpent.utils.config import (
     add_cuda_device_arg,
     get_memory_dir,
@@ -75,7 +81,7 @@ ROBODOJO_DASHBOARD_SPEC: DashboardSpec = {
     "runtime_components": (
         {"name": "env", "label": "ENV", "scope": "unique"},
         {"name": "sam3", "label": "SAM3", "scope": "shared"},
-        {"name": "vla", "label": "VLA", "scope": "shared"},
+        {"name": "vla", "label": "VLA", "scope": "shared", "role": "action_model"},
     ),
     "frame_channels": (
         {
@@ -191,7 +197,9 @@ def get_robot_spec() -> RobotSpec:
     """Return the RoboDojo robot identity, prompt bundle, and runner hooks."""
     return RobotSpec(
         name="robodojo",
-        prompts=PromptBundle(system=system_prompt, user=user_prompt),
+        prompts=PromptBundle(
+            system=system_prompt, user=user_prompt, code_system=system_prompt
+        ),
         add_cli_args=_add_cli_args,
         parse_config=_parse_config,
         init_runtime=_init_runtime,
@@ -200,6 +208,7 @@ def get_robot_spec() -> RobotSpec:
         validate_args=_validate_args,
         finalize_run=finalize_run,
         supports_exploration=True,
+        supports_no_am=True,
     )
 
 
@@ -240,6 +249,11 @@ def _validate_args(args: argparse.Namespace) -> None:
     for name in ("seed", "layout", "explore_attempts_per_session"):
         if getattr(args, name, 0) < 0:
             raise ValueError(f"{name} must be nonnegative")
+
+    if getattr(args, "no_am", False):
+        if args.env_cfg_type != DEFAULT_ENV_CFG:
+            raise ValueError(f"--no-am requires {DEFAULT_ENV_CFG} native controls")
+        return
 
     backend = getattr(args, "am_backend", "vpp2")
     action_type = "ee" if backend == "vpp2" else "joint"
@@ -372,7 +386,7 @@ def _add_cli_args(parser: argparse.ArgumentParser, use_dashboard: bool) -> None:
 
 
 def _parse_config(args: argparse.Namespace) -> RunConfig:
-    am = select_am(args, "robodojo")
+    am = select_optional_am(args, "robodojo")
     from robots.robodojo import tasks as robodojo_tasks
 
     source_root = getattr(args, "source_root", None)
@@ -408,7 +422,7 @@ def _parse_config(args: argparse.Namespace) -> RunConfig:
             "reference_tag": f"{args.task}_s0_l0",
             "task_summary": summary,
             "memory_dir": str(memory_dir),
-            "vla_backend": am.backend,
+            "vla_backend": am.backend if am else None,
             "mode": "explore" if explore else "eval-fair" if eval_fair else "dev",
             **(
                 {
@@ -578,32 +592,23 @@ def _init_runtime(
     from robots.robodojo.env_client import RoboDojoEnvClient
     from rpent.robots.components.sam3_client import Sam3Client
 
-    am = select_am(args, "robodojo")
+    selected = {
+        component["name"]
+        for component in select_runtime_components(
+            args, ROBODOJO_DASHBOARD_SPEC["runtime_components"], components
+        )
+    }
+    am = select_optional_am(args, "robodojo")
     device = resolve_cuda_device(args, "env")
-    if am.backend == "awomo05":
-        from robots.robodojo.awomo05_client import Awomo05Client as VLAClient
-        from robots.robodojo.awomo05_server import model_paths
-
-        rpc_options = {"enable_sessions": True}
-        record_vpp2_history = False
-    elif am.backend == "vpp2":
-        from robots.robodojo.vpp2_client import VPP2Client as VLAClient
-        from robots.robodojo.vpp2_server import model_paths
-
-        rpc_options = {}
-        record_vpp2_history = True
-    else:
-        raise ValueError(f"unknown RoboDojo VLA backend: {am.backend}")
     starters = {
         "env": lambda: _spawn_env_server(args, output_dir),
-        "vla": lambda: _spawn_model_server(args, output_dir, rpc_options=rpc_options),
         "sam3": lambda: _spawn_sam3_server(args, output_dir),
     }
     connectors = {
         "env": lambda rpc: {
             "env": RoboDojoEnvClient(
                 rpc,
-                record_vpp2_history=record_vpp2_history,
+                record_vpp2_history=am is not None and am.backend == "vpp2",
                 expected_meta={
                     "action_protocol_version": 1,
                     "task": args.task,
@@ -622,28 +627,40 @@ def _init_runtime(
                 },
             )
         },
-        "vla": lambda rpc: {"vla_client": VLAClient(rpc)},
         "sam3": lambda rpc: {"sam3_client": Sam3Client(rpc)},
     }
     timeouts = {"env": 900.0, "sam3": 300.0, "vla": 1800.0}
     wait_order = ("env", "sam3", "vla")
-    selected = set(starters) if components is None else set(components)
-    unknown = selected.difference(starters)
-    if unknown:
-        raise ValueError(f"unknown RoboDojo runtime components: {sorted(unknown)}")
-    if "vla" in selected and am.endpoint is None:
-        model_paths(am.checkpoint)
+    if am is not None and "vla" in selected:
+        if am.backend == "awomo05":
+            from robots.robodojo.awomo05_client import Awomo05Client as VLAClient
+            from robots.robodojo.awomo05_server import model_paths
+
+            rpc_options = {"enable_sessions": True}
+        elif am.backend == "vpp2":
+            from robots.robodojo.vpp2_client import VPP2Client as VLAClient
+            from robots.robodojo.vpp2_server import model_paths
+
+            rpc_options = {}
+        else:
+            raise ValueError(f"unknown RoboDojo VLA backend: {am.backend}")
+        if am.endpoint is None:
+            model_paths(am.checkpoint)
+        starters["vla"] = lambda: _spawn_model_server(
+            args, output_dir, rpc_options=rpc_options
+        )
+        connectors["vla"] = lambda rpc: {"vla_client": VLAClient(rpc)}
 
     pending: dict[str, tuple[ProcessDaemon | None, RpcClient]] = {}
     owned_daemons: dict[str, ProcessDaemon] = {}
     try:
-        for component, starter in starters.items():
+        for component in ("env", "vla", "sam3"):
             if component in selected:
                 pending[component] = try_spawn_server(
                     owned_daemons,
                     dashboard_events,
                     component,
-                    starter,
+                    starters[component],
                 )
 
         primitives_kwargs: dict[str, Any] = {}
@@ -669,5 +686,5 @@ def _init_runtime(
         raise
 
     primitives_kwargs["task"] = args.task
-    primitives_kwargs["vla_backend"] = am.backend
+    primitives_kwargs["vla_backend"] = am.backend if am else None
     return list(owned_daemons.values()), primitives_kwargs

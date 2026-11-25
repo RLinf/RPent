@@ -14,7 +14,6 @@
 
 """Code-policy instructions for libero."""
 
-from rpent.prompt import code_policy as common
 from rpent.prompt.utils import PromptNode
 
 OBSERVATION_AND_TASK_SUCCESS = r"""
@@ -145,13 +144,11 @@ for scene data. Read the task instruction from the initial observation.
 def system_prompt(*, policy_kind: str | None = "vla") -> dict[str, PromptNode]:
     """Assemble code execution rules and libero operating knowledge."""
     prompt = {
-        **common.system_prompt(),
         "Observation and task success": OBSERVATION_AND_TASK_SUCCESS,
         "Frames, units, scene": FRAMES_UNITS_SCENE,
         "Gripper": GRIPPER,
         "Motion": MOTION,
         "Perception": PERCEPTION,
-        "API reference": "{{code_policy_api}}",
     }
     if policy_kind is None:
         prompt["Scripted grasp"] = SCRIPTED_GRASP

@@ -323,6 +323,28 @@ JSON 产物应使用 ``write_json_atomic``，避免中断写入留下不完整�
 
 通过 ``RobotSpec(..., finalize_run=_finalize_run)`` 注册回调。该钩子目前只用于普通终端运行，Dashboard 不会调用。benchmark manifest、机器人专用 runtime 字段和聚合逻辑应继续放在机器人目录中，而不是共享 CLI。
 
+无动作模型的代码策略
+~~~~~~~~~~~~~~~~~~~~
+
+共享 Python 运行时包装机器人的工具集。``PromptBundle`` 提供 Python
+执行说明和当前可调用的 ``robo.*`` 接口。通过可选的 ``code_system`` 回调
+补充机器人自己的操作知识。
+
+接入 ``--policy-mode code --no-am``：
+
+1. 机器人可以依靠原生控制与反馈完成任务时，声明
+   ``RobotSpec.supports_no_am=True``。
+2. 用 ``select_optional_am`` 解析动作模型。在组件声明中标记
+   ``role="action_model"``，并在运行时钩子中调用
+   ``select_runtime_components``。Dashboard 使用同一套筛选规则。
+   环境和感知组件按正常方式启动。
+3. 根据本次运行是否连接了模型，向 ``Toolkit`` 传入
+   ``action_model_available``。依赖模型的工具标记为
+   ``@tool(requires_action_model=True)``，由工具集统一控制其注册和调用。
+
+可参考 LIBERO 和 RoboDojo。测试应覆盖原生动作和观测，并确认关闭的模型
+不会被解析或启动。
+
 .. _add-robot-testing:
 
 6. 需要补充的测试

@@ -14,13 +14,9 @@
 
 """Code-policy instructions for franka."""
 
-from rpent.prompt import code_policy as common
 from rpent.prompt.utils import PromptNode
 
 
 def system_prompt() -> dict[str, PromptNode]:
     """Assemble code execution rules and franka operating knowledge."""
-    return {
-        **common.system_prompt(),
-        "API reference": "{{code_policy_api}}",
-    }
+    return {}

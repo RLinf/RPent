@@ -4,16 +4,19 @@
 """Persistent Python execution and cancellation across a real child process."""
 
 import threading
+from argparse import Namespace
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import pytest
 
+from rpent.cli.policy import planner_policy
 from rpent.code_policy.runtime import CodeSession
 from rpent.code_policy.toolkit import CodePolicyTools
 from rpent.dashboard.events import NullDashboardEventSink
 from rpent.memory import MemoryManager
 from rpent.prompt.code_policy import code_policy_api_reference
+from rpent.robots.prompt_bundle import PromptBundle
 from rpent.session import EnvState, Payload
 from rpent.session.env_capture import ToolCallCapture
 from rpent.tools import Toolkit, ToolResult, tool
@@ -76,6 +79,45 @@ def policy(tmp_path, monkeypatch):
 
 def _run(provider, code):
     return provider.execute_tool("python", {"code": code}).data
+
+
+def test_default_code_prompt_and_dispatch_without_model(tmp_path, monkeypatch):
+    monkeypatch.setattr(logging_module, "_output_dir", tmp_path)
+    robot = Toolkit(
+        dashboard_events=NullDashboardEventSink(),
+        state=EnvState(tmp_path / "state"),
+        memory=None,
+        action_model_available=False,
+    )
+
+    @tool(readonly=True)
+    def native_status() -> ToolResult:
+        return ToolResult(data={"ready": True})
+
+    @tool(readonly=True, requires_action_model=True)
+    def use_model() -> ToolResult:
+        pytest.fail("A disabled model tool was executed")
+
+    robot.add_tools((native_status, use_model))
+    args = Namespace(
+        policy_mode="code", code_timeout_s=10, code_max_calls=4, no_images=False
+    )
+    bundle = PromptBundle(
+        system=lambda _: "Use direct tools.", user=lambda _: "Observe."
+    )
+    with planner_policy(robot, args, tmp_path, {"policy_mode": "code"}) as (
+        policy,
+        variables,
+    ):
+        prompt = bundle.render("system", variables=variables)
+        assert "persistent Python session" in prompt
+        assert "robo.native_status" in prompt
+        assert "Use direct tools." not in prompt and "robo.use_model" not in prompt
+        assert (
+            _run(policy, 'print(robo.native_status()["ready"])')["stdout"] == "True\n"
+        )
+        assert _run(policy, "robo.use_model()")["exception"]["type"] == "AttributeError"
+        assert robot.execute_tool("use_model", {}).is_error
 
 
 def test_variables_survive_python_exceptions(policy):

@@ -14,7 +14,6 @@
 
 """Code-policy instructions for robodojo."""
 
-from rpent.prompt import code_policy as common
 from rpent.prompt.utils import PromptNode
 
 OBSERVE_AND_LOCALIZE = r"""
@@ -43,10 +42,8 @@ and fresh visual evidence; do not assume a full stroke or an adjustable opening.
 """
 
 SKILLS_AND_FEEDBACK = r"""
-Use `pi0_pick` for grasping when registered. Treat its success signal as a
-provisional heuristic, then verify the object in the wrist/head images and
-whether it moves with the arm. Use bounded recovery: change the description,
-approach or staging after a failure, rather than repeating the same attempt.
+Verify the grasp in the wrist and head images and check that the object moves
+with the arm. After a failed grasp, adjust the approach or staging before retrying.
 The original motion result is in the returned observation's `log.result`.
 Check its error/outcome fields and the observation after every step.
 """
@@ -80,11 +77,9 @@ failure/stuck when no justified recovery remains.
 def system_prompt() -> dict[str, PromptNode]:
     """Assemble code execution rules and robodojo operating knowledge."""
     return {
-        **common.system_prompt(),
         "Observe and localize": OBSERVE_AND_LOCALIZE,
         "Motion and gripper": MOTION_AND_GRIPPER,
         "Skills and feedback": SKILLS_AND_FEEDBACK,
         "Judging progress": JUDGING_PROGRESS,
         "Recovery and budget": RECOVERY_AND_BUDGET,
-        "API reference": "{{code_policy_api}}",
     }

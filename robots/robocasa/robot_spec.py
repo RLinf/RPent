@@ -213,6 +213,7 @@ def get_robot_spec() -> RobotSpec:
         prompts=PromptBundle(
             system=system_prompt,
             user=user_prompt,
+            code_system=system_prompt,
         ),
         add_cli_args=_add_cli_args,
         parse_config=_parse_config,

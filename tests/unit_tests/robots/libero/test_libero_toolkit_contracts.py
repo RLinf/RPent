@@ -37,6 +37,7 @@ from rpent.memory import MemoryManager
 from rpent.prompt.utils import Numbered
 from rpent.robots import RunConfig
 from rpent.robots.components.sam3_client import Sam3Result
+from rpent.robots.runtime import select_runtime_components
 from rpent.session import EnvState
 from rpent.tools import Toolkit, ToolResult
 from rpent.tools.common import CommonTools
@@ -153,7 +154,9 @@ def test_no_am_runtime_starts_only_environment_and_sam3(tmp_path, monkeypatch, b
     assert config.task_desc["policy_backend"] is None
     components = {
         component["name"]
-        for component in spec.resolve_dashboard(args)["runtime_components"]
+        for component in select_runtime_components(
+            args, spec.resolve_dashboard(args)["runtime_components"]
+        )
     }
     assert {"env", "sam3"} <= components
     assert components.isdisjoint({"wam", "vla"})

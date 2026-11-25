@@ -149,6 +149,7 @@ class Tool(Generic[ParamsT]):
     readonly: bool = False
     _unbound_method: bool = False
     action_source: Literal["tool_computed", "direct"] = "tool_computed"
+    requires_action_model: bool = False
 
     @property
     def input_schema(self) -> dict[str, Any]:
@@ -178,6 +179,7 @@ def tool(
     *,
     name: str | None = None,
     readonly: bool = False,
+    requires_action_model: bool = False,
     exclude: tuple[str, ...] = (),
     json_schema_extra: dict[str, Any] | None = None,
 ) -> Any:
@@ -192,7 +194,8 @@ def tool(
 
     name overrides the published tool name. exclude names internal resources
     supplied by the caller. Parameters without defaults are required.
-    json_schema_extra supplies root-level schema metadata.
+    json_schema_extra supplies root-level schema metadata. requires_action_model
+    gates registration when the toolkit has no action model.
     """
     namespace = dict(sys._getframe(1).f_locals)
     if function is None:
@@ -202,6 +205,7 @@ def tool(
             namespace,
             tool_name=name,
             readonly=readonly,
+            requires_action_model=requires_action_model,
             json_schema_extra=json_schema_extra,
         )
     return _declare_tool(
@@ -210,6 +214,7 @@ def tool(
         namespace,
         tool_name=name,
         readonly=readonly,
+        requires_action_model=requires_action_model,
         json_schema_extra=json_schema_extra,
     )
 
@@ -221,6 +226,7 @@ def _declare_tool(
     *,
     tool_name: str | None,
     readonly: bool,
+    requires_action_model: bool,
     json_schema_extra: dict[str, Any] | None,
 ) -> Tool:
     parameters = dict(inspect.signature(function).parameters)
@@ -295,6 +301,7 @@ def _declare_tool(
         handler=function,
         _input_schema=input_schema,
         readonly=readonly,
+        requires_action_model=requires_action_model,
         _unbound_method=unbound_method,
     )
 

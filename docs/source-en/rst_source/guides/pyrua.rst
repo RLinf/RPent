@@ -44,6 +44,7 @@ via either the CLI or the Dashboard. It cannot be combined with
 memory or generate an action recipe.
 
 On standard LIBERO, add ``--no-am`` to disable action model services and tools.
+RoboDojo also supports ``--no-am`` with its native ARX-X5 controls.
 The Python cell localizes objects with ``segment`` and ``back_project``,
 then checks motion and grasp feedback while calling ``move_to``, ``move_pose``,
 ``set_gripper``, and ``release``. Set ``SAM3_CHECKPOINT_PATH`` for a local server

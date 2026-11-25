@@ -35,6 +35,7 @@ from rpent.evaluation import RunFinalizationContext
 from rpent.memory import MemoryManager
 from rpent.planner.base import build_planner, is_recoverable_agent_error
 from rpent.robots import get_toolkit
+from rpent.robots.runtime import select_runtime_components
 from rpent.session.planner_capture import end_planner_task, start_planner_task
 from rpent.utils.config import get_memory_dir
 from rpent.utils.logging import get_logger, init_output_dir
@@ -73,10 +74,8 @@ def run_dashboard_session(
     from rpent.dashboard.state import DashboardState
     from rpent.utils.config import get_repo_root
 
-    runtime_components = tuple(
-        component
-        for component in dashboard_spec["runtime_components"]
-        if not component.get("planners") or args.planner in component["planners"]
+    runtime_components = select_runtime_components(
+        args, dashboard_spec["runtime_components"]
     )
     dashboard_spec = {**dashboard_spec, "runtime_components": runtime_components}
     shared_components = {

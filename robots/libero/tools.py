@@ -171,7 +171,7 @@ class LiberoPrimitives:
                 self.record_frame(obs)
         return self._last_obs
 
-    @tool
+    @tool(requires_action_model=True)
     def wam_act(
         self,
         prompt: Annotated[str, Field(min_length=1)] | None = None,
@@ -206,7 +206,7 @@ class LiberoPrimitives:
             }
         )
 
-    @tool
+    @tool(requires_action_model=True)
     def pi0_pick(
         self,
         prompt: str,
@@ -293,7 +293,7 @@ class LiberoPrimitives:
             }
         )
 
-    @tool
+    @tool(requires_action_model=True)
     def pi0_doubled(self, prompt: str, *, max_chunks: int = 20) -> ToolResult:
         """Pi0.5 closed-loop contact skill for non-pick interactions (e.g. stove/knob/button/short push). Returned success/task_success only mirrors official termination; for intermediate contact skills, success=false does not necessarily mean the contact interaction failed. Inspect image/state evidence. Do not use it as a general pick/place shortcut.
 

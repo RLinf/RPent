@@ -14,7 +14,6 @@
 
 """Code-policy instructions for robocasa."""
 
-from rpent.prompt import code_policy as common
 from rpent.prompt.utils import PromptNode
 
 OBSERVATION_AND_TASK_SUCCESS = r"""
@@ -220,7 +219,6 @@ RECOVERY_AND_BUDGET = r"""
 def system_prompt() -> dict[str, PromptNode]:
     """Assemble code execution rules and robocasa operating knowledge."""
     return {
-        **common.system_prompt(),
         "Observation and task success": OBSERVATION_AND_TASK_SUCCESS,
         "Frames, units, robot": FRAMES_UNITS_ROBOT,
         "Gripper": GRIPPER,
@@ -230,5 +228,4 @@ def system_prompt() -> dict[str, PromptNode]:
         "Perception": PERCEPTION,
         "Observable gates": OBSERVABLE_GATES,
         "Recovery and budget": RECOVERY_AND_BUDGET,
-        "API reference": "{{code_policy_api}}",
     }

@@ -34,11 +34,16 @@ from rpent.robots.components.am_runtime import (
     AMConfig,
     add_am_args,
     select_am,
+    select_optional_am,
     start_wam_service,
 )
 from rpent.robots.prompt_bundle import PromptBundle
 from rpent.robots.robot_spec import RobotSpec, RunConfig
-from rpent.robots.runtime import try_spawn_server, try_wait_server
+from rpent.robots.runtime import (
+    select_runtime_components,
+    try_spawn_server,
+    try_wait_server,
+)
 from rpent.utils.config import (
     add_cuda_device_arg,
     get_memory_dir,
@@ -85,11 +90,12 @@ def _resolve_dashboard(args: argparse.Namespace) -> DashboardSpec:
         },
         "runtime_components": (
             {"name": "env", "label": "ENV", "scope": "unique"},
-            *(
-                ({"name": kind, "label": kind.upper(), "scope": "shared"},)
-                if not no_am
-                else ()
-            ),
+            {
+                "name": kind,
+                "label": kind.upper(),
+                "scope": "shared",
+                "role": "action_model",
+            },
             {"name": "sam3", "label": "SAM3", "scope": "shared"},
             {
                 "name": "molmo",
@@ -156,6 +162,7 @@ def get_robot_spec() -> RobotSpec:
         prompts=PromptBundle(
             system=system_prompt,
             user=user_prompt,
+            code_system=system_prompt,
         ),
         add_cli_args=_add_cli_args,
         parse_config=_parse_config,
@@ -333,7 +340,7 @@ def _parse_config(args: argparse.Namespace) -> RunConfig:
     no_am = getattr(args, "no_am", False)
     if no_am and args.libero_type != "standard":
         raise ValueError("--no-am supports standard LIBERO")
-    am = None if no_am else select_am(args, "libero")
+    am = select_optional_am(args, "libero")
     wam = am if am is not None and am.is_wam else None
     policy_kind = None if no_am else "wam" if wam else "vla"
     policy_backend = am.backend if am is not None else None
@@ -645,8 +652,14 @@ def _init_runtime(
         "sam3": lambda rpc: {"sam3_client": Sam3Client(rpc)},
         "molmo": lambda rpc: _molmo_clients(args, rpc),
     }
+    selected = {
+        component["name"]
+        for component in select_runtime_components(
+            args, _resolve_dashboard(args)["runtime_components"], components
+        )
+    }
     wait_order = ["env", "sam3", "molmo"]
-    if not getattr(args, "no_am", False):
+    if selected.intersection({"vla", "wam"}):
         am = select_am(args, "libero")
         wam = am if am.is_wam else None
         policy_kind = "wam" if wam else "vla"
@@ -657,14 +670,6 @@ def _init_runtime(
         )
         connectors[policy_kind] = lambda rpc: {"model": _make_model_client(rpc, wam)}
         wait_order.append(policy_kind)
-    selected = set(starters) if components is None else set(components)
-    if getattr(args, "planner", None) != "flash" and not getattr(
-        args, "geometry", False
-    ):
-        selected.discard("molmo")
-    unknown = selected.difference(starters)
-    if unknown:
-        raise ValueError(f"unknown LIBERO runtime components: {sorted(unknown)}")
 
     pending: dict[str, tuple[ProcessDaemon | None, RpcClient]] = {}
     owned_daemons: dict[str, ProcessDaemon] = {}

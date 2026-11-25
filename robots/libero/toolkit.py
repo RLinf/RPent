@@ -75,6 +75,7 @@ class LiberoToolkit(Toolkit):
             dashboard_events=dashboard_events,
             state=state,
             memory=memory,
+            action_model_available=policy_kind is not None,
         )
         self._mode = mode
         self._policy_kind = policy_kind
@@ -144,11 +145,9 @@ class LiberoToolkit(Toolkit):
             self.add_tool(
                 definition.with_handler(partial(definition, state=self._state))
             )
-        excluded = {
-            "vla": {"wam_act"},
-            "wam": {"pi0_pick", "pi0_doubled"},
-            None: {"pi0_pick", "pi0_doubled", "wam_act"},
-        }[self._policy_kind]
+        excluded = (
+            {"pi0_pick", "pi0_doubled"} if self._policy_kind == "wam" else {"wam_act"}
+        )
         for definition in iter_tools(self._primitives):
             if generic_tools and definition.name == "segment":
                 continue

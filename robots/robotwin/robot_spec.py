@@ -249,7 +249,9 @@ def _resolve_dashboard(args: argparse.Namespace) -> DashboardSpec:
 def get_robot_spec() -> RobotSpec:
     return RobotSpec(
         name="robotwin",
-        prompts=PromptBundle(system=system_prompt, user=user_prompt),
+        prompts=PromptBundle(
+            system=system_prompt, user=user_prompt, code_system=system_prompt
+        ),
         add_cli_args=_add_cli_args,
         parse_config=_parse_config,
         init_runtime=_init_runtime,

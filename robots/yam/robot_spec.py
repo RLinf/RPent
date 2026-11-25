@@ -86,7 +86,9 @@ def get_robot_spec() -> RobotSpec:
         supports_exploration=True,
         is_real_robot=True,
         finalize_run=finalize_run,
-        prompts=PromptBundle(system=system_prompt, user=user_prompt),
+        prompts=PromptBundle(
+            system=system_prompt, user=user_prompt, code_system=system_prompt
+        ),
         add_cli_args=_add_cli_args,
         parse_config=_parse_config,
         init_runtime=_init_runtime,

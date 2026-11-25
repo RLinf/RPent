@@ -24,6 +24,7 @@ from __future__ import annotations
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 
+from rpent.prompt.code_policy import system_prompt as code_policy_system_prompt
 from rpent.prompt.utils import PromptNode, format_prompt
 
 PromptFactory = Callable[..., PromptNode]
@@ -35,6 +36,8 @@ class PromptBundle:
 
     system: PromptFactory
     user: PromptFactory
+    #: Optional robot-specific operating knowledge for Python mode.
+    code_system: PromptFactory | None = None
 
     def render(
         self,
@@ -43,5 +46,14 @@ class PromptBundle:
         variables: Mapping[str, object] | None = None,
     ) -> str:
         """Render one prompt variant (``"system"`` or ``"user"``)."""
-        prompt = getattr(self, variant)(variables)
+        if variant == "system" and (variables or {}).get("policy_mode") == "code":
+            prompt = {
+                **code_policy_system_prompt(),
+                "Robot operating knowledge": self.code_system(variables)
+                if self.code_system
+                else None,
+                "API reference": "{{code_policy_api}}",
+            }
+        else:
+            prompt = getattr(self, variant)(variables)
         return format_prompt(prompt, variables=variables)

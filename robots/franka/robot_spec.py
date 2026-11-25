@@ -81,7 +81,9 @@ def get_robot_spec() -> RobotSpec:
     return RobotSpec(
         name="franka",
         run_flash=replay_card,
-        prompts=PromptBundle(system=system_prompt, user=user_prompt),
+        prompts=PromptBundle(
+            system=system_prompt, user=user_prompt, code_system=system_prompt
+        ),
         add_cli_args=_add_cli_args,
         parse_config=_parse_config,
         init_runtime=_init_runtime,
