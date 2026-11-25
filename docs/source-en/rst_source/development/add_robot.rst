@@ -263,36 +263,21 @@ modules use the same seven system prompt sections defined in ``workflow.py``.
 - ``RECOVERY AND BUDGET`` — Decide when to correct, retry or stop.
 - ``SUCCESS AND REPORTING`` — Check the verdict and record the outcome.
 
-Follow RoboTwin's layout for each robot's ``prompts/`` directory:
+Organize robot-specific prompts under ``robots/<robot>/prompts/`` as follows:
 
 - ``system.py`` holds the robot's common system instructions and evaluation
   rules, such as camera views, coordinate frames and the native success signal.
 - ``explore.py`` holds additions specific to exploration on this robot, such as
   which records to save before a reset and where to write handoff notes.
 - ``action_models.py`` keeps each action model's instruction format, chunk
-  length and history rules together. For example, RoboTwin's LingBot requires
-  the full task instruction, while UniWAM can run the native task with the
-  instruction omitted.
+  length and history rules together.
 - ``user.py`` defines the per-run task fields in ``TASK`` and the startup
   instruction in ``BEGIN``.
 
 In ``robots/<robot>/prompt_bundle.py``, select the shared workflow for the
 run mode and append the robot's instructions to the corresponding sections.
 Pass the active model's guidance through ``action_model_guidance`` to append
-it to ``ACTION AND VERIFICATION``. This excerpt shows how RoboTwin supplies
-the startup sequence and model guidance for a LingBot evaluation.
-
-.. code-block:: python
-
-   from robots.robotwin.prompts import action_models, system, user
-   from rpent.prompt import evaluate
-   from rpent.prompt.workflow import user_prompt
-
-   system_sections = evaluate.system_prompt(
-       initialization=system.READ_ORDER,
-       action_model_guidance=action_models.GUIDANCE["lingbot"],
-   )
-   user_sections = user_prompt(user.TASK, user.BEGIN)
+it to ``ACTION AND VERIFICATION``.
 
 .. _add-robot-toolkit:
 

@@ -199,26 +199,14 @@ RPent 的整体进程划分、服务职责和通信方式见 :doc:`系统说明 
 - ``RECOVERY AND BUDGET`` — 根据剩余预算决定何时纠偏、重试或停止。
 - ``SUCCESS AND REPORTING`` — 核对环境判定并记录结果。
 
-按 RoboTwin 的目录结构组织每个机器人的 ``prompts/``：
+在 ``robots/<robot>/prompts/`` 下按职责组织提示词：
 
 - ``system.py`` 放机器人共用的系统说明和评测专用规则，例如相机视角、坐标系和原生成功信号。
 - ``explore.py`` 放该机器人在探索模式下追加的规则，例如重置前要保存哪些记录、交接笔记写到哪里。
-- ``action_models.py`` 按动作模型分别维护调用约定，包括输入指令、动作块长度和历史状态。例如 RoboTwin 的 LingBot 要求传入完整任务指令，UniWAM 则允许省略指令来执行原任务。
+- ``action_models.py`` 按动作模型分别维护调用约定，包括输入指令、动作块长度和历史状态。
 - ``user.py`` 定义本轮任务字段 ``TASK`` 和启动指令 ``BEGIN``。
 
-``robots/<robot>/prompt_bundle.py`` 负责组装。它根据本轮模式选择公共工作流，将机器人专用说明追加到对应分节，并通过 ``action_model_guidance`` 将当前动作模型的调用约定追加到 ``ACTION AND VERIFICATION``。下面以 RoboTwin 的 LingBot 评测为例，展示启动顺序和模型说明的接法。
-
-.. code-block:: python
-
-   from robots.robotwin.prompts import action_models, system, user
-   from rpent.prompt import evaluate
-   from rpent.prompt.workflow import user_prompt
-
-   system_sections = evaluate.system_prompt(
-       initialization=system.READ_ORDER,
-       action_model_guidance=action_models.GUIDANCE["lingbot"],
-   )
-   user_sections = user_prompt(user.TASK, user.BEGIN)
+``robots/<robot>/prompt_bundle.py`` 负责组装。它根据本轮模式选择公共工作流，将机器人专用说明追加到对应分节，并通过 ``action_model_guidance`` 将当前动作模型的调用约定追加到 ``ACTION AND VERIFICATION``。
 
 .. _add-robot-toolkit:
 
