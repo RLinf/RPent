@@ -198,8 +198,10 @@ def test_generic_localization_is_registered_with_libero_observations(
         memory=MemoryManager(tmp_path / "memory"),
         state_output_dir=tmp_path / "state",
     )
-    assert _tool_names(tk) == EVALUATION_TOOLS | ({"geometry"} if enabled else set())
-    assert {"back_project", "segment"} <= _readonly_names(tk)
+    assert _tool_names(tk) == (
+        EVALUATION_TOOLS | {"spatial_relation"} | ({"geometry"} if enabled else set())
+    )
+    assert {"back_project", "segment", "spatial_relation"} <= _readonly_names(tk)
     if enabled:
         assert "geometry" in _readonly_names(tk)
         schema = tk._tools["geometry"].input_schema["properties"]
@@ -253,6 +255,26 @@ def test_generic_localization_is_registered_with_libero_observations(
         segmented.data["found"]
         and segmented.data["evidence_status"] == "identity_unchecked"
     )
+    relation = tk.execute_tool(
+        "spatial_relation",
+        {
+            "camera": "agentview",
+            "step": step,
+            "reference": {
+                "xyz": selected.data["samples_xyz"][0],
+                "world_frame_id": selected.data["world_frame_id"],
+            },
+            "target": {"segment_artifact": segmented.data["segment_artifact"]},
+            "forward_xyz": [1, 0, 0],
+        },
+    )
+    assert relation.data["target"]["xyz"] == [1, 1, 1]
+    assert relation.data["height_delta_m"] == 0.25
+    assert relation.data["directions"] == {
+        "front_back": "front",
+        "left_right": "left",
+        "above_below": "above",
+    }
     assert tk.state.latest_step == step
 
 
@@ -325,6 +347,7 @@ def test_generic_tools_and_geometry_are_opt_in(
             "system", variables={**config.prompt_vars, "output_dir": str(tmp_path)}
         )
         assert ("points_rc" in prompt and "box_rc" in prompt) is generic
+        assert ("Use spatial_relation" in prompt) is generic
         assert ('back_project({"row":' in prompt) is not generic
         assert ("mutually exclusive" in prompt) is not generic
         assert ("For geometry, give query" in prompt) is geometry
@@ -342,6 +365,12 @@ def test_generic_tools_and_geometry_are_opt_in(
             state_output_dir=tmp_path / "state",
         )
         schemas = {tool.name: tool.args_schema for tool in tk.list_tools()}
+        assert ("spatial_relation" in schemas) is generic
+        if generic:
+            assert (
+                not {"observations", "state"}
+                & schemas["spatial_relation"].model_fields.keys()
+            )
         examples = re.findall(
             r"\b(back_project|segment|geometry)\((\{.*?\})\)", prompt, re.S
         )

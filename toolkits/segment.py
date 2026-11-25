@@ -36,6 +36,8 @@ from toolkits.observation import (
 if TYPE_CHECKING:
     from rpent.robots.components.sam3_client import Sam3Result
 
+MIN_MASK_METRIC_SAMPLES = 10
+
 
 class Segmenter(Protocol):
     """Produce masks using text or a positive row/column point prompt."""
@@ -215,7 +217,7 @@ class SegmentTool:
                     n_valid=n_valid,
                     definition="visible_mask_coordinate_median",
                 )
-                if n_valid >= 10:
+                if n_valid >= MIN_MASK_METRIC_SAMPLES:
                     data["world_xyz"] = np.median(
                         observation.world_xyz[valid], axis=0
                     ).tolist()
