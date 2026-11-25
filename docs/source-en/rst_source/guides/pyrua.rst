@@ -43,6 +43,13 @@ via either the CLI or the Dashboard. It cannot be combined with
 ``--planner flash`` or ``--explore``. PyRUA mode does not load task
 memory or generate an action recipe.
 
+PyRUA runs on Linux with Bubblewrap (``bwrap``) and user namespaces enabled.
+On Ubuntu, install it with ``sudo apt install bubblewrap``.
+The worker can write to ``code_policy/scratch/`` and import the Python
+standard library and NumPy. The host workspace, environment variables and
+network are outside the worker. Planner shell permissions are configured
+separately from the Python worker.
+
 On standard LIBERO, add ``--no-am`` to disable action model services and tools.
 RoboDojo also supports ``--no-am`` with its native ARX-X5 controls.
 The Python cell localizes objects with ``segment`` and ``back_project``,

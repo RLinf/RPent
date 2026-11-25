@@ -28,6 +28,8 @@
 
 PyRUA 模式支持 ``api``、``claude_code``、``codex`` 和 ``gemini_cli`` 规划器，可通过 CLI 和 Dashboard 启动，不能与 ``--planner flash`` 或 ``--explore`` 一起使用。PyRUA 模式不加载任务记忆，也不生成动作序列（recipe）。
 
+PyRUA 需要安装 Bubblewrap（``bwrap``）并启用用户命名空间的 Linux 环境。在 Ubuntu 上可用 ``sudo apt install bubblewrap`` 安装。Python worker 可以写入 ``code_policy/scratch/``，并导入 Python 标准库和 NumPy。宿主机工作区、环境变量和网络均与 worker 隔离。规划器的 Shell 权限独立配置。
+
 在标准 LIBERO 上加 ``--no-am`` 可关闭动作模型服务和工具。Python 代码通过 ``segment`` 和 ``back_project`` 定位，再用 ``move_to``、``move_pose``、``set_gripper`` 和 ``release`` 执行动作，根据返回的状态判断下一步。通过 ``SAM3_CHECKPOINT_PATH`` 指定本地权重，或用 ``--sam3-endpoint`` 连接已有服务。需要查看图片时显式调用 ``view_env_state``。
 
 RoboDojo 也支持 ``--no-am``，动作由原生 ARX-X5 控制接口执行。

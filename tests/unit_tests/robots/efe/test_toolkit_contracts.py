@@ -16,9 +16,14 @@
 
 from __future__ import annotations
 
+from argparse import Namespace
+
+from robots.efe.robot_spec import get_toolkit
 from robots.efe.toolkit import EfeToolkit
+from rpent.cli.policy import configure_policy
 from rpent.dashboard.events import NullDashboardEventSink
 from rpent.memory.manager import MemoryManager
+from rpent.robots.robot_spec import RunConfig
 from rpent.utils.logging import init_output_dir
 
 READ_ONLY_EFE_TOOLS = [
@@ -81,6 +86,27 @@ def test_raw_only_mode_hides_skills(tmp_path, efe_client):
         *RAW_EFE_TOOLS,
         "view_env_state",
     ]
+
+
+def test_code_policy_builds_efe_toolkit_without_memory(tmp_path, efe_client):
+    init_output_dir(tmp_path)
+    config = configure_policy(
+        RunConfig(
+            "test", tmp_path, {"skills": False, "memory_dir": tmp_path / "memory"}, {}
+        ),
+        Namespace(policy_mode="code"),
+    )
+    toolkit = get_toolkit(
+        runtime_kwargs={"client": efe_client},
+        dashboard_events=NullDashboardEventSink(),
+        config=config,
+    )
+    assert toolkit.memory is None
+    assert {item.name for item in toolkit.list_tools()} == {
+        "finish",
+        *RAW_EFE_TOOLS,
+        "view_env_state",
+    }
 
 
 def test_incompatible_layout_skips_skills_and_records_the_reason(tmp_path, efe_client):

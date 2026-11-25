@@ -3,14 +3,18 @@
 
 """Persistent Python execution and cancellation across a real child process."""
 
+import socket
 import threading
+import time
 from argparse import Namespace
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
 from rpent.cli.policy import planner_policy
+from rpent.code_policy import runtime
 from rpent.code_policy.runtime import CodeSession
 from rpent.code_policy.toolkit import CodePolicyTools
 from rpent.dashboard.events import NullDashboardEventSink
@@ -133,6 +137,33 @@ def test_variables_survive_python_exceptions(policy):
     assert robot.cancel_count == 0
 
 
+def test_worker_isolates_files_environment_and_network(policy, tmp_path, monkeypatch):
+    provider, _ = policy
+    marker = tmp_path / "host-only"
+    marker.write_text("test", encoding="utf-8")
+    monkeypatch.setenv("RPENT_TEST_HOST_ONLY", "test")
+    with socket.create_server(("127.0.0.1", 0)) as listener:
+        result = _run(
+            provider,
+            "import os, socket\n"
+            "from pathlib import Path\n"
+            "import numpy as np\n"
+            "Path('cell-data').write_text('scratch')\n"
+            f"print(Path({str(marker)!r}).exists())\n"
+            "print('RPENT_TEST_HOST_ONLY' in os.environ)\n"
+            "try:\n"
+            f"    socket.create_connection({listener.getsockname()!r}, timeout=1).close()\n"
+            "except OSError:\n"
+            "    print('network isolated')\n"
+            "print(robo.move(distance=np.int64(2))['distance'])",
+        )
+    assert result["exception"] is None
+    assert result["stdout"] == "False\nFalse\nnetwork isolated\n2\n"
+    assert (
+        _run(provider, "print(Path('cell-data').read_text())")["stdout"] == "scratch\n"
+    )
+
+
 def test_cell_captures_each_primitive_once_and_returns_latest_feedback(policy):
     provider, robot = policy
     state = robot.state
@@ -229,6 +260,43 @@ def test_repeated_stop_notifies_once_until_resumed(tmp_path):
         assert result["stdout"] == "False\n"
         session.cancel()
         assert notifications == ["stop", "stop"]
+    finally:
+        session.close()
+
+
+def test_cancel_at_cell_completion_keeps_session_stopped(tmp_path, monkeypatch):
+    session = CodeSession(tools=[], dispatch=lambda *_: {}, workspace=tmp_path)
+    reached = threading.Event()
+    release = threading.Event()
+    calls = 0
+
+    def pause_at_elapsed_time():
+        nonlocal calls
+        calls += 1
+        if calls == 2:
+            reached.set()
+            assert release.wait(3)
+        return time.monotonic()
+
+    monkeypatch.setattr(
+        runtime, "time", SimpleNamespace(monotonic=pause_at_elapsed_time)
+    )
+    try:
+        with ThreadPoolExecutor(max_workers=1) as pool:
+            running = pool.submit(session.execute, "x = 41", timeout_s=5)
+            try:
+                assert reached.wait(3)
+                session.cancel()
+            finally:
+                release.set()
+            running.result(timeout=3)
+        with pytest.raises(RuntimeError, match="resume it first"):
+            session.execute("print(1)", timeout_s=3)
+        session.resume()
+        assert (
+            session.execute("print('x' in globals())", timeout_s=3)["stdout"]
+            == "False\n"
+        )
     finally:
         session.close()
 

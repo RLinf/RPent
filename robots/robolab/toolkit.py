@@ -39,7 +39,7 @@ class RoboLabToolkit(Toolkit):
         env: Any,
         model: Any | None,
         dashboard_events: DashboardEventSink,
-        memory: MemoryManager,
+        memory: MemoryManager | None,
         output_dir: Path,
     ) -> None:
         self.env = env

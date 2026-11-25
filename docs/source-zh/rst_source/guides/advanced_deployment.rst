@@ -182,4 +182,4 @@ Code as Policy（可选）
 
 模型通过 ``robo.finish(...)`` 结束任务，finish 成功后同一段代码中后面的语句不会再执行。``request_scene_reset``、``request_operator_verdict`` 等操作员请求仍是 Python 之外的独立工具，因为等待操作员的时间可能超过单段代码的时间限制。
 
-该模式使用单独的提示词，不读取任务记忆，也不生成 recipe；支持 ``api``、``claude_code`` 和 ``codex`` planner，不支持 ``flash``，也不能与 ``--explore`` 一起使用。不加这个参数时，仍使用默认的工具调用模式。
+该模式使用单独的提示词，不读取任务记忆，也不生成 recipe。支持 ``api``、``claude_code``、``codex`` 和 ``gemini_cli`` 规划器，不能与 ``--planner flash`` 或 ``--explore`` 一起使用。省略此参数可使用默认的工具调用模式。Python worker 的 Linux 和 Bubblewrap 环境要求见 :doc:`pyrua`。

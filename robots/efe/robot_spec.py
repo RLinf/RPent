@@ -70,11 +70,13 @@ def get_toolkit(
     """Build the EFE toolkit over the connected service client."""
     from robots.efe.toolkit import EfeToolkit
 
-    memory = MemoryManager(
-        root=config.prompt_vars["memory_dir"],
-        memory_access="inbox_write" if mode == "exploration" else "read_only",
-        inbox_cell_tag=config.recipe_tag if mode == "exploration" else None,
-    )
+    memory = None
+    if config.use_memory:
+        memory = MemoryManager(
+            root=config.prompt_vars["memory_dir"],
+            memory_access="inbox_write" if mode == "exploration" else "read_only",
+            inbox_cell_tag=config.recipe_tag if mode == "exploration" else None,
+        )
     return EfeToolkit(
         client=runtime_kwargs["client"],
         dashboard_events=dashboard_events,

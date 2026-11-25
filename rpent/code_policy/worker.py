@@ -139,7 +139,9 @@ class _Robot:
 
 def main() -> None:
     """Serve sequential cells until the host closes its pipe or kills the worker."""
+    sys.path.append("/packages")
     channel = _Channel()
+    channel.send({"kind": "ready"})
     namespace: dict[str, Any] = {"__name__": "__policy__"}
     while True:
         try:

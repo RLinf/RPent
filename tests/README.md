@@ -63,6 +63,9 @@ Unit tests must run offline on an ordinary CPU machine. They may cross a real
 local boundary, such as a loopback TCP connection or child process, but must
 not contact external services.
 
+The Python worker tests require Linux with user namespaces and Bubblewrap
+(`sudo apt install bubblewrap` on Ubuntu).
+
 Run the complete suite with:
 
 ```bash

@@ -19,13 +19,13 @@ from __future__ import annotations
 import enum
 import math
 import subprocess
-import sys
 import threading
 import time
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
+from rpent.code_policy.sandbox import worker_command
 from rpent.code_policy.worker import encode_message, read_message
 
 MAX_SOURCE_BYTES = 64 * 1024
@@ -48,7 +48,6 @@ class CodeSession:
     Python and calls ``on_interrupt`` once outside the session lock; the callback
     may wait for host operations to drain. ``execute`` returns only after the
     in-flight dispatch finishes. Killing Python does not stop a physical robot.
-    This process is not a security sandbox.
     """
 
     def __init__(
@@ -78,10 +77,11 @@ class CodeSession:
 
     def _start(self) -> subprocess.Popen[bytes]:
         # Called under the state lock so cancel cannot miss a newly started worker.
-        self._workspace.mkdir(parents=True, exist_ok=True)
+        scratch = self._workspace / "scratch"
+        scratch.mkdir(parents=True, exist_ok=True)
         with (self._workspace / "worker.stderr.log").open("ab") as diagnostics:
             process = subprocess.Popen(
-                [sys.executable, "-u", str(Path(__file__).with_name("worker.py"))],
+                worker_command(scratch),
                 stdin=subprocess.PIPE,
                 stdout=subprocess.PIPE,
                 stderr=diagnostics,
@@ -137,6 +137,7 @@ class CodeSession:
                         _State.STOPPED: "Code session was interrupted; resume it first",
                     }.get(self._state, "A Python cell is already running")
                 )
+            starting = self._process is None
             process = self._process or self._start()
             self._state = _State.RUNNING
             self._cell += 1
@@ -154,6 +155,15 @@ class CodeSession:
         try:
             (self._workspace / filename).write_text(code, encoding="utf-8")
             assert process.stdin is not None and process.stdout is not None
+            if starting:
+                try:
+                    ready = read_message(process.stdout)
+                except EOFError as exc:
+                    raise RuntimeError(
+                        "Python worker sandbox failed to start; see worker.stderr.log"
+                    ) from exc
+                if ready.get("kind") != "ready":
+                    raise ValueError("Expected Python worker startup confirmation")
             process.stdin.write(
                 encode_message(
                     {
@@ -191,6 +201,9 @@ class CodeSession:
             with self._condition:
                 interrupted = self._state is _State.STOPPING
                 interruption, timed_out = self._interruption, self._timed_out
+                if not interrupted:
+                    self._state = _State.IDLE
+                    self._condition.notify_all()
             if interrupted:
                 if timed_out or interruption.startswith("Python execution cancelled"):
                     result["exception"] = {
@@ -199,6 +212,9 @@ class CodeSession:
                         "traceback": "",
                     }
                 self._reap(process)
+                with self._condition:
+                    self._state = _State.STOPPED
+                    self._condition.notify_all()
             result.update(
                 interrupted=interrupted,
                 timed_out=interrupted and timed_out,
@@ -207,9 +223,6 @@ class CodeSession:
                 source_file=filename,
                 elapsed_s=time.monotonic() - started,
             )
-            with self._condition:
-                self._state = _State.STOPPED if interrupted else _State.IDLE
-                self._condition.notify_all()
         return result
 
     def _call(self, message: dict[str, Any]) -> bytes:

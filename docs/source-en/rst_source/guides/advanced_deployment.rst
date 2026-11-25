@@ -241,6 +241,7 @@ finish does not run. Operator requests such as ``request_scene_reset`` and
 for the operator can exceed the per-snippet time limit.
 
 This mode uses separate prompts, skips task memory, and does not generate
-recipes. It supports the ``api``, ``claude_code``, and ``codex`` planners,
+recipes. It supports the ``api``, ``claude_code``, ``codex`` and ``gemini_cli`` planners,
 but not ``flash``, and it cannot be combined with ``--explore``. Omit the
-flag to use the default tool-calling mode.
+flag to use the default tool-calling mode. See :doc:`pyrua` for the worker's
+Linux and Bubblewrap requirements.

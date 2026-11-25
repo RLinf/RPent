@@ -60,12 +60,10 @@ succeeding.
 """
 
 EXECUTION_LIMITS = """
-Do not retrieve a task-memory corpus in this mode. Python cells run in a session
-scratch directory; use paths relative to that directory for temporary files.
-Keep cell file access within that directory. Do not access credentials or bypass
-registered tools to contact robot services. This worker is not a security
-sandbox. Code has a wall-clock limit and a tool-call budget per cell; the runner
-also enforces its configured planner and environment budgets.
+Python cells run in an isolated worker with the standard library and NumPy.
+Use relative paths for temporary files in the session's scratch directory.
+Call robot services through `robo`; the worker has no access to the host
+network or workspace. Each cell has a wall-clock limit and a tool-call budget.
 
 Python exceptions preserve variables. Timeout or cancellation discards the
 namespace; physical actions already performed are not rolled back. Inspect the

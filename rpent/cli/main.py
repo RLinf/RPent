@@ -416,11 +416,10 @@ def main() -> int:
     )
     args = parser.parse_args()
     args.robot_name = early.robot_name
-    if args.no_am:
-        try:
-            validate_policy_options(args, robot_spec)
-        except ValueError as exc:
-            parser.error(str(exc))
+    try:
+        validate_policy_options(args, robot_spec)
+    except ValueError as exc:
+        parser.error(str(exc))
     if "--interactive" in sys.argv or "-i" in sys.argv:
         logger.warning("--interactive is deprecated; use --tui instead")
     if not math.isfinite(args.code_timeout_s) or args.code_timeout_s <= 0:

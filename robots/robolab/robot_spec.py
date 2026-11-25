@@ -125,7 +125,9 @@ def get_toolkit(
     return RoboLabToolkit(
         **runtime_kwargs,
         dashboard_events=dashboard_events,
-        memory=MemoryManager(config.prompt_vars["memory_dir"]),
+        memory=MemoryManager(config.prompt_vars["memory_dir"])
+        if config.use_memory
+        else None,
         output_dir=config.output_dir,
     )
 

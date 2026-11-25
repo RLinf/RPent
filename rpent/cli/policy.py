@@ -21,6 +21,7 @@ from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
+from rpent.code_policy.sandbox import bubblewrap
 from rpent.code_policy.toolkit import CodePolicyTools
 from rpent.prompt.code_policy import code_policy_api_reference
 from rpent.robots.robot_spec import RobotSpec, RunConfig
@@ -29,6 +30,8 @@ from rpent.tools import Toolkit
 
 def validate_policy_options(args: Namespace, robot: RobotSpec) -> None:
     """Check policy capabilities before starting robot services."""
+    if args.policy_mode == "code":
+        bubblewrap()
     if not args.no_am:
         return
     if args.policy_mode != "code":
