@@ -89,3 +89,22 @@ LIBERO 的适配器按相机名（``agentview`` 或 ``wrist``）和步号读取 
           toolkit.add_tool(geometry.geometry)
 
    ``geometry`` 会缓存当前观测步的测量结果。如果新 episode 会从相同的步号重新计数，且沿用同一个几何工具实例，请在新 episode 开始时调用 ``geometry.reset_cache()`` 清除旧缓存。
+
+估算平行夹爪的候选位姿
+----------------------
+
+运行 LIBERO 时添加 ``--rgbd-tools``，即可调用 ``estimate_grasp_pose``。先在 ``segment`` 的叠加图中确认目标，再从该次结果中复制 ``segment_artifact``、``camera`` 和 ``step``，如下例所示。
+
+.. code-block:: json
+
+   {"segment_artifact": "segment_a1b2c3d4e5f6_000.json", "camera": "agentview", "step": 0}
+
+默认沿观测中 ``up_direction`` 的反方向接近。要指定其他接近方向，用 ``approach_xyz`` 给出世界坐标系中夹爪朝向目标移动的非零向量。
+
+工具最多返回 ``top_k`` 个候选，默认 3 个。它把可见点投影到垂直接近方向的平面，再用 PCA 采样夹爪朝向。各候选的 ``center_xyz`` 以米为单位。中心沿闭合轴移至可见点两端的中点。如果远处的深度采样点使中点偏离可见表面的中心太多，工具保留可见表面的中心。右手旋转矩阵 ``rotation_matrix`` 的三列依次对应夹爪的局部 +X 闭合轴、+Y 侧向轴和 +Z 接近轴，都用 ``world_frame_id`` 对应的坐标系表示。
+
+工具剔除离群点后，用闭合轴投影的第 2 和第 98 百分位之差作为 ``estimated_width_m``。工具量取候选中心到闭合轴上较远端点的距离。将该距离加上单侧余量 ``jaw_margin_m``，再乘以 2，即为 ``suggested_opening_m``。用 ``max_opening_m`` 筛选建议开口，并核对量到的最外侧点是否属于物体。``score`` 用最窄的分位数宽度除以该候选的分位数宽度。可见点没有明确的平面内主方向时，工具标记 ``pca_yaw_ambiguous``，并从世界坐标系中的固定参考方向采样。
+
+可以用下面的提示词引导规划器。
+
+   将已核对的分割记录传给 ``estimate_grasp_pose``。选择候选前，核对夹爪开口、位姿可达性、接触面和碰撞净空。有效几何数据不足时，检查掩膜或改用另一视角。

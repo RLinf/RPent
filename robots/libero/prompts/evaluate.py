@@ -434,7 +434,14 @@ For segment, supply text, a point, or both with the camera and step. For the
 same pixel, include the shape of the image you inspected:
     segment({"camera":"agentview","step":0,"point":[200,240],"image_shape":[1024,1024]})
 With both inputs the text mask must cover the point. Check the overlay before
-using the mask's world_xyz."""
+using the mask's world_xyz.
+Use estimate_grasp_pose for parallel-jaw geometry candidates. Copy segment_artifact,
+camera and step from an inspected segment result. Supply max_opening_m for the
+gripper and use approach_xyz if you require a particular world-frame approach.
+Each candidate pairs its centre with a symmetric opening that covers the
+observed span along its closing axis. Keep those values together.
+Use the returned world frame and inspect the overlay, contact surfaces,
+reachable poses and approach clearance before choosing a candidate."""
 
 NAMED_GEOMETRY = """For geometry, give query (appearance and distinguishing relation), camera and step.
 The tool selects its own pixels and checks identity using the available calibrated views of that step.

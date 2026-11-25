@@ -89,6 +89,7 @@ class LiberoToolkit(Toolkit):
         if generic_tools:
             from robots.libero.observations import LiberoGeometryObservations
             from toolkits.back_project import back_project
+            from toolkits.estimate_grasp_pose import estimate_grasp_pose
             from toolkits.segment import SegmentTool
 
             observations = LiberoGeometryObservations(state)
@@ -103,6 +104,11 @@ class LiberoToolkit(Toolkit):
                     state=state,
                     segmenter=sam3,
                 ).segment
+            )
+            self.add_tool(
+                estimate_grasp_pose.with_handler(
+                    partial(estimate_grasp_pose, observations=observations, state=state)
+                )
             )
             if geometry_grounder is not None:
                 from toolkits.geometry.geometry_tool import GeometryTool

@@ -198,8 +198,12 @@ def test_generic_localization_is_registered_with_libero_observations(
         memory=MemoryManager(tmp_path / "memory"),
         state_output_dir=tmp_path / "state",
     )
-    assert _tool_names(tk) == EVALUATION_TOOLS | ({"geometry"} if enabled else set())
-    assert {"back_project", "segment"} <= _readonly_names(tk)
+    assert _tool_names(tk) == (
+        EVALUATION_TOOLS
+        | {"estimate_grasp_pose"}
+        | ({"geometry"} if enabled else set())
+    )
+    assert {"back_project", "estimate_grasp_pose", "segment"} <= _readonly_names(tk)
     if enabled:
         assert "geometry" in _readonly_names(tk)
         schema = tk._tools["geometry"].input_schema["properties"]
@@ -254,6 +258,44 @@ def test_generic_localization_is_registered_with_libero_observations(
         and segmented.data["evidence_status"] == "identity_unchecked"
     )
     assert tk.state.latest_step == step
+
+    with tk.state.record_step(state={}) as grasp_step:
+        x, y = np.meshgrid(np.linspace(-0.05, 0.05, 31), np.linspace(-0.02, 0.02, 31))
+        face = np.stack((x, y, np.full_like(x, 0.5)), axis=-1)
+        tk.state.save(
+            "agentview_high.png", np.zeros(face.shape, dtype=np.uint8), step=grasp_step
+        )
+        tk.state.save("agentview_world_high.npz", face, step=grasp_step)
+        tk.state.save(
+            "agentview_metadata.json",
+            {
+                "height": 31,
+                "width": 31,
+                "intrinsic_K": np.eye(3).tolist(),
+                "extrinsic_cam2world": np.eye(4).tolist(),
+            },
+            step=grasp_step,
+        )
+    sam.segment = lambda *a, **kw: Sam3Result(
+        found=True, mask=np.ones((31, 31), dtype=bool), score=0.9
+    )
+    segment = tk.execute_tool(
+        "segment", {"camera": "agentview", "step": grasp_step, "prompt": "object"}
+    )
+    grasp = tk.execute_tool(
+        "estimate_grasp_pose",
+        {
+            "camera": "agentview",
+            "segment_artifact": segment.data["segment_artifact"],
+            "top_k": 1,
+        },
+    )
+    assert grasp.data["status"] == "estimated"
+    assert grasp.data["world_frame_id"] == segment.data["world_frame_id"]
+    (candidate,) = grasp.data["candidates"]
+    assert candidate["center_xyz"] == pytest.approx([0, 0, 0.5])
+    assert candidate["estimated_width_m"] == pytest.approx(0.04, abs=0.002)
+    assert grasp.data["step"] == grasp_step and tk.state.latest_step == grasp_step
 
 
 def test_pinned_wrist_sample_uses_its_own_calibration(tmp_path):
@@ -325,6 +367,7 @@ def test_generic_tools_and_geometry_are_opt_in(
             "system", variables={**config.prompt_vars, "output_dir": str(tmp_path)}
         )
         assert ("points_rc" in prompt and "box_rc" in prompt) is generic
+        assert ("Use estimate_grasp_pose" in prompt) is generic
         assert ('back_project({"row":' in prompt) is not generic
         assert ("mutually exclusive" in prompt) is not generic
         assert ("For geometry, give query" in prompt) is geometry
@@ -342,6 +385,12 @@ def test_generic_tools_and_geometry_are_opt_in(
             state_output_dir=tmp_path / "state",
         )
         schemas = {tool.name: tool.args_schema for tool in tk.list_tools()}
+        assert ("estimate_grasp_pose" in schemas) is generic
+        if generic:
+            assert (
+                not {"observations", "state"}
+                & schemas["estimate_grasp_pose"].model_fields.keys()
+            )
         examples = re.findall(
             r"\b(back_project|segment|geometry)\((\{.*?\})\)", prompt, re.S
         )
