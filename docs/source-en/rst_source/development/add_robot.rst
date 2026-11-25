@@ -345,8 +345,7 @@ By default, RPent registers every server from ``--mcp-config`` (a YAML file
 path) and ``RunConfig.mcp_servers`` automatically after ``get_toolkit`` returns,
 so most robots need no extra code (see :ref:`external-mcp-servers`). To
 restrict a server to specific tools or force ``sync_with_robot=True``, call
-:meth:`~rpent.tools.toolkit.Toolkit.add_mcp_tools` before returning from
-``get_toolkit``:
+``Toolkit.add_mcp_tools`` before returning from ``get_toolkit``:
 
 .. code-block:: python
 
@@ -420,7 +419,7 @@ validates those fields and returns a
   the transcript JSON record verbatim (LIBERO:
   ``{"suite": ..., "task": ..., "seed": ...}``).
 - ``mcp_servers`` — optional tuple of robot-owned MCP servers (parsed with
-  :func:`~rpent.utils.mcp_servers.parse_mcp_servers`), merged at runtime with
+  ``parse_mcp_servers``), merged at runtime with
   the servers loaded from the ``--mcp-config`` YAML file; see
   :ref:`external-mcp-servers`.
 

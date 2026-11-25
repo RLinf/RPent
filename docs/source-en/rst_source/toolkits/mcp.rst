@@ -35,7 +35,7 @@ This walkthrough starts a local mock power-meter MCP server exposing ``read_powe
          if __name__ == "__main__":
              mcp.run(transport="streamable-http")
 
-   Start the server (it listens at ``http://127.0.0.1:8765/mcp``):
+   Start the server (it listens at ``http://127.0.0.1:8765/mcp``). Keep this terminal running and open a new terminal for step 3:
 
    .. code-block:: bash
 
@@ -56,9 +56,9 @@ This walkthrough starts a local mock power-meter MCP server exposing ``read_powe
       rpent --robot libero --mcp-config power.yaml \
         --suite libero_goal_task --task 1 --seed 0 --planner claude_code --tui
 
-When the run starts, RPent connects to ``power`` and registers ``power__read_power_meter``. At the terminal prompt, ask the planner to check the power meter (for example, ``Read the power meter``): it calls ``power__read_power_meter`` and receives ``battery 82%, outlet idle``. The call is also recorded in ``transcript_*.json`` under the run output directory (see :ref:`run-output-files`); if you launch with ``--dashboard`` instead of ``--tui``, you can inspect the tool and its output in Dashboard.
+When the run starts, RPent connects to ``power`` and registers ``power__read_power_meter``. Under ``claude_code`` and other CLI planners, the ``--tui`` input box is pre-filled with the LIBERO task prompt—clear it first, then enter ``Read the power meter`` (under ``--planner api``, ``--tui`` starts running the LIBERO task immediately and accepts input after the first planner turn). The planner calls ``power__read_power_meter`` and receives ``battery 82%, outlet idle``, and the call is recorded in ``transcript_*.json`` under the run output directory (see :ref:`run-output-files`). If you use Dashboard (see :ref:`dashboard-usage`), you can also inspect the tool call and its result after submitting a task in the UI.
 
-If the server is unreachable or a configured tool is missing, RPent exits before planning starts and prints the error—including the tools exposed by the server—to the terminal and ``run.log``.
+If the server is unreachable or a configured tool is missing, RPent exits before planning starts and prints the error to the terminal and ``run.log``; when a tool name does not match, the error also lists the tools exposed by the server.
 
 Configuration and Authentication
 --------------------------------
@@ -109,7 +109,7 @@ Export ``POWER_API_TOKEN`` before launching RPent. If the variable is unset, RPe
 Synchronizing with Robot Actions
 --------------------------------
 
-By default (``sync_with_robot: false``), external MCP tools run as read-only toolkit calls: they can run concurrently with other read-only tools, skip robot state capture, and return their own text, structured data, and PNG images directly to the planner. They still wait for active robot actions under the toolkit lock, and a slow external call delays queued robot actions.
+By default (``sync_with_robot: false``), external MCP tools run in read-only mode: they can run concurrently with other read-only tools, skip robot state capture, and return their text, structured data, and PNG images directly to the planner. They still do not run simultaneously with robot actions; if a remote call is slow, queued robot actions wait for it to finish.
 
 Set ``sync_with_robot: true`` when an external device interacts with the physical cell (such as a charging dock, safety interlock, or lighting controller):
 
@@ -127,29 +127,27 @@ With ``sync_with_robot: true``:
 - After each call, RPent captures a fresh robot observation and includes the remote response alongside the updated state and camera images.
 - Any ``image/png`` blocks returned by the server are forwarded alongside the robot's camera images.
 
-If one server exposes both read-only tools and synchronized device actions, add two differently named entries under ``mcp_servers`` pointing to the same ``url`` with separate ``tools`` lists and ``sync_with_robot`` settings.
+If one server exposes both read-only tools and synchronized control tools, configure two differently named server entries under ``mcp_servers`` with the same ``url`` and separate ``tools`` and ``sync_with_robot`` settings.
 
 Reference Details
 -----------------
 
-External tools are exposed as ``<server>__<tool>``, time out after ``timeout_s`` (or ``MCP_CALL_TIMEOUT_S``, defaulting to 60 seconds), and inherit RPent's cancellation and trajectory capture.
+External tools are exposed as ``<server>__<tool>``, time out according to YAML ``timeout_s`` → ``MCP_CALL_TIMEOUT_S`` → 60 seconds, and inherit RPent's cancellation and trajectory capture.
 
-.. dropdown:: Tool naming and planner prefixes
+.. dropdown:: Planner prefixes and server naming rules
 
-   - Each remote tool is registered on the toolkit as ``<server>__<tool>`` (for example, ``power__read_power_meter``).
-   - Planner adapters apply their normal toolkit namespace on top: ``api`` uses ``power__read_power_meter``, ``claude_code`` and ``codex`` use ``mcp__rpent__power__read_power_meter``, and ``gemini_cli`` uses ``mcp_rpent_power__read_power_meter``.
+   - Planner adapters apply their normal toolkit prefix on top of ``<server>__<tool>``: ``api`` uses ``power__read_power_meter``, ``claude_code`` and ``codex`` use ``mcp__rpent__power__read_power_meter``, and ``gemini_cli`` uses ``mcp_rpent_power__read_power_meter``.
    - Server names must start with a letter or digit, contain only letters, digits, ``_``, or ``-``, omit ``__`` and trailing ``_``, and not be ``rpent``.
 
-.. dropdown:: Startup checks, config merging, and sessions
+.. dropdown:: Config merging and sessions
 
-   - **Merging shared and robot configs:** The CLI merges servers from the ``--mcp-config`` YAML file with any robot-owned servers declared on ``RunConfig.mcp_servers``. Server names must be unique across both sources; duplicate names fail startup.
-   - **Startup validation:** During toolkit initialization, RPent contacts each server and checks that every tool named in ``tools`` exists. Unreachable servers or unknown tool names fail startup with the list of tools the server exposes.
+   - **Config merging:** If the selected robot defines default MCP servers, they are merged with the servers in ``--mcp-config``; server names must be unique across both.
    - **Stateless sessions and static discovery:** Each call opens a fresh stateless MCP session, so session-scoped server state is not preserved across calls. Only MCP tools discovered at startup are exposed; MCP Resources, Prompts, and dynamic ``tools/list_changed`` updates are not forwarded.
 
-.. dropdown:: Timeouts, payload limits, and redaction
+.. dropdown:: Cancellation, payload limits, and redaction
 
-   - **Timeouts and cancellation:** Per-server ``timeout_s`` in YAML takes precedence, followed by the ``MCP_CALL_TIMEOUT_S`` environment variable (in seconds), then the 60-second default. Cancelling a run or Dashboard task interrupts in-flight MCP calls immediately without waiting for the remote server to finish.
-   - **Content types and size limit:** Text, structured JSON, and ``image/png`` blocks are forwarded to the model, with text payloads bounded to RPent's 60,000-byte tool-text limit. Other media or resource blocks include metadata only, and ``--no-images`` (``api`` only) omits external PNG blocks as well.
+   - **Cancellation:** Cancelling a run or Dashboard task interrupts in-flight MCP calls immediately without waiting for the remote server to finish.
+   - **Content types and size limit:** Text, structured JSON, and ``image/png`` blocks are forwarded to the model, with text and structured JSON automatically truncated beyond 60,000 bytes. Other media or resource blocks include metadata only, and ``--no-images`` (``api`` only) omits external PNG blocks as well.
    - **Credential handling and redaction:** Header values stay inside the RPent process and are never passed on child-process command lines. When written to ``task.json`` and Dashboard task records, header values as well as URL query strings and fragments are redacted.
 
 For programmatic MCP registration inside a robot integration, see :ref:`add-robot-toolkit`.

@@ -35,7 +35,7 @@
          if __name__ == "__main__":
              mcp.run(transport="streamable-http")
 
-   运行脚本启动服务（默认监听 ``http://127.0.0.1:8765/mcp``）：
+   运行脚本启动服务（默认监听 ``http://127.0.0.1:8765/mcp``）。保持该终端运行，另开一个终端执行步骤 3：
 
    .. code-block:: bash
 
@@ -56,9 +56,9 @@
       rpent --robot libero --mcp-config power.yaml \
         --suite libero_goal_task --task 1 --seed 0 --planner claude_code --tui
 
-任务启动后，RPent 会连接 ``power`` 服务并注册 ``power__read_power_meter``。在终端输入指令让规划器读取功率计（例如 ``Read the power meter``），即可看到它调用 ``power__read_power_meter`` 并返回 ``battery 82%, outlet idle``，调用记录也会写入输出目录的 ``transcript_*.json``\ （见 :ref:`run-output-files`\ ）。如果将 ``--tui`` 换为 ``--dashboard``，也可在 Dashboard 界面中查看该工具及调用结果。
+任务启动后，RPent 会连接 ``power`` 服务并注册 ``power__read_power_meter``。使用 ``claude_code`` 等 CLI 规划器进入 ``--tui`` 时，输入框默认已填好 LIBERO 任务提示词，先删掉默认内容，再输入 ``Read the power meter``\ （如果改用 ``--planner api``，``--tui`` 会先直接开始运行 LIBERO 任务，等规划器完成一轮回复后再发送 ``Read the power meter``）。规划器会调用 ``power__read_power_meter`` 并收到 ``battery 82%, outlet idle``，调用记录也会写入输出目录的 ``transcript_*.json``\ （见 :ref:`run-output-files`\ ）。如果使用 Dashboard（见 :ref:`dashboard-usage`\ ），在页面提交任务后同样可以查看工具调用结果。
 
-如果服务连不上，或配置了服务端不存在的工具，RPent 会在规划开始前退出，并在终端和 ``run.log`` 中打印报错信息以及服务端实际提供的工具列表。
+如果服务连不上，或配置了服务端不存在的工具，RPent 会在规划开始前退出，并在终端和 ``run.log`` 中输出错误原因；如果是工具名不匹配，还会列出服务端实际提供的工具。
 
 配置项与认证
 ------------
@@ -109,7 +109,7 @@
 与机器人动作同步
 ----------------
 
-默认（``sync_with_robot: false``）按只读工具执行：可与其他只读工具并发，不触发机器人状态采集，并直接将远端返回的文本、结构化数据和 PNG 图像传给规划器。这类调用仍受 ``toolkit`` 读写锁约束，不会与机器人动作并发执行；如果远端耗时较长，排队的机器人动作会等待其完成。
+默认情况下（``sync_with_robot: false``），外部 MCP 工具按只读方式执行：可与其他只读工具并发，不触发机器人状态采集，直接将远端返回的文本、结构化数据和 PNG 图像传给规划器。这类调用仍不会与机器人动作同时执行；如果远端响应较慢，排队中的机器人动作会等待其完成。
 
 如果外部服务控制的设备会影响真实场景或机器人安全（例如充电底座、安全互锁或灯光），将 ``sync_with_robot`` 设为 ``true``：
 
@@ -127,29 +127,27 @@
 - 每次调用完成后，RPent 会采集一次最新的机器人观测，并将远端返回内容与更新后的状态和相机画面一并交给规划器。
 - 服务端返回的 ``image/png`` 图像会与机器人相机观测图像一并返回给模型。
 
-如果同一个服务同时提供只读工具和需要与机器人同步的控制工具，可在 ``mcp_servers`` 下写两条不同名称的配置指向同一个 ``url``，分别指定各自的 ``tools`` 和 ``sync_with_robot``。
+如果同一个服务同时提供只读工具和需要与机器人同步的控制工具，可以在 ``mcp_servers`` 下配置两个不同名称的服务项，填同一个 ``url``，再分别设置各自的 ``tools`` 和 ``sync_with_robot``。
 
 参考细节
 --------
 
 外部工具默认以 ``<server>__<tool>`` 命名，单次请求超时按 YAML 中的 ``timeout_s``、环境变量 ``MCP_CALL_TIMEOUT_S``、默认 60 秒依次生效，并复用 RPent 的取消机制与轨迹记录。
 
-.. dropdown:: 工具命名与规划器前缀
+.. dropdown:: 规划器前缀与服务名规则
 
-   - 每个外部工具在 ``toolkit`` 中的名称为 ``<server>__<tool>``\ （如 ``power__read_power_meter``）。
-   - 各规划器在此基础上附加各自的 ``toolkit`` 前缀：``api`` 直接使用 ``power__read_power_meter``，``claude_code`` 与 ``codex`` 为 ``mcp__rpent__power__read_power_meter``，``gemini_cli`` 为 ``mcp_rpent_power__read_power_meter``。
+   - 各规划器会在 ``<server>__<tool>`` 基础上附加各自的 ``toolkit`` 前缀：``api`` 直接使用 ``power__read_power_meter``，``claude_code`` 与 ``codex`` 为 ``mcp__rpent__power__read_power_meter``，``gemini_cli`` 为 ``mcp_rpent_power__read_power_meter``。
    - 服务名必须以字母或数字开头，其余字符仅限字母、数字、``_`` 或 ``-``，不能包含 ``__``，不能以 ``_`` 结尾，且不能为 ``rpent``。
 
-.. dropdown:: 启动校验、配置合并与会话限制
+.. dropdown:: 配置合并与会话限制
 
-   - **共享配置与机器人配置合并：** CLI 会合并 ``--mcp-config`` 所指定 YAML 文件中的服务和机器人 ``RunConfig.mcp_servers`` 自带的服务，再统一注册到 ``toolkit``。两处来源的服务名不能重复，重名会在启动时报错。
-   - **启动校验：** 构建 ``toolkit`` 时，RPent 会连接每个服务并校验 ``tools`` 中列出的工具是否存在。服务不可达或工具名缺失会终止启动，并在错误信息中列出服务端实际提供的工具。
+   - **配置合并：** 如果所用机器人自带默认 MCP 配置，会与 ``--mcp-config`` 合并，服务名不能重复。
    - **无状态会话与静态发现：** 每次调用都会建立新的无状态 MCP 会话，不会跨调用保留服务端会话状态。RPent 仅开放启动时发现的 MCP 工具，不转发 Resources、Prompts 或动态的 ``tools/list_changed`` 通知。
 
-.. dropdown:: 超时、内容限制与脱敏
+.. dropdown:: 取消、内容限制与脱敏
 
-   - **超时与取消：** 单次 MCP 请求的超时时间按 YAML 中的 ``timeout_s``\ （按服务配置）、环境变量 ``MCP_CALL_TIMEOUT_S``\ （全局，单位为秒）、默认 60 秒依次生效。取消任务或中断 Dashboard 运行时，正在执行的 MCP 调用会立即中止，不会等待远端执行结束。
-   - **内容转发与大小上限：** 文本、结构化 JSON 和 ``image/png`` 图像块会转发给模型，其中文本输出受 RPent 单次工具输出 60,000 字节上限约束；其他媒体或资源块只保留元数据，启用 ``--no-images``\ （仅 ``api``）时同样会省略外部 PNG 图像。
+   - **取消机制：** 取消任务或中断 Dashboard 运行时，正在执行的 MCP 调用会立即中止，不会等待远端执行结束。
+   - **内容转发与大小上限：** 文本、结构化 JSON 和 ``image/png`` 图像块会转发给模型，其中文本和结构化 JSON 超过 60,000 字节会自动截断；其他媒体或资源块只保留元数据，启用 ``--no-images``\ （仅 ``api``）时同样会省略外部 PNG 图像。
    - **凭据处理与脱敏：** 请求头中的凭据仅保留在 RPent 进程内，不会出现在任何子进程命令行中；写入 ``task.json`` 和 Dashboard 任务记录时，请求头取值以及 URL 中的查询参数与锚点都会自动脱敏。
 
 如需在机器人接入代码中显式控制 MCP 工具注册，见 :ref:`add-robot-toolkit`。
