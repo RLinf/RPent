@@ -249,7 +249,9 @@ Call ``view_env_state`` when you need images for a recorded step. LIBERO,
 RoboCasa365, RoboTwin, and RoboDojo also compute manipulation-camera world
 maps from captured depth and calibration on the writer thread. Geometry tools
 wait for the matching artifact when needed. File-based scripts can read the
-output after the run ends. Write failures are logged in ``run.log``.
+output after the run ends. Background write failures appear in ``run.log``
+and in the transcript under ``stats.artifact_write_failures``, even when
+trajectory recording is off.
 
 .. list-table::
    :header-rows: 1

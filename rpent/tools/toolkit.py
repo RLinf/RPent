@@ -381,6 +381,10 @@ class Toolkit:
             if self._state is not None:
                 self._state.close_artifacts()
 
+    def artifact_write_failures(self) -> dict[str, str]:
+        """Return background write failures after the toolkit has drained."""
+        return self._state.artifact_write_failures() if self._state is not None else {}
+
     def exploration_continuation(self, *, explicit: bool = False) -> str | None:
         """Return a rule-checked continuation at an idle planner boundary."""
         return None
