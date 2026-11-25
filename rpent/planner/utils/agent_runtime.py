@@ -73,6 +73,9 @@ class AgentArtifacts:
         self.output_path = output_path
         self.raw_stream_path = self.sidecar(".stream.jsonl")
         self.started = time.monotonic()
+        # The session runner records why planning ended when it is not an error
+        # the caller can infer, such as reaching the time budget.
+        self.stop_reason: str | None = None
 
     def sidecar(self, suffix: str) -> Path:
         """Return a companion artifact path without replacing the output suffix."""
@@ -116,6 +119,7 @@ class AgentArtifacts:
                 **stats,
             },
             error=error,
+            stop_reason=self.stop_reason,
         )
 
 

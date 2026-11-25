@@ -47,6 +47,14 @@
       "effort": "low"
     },
     {
+      "id": "deepseek-v4-1-flash-api-xhigh",
+      "kind": "rpent",
+      "backend": "API",
+      "model": "DeepSeek V4.1 Flash",
+      "reasoning": true,
+      "effort": "xhigh"
+    },
+    {
       "id": "deepseek-v4-1-flash-xhigh",
       "kind": "rpent",
       "backend": "Codex",
@@ -673,7 +681,9 @@
     {"id": "goal-task--deepseek-v4-1-flash-xhigh-deepseek-memory", "view_id": "goal-task", "configuration_id": "deepseek-v4-1-flash-xhigh-deepseek-memory", "rate": "79.00", "successes": 79, "episodes": 100, "source_ids": ["deepseek-libero-pro-seed0-memory-20261022"], "protocol_id": "rpent-pro-deepseek-seed0-memory"},
     {"id": "goal-swap--deepseek-v4-1-flash-xhigh-deepseek-memory", "view_id": "goal-swap", "configuration_id": "deepseek-v4-1-flash-xhigh-deepseek-memory", "rate": "98.00", "successes": 98, "episodes": 100, "source_ids": ["deepseek-libero-pro-seed0-memory-20261022"], "protocol_id": "rpent-pro-deepseek-seed0-memory"},
     {"id": "long-task--deepseek-v4-1-flash-xhigh-deepseek-memory", "view_id": "long-task", "configuration_id": "deepseek-v4-1-flash-xhigh-deepseek-memory", "rate": "70.00", "successes": 70, "episodes": 100, "source_ids": ["deepseek-libero-pro-seed0-memory-20261022"], "protocol_id": "rpent-pro-deepseek-seed0-memory"},
-    {"id": "long-swap--deepseek-v4-1-flash-xhigh-deepseek-memory", "view_id": "long-swap", "configuration_id": "deepseek-v4-1-flash-xhigh-deepseek-memory", "rate": "74.00", "successes": 74, "episodes": 100, "source_ids": ["deepseek-libero-pro-seed0-memory-20261022"], "protocol_id": "rpent-pro-deepseek-seed0-memory"}
+    {"id": "long-swap--deepseek-v4-1-flash-xhigh-deepseek-memory", "view_id": "long-swap", "configuration_id": "deepseek-v4-1-flash-xhigh-deepseek-memory", "rate": "74.00", "successes": 74, "episodes": 100, "source_ids": ["deepseek-libero-pro-seed0-memory-20261022"], "protocol_id": "rpent-pro-deepseek-seed0-memory"},
+    {"id": "robotwin--deepseek-v4-1-flash-api-xhigh", "view_id": "robotwin", "configuration_id": "deepseek-v4-1-flash-api-xhigh", "rate": "65.60", "successes": 164, "episodes": 250, "source_ids": ["deepseek-robotwin-c2r-250-20261116"], "protocol_id": "rpent-robotwin-api-deepseek-c2r", "task_failures": 86, "episode_timeouts": 0},
+    {"id": "robotwin--deepseek-v4-1-flash-xhigh", "view_id": "robotwin", "configuration_id": "deepseek-v4-1-flash-xhigh", "rate": "63.60", "successes": 159, "episodes": 250, "source_ids": ["deepseek-codex-robotwin-c2r-250-20261117"], "protocol_id": "rpent-robotwin-codex-deepseek-c2r", "task_failures": 91, "episode_timeouts": 0}
   ],
   "cost_results": {
     "source_ids": ["contributor-qwen-costs-20260918"],
@@ -690,7 +700,9 @@
       {"id": "robotwin--gpt-5-6-no-reasoning", "benchmark_id": "robotwin", "configuration_id": "gpt-5-6-no-reasoning", "mean_elapsed_seconds": 957.4, "total_output_tokens": 2456401},
       {"id": "robotwin--gpt-6-astra-low", "benchmark_id": "robotwin", "configuration_id": "gpt-6-astra-low", "mean_elapsed_seconds": 1078.8, "total_output_tokens": 2763641},
       {"id": "libero-pro--deepseek-v4-1-flash-xhigh", "benchmark_id": "libero-pro", "configuration_id": "deepseek-v4-1-flash-xhigh", "mean_elapsed_seconds": 963.25, "source_ids": ["deepseek-libero-pro-800-20261001"], "mean_total_tokens": 5229711.52},
-      {"id": "libero-pro--deepseek-v4-1-flash-xhigh-deepseek-memory", "benchmark_id": "libero-pro", "configuration_id": "deepseek-v4-1-flash-xhigh-deepseek-memory", "mean_elapsed_seconds": 632.65, "source_ids": ["deepseek-libero-pro-seed0-memory-20261022"], "mean_total_tokens": 4309012.18}
+      {"id": "libero-pro--deepseek-v4-1-flash-xhigh-deepseek-memory", "benchmark_id": "libero-pro", "configuration_id": "deepseek-v4-1-flash-xhigh-deepseek-memory", "mean_elapsed_seconds": 632.65, "source_ids": ["deepseek-libero-pro-seed0-memory-20261022"], "mean_total_tokens": 4309012.18},
+      {"id": "robotwin--deepseek-v4-1-flash-api-xhigh", "benchmark_id": "robotwin", "configuration_id": "deepseek-v4-1-flash-api-xhigh", "mean_elapsed_seconds": 591.48, "total_output_tokens": 12535527, "source_ids": ["deepseek-robotwin-c2r-250-20261116"]},
+      {"id": "robotwin--deepseek-v4-1-flash-xhigh", "benchmark_id": "robotwin", "configuration_id": "deepseek-v4-1-flash-xhigh", "mean_elapsed_seconds": 763.53, "total_output_tokens": 15179818, "source_ids": ["deepseek-codex-robotwin-c2r-250-20261117"]}
     ]
   },
   "sources": [
@@ -935,6 +947,16 @@
       "id": "deepseek-libero-pro-seed0-memory-20261022",
       "type": "experiment_report",
       "note": "Infini deepseek-v4.1-flash with Codex xhigh, using its own frozen published seed-0 exploration memory (343 files). RPent main d3efb4fa and RLinf c52e780f. Eight LIBERO-PRO suites, tasks 0–9 and seeds 1–10: 709/800 native simulator successes, 91 unsolved, zero final errors or timeouts. A historical HTTP 500 cell was rerun; only final episodes count. Mean planner elapsed_s and input plus output tokens use all 800 final episodes; cached input and reasoning output are included within their parent totals."
+    },
+    {
+      "id": "deepseek-robotwin-c2r-250-20261116",
+      "type": "experiment_report",
+      "note": "Infini deepseek-v4.1-flash-1017 with the RPent API planner, xhigh reasoning effort, max_tokens 32768, and frozen LingBot-VLA-RoboTwin-EEF-ckpt1500, using the published RLinf/RPent-memory RoboTwin clean-scene corpus (107 files). Evaluated on RPent main 38a6dbd with PR #356 and PR #358 merged. Completed all 50 RoboTwin C2R demo_randomized tasks across their five verified seeds per task: 164/250 native simulator successes (65.60%), 86 task failures, zero episode timeouts, and zero final infrastructure errors (one transient infrastructure failure was retried once; historical retry excluded). Costs report mean planner elapsed_s (591.48 s) and total output tokens (12,535,527) across all 250 final episodes; total input tokens were 821,644,962 (including 637,927,552 cached input tokens), giving a mean input plus output total of 3,336,721.96 tokens per episode."
+    },
+    {
+      "id": "deepseek-codex-robotwin-c2r-250-20261117",
+      "type": "experiment_report",
+      "note": "Infini deepseek-v4.1-flash-1017 with the RPent Codex planner, xhigh reasoning effort, and frozen LingBot-VLA-RoboTwin-EEF-ckpt1500, using the published RLinf/RPent-memory RoboTwin clean-scene corpus (107 files). Evaluated on RPent main 38a6dbd with PR #356 and PR #358 merged (2f3a0c0) plus immediate turn interruption on accepted finish. Completed all 50 RoboTwin C2R demo_randomized tasks across their five verified seeds per task: 159/250 native simulator successes (63.60%), 91 task failures, zero episode timeouts, and zero infrastructure errors. Costs report mean episode elapsed_s (763.53 s; mean planner stats elapsed_s 759.61 s) and total output tokens (15,179,818, including 13,216,931 reasoning output tokens) across all 250 final episodes; total input tokens were 907,978,042 (including 853,417,344 cached input tokens), giving a mean input plus output total of 3,692,631.44 tokens per episode."
     }
   ],
   "palette": {

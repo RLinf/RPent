@@ -58,6 +58,7 @@ from rpent.dashboard.events import (
 from rpent.evaluation import RunFinalizationContext
 from rpent.memory import MemoryManager
 from rpent.planner.base import (
+    CODEX_SANDBOX_CHOICES,
     REASONING_EFFORTS,
     build_planner,
     is_recoverable_agent_error,
@@ -215,6 +216,12 @@ def _build_argparser() -> argparse.ArgumentParser:
         "(gemini_cli only), CELL_TIMEOUT_S, or 1200.",
     )
     ap.add_argument(
+        "--codex-sandbox",
+        choices=CODEX_SANDBOX_CHOICES,
+        default="full-access",
+        help="Shell sandbox for the Codex planner. Ignored by other planners.",
+    )
+    ap.add_argument(
         "--claude-code-max-budget-usd",
         type=float,
         default=None,
@@ -362,6 +369,7 @@ def _start_continuation_session(
         max_tokens=args.max_tokens,
         planner_timeout_s=args.planner_timeout_s,
         reasoning_effort=args.reasoning_effort,
+        codex_sandbox=args.codex_sandbox,
         claude_code_max_budget_usd=args.claude_code_max_budget_usd,
         dashboard_events=dashboard_events,
         no_images=args.no_images,
@@ -553,6 +561,7 @@ def main() -> int:
         max_tokens=args.max_tokens,
         planner_timeout_s=args.planner_timeout_s,
         reasoning_effort=args.reasoning_effort,
+        codex_sandbox=args.codex_sandbox,
         claude_code_max_budget_usd=args.claude_code_max_budget_usd,
         dashboard_events=dashboard_events,
         no_images=args.no_images,
@@ -612,6 +621,22 @@ def main() -> int:
         dashboard_events,
         None,
     )
+    try:
+        if robot_spec.prepare_prompt_vars is not None:
+            prompt_vars = {
+                **prompt_vars,
+                **robot_spec.prepare_prompt_vars(args, run_config, runtime_kwargs),
+            }
+            # ``prepare_prompt_vars`` may add variables the user prompt reads, so
+            # re-render it once the connected runtime has reported its capabilities.
+            # The interactive reader keeps the earlier render, which is only the
+            # editable default.
+            user_msg = robot_spec.prompts.render("user", variables=prompt_vars)
+    except BaseException:
+        # This hook runs before the agent loop takes ownership of the daemons.
+        for daemon in daemons:
+            daemon.stop()
+        raise
 
     # --- agent loop --------------------------------------------------------
     t0 = time.time()

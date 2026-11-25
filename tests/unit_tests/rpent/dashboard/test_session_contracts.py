@@ -295,6 +295,7 @@ def test_dashboard_exploration_finalizes_memory_and_reports_merge_failures(
         name="custom_exploration_env",
         finalize_run=finalized.append if collect_metrics else None,
         prepare_memory=None,
+        prepare_prompt_vars=None,
         supports_exploration=True,
         is_real_robot=False,
         parse_config=lambda args: run_config,

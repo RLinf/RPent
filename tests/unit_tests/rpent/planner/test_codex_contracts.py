@@ -147,7 +147,13 @@ class FakeCodex:
         self.closed = True
 
 
-def make_planner(tmp_path: Path, sink: RecordingSink, *, timeout_s: float = 1):
+def make_planner(
+    tmp_path: Path,
+    sink: RecordingSink,
+    *,
+    timeout_s: float = 1,
+    sandbox: str = "full-access",
+):
     return CodexPlanner(
         output_dir=str(tmp_path),
         repo_root=tmp_path,
@@ -156,6 +162,7 @@ def make_planner(tmp_path: Path, sink: RecordingSink, *, timeout_s: float = 1):
         output_path=tmp_path / "codex.out",
         model="fake-codex",
         dashboard_events=sink,
+        sandbox=sandbox,
     )
 
 
@@ -306,6 +313,7 @@ def test_exit_closes_session_before_trace_import(
             if outcome == "error"
             else "Codex SDK timed out after 1s"
         )
+        assert result.stop_reason == ("timeout" if outcome == "timeout" else None)
         assert result.stats["codex_trace"]["bundles"] == 0
     importer.assert_called_once()
     assert cleanup == [(1, 1, True, "running")]
@@ -395,6 +403,27 @@ def test_config_overrides_normalize_provider_url(
         f'model_providers.{PROVIDER_ID}.wire_api="responses"',
         f'model_providers.{PROVIDER_ID}.env_key="{PROVIDER_ENV_KEY}"',
     ]
+
+
+def test_restricted_sandboxes_approve_the_planner_owned_mcp_tools(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("CODEX_MODEL_CONTEXT_WINDOW", raising=False)
+    monkeypatch.delenv("CODEX_AUTO_COMPACT_TOKEN_LIMIT", raising=False)
+
+    assert _codex_mcp_config_overrides(
+        mcp_url="http://fake.invalid/mcp/",
+        base_url=None,
+        sandbox="read-only",
+    ) == [
+        'mcp_servers.rpent.url="http://fake.invalid/mcp/"',
+        'mcp_servers.rpent.default_tools_approval_mode="approve"',
+    ]
+    assert _codex_mcp_config_overrides(
+        mcp_url="http://fake.invalid/mcp/",
+        base_url=None,
+        sandbox="full-access",
+    ) == ['mcp_servers.rpent.url="http://fake.invalid/mcp/"']
 
 
 def test_config_overrides_include_optional_context_limits(
@@ -549,6 +578,44 @@ def test_planner_forwards_configured_service_tier(
     fake_codex = FakeCodex.instances[0]
     assert fake_codex.thread_options["service_tier"] == "fast"
     assert fake_codex.thread.turn_prompts[0][1]["service_tier"] == "fast"
+
+
+def test_efe_sandbox_choices_match_the_codex_sdk() -> None:
+    from robots.efe.constants import SANDBOX_CHOICES
+
+    assert set(SANDBOX_CHOICES) == {
+        sandbox.value for sandbox in codex_module.openai_codex.Sandbox
+    }
+
+
+def test_planner_applies_the_configured_sandbox(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    install_fake_backend(monkeypatch)
+    FakeCodex.events = [
+        {
+            "method": "turn/completed",
+            "payload": {"turn": {"status": "completed", "duration_ms": 10}},
+        },
+    ]
+
+    make_planner(tmp_path, RecordingSink(), sandbox="read-only").solve(
+        system_prompt="system rules",
+        user_message="user task",
+        toolkit=FakeToolkit(),
+        max_turns=1,
+    )
+
+    assert (
+        FakeCodex.instances[0].thread_options["sandbox"]
+        is codex_module.openai_codex.Sandbox.read_only
+    )
+
+
+def test_planner_rejects_an_unknown_sandbox(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match="sandbox"):
+        make_planner(tmp_path, RecordingSink(), sandbox="none")
 
 
 def test_successful_fake_codex_lifecycle_uses_fake_mcp_and_accounts_events(
@@ -915,6 +982,21 @@ def test_response_count_ignores_items_and_duplicate_usage():
     assert recorder.stats()["total_input_tokens"] == 20
 
 
+def test_stats_distinguish_unobserved_usage_from_zero_tokens():
+    from rpent.planner.codex import _Recorder
+
+    recorder = _Recorder(max_turns=10, dashboard_events=RecordingSink())
+
+    assert recorder.stats()["usage_observed"] is False
+    assert recorder.stats()["total_input_tokens"] == 0
+
+    for event in _model_response_events(1):
+        recorder.observe(event)
+
+    assert recorder.stats()["usage_observed"] is True
+    assert recorder.stats()["total_input_tokens"] == 10
+
+
 def test_rejected_finish_item_is_not_promoted() -> None:
     from rpent.planner.codex import _Recorder
 
@@ -1068,6 +1150,7 @@ def test_timeout_interrupts_and_drains_turn_before_closing(
         input_queue=queue.Queue() if interactive else None,
     )
     assert result.error == "Codex SDK timed out after 0.05s"
+    assert result.stop_reason == "timeout"
     assert events == (
         ["close", "import"]
         if initializing
