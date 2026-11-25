@@ -12,11 +12,17 @@ and their results. Environments that support action recording also capture the
 subtask instructions given to the vision-language-action (VLA) model, the actions
 the robot executes, and the corresponding observations.
 
-``rpent-flywheel`` currently exports only VLA training data. It writes samples
-from successful trajectories to a LeRobot dataset for supervised fine-tuning with
-RLinf. In the evaluations below, replacing the original VLA with the fine-tuned
-model raised RPent's task success rate from 70% to 73% on LIBERO-PRO and from
-48% to 72% on RoboTwin.
+``rpent-flywheel`` exports either VLA or VLM training data:
+
+- ``--vla`` (default): Writes executed VLA action segments from confirmed
+  successful trajectories to a LeRobot dataset for supervised fine-tuning with
+  RLinf. In the evaluations below, replacing the original VLA with the fine-tuned
+  model raised RPent's task success rate from 70% to 73% on LIBERO-PRO and from
+  48% to 72% on RoboTwin.
+- ``--vlm``: Exports recorded ``api`` planner turns to ``samples.jsonl`` and a
+  deduplicated ``images/`` directory for VLM training. It selects episodes with
+  confirmed environment success by default, or includes failed and unknown
+  outcomes with ``--include-unsuccessful``.
 
 Installation
 ------------
@@ -30,13 +36,19 @@ optional export dependencies:
 
    uv pip install -e ".[libero-pro,flywheel]"
 
+The optional ``flywheel`` extra installs LeRobot and is required only for VLA
+export (``--vla``). Exporting VLM turns (``--vlm``) works with the base RPent
+installation.
+
 Record a Trajectory
 -------------------
 
 Recording is off by default. Recording with ``--planner claude_code`` requires
 ``claude-agent-sdk 0.2.154+`` and ``Claude Code 2.1.274+``.
 LIBERO, RoboCasa365, RoboTwin, and RoboDojo record executed actions and observations
-only in evaluation mode.
+only in evaluation mode. To export VLM training samples later, record with
+``--planner api``, which is the backend ``rpent-flywheel --vlm`` currently
+supports.
 
 Enable recording and choose a run directory:
 
@@ -81,7 +93,8 @@ the data format of each file.
    * - ``task.instruction``
      - Task instruction for this run.
    * - ``task.config``
-     - Run configuration. The settings are stored in ``task.config.data``.
+     - Run configuration stored in ``task.config.data``, including CLI and run
+       settings, ``system_prompt``, and registered ``tools``.
    * - ``task.result``
      - Run outcome. ``task.result.data.environment_success`` indicates whether the task succeeded.
 
@@ -136,6 +149,25 @@ the data format of each file.
 Export Training Data
 --------------------
 
+``rpent-flywheel`` supports two mutually exclusive export modes: ``--vla``
+(default) for LeRobot VLA datasets and ``--vlm`` for API planner turn samples.
+
+In both modes, ``--input-root`` accepts either a single trajectory directory
+containing ``task.json`` or a parent directory containing multiple runs.
+``--output-dir`` must not exist, and original recordings are left unchanged.
+When several runs are saved in separate directories like these, set
+``--input-root`` to their parent directory and use ``--pattern`` (keeping
+quotes around shell wildcards) to select matching run directories:
+
+.. code-block:: text
+
+   /path/to/
+   ├── run_001/trajectories/<task_id_1>/
+   └── run_002/trajectories/<task_id_2>/
+
+Export VLA Training Data
+~~~~~~~~~~~~~~~~~~~~~~~~
+
 Export recorded trajectories from one robot to a new output directory:
 
 .. code-block:: bash
@@ -145,28 +177,13 @@ Export recorded trajectories from one robot to a new output directory:
      --input-root /path/to/run \
      --output-dir /path/to/lerobot/goal-task-00
 
-``--vla`` exports only VLA training data. This is also the default when the
-flag is omitted.
+``--vla`` exports only VLA training data and is the default when omitted.
+Export each robot separately. By default, the exporter compresses and saves one
+image at a time (``--image-writer-threads 0``). To write images in parallel,
+specify a thread count in the command above, for example
+``--image-writer-threads 4``.
 
-By default, the exporter compresses and saves one image at a time
-(``--image-writer-threads 0``). To write images in parallel, specify a thread
-count in the command above, for example ``--image-writer-threads 4``.
-
-``--input-root`` accepts a trajectory directory containing ``task.json`` or a
-parent directory containing multiple runs. Export each robot separately;
-``--output-dir`` must not exist.
-
-If several runs are saved in separate directories like these, you can export
-them together:
-
-.. code-block:: text
-
-   /path/to/
-   ├── run_001/trajectories/<task_id_1>/
-   └── run_002/trajectories/<task_id_2>/
-
-Set ``--input-root`` to their parent directory and use ``--pattern`` to select
-run directories whose names start with ``run_``:
+To export matching run directories whose names start with ``run_`` together:
 
 .. code-block:: bash
 
@@ -180,7 +197,7 @@ The command searches these run directories and their subdirectories for
 trajectories, applies the selection rules below, and writes the results to
 ``/path/to/lerobot/combined/train/``. Keep the quotes around ``run_*``.
 
-The exporter selects and organizes training data using the following rules:
+The VLA exporter selects and organizes training data using the following rules:
 
 - Success criterion: ``environment_success`` in the task result must explicitly
   be ``true``. Failed tasks, missing results, and tasks whose success cannot be
@@ -197,14 +214,86 @@ The exporter selects and organizes training data using the following rules:
 The dataset is written to the ``train/`` subdirectory of ``--output-dir`` without
 an automatic validation split. ``report.json`` in the output directory lists
 export counts and exclusions. If no actions qualify, only the report is
-written. Original recordings are left unchanged.
+written.
+
+Export VLM Training Data
+~~~~~~~~~~~~~~~~~~~~~~~~
+
+Export recorded ``api`` planner turns to ``samples.jsonl`` and deduplicated
+images:
+
+.. code-block:: bash
+
+   rpent-flywheel \
+     --vlm \
+     --input-root /path/to/run \
+     --output-dir /path/to/vlm/goal-task-00
+
+- ``--vlm``: Export recorded ``api`` planner turns as VLM training samples.
+- ``--include-unsuccessful``: Optional (requires ``--vlm``). Also export turns
+  from episodes whose environment outcome is failed or unknown, instead of
+  requiring confirmed environment success.
+
+The VLM exporter selects and formats samples using the following rules:
+
+- Episode selection: By default, ``environment_success`` in the task result
+  must explicitly be ``true``. Pass ``--include-unsuccessful`` to include failed
+  runs or runs without an environment success verdict.
+- Planner backend and turn validity: Only completed ``api`` planner calls with
+  complete request and response payloads, a normal finish reason (excluding
+  truncated, content-filtered, or errored replies), valid JSON-object tool
+  arguments, and at least one visible text reply or tool call are exported.
+  Turns from ``claude_code`` and ``codex`` are skipped.
+- Sample organization and reasoning content: Each row pairs the recorded
+  conversation history and tool definitions sent to the model with one assistant
+  response to supervise. Results of tool calls made in that response belong to
+  subsequent turns. When a model emits internal reasoning (thinking) content,
+  that reasoning is stripped from both earlier assistant messages in the
+  conversation history and the target response, leaving only visible text and
+  tool calls.
+- Image deduplication: Each distinct referenced image is copied once into
+  ``images/`` (named by content hash) and referenced by its relative path in
+  ``samples.jsonl``, so the exported directory is self-contained. Turns with
+  missing image files are excluded.
+
+The output directory has the following structure, without an automatic
+validation split:
+
+.. code-block:: text
+
+   /path/to/vlm/goal-task-00/
+   ├── samples.jsonl
+   ├── images/
+   └── report.json
+
+``report.json`` in the output directory records export counts and excluded
+turns. Each line in ``samples.jsonl`` is a JSON object with these main fields:
+
+.. list-table:: ``samples.jsonl`` (one supervised planner turn per line)
+   :header-rows: 1
+
+   * - Field
+     - Meaning
+   * - ``episode_id``
+     - Task ID (``task.task_id``) of the episode this turn comes from.
+   * - ``turn_id``
+     - Planner call ID (``planner_id``) within the episode.
+   * - ``messages``
+     - Conversation history sent to the model for this turn, containing
+       ``system``, ``user``, ``assistant``, and ``tool`` messages with text,
+       image references under ``images/``, and prior tool calls.
+   * - ``tools``
+     - Tool definitions exposed to the model on this turn.
+   * - ``target``
+     - The single ``assistant`` response to supervise, containing visible text
+       and/or tool calls.
 
 Train with RLinf
 ----------------
 
-For the LIBERO example, use the exported LeRobot dataset for Pi0.5 supervised
-fine-tuning in a separate RLinf environment. RPent handles collection and
-export; RLinf handles model training, logging, and checkpoint saving.
+For the LIBERO example, use the LeRobot dataset exported by ``--vla`` for Pi0.5
+supervised fine-tuning in a separate RLinf environment. RPent handles collection
+and export; RLinf handles model training, logging, and checkpoint saving.
 
 For environment setup and training configuration, see the
 `RLinf OpenPI SFT guide <https://rlinf.readthedocs.io/en/latest/rst_source/examples/embodied/sft_openpi.html>`_.
@@ -235,6 +324,9 @@ and dataset.
 
 SFT Experiment Results
 ----------------------
+
+The evaluations below currently report VLA fine-tuning results; comparative
+evaluations for VLM fine-tuning are still in progress.
 
 LIBERO-PRO VLA Fine-Tuning Results
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~

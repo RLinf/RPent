@@ -7,7 +7,10 @@ RPent 数据飞轮用于记录从任务规划到动作执行的轨迹，并从�
 
 使用 ``api``、``claude_code`` 或 ``codex`` 规划器时，开启 ``--record-trajectory`` 可记录视觉语言模型（VLM）的请求、回复、工具调用及其结果。在支持动作采集的环境中，还会记录视觉语言动作模型（VLA）的子任务指令、实际执行的动作及对应的观测。
 
-``rpent-flywheel`` 目前仅支持导出 VLA 训练数据，可将成功轨迹中的 VLA 样本导出为 LeRobot 数据集，供 RLinf 进行监督微调。在本次对照评测中，微调后 RPent 在 LIBERO-PRO 上的任务成功率从 70% 升至 73%，在 RoboTwin 上从 48% 升至 72%。
+``rpent-flywheel`` 支持导出 VLA 或 VLM 训练数据：
+
+- ``--vla``\ （默认）：将确认成功轨迹中的 VLA 动作片段导出为 LeRobot 数据集，供 RLinf 进行监督微调。在本次对照评测中，微调后 RPent 在 LIBERO-PRO 上的任务成功率从 70% 升至 73%，在 RoboTwin 上从 48% 升至 72%。
+- ``--vlm``：将 ``api`` 规划器记录的对话轮次导出为 ``samples.jsonl`` 与去重后的 ``images/`` 目录，用于 VLM 训练。默认仅筛选环境确认成功的轨迹，也可通过 ``--include-unsuccessful`` 包含失败或结果未知的轨迹。
 
 安装
 ----
@@ -18,10 +21,12 @@ RPent 数据飞轮用于记录从任务规划到动作执行的轨迹，并从�
 
    uv pip install -e ".[libero-pro,flywheel]"
 
+可选依赖 ``flywheel`` 会安装 LeRobot，仅在导出 VLA 数据（``--vla``）时需要；使用 ``--vlm`` 导出 VLM 样本只需 RPent 基础安装即可。
+
 采集轨迹
 --------
 
-采集默认关闭。用 ``--planner claude_code`` 采集轨迹时，需要 ``claude-agent-sdk 0.2.154+`` 和 ``Claude Code 2.1.274+``。LIBERO、RoboCasa365、RoboTwin 和 RoboDojo 仅在评测模式下采集实际执行的动作及观测。
+采集默认关闭。用 ``--planner claude_code`` 采集轨迹时，需要 ``claude-agent-sdk 0.2.154+`` 和 ``Claude Code 2.1.274+``。LIBERO、RoboCasa365、RoboTwin 和 RoboDojo 仅在评测模式下采集实际执行的动作及观测。如果后续要导出 VLM 训练样本，请使用 ``--planner api`` 进行采集，当前 ``rpent-flywheel --vlm`` 仅支持导出该后端记录的轮次。
 
 开启采集并指定运行目录：
 
@@ -62,7 +67,7 @@ RPent 数据飞轮用于记录从任务规划到动作执行的轨迹，并从�
    * - ``task.instruction``
      - 本次运行的任务指令。
    * - ``task.config``
-     - 本次运行的配置，具体内容保存在 ``task.config.data`` 中。
+     - 本次运行的配置，保存在 ``task.config.data`` 中，包含运行参数、``system_prompt`` 及已注册的 ``tools`` 列表。
    * - ``task.result``
      - 任务运行的结果。 ``task.result.data.environment_success`` 表示任务是否成功。
 
@@ -113,6 +118,19 @@ RPent 数据飞轮用于记录从任务规划到动作执行的轨迹，并从�
 导出训练数据
 ------------
 
+``rpent-flywheel`` 提供 ``--vla``\ （默认）和 ``--vlm`` 两种互斥模式，分别用于导出 LeRobot 格式的 VLA 数据集和 API 规划器的 VLM 训练样本。
+
+在两种模式下，``--input-root`` 既可以指向包含 ``task.json`` 的单条轨迹目录，也可以指向包含多次运行的上级目录；``--output-dir`` 必须不存在，原始记录不会被修改。如果多次运行分别保存在多个目录中，可将共同的上级目录设为 ``--input-root``，并用 ``--pattern``\ （通配符需加引号）筛选匹配的运行目录：
+
+.. code-block:: text
+
+   /path/to/
+   ├── run_001/trajectories/<task_id_1>/
+   └── run_002/trajectories/<task_id_2>/
+
+导出 VLA 训练数据
+~~~~~~~~~~~~~~~~~
+
 将同一机器人的轨迹导出到新目录：
 
 .. code-block:: bash
@@ -122,21 +140,9 @@ RPent 数据飞轮用于记录从任务规划到动作执行的轨迹，并从�
      --input-root /path/to/run \
      --output-dir /path/to/lerobot/goal-task-00
 
-``--vla`` 表示仅导出 VLA 训练数据；不加该参数时也默认导出 VLA 数据。
+``--vla`` 表示仅导出 VLA 训练数据，不加该参数时也默认导出 VLA 数据。不同机器人应分别导出。导出程序默认逐张压缩并保存图像（``--image-writer-threads 0``）；要并行写入图像，可在上面的命令中指定线程数，例如 ``--image-writer-threads 4``。
 
-导出程序默认逐张压缩并保存图像（``--image-writer-threads 0``）。要并行写入图像，可在上面的命令中指定线程数，例如 ``--image-writer-threads 4``。
-
-``--input-root`` 可以指向包含 ``task.json`` 的单条轨迹目录，也可以指向包含多次运行的上级目录。不同机器人应分别导出；``--output-dir`` 必须不存在。
-
-如果多次运行分别保存在下面的目录中，可以一起导出：
-
-.. code-block:: text
-
-   /path/to/
-   ├── run_001/trajectories/<task_id_1>/
-   └── run_002/trajectories/<task_id_2>/
-
-将 ``--input-root`` 设为共同的上级目录，用 ``--pattern`` 选择以 ``run_`` 开头的运行目录：
+要将名称以 ``run_`` 开头的多个运行目录一起导出：
 
 .. code-block:: bash
 
@@ -148,18 +154,67 @@ RPent 数据飞轮用于记录从任务规划到动作执行的轨迹，并从�
 
 程序会查找这些运行目录及其子目录中的轨迹，按下文规则筛选后，统一导出到 ``/path/to/lerobot/combined/train/``。请保留命令中 ``run_*`` 两侧的引号。
 
-导出程序按以下规则筛选和组织训练数据：
+VLA 导出程序按以下规则筛选和组织训练数据：
 
 - 成功判定：任务结果中的 ``environment_success`` 必须明确为 ``true``；失败、结果缺失或无法确认成功的任务均不导出。
 - 动作来源：只保留实际执行、且能唯一关联到有效 VLA 预测记录的动作。预测记录必须包含非空指令，并与动作属于同一次工具调用。非 VLA 动作（如工具自行计算并执行的动作）和未执行的预测动作均不参与导出。
 - 数据组织：每个连续片段保存为独立的 LeRobot episode，每个实际执行的动作对应一帧，包含执行前观测、动作和对应的 VLA 指令。
 
-数据集保存在 ``--output-dir`` 指定目录下的 ``train/`` 子目录中，不会自动划分验证集。输出目录中的 ``report.json`` 记录导出数量和排除原因；没有符合条件的动作时，只生成报告。原始记录不会被修改。
+数据集保存在 ``--output-dir`` 指定目录下的 ``train/`` 子目录中，不会自动划分验证集。输出目录中的 ``report.json`` 记录导出数量和排除原因；没有符合条件的动作时，只生成报告。
+
+导出 VLM 训练数据
+~~~~~~~~~~~~~~~~~
+
+将 ``api`` 规划器记录的对话轮次导出为 ``samples.jsonl`` 与去重图像：
+
+.. code-block:: bash
+
+   rpent-flywheel \
+     --vlm \
+     --input-root /path/to/run \
+     --output-dir /path/to/vlm/goal-task-00
+
+- ``--vlm``：导出 ``api`` 规划器记录的 VLM 训练样本。
+- ``--include-unsuccessful``：可选，须与 ``--vlm`` 一起使用。同时导出失败或环境结果未知的轨迹，不再仅限于环境确认成功的轨迹。
+
+VLM 导出程序按以下规则筛选和整理训练样本：
+
+- 轨迹筛选：默认要求任务结果中的 ``environment_success`` 明确为 ``true``；传入 ``--include-unsuccessful`` 后，失败或缺少环境成功判定的轨迹也会纳入导出。
+- 后端与轮次有效性：仅导出 ``api`` 规划器已完成的调用，要求请求和回复内容完整、模型正常结束（排除因长度截断、内容过滤或报错中止的回复）、工具调用参数为合法 JSON 对象，且至少包含可见文本或工具调用。``claude_code`` 和 ``codex`` 的轮次会被跳过。
+- 样本组织与思考内容过滤：每条样本对应一轮模型调用，输入为该轮发给模型的对话历史和可用工具定义，监督目标为该轮的单条助手回复；该回复所调用工具的返回结果会出现在后续轮次的样本中。如果模型开启了深度思考（reasoning），导出时会去掉模型内部的思考过程，对话历史和监督目标中都只保留最终可见文本与工具调用。
+- 图像去重：所有引用到的不同图像按内容哈希各复制一份到 ``images/`` 目录，并将 ``samples.jsonl`` 中的图像路径改写为相对路径，使导出目录可独立迁移。引用的图像文件缺失时，该轮次会被排除。
+
+输出目录结构如下，不会自动划分验证集：
+
+.. code-block:: text
+
+   /path/to/vlm/goal-task-00/
+   ├── samples.jsonl
+   ├── images/
+   └── report.json
+
+输出目录中的 ``report.json`` 记录导出数量和排除信息。``samples.jsonl`` 每行对应一轮待监督的规划器调用，主要字段如下：
+
+.. list-table:: ``samples.jsonl`` 每行记录一轮待监督的规划器调用
+   :header-rows: 1
+
+   * - 字段
+     - 含义
+   * - ``episode_id``
+     - 该轮所属轨迹的任务编号（``task.task_id``）。
+   * - ``turn_id``
+     - 本次规划器调用在轨迹内的唯一标识（``planner_id``）。
+   * - ``messages``
+     - 发给模型的对话历史，按顺序包含 ``system``、``user``、``assistant`` 和 ``tool`` 消息，包含文本、``images/`` 下的图像引用以及历史工具调用。
+   * - ``tools``
+     - 该轮提供给模型的工具定义列表。
+   * - ``target``
+     - 本轮用于监督训练的单条 ``assistant`` 回复，包含可见文本和/或工具调用。
 
 使用 RLinf 训练
 ---------------
 
-对于上述 LIBERO 示例，可使用导出的 LeRobot 数据集，在独立的 RLinf 环境中进行 Pi0.5 监督微调。RPent 负责采集和导出；模型训练、日志和权重保存由 RLinf 管理。
+对于上述 LIBERO 示例，可使用 ``--vla`` 导出的 LeRobot 数据集，在独立的 RLinf 环境中进行 Pi0.5 监督微调。RPent 负责采集和导出；模型训练、日志和权重保存由 RLinf 管理。
 
 环境安装和训练配置请参考 `RLinf OpenPI 监督微调指南 <https://rlinf.readthedocs.io/zh-cn/latest/rst_source/examples/embodied/sft_openpi.html>`_。将 ``data.train_data_paths`` 设为导出目录下的 ``train/`` 子目录，其中包含 ``meta/info.json``。
 
@@ -183,6 +238,8 @@ RPent 数据飞轮用于记录从任务规划到动作执行的轨迹，并从�
 
 SFT 实验结果
 ------------
+
+以下目前仅列出 VLA 微调结果；VLM 微调的对比评测尚未完成。
 
 LIBERO-PRO VLA 微调结果
 ~~~~~~~~~~~~~~~~~~~~~~~
