@@ -62,6 +62,14 @@ def iter_tasks(
         yield task_path.parent, document["task"]
 
 
+def has_confirmed_environment_success(task: dict[str, Any]) -> bool:
+    """Return whether the recorded environment explicitly confirmed task success."""
+    result = task.get("result") or {}
+    return (result.get("data") or {}).get("environment_success") is True and not any(
+        key in result.get("missing", {}) for key in ("", "/environment_success")
+    )
+
+
 def iter_trajectories(
     input_root: Path | str, pattern: str = "*"
 ) -> Iterator[dict[str, Any]]:

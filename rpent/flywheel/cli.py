@@ -25,7 +25,7 @@ logger = get_logger("flywheel")
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="rpent-flywheel",
-        description="Export VLA training frames or cleaned VLM planner turns.",
+        description="Export VLA training frames or API planner turns for VLM training.",
     )
     mode = parser.add_mutually_exclusive_group()
     mode.add_argument(
@@ -42,14 +42,6 @@ def _parser() -> argparse.ArgumentParser:
         "--include-unsuccessful",
         action="store_true",
         help="Also export VLM turns from episodes with failed or unknown environment outcomes.",
-    )
-    parser.add_argument(
-        "--image-history", type=int, help="VLM observation groups to keep (default: 2)."
-    )
-    parser.add_argument(
-        "--reasoning",
-        choices=("drop", "keep"),
-        help="VLM thinking policy (default: drop).",
     )
     parser.add_argument(
         "--input-root",
@@ -96,20 +88,16 @@ def main() -> int:
     """Export trajectories and display the resulting counts and paths."""
     parser = _parser()
     args = parser.parse_args()
-    if not args.vlm and (args.image_history is not None or args.reasoning is not None):
-        parser.error("--image-history and --reasoning require --vlm")
     if args.include_unsuccessful and not args.vlm:
         parser.error("--include-unsuccessful requires --vlm")
     try:
-        if args.vlm:
-            from rpent.flywheel.vlm_clean import export_vlm_samples
+        from rpent.flywheel.export import export_dataset, export_vlm_samples
 
+        if args.vlm:
             report = export_vlm_samples(
                 args.input_root,
                 args.output_dir,
                 pattern=args.pattern,
-                image_history=2 if args.image_history is None else args.image_history,
-                reasoning=args.reasoning or "drop",
                 include_unsuccessful=args.include_unsuccessful,
             )
             print(
@@ -121,8 +109,6 @@ def main() -> int:
             print(f"Excluded turns: {len(report['excluded'])}")
             print(f"Report: {args.output_dir / 'report.json'}")
             return 0
-        from rpent.flywheel.export import export_dataset
-
         report = export_dataset(
             args.input_root,
             args.output_dir,

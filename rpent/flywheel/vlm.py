@@ -17,8 +17,6 @@
 from dataclasses import dataclass, field
 from typing import Any, Literal, TypedDict
 
-from typing_extensions import NotRequired
-
 from rpent.session.records import ArtifactRef
 
 
@@ -36,7 +34,6 @@ class VLMImage(TypedDict):
     # Path is relative to the trajectory root, or the dataset root after export.
     artifact: ArtifactRef
     observation_id: str | None
-    source_call_id: NotRequired[str]
 
 
 class VLMToolCall(TypedDict):
@@ -63,7 +60,6 @@ class VLMMessage:
     content: list[VLMText | VLMImage] = field(default_factory=list)
     tool_calls: list[VLMToolCall] = field(default_factory=list)
     tool_call_id: str | None = None
-    reasoning: str | None = None
 
 
 @dataclass

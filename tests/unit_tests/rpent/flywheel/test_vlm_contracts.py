@@ -16,11 +16,11 @@
 
 import asyncio
 import json
+import subprocess
 import sys
 from copy import deepcopy
 from dataclasses import asdict, replace
 from pathlib import Path
-from unittest.mock import patch
 
 import pytest
 from PIL import Image
@@ -39,12 +39,11 @@ from pydantic_ai.models import ModelRequestParameters
 from pydantic_ai.models.function import FunctionModel
 from pydantic_ai.tools import ToolDefinition
 
+from rpent.flywheel.export import export_vlm_samples
 from rpent.flywheel.vlm import VLMMessage, VLMSample
 from rpent.flywheel.vlm_api import api_turn_to_sample
-from rpent.flywheel.vlm_clean import export_vlm_samples, filter_vlm_sample
 from rpent.session import EnvState, MissingInfo, Payload, PlannerRecord, ToolCallRecord
 from rpent.session.planner_capture import CapturingModel
-from rpent.session.records import ArtifactRef
 
 TASK = "Move above the basket."
 STATE = '{"step":0,"state":{"eef_pos":[0.0,0.0,0.5]}}'
@@ -114,11 +113,6 @@ def vlm_case(tmp_path, request):
             }
             for i, row in enumerate((10, 30), start=1)
         ]
-    reasoning = (
-        None
-        if case in {"api", "api_batch", "encrypted_reasoning", "redacted_reasoning"}
-        else REASONING
-    )
     missing = {}
 
     if case in {"api", "api_batch"}:
@@ -240,14 +234,16 @@ def vlm_case(tmp_path, request):
                 "tools": TOOLS,
             },
         )
+        thinking = REASONING
         if case == "redacted_reasoning":
+            thinking = "<REDACTED>"
             missing["/content/0"] = MissingInfo("not_exposed", "Thinking was redacted.")
         native_response = Payload(
             "claude.messages_response",
             {
                 "role": "assistant",
                 "content": [
-                    {"type": "thinking", "thinking": reasoning or "<REDACTED>"},
+                    {"type": "thinking", "thinking": thinking},
                     *[
                         {
                             "type": "tool_use",
@@ -378,7 +374,7 @@ def vlm_case(tmp_path, request):
             ),
         ],
         tools=TOOLS,
-        target=VLMMessage("assistant", tool_calls=calls, reasoning=reasoning),
+        target=VLMMessage("assistant", tool_calls=calls),
         metadata={"backend": backend, "missing": missing},
     )
     return {
@@ -430,21 +426,18 @@ def test_sample_serializes_without_loading_or_embedding_images(vlm_case):
     assert json.loads(result["content"][0]["text"])["world_xyz"] == [0.1, 0.2, 0.3]
 
 
-def test_readable_reasoning_is_separate_from_missing_reasoning(vlm_case):
-    """Check how samples represent readable, absent, and redacted reasoning."""
+def test_sample_omits_reasoning_from_messages(vlm_case):
+    """Check that messages omit reasoning and metadata retains missing-data details."""
     row = asdict(vlm_case["expected"])
+    assert all("reasoning" not in m for m in [*row["messages"], row["target"]])
     if vlm_case["name"] in {"encrypted_reasoning", "redacted_reasoning"}:
-        assert row["target"]["reasoning"] is None
         assert {v["reason"] for v in row["metadata"]["missing"].values()} == {
             "not_exposed"
         }
         assert "opaque-reasoning" not in json.dumps(row)
         assert "<REDACTED>" not in json.dumps(row)
     elif vlm_case["name"] in {"api", "api_batch"}:
-        assert row["target"]["reasoning"] is None
         assert row["metadata"]["missing"] == {}
-    else:
-        assert row["target"]["reasoning"] == REASONING
 
 
 def test_plain_text_target_needs_no_image_or_tool_call():
@@ -542,7 +535,6 @@ def test_convert_api_opening_keeps_one_target_for_both_calls(api_opening):
                 "arguments": {"row": 30, "col": 20},
             },
         ],
-        reasoning=REASONING,
     )
     assert sample.tools == [
         TOOLS[0],
@@ -554,12 +546,19 @@ def test_convert_api_opening_keeps_one_target_for_both_calls(api_opening):
     ]
 
 
-def test_convert_api_text_answer_without_reasoning(api_opening):
-    """Verify that a text answer is preserved when thinking is absent."""
-    api_opening["response"]["data"]["parts"] = [
-        {"part_kind": "text", "content": "Done."}
-    ]
+def test_convert_api_text_answer_after_thinking_only_response(api_opening):
+    """Skip a thinking-only response as a target and in a later turn's history."""
+    reply = api_opening["response"]["data"]
+    reply["parts"] = [reply["parts"][0]]
+    with pytest.raises(ValueError, match="no text or tool calls"):
+        api_turn_to_sample({"task_id": "episode"}, api_opening)
+    api_opening["request"]["data"]["messages"].append(reply)
+    api_opening["response"]["data"] = {
+        **reply,
+        "parts": [{"part_kind": "text", "content": "Done."}],
+    }
     sample = api_turn_to_sample({"task_id": "episode"}, api_opening)
+    assert [m.role for m in sample.messages] == ["system", "user", "user"]
     assert sample.target == VLMMessage(
         "assistant", content=[{"type": "text", "text": "Done."}]
     )
@@ -601,7 +600,10 @@ def test_convert_two_saved_api_turns_with_observations_and_coordinates(tmp_path)
         function_tools=[ToolDefinition(name=c.tool_name) for c in calls]
     )
     replies = iter(
-        [ModelResponse(parts=calls), ModelResponse(parts=[TextPart("Ready.")])]
+        [
+            ModelResponse(parts=[ThinkingPart(REASONING), *calls]),
+            ModelResponse(parts=[TextPart("Ready.")]),
+        ]
     )
     model = CapturingModel(
         FunctionModel(lambda messages, info: next(replies)), state, "conversation"
@@ -638,6 +640,13 @@ def test_convert_two_saved_api_turns_with_observations_and_coordinates(tmp_path)
     assert first.messages == [
         VLMMessage("user", content=[{"type": "text", "text": TASK}])
     ]
+    assert first.target == VLMMessage(
+        "assistant",
+        tool_calls=[
+            {"id": c.tool_call_id, "name": c.tool_name, "arguments": c.args}
+            for c in calls
+        ],
+    )
     assert second.messages[:2] == [*first.messages, first.target]
     point, view, region, read, attachment = second.messages[2:]
     assert [
@@ -708,295 +717,6 @@ def test_convert_api_retry_preserves_call_id_and_sdk_feedback(api_opening):
     assert json.loads(failure.content[0]["text"]) == {"error": "Missing camera."}
 
 
-def test_clean_export_keeps_two_observations_coordinates_and_explicit_read(
-    api_opening, tmp_path, monkeypatch
-):
-    """Verify that export preserves coordinates, recent views, and an explicit reread."""
-    from rpent.flywheel.cli import main
-
-    root = tmp_path / "source"
-    (root / "artifacts").mkdir(parents=True)
-    (root / "task.json").write_text(
-        json.dumps(
-            {
-                "schema_version": 5,
-                "task": {
-                    "task_id": "test",
-                    "result": {"data": {"environment_success": True}},
-                },
-            }
-        )
-    )
-    history = list(api_opening["request"]["data"]["messages"])
-    rows = []
-
-    def picture(name):
-        """Build a recorded PNG reference for the named test artifact."""
-        return {
-            "kind": "binary",
-            "media_type": "image/png",
-            "data": {
-                "$type": "artifact_ref",
-                "kind": "bytes",
-                "path": f"artifacts/{name}",
-            },
-        }
-
-    def turn(name, args, returned, attachment=None):
-        """Append a planner turn and add its response and feedback to the history."""
-        call_id = f"call-{len(rows)}"
-        response = {
-            "kind": "response",
-            "parts": [
-                {"part_kind": "thinking", "content": REASONING},
-                {"part_kind": "text", "content": "Check the scene."},
-                {
-                    "part_kind": "tool-call",
-                    "tool_name": name,
-                    "args": args,
-                    "tool_call_id": call_id,
-                },
-            ],
-        }
-        feedback = {
-            "return_value": returned,
-            "content": [attachment] if attachment else None,
-        }
-        record = dict(
-            api_opening,
-            planner_id=f"P{len(rows) + 1}",
-            request={
-                **api_opening["request"],
-                "data": {**api_opening["request"]["data"], "messages": list(history)},
-            },
-            response={**api_opening["response"], "data": response},
-            tool_calls=[
-                {
-                    "name": name,
-                    "source_ids": {"pydantic_ai.tool_call_id": call_id},
-                    "feedback": {"data": feedback},
-                }
-            ],
-        )
-        rows.append(record)
-        parts = [
-            {
-                "part_kind": "tool-return",
-                "tool_name": name,
-                "tool_call_id": call_id,
-                "content": returned,
-            }
-        ]
-        if attachment:
-            parts.append({"part_kind": "user-prompt", "content": [attachment]})
-        history.extend([response, {"kind": "request", "parts": parts}])
-
-    for step in (0, 3, 8):
-        state = json.dumps({"step": step, "state": {"position": step}})
-        turn(
-            "view_env_state",
-            {},
-            [state, picture(f"front-{step}"), picture(f"wrist-{step}")],
-        )
-        if step == 0:
-            turn(
-                "read_image",
-                {"name": "wrist.png"},
-                {"artifact": "wrist.png", "step": 0},
-                picture("wrist-0"),
-            )
-        if step == 3:
-            for col in range(4):
-                turn("back_project", {"row": 0, "col": col}, [COORDINATES])
-            turn(
-                "query_world_map",
-                {"view": "wrist", "bbox": [0, 0, 2, 2]},
-                [{"points": [[1, 2, 3]]}],
-            )
-    turn(
-        "read_image",
-        {"step": 0, "name": "wrist.png"},
-        {"artifact": "wrist.png", "step": 0},
-        picture("wrist-0"),
-    )
-    turn("finish", {}, {})
-    (root / "planners.jsonl").write_text(
-        "".join(json.dumps(row) + "\n" for row in rows)
-    )
-    names = ["front-3", "wrist-3", "front-8", "wrist-8", "wrist-0"]
-    for i, name in enumerate(names):
-        Image.new("L", (1, 1), i).save(root / "artifacts" / name, format="PNG")
-
-    output = tmp_path / "clean"
-    monkeypatch.setattr(
-        sys,
-        "argv",
-        [
-            "rpent-flywheel",
-            "--vlm",
-            "--input-root",
-            str(root),
-            "--output-dir",
-            str(output),
-        ],
-    )
-    assert main() == 0
-    samples = list(map(json.loads, (output / "samples.jsonl").read_text().splitlines()))
-    report = json.loads((output / "report.json").read_text())
-    assert (
-        samples[0]["turn_id"] == "P1"
-        and samples[-1]["turn_id"] == rows[-1]["planner_id"]
-    )
-    assert report["excluded"][0] == {
-        "episode_id": "test",
-        "turn_id": "P2",
-        "reason": "missing_images",
-        "paths": ["artifacts/front-0"],
-    }
-    final = samples[-1]
-    images = [
-        b["artifact"]["path"]
-        for m in final["messages"]
-        for b in m["content"]
-        if b["type"] == "image"
-    ]
-    assert all(Path(p).parent == Path("images") for p in images)
-    assert [(output / p).read_bytes() for p in images] == [
-        (root / "artifacts" / n).read_bytes() for n in names
-    ]
-    assert all(m["reasoning"] is None for m in [*final["messages"], final["target"]])
-    assert final["target"]["content"] == [{"type": "text", "text": "Check the scene."}]
-    assert (
-        sum(
-            c["name"] in {"back_project", "query_world_map"}
-            for m in final["messages"]
-            for c in m["tool_calls"]
-        )
-        == 5
-    )
-    texts = [
-        b["text"]
-        for m in final["messages"]
-        if m["role"] == "tool"
-        for b in m["content"]
-        if b["type"] == "text"
-    ]
-    assert texts.count(json.dumps([COORDINATES], separators=(",", ":"))) == 4
-    assert '[{"points":[[1,2,3]]}]' in texts
-    assert json.dumps({"step": 0, "state": {"position": 0}}) in texts
-
-    kept = tmp_path / "keep"
-    export_vlm_samples(root, kept, image_history=1, reasoning="keep")
-    final = json.loads((kept / "samples.jsonl").read_text().splitlines()[-1])
-    assert all(
-        m["reasoning"] == REASONING
-        for m in [*final["messages"], final["target"]]
-        if m["role"] == "assistant"
-    )
-    assert [
-        (kept / b["artifact"]["path"]).read_bytes()
-        for m in final["messages"]
-        for b in m["content"]
-        if b["type"] == "image"
-    ] == [(root / "artifacts" / n).read_bytes() for n in names[-3:]]
-    (root / "artifacts/wrist-0").unlink()
-    missing = export_vlm_samples(root, tmp_path / "missing")
-    assert missing["excluded"][-1] == {
-        "episode_id": "test",
-        "turn_id": rows[-1]["planner_id"],
-        "reason": "missing_images",
-        "paths": ["artifacts/wrist-0"],
-    }
-
-
-def test_observation_ids_resets_and_unknown_images():
-    """Check that image grouping respects resets and preserves unassigned images."""
-
-    def image(name, observation=None):
-        """Build a sample image with an optional observation ID."""
-        return {
-            "type": "image",
-            "artifact": ArtifactRef(f"artifacts/{name}", "bytes"),
-            "observation_id": observation,
-        }
-
-    messages = [VLMMessage("user", content=[image("unknown")])]
-    for call_id, name, result, pictures in [
-        ("a", "view_env_state", {"step": 0}, [image("front", "O1")]),
-        ("b", "view_env_state", {"step": 0}, [image("wrist")]),
-        ("c", "reset", {"action": "reset"}, []),
-        ("d", "view_env_state", {"step": 0}, [image("new", "O2")]),
-    ]:
-        messages.extend(
-            [
-                VLMMessage(
-                    "assistant",
-                    tool_calls=[{"id": call_id, "name": name, "arguments": {}}],
-                ),
-                VLMMessage(
-                    "tool",
-                    tool_call_id=call_id,
-                    content=[{"type": "text", "text": json.dumps(result)}, *pictures],
-                ),
-            ]
-        )
-    sample = VLMSample("episode", "P5", messages, [], VLMMessage("assistant"))
-    for limit, names in [
-        (0, ["unknown"]),
-        (1, ["unknown", "new"]),
-        (2, ["unknown", "front", "wrist", "new"]),
-    ]:
-        filtered = filter_vlm_sample(sample, image_history=limit)
-        assert [
-            Path(b["artifact"].path).name
-            for m in filtered.messages
-            for b in m.content
-            if b["type"] == "image"
-        ] == names
-
-
-def test_post_action_observation_does_not_own_the_tools_original_image():
-    """Check that filtering an observation preserves the tool's original image."""
-    frames = [
-        {
-            "type": "image",
-            "artifact": ArtifactRef(f"artifacts/{name}", "bytes"),
-            "observation_id": None,
-        }
-        for name in ("mask", "front")
-    ]
-    messages = [
-        VLMMessage(
-            "assistant", tool_calls=[{"id": "m", "name": "move_to", "arguments": {}}]
-        ),
-        VLMMessage(
-            "tool", tool_call_id="m", content=[{"type": "text", "text": STATE}, *frames]
-        ),
-    ]
-    sample = VLMSample("episode", "P2", messages, [], VLMMessage("assistant"))
-    calls = {
-        "m": {
-            "after_observation_id": "O1",
-            "raw_result": {
-                "data": {
-                    "images": [
-                        {
-                            "$type": "artifact_ref",
-                            "kind": "bytes",
-                            "path": "artifacts/mask",
-                        }
-                    ]
-                }
-            },
-        }
-    }
-    saved = filter_vlm_sample(sample, prior_calls=calls)
-    assert saved.messages[1].content[-1]["observation_id"] == "O1"
-    filtered = filter_vlm_sample(sample, image_history=0, prior_calls=calls)
-    assert filtered.messages[1].content == messages[1].content[:2]
-    assert frames[1]["observation_id"] is None
-
-
 def _write_vlm_episode(root, result, planners):
     """Write an episode with task metadata and ordered native planner records."""
     root.mkdir(parents=True)
@@ -1010,6 +730,30 @@ def _write_vlm_episode(root, result, planners):
     (root / "planners.jsonl").write_text(
         "".join(json.dumps(record) + "\n" for record in planners)
     )
+
+
+def test_vlm_cli_exports_without_lerobot(api_opening, tmp_path):
+    """Exercise CLI startup and sample export with the optional VLA dependency absent."""
+    root, output = tmp_path / "source", tmp_path / "dataset"
+    _write_vlm_episode(root, {"data": {"environment_success": True}}, [api_opening])
+    subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            "import sys\n"
+            "sys.modules['lerobot'] = None\n"
+            "from rpent.flywheel.cli import main\n"
+            "sys.exit(main())",
+            "--vlm",
+            "--input-root",
+            str(root),
+            "--output-dir",
+            str(output),
+        ],
+        check=True,
+    )
+    sample = json.loads((output / "samples.jsonl").read_text())
+    assert sample == asdict(api_turn_to_sample({"task_id": root.name}, api_opening))
 
 
 def test_vlm_export_selects_confirmed_episodes_and_counts_rejections(
@@ -1079,14 +823,7 @@ def test_vlm_export_selects_confirmed_episodes_and_counts_rejections(
         _write_vlm_episode(jobs / name, result, [api_opening])
 
     out = tmp_path / "dataset"
-    with patch(
-        "rpent.flywheel.vlm_clean.filter_vlm_sample", wraps=filter_vlm_sample
-    ) as clean:
-        report = export_vlm_samples(jobs, out)
-    assert [
-        (call.args[0].turn_id, call.kwargs["recent_planner_ids"])
-        for call in clean.call_args_list
-    ] == [("P1", ()), ("P7", ("P5", "P6")), ("P8", ("P6", "P7"))]
+    report = export_vlm_samples(jobs, out)
     assert report == json.loads((out / "report.json").read_text())
     assert (
         report["episode_count"],

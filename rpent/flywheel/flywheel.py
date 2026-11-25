@@ -19,7 +19,7 @@ from typing import Any
 
 import numpy as np
 
-from rpent.flywheel.reader import read_array
+from rpent.flywheel.reader import has_confirmed_environment_success, read_array
 from rpent.robots import get_robot_spec
 
 
@@ -200,14 +200,6 @@ def read_frame(
         config["action"]["dataset_key"]: actions,
         "prompt": instruction,
     }
-
-
-def has_confirmed_environment_success(task: dict[str, Any]) -> bool:
-    """Return whether the recorded environment explicitly confirmed task success."""
-    result = task.get("result") or {}
-    return (result.get("data") or {}).get("environment_success") is True and not any(
-        key in result.get("missing", {}) for key in ("", "/environment_success")
-    )
 
 
 def select_vla_segments(trajectory: dict[str, Any]) -> dict[str, list[dict]]:

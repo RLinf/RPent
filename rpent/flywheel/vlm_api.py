@@ -14,7 +14,6 @@
 
 """Convert recorded API planner turns to VLM training samples."""
 
-from collections import defaultdict
 from pathlib import PurePosixPath
 from typing import Any
 
@@ -41,17 +40,15 @@ class TurnConversionError(ValueError):
 
 
 def _assistant_message(parts: list[dict[str, Any]]) -> VLMMessage:
-    """Build an assistant message from recorded text, thinking, and tool calls."""
+    """Build an assistant training message from recorded text and tool calls."""
     message = VLMMessage("assistant")
-    reasoning = []
     for part in parts:
         kind = part["part_kind"]
         if kind == "text":
             if part["content"]:
                 message.content.append({"type": "text", "text": part["content"]})
         elif kind == "thinking":
-            if part["content"]:
-                reasoning.append(part["content"])
+            continue
         elif kind == "tool-call":
             args = part["args"]
             arguments = {} if args is None or args == "" else json_object(args)
@@ -69,7 +66,6 @@ def _assistant_message(parts: list[dict[str, Any]]) -> VLMMessage:
             )
         else:
             raise ValueError(f"Unsupported API response part: {kind}")
-    message.reasoning = "\n".join(reasoning) or None
     return message
 
 
@@ -166,44 +162,7 @@ def _request_message(part: dict[str, Any]) -> VLMMessage:
     return message
 
 
-def _request_messages(
-    parts: list[dict[str, Any]], prior_calls: dict[str, dict]
-) -> list[VLMMessage]:
-    """Convert request parts and link image attachments to matching read_image calls."""
-    messages = [_request_message(part) for part in parts]
-    if not prior_calls:
-        return messages
-    reads = defaultdict(list)
-    attachments = defaultdict(list)
-    for part, message in zip(parts, messages):
-        if part["part_kind"] == "tool-return" and part["tool_name"] == "read_image":
-            call = prior_calls.get(part["tool_call_id"], {})
-            feedback = (call.get("feedback") or {}).get("data") or {}
-            if (
-                call.get("name") == "read_image"
-                and feedback.get("return_value") == part["content"]
-            ):
-                images = feedback.get("content") or []
-                if len(images) == 1 and isinstance(images[0], dict):
-                    ref = images[0].get("data")
-                    if isinstance(ref, dict) and ref.get("$type") == "artifact_ref":
-                        reads[ref["path"]].append(part["tool_call_id"])
-        elif message.role == "user" and len(message.content) == 1:
-            block = message.content[0]
-            if block["type"] == "image":
-                attachments[block["artifact"].path].append(block)
-    for path, images in attachments.items():
-        if len(images) == len(reads[path]) == 1:
-            images[0]["source_call_id"] = reads[path][0]
-    return messages
-
-
-def api_turn_to_sample(
-    task: dict[str, Any],
-    planner: dict[str, Any],
-    *,
-    prior_calls: dict[str, dict] | None = None,
-) -> VLMSample:
+def api_turn_to_sample(task: dict[str, Any], planner: dict[str, Any]) -> VLMSample:
     """Convert one completed API planner record and its history to a turn sample."""
     if planner["backend"] != "api":
         raise ValueError("Expected a completed API planner turn")
@@ -240,9 +199,11 @@ def api_turn_to_sample(
     messages = []
     for entry in data["messages"]:
         if entry["kind"] == "response":
-            messages.append(_assistant_message(entry["parts"]))
+            message = _assistant_message(entry["parts"])
+            if message.content or message.tool_calls:
+                messages.append(message)
         elif entry["kind"] == "request" and not entry.get("instructions"):
-            messages.extend(_request_messages(entry["parts"], prior_calls or {}))
+            messages.extend(_request_message(part) for part in entry["parts"])
         else:
             raise ValueError("Unsupported API request history")
 
