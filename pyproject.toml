@@ -28,6 +28,9 @@ classifiers = [
 
 dependencies = [
     # Upgrade together after validating request budgets and failed-request accounting.
+    # The MCP client comes from `mcp` below: pydantic-ai's `mcp` extra pulls
+    # fastmcp, which requires beartype>=0.20 and cannot coexist with the
+    # beartype==0.19.0 that `rpent-openpi` pins.
     "pydantic-ai-slim[anthropic,google,openai,cli]==2.53.0",
     "pydantic-ai-harness==0.53.0",
     # Google GenAI 3.x changes the default API path from v1beta to v1.
@@ -53,6 +56,9 @@ dependencies = [
     "scipy",
     "imageio>=2.0",
     "PyYAML>=6.0",
+    # `--mcp-config` is a core CLI flag and resolves `${oc.env:...}` with
+    # OmegaConf, so this is no longer only a robot/test extra.
+    "omegaconf>=2.3,<3",
 ]
 
 [project.scripts]
@@ -70,9 +76,9 @@ Documentation = "https://rpent.readthedocs.io/en/latest/"
 [project.optional-dependencies]
 test = [
     "coverage",
+    "docutils",
     "pytest",
     "pytest-timeout",
-    "omegaconf",
     "gymnasium",
 ]
 rlinf = [
@@ -161,7 +167,6 @@ yam = [
     # Install the fixed RLinf YAM revision and i2rt SDK from the YAM guide.
     # i2rt 1.1.2 requires click<8.2; huggingface-hub 2.x requires click>=8.4.
     "huggingface_hub>=0.24,<1",
-    "omegaconf>=2.3,<3",
     "mujoco>=3.2,<4",
     "pyrealsense2>=2.55,<3",
     "imageio-ffmpeg",

@@ -36,7 +36,7 @@ Select a backend with ``--planner`` and follow its setup section:
      - No model API needed; perception and VLA services are still required.
        See :doc:`flash`.
 
-``--base-url`` is only for ``api``; other planners reject it. For the CLI
+``--base-url`` is only for ``api``; other online planners reject it. For the CLI
 backends, RPent starts and manages the selected tool automatically.
 
 The ``api`` Planner (direct Model API)
