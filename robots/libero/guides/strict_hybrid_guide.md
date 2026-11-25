@@ -182,8 +182,8 @@ goal is past OSC reach and no physical approach works, write an honest
 
 ## Rule 0 — Use images for reasoning, not just JSON state
 
-After every primitive tool call, inspect the returned state and embedded images
-(the tool returns them — no separate read needed). Inspect
+After a primitive tool call, check the returned state and action result.
+Call `view_env_state` when you need fresh images. Inspect
 `agentview_high.png` (calibration frame — the one you pick pixels in)
 and, when close to a target, `wrist_high.png`. Even more
 important here than in oracle mode: this is *the* signal you use to find
@@ -453,14 +453,12 @@ you do **not** need a separate read. When you need an older step, call
 
 1. Check `log.result.success`, `log.result.final_dist_m`,
   `log.result.peak_lift_m`, etc.
-2. Inspect the embedded `agentview_high.png` image → visual confirmation; pick
-   pixels for any new localization.
+2. For visual confirmation or new localization, call `view_env_state` and
+   inspect `agentview_high.png`.
 3. Check `state.robot0_eef_pos`, `state.robot0_gripper_qpos`, and top-level
   `terminated` in the returned view.
 
 You **do not** open the depth maps yourself — feed a pixel to `back_project`.
-Don't call `view_env_state` immediately after a primitive that already
-returned the new state.
 
 ## Common failure modes
 
