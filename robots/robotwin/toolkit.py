@@ -51,45 +51,6 @@ _RECIPE_ACTIONS = {
 }
 
 
-def _world_from_depth(
-    depth_metric: np.ndarray, camera_meta: dict[str, Any]
-) -> np.ndarray:
-    """Back-project metric depth into the RoboTwin world frame."""
-    depth = np.asarray(depth_metric, dtype=np.float64)
-    if depth.ndim != 2:
-        raise ValueError(f"RoboTwin depth must have shape [H,W], got {depth.shape}")
-
-    intrinsic = np.asarray(camera_meta.get("intrinsic_K"), dtype=np.float64)
-    cam2world = np.asarray(camera_meta.get("cam2world_gl"), dtype=np.float64)
-    if intrinsic.shape != (3, 3):
-        raise ValueError("RoboTwin camera intrinsic_K must have shape (3,3)")
-    if cam2world.shape != (4, 4):
-        raise ValueError("RoboTwin camera cam2world_gl must have shape (4,4)")
-    if not np.isfinite(intrinsic).all() or not np.isfinite(cam2world).all():
-        raise ValueError("RoboTwin camera calibration must contain only finite values")
-
-    height, width = depth.shape
-    if camera_meta.get("height") != height or camera_meta.get("width") != width:
-        raise ValueError(
-            "RoboTwin depth shape does not match camera metadata: "
-            f"depth={depth.shape}, metadata="
-            f"({camera_meta.get('height')}, {camera_meta.get('width')})"
-        )
-    fx, fy = intrinsic[0, 0], intrinsic[1, 1]
-    cx, cy = intrinsic[0, 2], intrinsic[1, 2]
-    rows, cols = np.mgrid[0:height, 0:width]
-    camera_points = np.stack(
-        [
-            (cols - cx) * depth / fx,
-            -(rows - cy) * depth / fy,
-            -depth,
-        ],
-        axis=-1,
-    )
-    world = camera_points @ cam2world[:3, :3].T + cam2world[:3, 3]
-    return world.astype(np.float32)
-
-
 class RoboTwinToolkit(Toolkit):
     """Common RPent tools plus RoboTwin primitives."""
 
@@ -244,7 +205,7 @@ class RoboTwinToolkit(Toolkit):
         return ToolResult(data=payload)
 
     def _capture_full_observation(self) -> dict[str, Any]:
-        """Assemble the full observation (rgb + depth + camera_meta + world_xyz).
+        """Capture RGB, depth and calibration for saved observations.
 
         This is the dump/recording path consumed by ``tools.dump_observation``
         and the ``sample_world_xyz`` agent tool. It deliberately fetches depth
@@ -264,8 +225,7 @@ class RoboTwinToolkit(Toolkit):
             camera_meta = env.get_camera_meta(camera_name)
             views[camera_name] = {
                 "rgb": np.asarray(rgb),
-                "depth": np.asarray(depth, dtype=np.float32),
-                "world_xyz": _world_from_depth(depth, camera_meta),
+                "depth": np.asarray(depth),
                 "camera_meta": camera_meta,
             }
         return {
@@ -308,7 +268,11 @@ class RoboTwinToolkit(Toolkit):
                     step=record.step_idx,
                     fps=20,
                 )
-        return tools.view_env_state(record.step_idx, state=self._state)
+        return tools.view_env_state(
+            record.step_idx,
+            state=self._state,
+            include_images=command["action"] == "render",
+        )
 
     def close(self) -> None:
         """Flush the per-step frame buffer into ``episode.mp4`` (LIBERO parity)."""

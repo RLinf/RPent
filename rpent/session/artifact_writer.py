@@ -45,6 +45,7 @@ class PendingArtifact:
     """Own a detached payload and share PNG encoding between readers and writer."""
 
     value: ArtifactValue
+    derived: bool = False
     _encoded: bytes | None = None
     _lock: threading.Lock = field(default_factory=threading.Lock)
 
@@ -78,6 +79,8 @@ class ArtifactWriter:
         value: ArtifactValue,
         size: int,
         write: Callable[[Path, PendingArtifact], None],
+        *,
+        derived: bool = False,
     ) -> None:
         """Reserve space before copying and dispatching a payload."""
         with self._condition:
@@ -87,7 +90,7 @@ class ArtifactWriter:
                     and self._buffered_bytes + size <= self.max_bytes
                 )
             )
-            pending = PendingArtifact(_snapshot(value))
+            pending = PendingArtifact(_snapshot(value), derived=derived)
             self._executor.submit(self._write, path, pending, size, write)
             self._pending[path] = pending
             self._buffered_bytes += size

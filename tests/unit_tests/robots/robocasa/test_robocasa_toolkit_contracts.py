@@ -24,11 +24,11 @@ from unittest.mock import Mock
 import numpy as np
 import pytest
 
-from robots.robocasa import robot_spec, toolkit
+from robots.robocasa import robot_spec, toolkit, tools
 from rpent.dashboard.events import NullDashboardEventSink
 from rpent.memory import MemoryManager
 from rpent.robots import RunConfig
-from rpent.session import Payload
+from rpent.session import EnvState, Payload
 from rpent.session.env_capture import CapturingEnvClient, ToolCallCapture
 from rpent.tools import Toolkit, ToolResult
 from rpent.tools.common import CommonTools
@@ -183,6 +183,27 @@ def test_toolkit_constructs_and_classifies_tools_with_a_fake(
     assert env.step.call_count == 2
     assert env.render_camera.call_count == (6 if mode == "evaluation" else 0)
     assert len(state.action_records()) == (1 if mode == "evaluation" else 0)
+
+
+def test_observation_reuses_rendered_depth_for_world_maps(tmp_path: Path) -> None:
+    rgb = np.zeros((2, 3, 3), dtype=np.uint8)
+    depth = np.full((2, 3), 2, dtype=np.float32)
+    transform = np.eye(4)
+    transform[0, 3] = 5
+    env = SimpleNamespace(
+        render_camera=Mock(return_value=(rgb, depth)),
+        get_camera_transform=Mock(return_value=transform),
+        get_camera_meta=Mock(return_value={}),
+    )
+    primitives = SimpleNamespace(env=env, hi_res=None, _cam_meta_cache={})
+    state = EnvState(tmp_path, async_artifacts=True)
+    try:
+        with state.record_step(state={}) as step:
+            tools._save_observation_artifacts(primitives, state, step)
+        assert env.render_camera.call_count == 3
+        np.testing.assert_array_equal(state.load("wrist_world.npz")[1, 2], [9, 2, 2])
+    finally:
+        state.close_artifacts()
 
 
 def test_solved_reads_only_the_final_environment_record() -> None:

@@ -310,7 +310,11 @@ class RoboDojoToolkit(Toolkit):
             perception=self._pending_perception,
         )
         self._pending_perception = []
-        return robodojo_tools.view_env_state(record.step_idx, state=self._state)
+        return robodojo_tools.view_env_state(
+            record.step_idx,
+            state=self._state,
+            include_images=command["action"] == "render",
+        )
 
     def close(self) -> None:
         """Drain tools; the runtime owns the environment across planner sessions."""

@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import json
 import threading
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any
 
@@ -84,6 +85,46 @@ def test_background_write_failure_is_reported_at_close(
     assert state.artifact_write_failures() == {
         str(tmp_path / "depth.npy"): "OSError: disk full"
     }
+
+
+def test_derived_artifact_reads_wait_for_output(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    state = EnvState(tmp_path, async_artifacts=True)
+    depth = np.array([2], dtype=np.float32)
+    computing = threading.Event()
+    reading = threading.Event()
+    release = threading.Event()
+
+    def project(snapshot):
+        computing.set()
+        assert release.wait(timeout=5)
+        return snapshot * 3
+
+    wait = state._writer.wait
+
+    def wait_for_artifact(path):
+        reading.set()
+        return wait(path)
+
+    monkeypatch.setattr(state._writer, "wait", wait_for_artifact)
+    try:
+        with state.record_step(state={}):
+            assert state.save_async("world.npz", depth, transform=project)
+        assert computing.wait(timeout=5)
+        depth[0] = 9
+        assert state.exists("world.npz")
+        with ThreadPoolExecutor(max_workers=1) as executor:
+            result = executor.submit(state.load, "world.npz")
+            try:
+                assert reading.wait(timeout=5)
+                assert not result.done()
+            finally:
+                release.set()
+            np.testing.assert_array_equal(result.result(timeout=5), [6])
+    finally:
+        release.set()
+        state.close_artifacts()
 
 
 def test_rolled_back_step_drains_and_removes_artifacts(tmp_path: Path) -> None:

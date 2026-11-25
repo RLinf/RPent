@@ -16,6 +16,8 @@
 
 from __future__ import annotations
 
+from copy import deepcopy
+from functools import partial
 from typing import Annotated, Any
 
 import numpy as np
@@ -313,6 +315,39 @@ def query_world_map(
     )
 
 
+def _world_from_depth(
+    depth_metric: np.ndarray, camera_meta: dict[str, Any]
+) -> np.ndarray:
+    """Back-project metric depth into the RoboTwin world frame."""
+    depth = np.asarray(depth_metric, dtype=np.float64)
+    if depth.ndim != 2:
+        raise ValueError(f"RoboTwin depth must have shape [H,W], got {depth.shape}")
+
+    intrinsic = np.asarray(camera_meta.get("intrinsic_K"), dtype=np.float64)
+    cam2world = np.asarray(camera_meta.get("cam2world_gl"), dtype=np.float64)
+    if intrinsic.shape != (3, 3):
+        raise ValueError("RoboTwin camera intrinsic_K must have shape (3,3)")
+    if cam2world.shape != (4, 4):
+        raise ValueError("RoboTwin camera cam2world_gl must have shape (4,4)")
+    if not np.isfinite(intrinsic).all() or not np.isfinite(cam2world).all():
+        raise ValueError("RoboTwin camera calibration must contain only finite values")
+
+    height, width = depth.shape
+    if camera_meta.get("height") != height or camera_meta.get("width") != width:
+        raise ValueError(
+            "RoboTwin depth shape does not match camera metadata: "
+            f"depth={depth.shape}, metadata="
+            f"({camera_meta.get('height')}, {camera_meta.get('width')})"
+        )
+    fx, fy = intrinsic[0, 0], intrinsic[1, 1]
+    cx, cy = intrinsic[0, 2], intrinsic[1, 2]
+    rows, cols = np.mgrid[0:height, 0:width]
+    camera_points = np.stack(
+        [(cols - cx) * depth / fx, -(rows - cy) * depth / fy, -depth], axis=-1
+    )
+    return (camera_points @ cam2world[:3, :3].T + cam2world[:3, 3]).astype(np.float32)
+
+
 def dump_observation(
     observation: dict[str, Any],
     *,
@@ -324,13 +359,18 @@ def dump_observation(
     step_idx = 0 if env_state.latest_step is None else env_state.latest_step + 1
     paths: dict[str, dict[str, str]] = {}
     view_specs: dict[str, dict[str, Any]] = {}
+    derived_views = {
+        name
+        for name, view in observation["views"].items()
+        if "world_xyz" not in view and {"depth", "camera_meta"} <= view.keys()
+    }
     for view_name, view in observation["views"].items():
         view_paths: dict[str, str] = {}
         if "rgb" in view:
             name = _artifact_name(view_name, "rgb")
             view_paths["rgb"] = str(env_state.artifact_path(name, step=step_idx))
         for field in ("depth", "world_xyz"):
-            if field in view:
+            if field in view or (field == "world_xyz" and view_name in derived_views):
                 name = _artifact_name(view_name, field)
                 view_paths[field] = str(env_state.artifact_path(name, step=step_idx))
         if "camera_meta" in view:
@@ -382,17 +422,29 @@ def dump_observation(
                 if field in view:
                     env_state.save_async(
                         _artifact_name(view_name, field),
-                        view[field],
+                        np.asarray(view[field], dtype=np.float32)
+                        if field == "depth" and view_name in derived_views
+                        else view[field],
                         step=recorded_step,
                     )
+            if view_name in derived_views:
+                env_state.save_async(
+                    _artifact_name(view_name, "world_xyz"),
+                    view["depth"],
+                    step=recorded_step,
+                    transform=partial(
+                        _world_from_depth, camera_meta=deepcopy(view["camera_meta"])
+                    ),
+                )
     return env_state.get(step_idx)
 
 
-@tool(readonly=True, exclude=("state",))
+@tool(readonly=True, exclude=("state", "include_images"))
 def view_env_state(
     step: Annotated[int, Field(json_schema_extra={"default": -1})] = -1,
     *,
     state: EnvState,
+    include_images: bool = True,
 ) -> ToolResult:
     """Read one EnvState step and its synchronized RoboTwin observation artifacts. Step -1 selects the latest entry. Embeds the head, left wrist, and right wrist RGB images when available.
 
@@ -417,6 +469,8 @@ def view_env_state(
         "result": record.result,
         "elapsed_s": record.elapsed_s,
     }
+    if not include_images:
+        return ToolResult(data=result)
     for view in ("head", "left_wrist", "right_wrist"):
         name = _artifact_name(view, "rgb")
         if name in record.artifacts:

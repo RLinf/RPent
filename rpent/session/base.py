@@ -22,7 +22,7 @@ import json
 import math
 import os
 import threading
-from collections.abc import Generator
+from collections.abc import Callable, Generator
 from contextlib import contextmanager
 from dataclasses import dataclass, field, fields, is_dataclass
 from datetime import datetime, timezone
@@ -957,16 +957,27 @@ class EnvState:
         *,
         step: int | None = -1,
         fps: int = 20,
+        transform: Callable[[np.ndarray], np.ndarray] | None = None,
     ) -> str | None:
         """Save a snapshot, queuing PNG, numeric arrays, and videos when enabled.
 
         Large payloads exceeding the queue budget use the synchronous save path.
-        Accepted names are immediately available through load() and load_bytes().
+        An optional transform computes an NPY or NPZ artifact from the queued
+        snapshot. It must use captured inputs only. Readers wait for a derived
+        file before loading it.
         """
         writer = self._writer
-        if writer is None:
-            return self.save(name, value, step=step, fps=fps)
         suffix = Path(self._validate_name(name)).suffix.lower()
+        if transform is not None:
+            if suffix not in {".npy", ".npz"}:
+                raise ValueError("artifact transforms require an NPY or NPZ name")
+            value = np.asarray(value)
+            if value.dtype.hasobject:
+                raise TypeError("artifact transforms require a numeric snapshot")
+        if writer is None:
+            return self.save(
+                name, transform(value) if transform else value, step=step, fps=fps
+            )
         if suffix == ".mp4":
             snapshot = (
                 bytes(value)
@@ -988,20 +999,28 @@ class EnvState:
         else:
             return self.save(name, value, step=step, fps=fps)
         if size > writer.max_bytes:
-            return self.save(name, snapshot, step=step, fps=fps)
+            return self.save(
+                name,
+                transform(snapshot) if transform else snapshot,
+                step=step,
+                fps=fps,
+            )
 
         def write(path: Path, pending: PendingArtifact) -> None:
             if suffix == ".png":
                 self._write_artifact(path, pending.png_bytes(), encoded_png=True)
             else:
-                self._write_artifact(path, pending.value, fps=fps)
+                output = transform(pending.value) if transform else pending.value
+                self._write_artifact(path, output, fps=fps)
 
         with self._artifact_lock:
             step = self._resolve_read_step(step)
             destination = self._artifact_file(name, step)
             artifacts = self._artifact_names(step)
             writer.discard(destination)
-            writer.submit(destination, snapshot, size, write)
+            writer.submit(
+                destination, snapshot, size, write, derived=transform is not None
+            )
             artifacts.add(name)
             if not self._step_open:
                 self._write_manifest()
@@ -1100,7 +1119,7 @@ class EnvState:
         if self._writer is not None:
             pending = self._writer.pending(source)
             if pending is not None:
-                if isinstance(pending.value, np.ndarray):
+                if isinstance(pending.value, np.ndarray) and not pending.derived:
                     return pending.value.copy()
                 if isinstance(pending.value, bytes):
                     return pending.value

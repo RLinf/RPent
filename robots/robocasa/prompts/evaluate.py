@@ -168,7 +168,7 @@ WORKFLOW:
 3. NAVIGATE: If the target is far (|xy| > 0.8m), navigate_to first.
 4. MANIPULATE: Use rldx_arm / rldx_skill for VLA grasping. Then script
    free-space carry (move_to with gripper omitted) and release.
-5. CHECK: After every command, view_env_state to check task_progress.
+5. CHECK: Read task_progress from the action result. Call view_env_state when you need a fresh image.
 6. FINISH: When state.success == true, call finish(status='success').
 7. If stuck, call finish(status='stuck', summary='...').
 """

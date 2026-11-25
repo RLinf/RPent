@@ -350,6 +350,8 @@ def test_policy_tool_executes_until_native_success_and_records_state(tmp_path):
     assert toolkit.state.get(0).state["success"] is None
     result = toolkit.execute_tool("pi05_act", {"steps": 5})
     assert result.data["state"]["success"] is True
+    assert not result.images
+    assert len(toolkit.execute_tool("view_env_state", {"step": 1}).images) == 2
     assert len(env.actions) == 2
     assert toolkit.evaluation_metrics(success=True) == {"success": True}
     assert toolkit.solved()

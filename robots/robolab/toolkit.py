@@ -88,12 +88,14 @@ class RoboLabToolkit(Toolkit):
         elapsed_s: float,
     ) -> ToolResult:
         self._capture(command=command, result=result, elapsed_s=elapsed_s)
-        return self.view_env_state(-1)
+        return self.view_env_state(-1, include_images=False)
 
-    @tool(readonly=True)
+    @tool(readonly=True, exclude=("include_images",))
     def view_env_state(
         self,
         step: Annotated[int, Field(json_schema_extra={"default": -1})] = -1,
+        *,
+        include_images: bool = True,
     ) -> ToolResult:
         """Read a saved RoboLab state and its external and wrist RGB images.
 
@@ -116,7 +118,7 @@ class RoboLabToolkit(Toolkit):
             images=[
                 self.state.load_bytes(name, step=record.step_idx)
                 for name in ("main.png", "wrist.png")
-                if name in record.artifacts
+                if include_images and name in record.artifacts
             ],
         )
 

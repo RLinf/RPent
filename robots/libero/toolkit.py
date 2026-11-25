@@ -267,7 +267,9 @@ class LiberoToolkit(Toolkit):
                     record.step_idx,
                     e,
                 )
-        out = libero_tools.view_env_state(record.step_idx, state=self._state)
+        out = libero_tools.view_env_state(
+            record.step_idx, state=self._state, include_images=False
+        )
         out.data["agent_elapsed_s"] = elapsed_s
         if self._policy_kind == "wam" and (record.terminated or record.truncated):
             status = "success" if record.terminated else "failure"

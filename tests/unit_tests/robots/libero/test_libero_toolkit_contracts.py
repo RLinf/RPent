@@ -234,7 +234,7 @@ def test_generic_localization_is_registered_with_libero_observations(
         command={"action": "release"}, result={}, elapsed_s=0.5
     )
     assert after_action == ToolResult(
-        data={**expected_view.data, "agent_elapsed_s": 0.5}, images=expected_view.images
+        data={**expected_view.data, "agent_elapsed_s": 0.5}
     )
 
     selected = tk.execute_tool(

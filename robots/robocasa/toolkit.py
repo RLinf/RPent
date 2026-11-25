@@ -181,7 +181,9 @@ class RoboCasaToolkit(Toolkit):
                     record.step_idx,
                     e,
                 )
-        out = robocasa_tools.view_env_state(record.step_idx, state=self._state)
+        out = robocasa_tools.view_env_state(
+            record.step_idx, state=self._state, include_images=False
+        )
         out.data["agent_elapsed_s"] = elapsed_s
         if result.get("interrupted"):
             out.data.update(result)

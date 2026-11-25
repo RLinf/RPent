@@ -221,8 +221,8 @@ def rules(geometry: bool) -> str:
         else "its higher world-z from `back_project`."
     )
     return substitute_text(
-        """Rule 0 — USE IMAGES. After every primitive tool call, inspect the returned state
-  and embedded images. If you need a state again, call `view_env_state`. Inspect
+        """Rule 0 — USE IMAGES. After a primitive tool call, check the returned state.
+  Call `view_env_state` when you need a fresh image. Inspect
   `agentview_high.png` (the calibration-frame image used for pixel selection)
   and, when close to a target, `wrist_high.png`. The image is
     your spatial-reasoning input; the returned `state` field only gives
@@ -594,9 +594,8 @@ EXECUTE_PRIMITIVE = """EXECUTE one primitive at a time by calling its structured
     pi0_pick({"prompt": "...", "max_chunks": 20, ...})
     release({})
 
-Each primitive tool blocks until the next state record is dumped and returns
-the new state view, log, and embedded images. Inspect `agentview_high.png` and
-`wrist_high.png` as needed, """
+Each primitive tool returns the new state and action log. Call `view_env_state`
+to inspect `agentview_high.png` and `wrist_high.png` when needed."""
 
 WORKFLOW_STEPS = (
     """READ THE GUIDES once each:
@@ -684,8 +683,7 @@ KEY_HYPERPARAMETERS = """- Single-step xy within ±0.30 or OSC flips IK; split l
 
 OUTPUT_DISCIPLINE = """- Brief reasoning before each tool call (1-2 sentences): observation → decision.
 - Don't re-read files already in this session.
-- Don't call `view_env_state` immediately after a primitive tool already
-  returned the new state.
+- Call `view_env_state` when you need a fresh image after motion.
 - Save the audit BEFORE calling `finish`.
 - Stop immediately after writing the audit and calling `finish`. Do not chat further."""
 
