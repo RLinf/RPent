@@ -39,6 +39,7 @@ EXPECTED_ROBOTS = (
     "robodojo",
     "robolab",
     "robotwin",
+    "vlabench",
     "yam",
 )
 
@@ -105,6 +106,16 @@ PROMPT_VARIABLES = {
         "mode": "eval",
         "memory_profile": "hf",
         "reference_tag": "block_hammer_beat_s0",
+        "output_dir": Path("/output"),
+    },
+    "vlabench": {
+        "task_name": "select_painting",
+        "track": "track_1_in_distribution",
+        "episode_index": 0,
+        "seed": 42,
+        "mode": "eval",
+        "memory_dir": "/memory",
+        "recipe_tag": "vlabench_select_painting_e0_s42",
         "output_dir": Path("/output"),
     },
     "franka": {

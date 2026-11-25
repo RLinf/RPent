@@ -20,5 +20,7 @@ Choose a platform for installation and usage instructions.
      - Dual-arm ARX-X5 manipulation with Isaac Sim and the RLinf Pi0.5 policy.
    * - :doc:`robolab`
      - DROID manipulation tasks with Isaac Lab and Pi0.5.
+   * - :doc:`vlabench`
+     - Franka tabletop manipulation with VLABench; planner-driven pose and gripper tools.
    * - :doc:`efe`
      - EFE robot task benchmark; runs through Harbor and spans task simulators.
