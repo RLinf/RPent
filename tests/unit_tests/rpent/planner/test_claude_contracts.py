@@ -251,6 +251,7 @@ def test_narrator_uses_the_rpent_bridge_and_selected_model(tmp_path, override):
     assert role.model == (override or options.model)
     assert role.background and role.maxTurns == 200
     assert set(role.tools) == {"mcp__rpent__read_image", "mcp__rpent__tts__synthesize"}
+    assert "view_env_state" not in role.prompt
     assert set(role.tools).issubset(options.allowed_tools)
 
 

@@ -38,31 +38,6 @@ RPent 通过一个 CLI 参数选择 Agentic Planner 的后端：
        :doc:`flash`。
      - 想在新布局上低成本地重跑一个已知可行的方案，无需 LLM 在线规划；仍需要感知和 VLA 服务。
 
-.. _scene-narration:
-
-解说机器人画面
---------------
-
-使用 ``api``、``claude_code`` 或 ``codex`` 时，可以让子智能体在后台解说机器人画面。它与主规划器共用模型、凭据和服务地址。以下示例假设已配置 LIBERO 环境和 Claude 认证，且所用模型支持图像输入。请在 RPent 仓库根目录运行命令。
-
-1. 启动语音合成服务并保持运行。默认后端需要安装 ``edge-tts`` Python 包，并能访问网络。
-
-   .. code-block:: bash
-
-      python -m toolkits.narration.server
-
-2. 另开一个终端，注册语音合成工具和解说子智能体：
-
-   .. code-block:: bash
-
-      rpent --robot libero --suite libero_goal_task --task 1 --seed 0 \
-        --planner claude_code --tui --subagent narrator \
-        --mcp-config toolkits/narration/mcp.example.yaml
-
-   在输入框的任务指令末尾添加“执行任务时请用中文解说机器人画面”并提交。主智能体收到请求后启动解说。子智能体每轮读取最新画面，将一句简短的中文描述交给 ``tts__synthesize``。服务把 MP3 文件写入服务所在机器的 ``logs/narration/`` 目录，不会自动播放。
-
-示例使用默认设置 ``sync_with_robot: false``，因此语音合成不会触发额外的机器人观测。如果合成尚未完成，同一工具包上的机器人动作仍需等待。调度和超时设置见 :ref:`external-mcp-servers`。
-
 ``api`` 规划器（直接调用模型 API）
 -------------------------------------
 
@@ -311,3 +286,31 @@ Claude 交互模式下，每次新增用户输入都会获得新的轮数预算�
 - ``--planner-timeout-s`` 限制规划器的运行时间；各后端的默认值及交互模式行为见上文。
 
 模型调用 ``finish`` 后，规划器会记录结束状态。达到轮数上限时，当前循环停止；Claude 交互会话仍可接收下一次 query。运行结束时，主程序会保存对话记录。超时或 SDK 异常会写入规划器结果，并输出到日志。
+
+.. _scene-narration:
+
+解说机器人画面
+--------------
+
+使用 ``api``、``claude_code`` 或 ``codex`` 时，可以让子智能体在后台解说机器人画面。它与主规划器共用模型、凭据和服务地址。以下示例假设已配置 LIBERO 环境和 Claude 认证，且所用模型支持图像输入。请在两个终端中激活项目环境，并在 RPent 仓库根目录运行命令。
+
+1. 安装可选的 Edge TTS 依赖，再启动语音合成服务并保持运行。默认语音需要联网合成。
+
+   .. code-block:: bash
+
+      uv pip install edge-tts
+      python -m toolkits.narration.server
+
+2. 另开一个终端，注册语音合成工具和解说子智能体：
+
+   .. code-block:: bash
+
+      rpent --robot libero --suite libero_goal_task --task 1 --seed 0 \
+        --planner claude_code --tui --subagent narrator \
+        --mcp-config toolkits/narration/mcp.example.yaml
+
+   在输入框的任务指令末尾添加“执行任务时请用中文解说机器人画面”并提交。主智能体收到请求后启动解说。子智能体每轮读取最新画面，将一句简短的中文描述交给 ``tts__synthesize``。服务把 MP3 文件写入服务所在机器的 ``logs/narration/`` 目录，不会自动播放。
+
+使用 ``api`` 时，主智能体本轮运行结束或被取消后，解说也会停止；后续交互中若仍需解说，可再次要求主智能体启动。
+
+示例使用默认设置 ``sync_with_robot: false``，因此语音合成不会触发额外的机器人观测。如果合成尚未完成，同一工具包上的机器人动作仍需等待。调度和超时设置见 :ref:`external-mcp-servers`。

@@ -86,7 +86,9 @@ class OvosTtsClient:
         async with httpx.AsyncClient(
             timeout=self.timeout, follow_redirects=True
         ) as http:
-            async with streamable_http_client(self.url, http_client=http) as streams:
+            async with streamable_http_client(
+                self.url, http_client=http, terminate_on_close=False
+            ) as streams:
                 async with ClientSession(
                     streams[0],
                     streams[1],
@@ -115,6 +117,14 @@ class EdgeTtsClient:
         volume: str | None = None,
         timeout: float = 60,
     ) -> None:
+        try:
+            from edge_tts import Communicate
+        except ImportError as exc:
+            raise ImportError(
+                "the edge backend requires edge-tts; install it with `pip install edge-tts`"
+            ) from exc
+
+        self._communicate = Communicate
         self.voice = voice
         self.rate = rate
         self.volume = volume
@@ -126,20 +136,12 @@ class EdgeTtsClient:
         Raises:
             RuntimeError: If the service fails or no audio is produced.
         """
-        try:
-            import edge_tts
-        except ImportError as exc:
-            raise RuntimeError(
-                "the edge-tts backend needs the optional edge-tts package; "
-                "install it with `pip install edge-tts`"
-            ) from exc
-
         options = {
             name: value
             for name, value in (("rate", self.rate), ("volume", self.volume))
             if value is not None
         }
-        communicate = edge_tts.Communicate(text, self.voice, **options)
+        communicate = self._communicate(text, self.voice, **options)
         chunks: list[bytes] = []
         try:
 

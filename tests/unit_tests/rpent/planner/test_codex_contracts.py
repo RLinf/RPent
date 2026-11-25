@@ -674,6 +674,8 @@ def test_session_registers_narrator_on_the_filtered_rpent_bridge(
     role = overrides["agents"]["scene_narrator"]
     assert 'fork_turns="none"' in role["description"]
     config = tomllib.loads(Path(role["config_file"]).read_text())
+    assert "read_image" not in config["developer_instructions"]
+    assert "agentview_high.png" not in config["developer_instructions"]
     assert config.get("model") == expected
     assert config["model_provider"] == PROVIDER_ID
     assert config["sandbox_mode"] == "read-only"

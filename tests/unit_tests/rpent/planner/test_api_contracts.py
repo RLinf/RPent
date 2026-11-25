@@ -1675,6 +1675,7 @@ def test_background_narrator_isolated_idempotent_and_cancelled(tmp_path):
     async def stream(messages, info):
         names = {tool_def.name for tool_def in info.function_tools}
         if "start_scene_narrator" not in names:
+            assert info.model_request_parameters.thinking is False
             assert names == {"view_env_state", "read_image", "speaker__synthesize"}
             child_prompts.extend(
                 part.content
@@ -1687,6 +1688,7 @@ def test_background_narrator_isolated_idempotent_and_cancelled(tmp_path):
                 await asyncio.Event().wait()
             finally:
                 child_stopped.set()
+        assert info.model_request_parameters.thinking == "high"
         returned = [
             part.content
             for message in messages
@@ -1703,10 +1705,11 @@ def test_background_narrator_isolated_idempotent_and_cancelled(tmp_path):
 
     result, _, _ = solve(
         tmp_path,
-        FunctionModel(stream_function=stream),
+        FunctionModel(stream_function=stream, profile={"supports_thinking": True}),
         toolkit,
         events,
         subagent_name="narrator",
+        reasoning_effort="high",
         max_turns=3,
     )
 
@@ -1729,6 +1732,219 @@ def test_background_narrator_isolated_idempotent_and_cancelled(tmp_path):
 def test_narrator_requires_registered_synthesis_tool(tmp_path):
     with pytest.raises(ValueError, match="synthesize"):
         solve(tmp_path, TestModel(), subagent_name="narrator")
+
+
+@pytest.mark.parametrize("outcome", ["finish", "text", "cancel"])
+def test_terminal_stops_narrator_before_waiting_for_input(
+    tmp_path, monkeypatch, outcome
+):
+    import pydantic_ai._cli as cli
+    from pydantic_ai.exceptions import RunCancelled
+
+    events = Events()
+    toolkit = RobotToolkit(events)
+    toolkit.register("tts__synthesize", lambda: ToolResult())
+    toolkit.register("view_env_state", lambda: ToolResult())
+    child_running = asyncio.Event()
+    child_stopped = asyncio.Event()
+    requests = 0
+    prompts = 0
+
+    async def narrator_stream(messages, info):
+        child_running.set()
+        try:
+            yield "Inspecting."
+            await asyncio.Event().wait()
+        finally:
+            child_stopped.set()
+
+    async def main_stream(messages, info):
+        nonlocal requests
+        requests += 1
+        if requests == 1:
+            yield "Ready."
+        elif requests == 2:
+            yield tool("start_scene_narrator")
+        else:
+            await asyncio.wait_for(child_running.wait(), timeout=2)
+            if outcome == "cancel":
+                raise RunCancelled("User interrupted the turn.")
+            yield finish() if outcome == "finish" else "Waiting."
+
+    async def read_prompt(*args, **kwargs):
+        nonlocal prompts
+        prompts += 1
+        if prompts == 1:
+            return "Narrate the scene."
+        assert child_stopped.is_set()
+        return "/exit"
+
+    monkeypatch.setattr(cli, "PYDANTIC_AI_HOME", tmp_path / "cli")
+    monkeypatch.setattr(
+        cli, "PromptSession", lambda **kwargs: SimpleNamespace(prompt_async=read_prompt)
+    )
+    result, _, _ = solve(
+        tmp_path,
+        FunctionModel(stream_function=main_stream),
+        toolkit,
+        events,
+        interactive=True,
+        subagent_name="narrator",
+        subagent_model=FunctionModel(stream_function=narrator_stream),
+    )
+    assert result.error is None
+    assert prompts == 2
+    assert child_stopped.is_set()
+
+
+@pytest.mark.parametrize("child_wait", ["model", "tool"])
+def test_dashboard_idle_stops_narrator_and_allows_manual_tools(
+    tmp_path, monkeypatch, child_wait
+):
+    state = dashboard(tmp_path)
+    toolkit = RobotToolkit(state)
+    toolkit.register("view_env_state", lambda: ToolResult())
+    child_running = threading.Event()
+    child_stopped = False
+    requests = 0
+    child_requests = 0
+    idle_checks = []
+    emit = state.emit
+    set_activity = state.set_planner_activity
+
+    def emit_with_narration(event):
+        nonlocal child_stopped
+        if isinstance(event, TranscriptEvent) and event.payload.get("text") == (
+            "[scene_narrator] stopped"
+        ):
+            child_stopped = True
+        emit(event)
+
+    def set_activity_and_check(activity, **kwargs):
+        set_activity(activity, **kwargs)
+        if activity == "idle":
+            assert child_stopped
+            manual = toolkit.execute_tool("observe", {})
+            assert manual.data == {"position": 1}
+            idle_checks.append(True)
+            state.submit_input("Finish without narration.")
+
+    def synthesize():
+        child_running.set()
+        while True:
+            toolkit.raise_if_cancelled()
+            time.sleep(0.005)
+
+    toolkit.register("tts__synthesize", synthesize)
+    monkeypatch.setattr(state, "emit", emit_with_narration)
+    monkeypatch.setattr(state, "set_planner_activity", set_activity_and_check)
+
+    async def narrator_stream(messages, info):
+        nonlocal child_requests
+        child_requests += 1
+        if child_wait == "tool":
+            yield tool("tts__synthesize")
+        else:
+            child_running.set()
+            yield "Inspecting."
+            await asyncio.Event().wait()
+
+    async def main_stream(messages, info):
+        nonlocal requests
+        requests += 1
+        if requests == 1:
+            yield tool("start_scene_narrator")
+        elif requests == 2:
+            assert await asyncio.to_thread(child_running.wait, 2)
+            yield "Waiting for the next instruction."
+        else:
+            yield finish()
+
+    result, _, _ = solve(
+        tmp_path,
+        FunctionModel(stream_function=main_stream),
+        toolkit,
+        state,
+        dashboard_interaction=state,
+        subagent_name="narrator",
+        subagent_model=FunctionModel(stream_function=narrator_stream),
+        timeout_s=4,
+    )
+    assert result.error is None
+    assert result.finish_result["status"] == "success"
+    assert idle_checks == [True]
+    assert child_requests == 1
+
+
+def test_narrator_does_not_request_model_during_dashboard_interrupt_drain(
+    tmp_path, monkeypatch
+):
+    from rpent.planner.api_loop import _Session
+
+    state = dashboard(tmp_path)
+    toolkit = RobotToolkit(state)
+    toolkit.register("view_env_state", lambda: ToolResult())
+    parent_waiting = threading.Event()
+    child_stopped = asyncio.Event()
+    child_requests = 0
+    requests = 0
+    emit = state.emit
+    interrupt = _Session.interrupt
+
+    def emit_with_narration(event):
+        if isinstance(event, TranscriptEvent) and event.payload.get("text") == (
+            "[scene_narrator] stopped"
+        ):
+            child_stopped.set()
+        emit(event)
+
+    async def interrupt_after_child_drain(self):
+        # Let the child process the cancelled tool before the SDK interrupt.
+        await asyncio.wait_for(child_stopped.wait(), timeout=2)
+        return await interrupt(self)
+
+    def synthesize():
+        assert parent_waiting.wait(2)
+        state.request_interrupt()
+        state.submit_input("Finish after cancellation.")
+        while True:
+            toolkit.raise_if_cancelled()
+            time.sleep(0.005)
+
+    toolkit.register("tts__synthesize", synthesize)
+    monkeypatch.setattr(state, "emit", emit_with_narration)
+    monkeypatch.setattr(_Session, "interrupt", interrupt_after_child_drain)
+
+    async def narrator_stream(messages, info):
+        nonlocal child_requests
+        child_requests += 1
+        yield tool("tts__synthesize")
+
+    async def main_stream(messages, info):
+        nonlocal requests
+        requests += 1
+        if requests == 1:
+            yield tool("start_scene_narrator")
+        elif requests == 2:
+            parent_waiting.set()
+            yield "Working."
+            await asyncio.Event().wait()
+        else:
+            yield finish()
+
+    result, _, _ = solve(
+        tmp_path,
+        FunctionModel(stream_function=main_stream),
+        toolkit,
+        state,
+        dashboard_interaction=state,
+        subagent_name="narrator",
+        subagent_model=FunctionModel(stream_function=narrator_stream),
+        timeout_s=4,
+    )
+    assert result.error is None
+    assert result.finish_result["status"] == "success"
+    assert child_requests == 1
 
 
 def test_dashboard_interrupt_stops_narrator_before_followup(tmp_path):

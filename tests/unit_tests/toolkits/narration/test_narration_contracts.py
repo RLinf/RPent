@@ -13,6 +13,7 @@ import asyncio
 import base64
 import io
 import json
+import sys
 import wave
 from pathlib import Path
 from types import SimpleNamespace
@@ -21,7 +22,7 @@ import pytest
 from mcp import types
 from mcp.shared.memory import create_connected_server_and_client_session
 
-from toolkits.narration.server import build_server
+from toolkits.narration.server import build_server, main
 from toolkits.narration.tts_client import EdgeTtsClient, decode_audio
 
 
@@ -162,7 +163,6 @@ def test_server_saves_mp3_for_a_backend_that_reports_it(tmp_path):
 
 
 def test_edge_client_streams_mp3(monkeypatch):
-    edge_tts = pytest.importorskip("edge_tts")
     seen = {}
 
     class FakeCommunicate:
@@ -174,7 +174,9 @@ def test_edge_client_streams_mp3(monkeypatch):
             yield {"type": "WordBoundary", "data": b"ignored"}
             yield {"type": "audio", "data": b"-rest"}
 
-    monkeypatch.setattr(edge_tts, "Communicate", FakeCommunicate)
+    monkeypatch.setitem(
+        sys.modules, "edge_tts", SimpleNamespace(Communicate=FakeCommunicate)
+    )
     client = EdgeTtsClient(voice="zh-CN-XiaoyiNeural")
 
     audio = asyncio.run(client.synthesize("桌上有一个杯子。"))
@@ -185,25 +187,37 @@ def test_edge_client_streams_mp3(monkeypatch):
     assert (client.suffix, client.mime_type) == (".mp3", "audio/mpeg")
 
 
-def test_edge_client_reports_failures(monkeypatch):
-    edge_tts = pytest.importorskip("edge_tts")
-
-    class FailingCommunicate:
+@pytest.mark.parametrize(
+    ("outcome", "message"),
+    [("failure", "no network"), ("empty", "no audio"), ("timeout", "0.05s timeout")],
+)
+def test_edge_client_reports_failures(monkeypatch, outcome, message):
+    class FakeCommunicate:
         def __init__(self, *args, **kwargs):
             pass
 
         async def stream(self):
-            raise ConnectionError("no network")
-            yield  # pragma: no cover
-
-    monkeypatch.setattr(edge_tts, "Communicate", FailingCommunicate)
-    with pytest.raises(RuntimeError, match="no network"):
-        asyncio.run(EdgeTtsClient(timeout=5).synthesize("你好"))
-
-    class EmptyCommunicate(FailingCommunicate):
-        async def stream(self):
+            if outcome == "failure":
+                raise ConnectionError("no network")
+            if outcome == "timeout":
+                await asyncio.Event().wait()
             yield {"type": "WordBoundary", "data": b""}
 
-    monkeypatch.setattr(edge_tts, "Communicate", EmptyCommunicate)
-    with pytest.raises(RuntimeError, match="no audio"):
-        asyncio.run(EdgeTtsClient(timeout=5).synthesize("你好"))
+    monkeypatch.setitem(
+        sys.modules, "edge_tts", SimpleNamespace(Communicate=FakeCommunicate)
+    )
+    with pytest.raises(RuntimeError, match=message):
+        asyncio.run(EdgeTtsClient(timeout=0.05).synthesize("你好"))
+
+
+def test_missing_edge_package_fails_before_mcp_server_starts(monkeypatch, capsys):
+    monkeypatch.setitem(sys.modules, "edge_tts", None)
+    monkeypatch.setattr(sys, "argv", ["server"])
+    monkeypatch.setattr(
+        "toolkits.narration.server.build_server",
+        lambda **kwargs: pytest.fail("must check edge dependency before serving"),
+    )
+    with pytest.raises(SystemExit) as error:
+        main()
+    assert error.value.code == 2
+    assert "pip install edge-tts" in capsys.readouterr().err

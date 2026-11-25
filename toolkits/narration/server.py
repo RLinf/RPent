@@ -118,10 +118,13 @@ def main() -> None:
     if not math.isfinite(args.timeout) or args.timeout <= 0:
         parser.error("--timeout must be positive and finite")
     if args.tts_backend == "edge":
-        client = EdgeTtsClient(
-            **({"voice": args.voice} if args.voice else {}),
-            timeout=args.timeout,
-        )
+        try:
+            client = EdgeTtsClient(
+                **({"voice": args.voice} if args.voice else {}),
+                timeout=args.timeout,
+            )
+        except ImportError as exc:
+            parser.error(str(exc))
     else:
         client = OvosTtsClient(
             args.tts_url, voice=args.voice, lang=args.lang, timeout=args.timeout

@@ -531,7 +531,7 @@ class _HarnessToolkit(FunctionToolset):
         return result.to_text()
 
 
-class ApiSubAgent:
+class ApiSubAgent(AbstractCapability):
     """Run a background agent with the tools selected for this instance."""
 
     description: str
@@ -610,6 +610,13 @@ class ApiSubAgent:
         except Exception:
             logger.exception("%s cleanup failed", self._agent.name)
 
+    async def before_node_run(self, ctx: RunContext, *, node: AgentNode) -> AgentNode:
+        if self._recorder.stopping.is_set():
+            # Dashboard drains physical tools before sending the SDK interrupt.
+            # A cancelled tool result must not trigger another model request.
+            ctx.cancel()
+        return node
+
     async def _run(self) -> None:
         self._emit("started")
         try:
@@ -617,9 +624,12 @@ class ApiSubAgent:
                 self._prompt,
                 usage_limits=UsageLimits(request_limit=self._request_limit),
                 event_stream_handler=self._stream,
+                capabilities=[self],
             )
         except asyncio.CancelledError:
             raise
+        except RunCancelled:
+            pass
         except UsageLimitExceeded:
             logger.info(
                 "%s reached its %d-request budget",
@@ -713,6 +723,12 @@ class _Session(AbstractCapability):
                 self.error = f"{type(exc).__name__}: {exc}"
             raise
         finally:
+            if self.subagent is not None:
+                await self.subagent.stop()
+                if not self.toolkit.stopping.is_set():
+                    # Cancelling a child tool drains the shared Toolkit. Reopen
+                    # it for manual actions while this conversation is idle.
+                    self.toolkit.toolkit.resume_calls()
             # clai also keeps its own per-run usage for /usage. Observe it without
             # replacing the SDK's counters, including failed/interrupted runs.
             self.usage.incr(ctx.usage)
@@ -840,11 +856,11 @@ class _Session(AbstractCapability):
             submission = self.inbox.get_nowait()
             if self.control is not None:
                 self.control.message_discarded(submission.message_id)
+        if self.subagent is not None:
+            await self.subagent.stop()
         if self.cancellation is not None:
             self.cancellation.cancel()
             await self.run_done.wait()
-        if self.subagent is not None:
-            await self.subagent.stop()
         # The run accounts for its own completion and SDK-enqueued messages.
         # Only submissions that never entered it need to be subtracted here.
         return discarded

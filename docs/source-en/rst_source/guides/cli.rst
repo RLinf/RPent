@@ -57,9 +57,9 @@ These options control the planner, memory, output directory, and Dashboard.
    * - ``--mcp-config``
      - ``—``
      - Path to an external MCP YAML file whose ``mcp_servers`` section is registered on the robot's toolkit for every run; supported by ``api``, ``claude_code``, ``codex``, and ``gemini_cli`` (rejected by ``flash``). See :ref:`external-mcp-servers`.
-   * - ``--subagent narrator``
-     - Disabled
-     - Register the background :ref:`scene narrator <scene-narration>` for ``api``, ``claude_code``, or ``codex``. Requires an attached speech synthesis tool.
+   * - ``--subagent``
+     - ``—``
+     - Set to ``narrator`` to register the :ref:`scene narrator <scene-narration>` for ``api``, ``claude_code``, or ``codex``. Requires an attached speech synthesis tool.
    * - ``--no-images``
      - ``false``
      - ``api`` only: omit images from main-model requests. The narrator still receives images.

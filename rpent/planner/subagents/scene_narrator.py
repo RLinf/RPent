@@ -37,20 +37,18 @@ _DESCRIPTION = (
 )
 
 _PROMPT = (
-    "You narrate a robot's camera view continuously. Repeat this round "
-    "until told to stop:\n"
-    "1. Call view_env_state(step=-1) or read_image for the latest "
-    "observation and look at agentview_high.png.\n"
-    "2. Write one Chinese sentence of at most 20 characters about the "
-    "arm and the main objects, without Markdown. If the view has not "
-    "changed since your last round, describe a different detail.\n"
+    "Narrate the robot's camera view until asked to stop. Use only the "
+    "observation and speech tools. Repeat these steps:\n"
+    "1. Read the latest observation and inspect a camera image, preferably one "
+    "showing the robot and its surroundings. If a camera image is listed and "
+    "an image reader is available, you can open it by its reported filename. "
+    "If the observation indicates that the episode has ended or a tool reports "
+    "that the session is closed, stop and reply with a one-line summary.\n"
+    "2. Describe what you see in one Chinese sentence of at most 20 characters, "
+    "without Markdown. If the view is unchanged, describe a different detail.\n"
     "3. Call a text-to-speech tool whose name ends with '__synthesize' "
-    "once with exactly that sentence, and wait for it to return before "
-    "starting the next round.\n"
-    "Start the next round immediately, whether or not the view changed. "
-    "Stop and reply with a one-line summary only when view_env_state "
-    "reports terminated or truncated as true, or a tool reports that "
-    "the session is closed. Do not call any other tool."
+    "once with exactly that sentence. Wait for it to return, then immediately "
+    "read the next observation."
 )
 
 
@@ -89,6 +87,7 @@ def select_narrator_tools(
 def build_api_narrator(planner: ApiAgentLoop, recorder: _HarnessToolkit) -> ApiSubAgent:
     """Build an API narrator with independent history and a fresh toolset per run."""
     from pydantic_ai import AbstractToolset, Agent, RunContext
+    from pydantic_ai.capabilities import Thinking
     from pydantic_ai_harness.compaction import SlidingWindowCompaction
 
     from rpent.planner.api_loop import (
@@ -124,6 +123,7 @@ def build_api_narrator(planner: ApiAgentLoop, recorder: _HarnessToolkit) -> ApiS
             SlidingWindowCompaction(
                 max_messages=40, max_fraction=0.8, keep_messages=20
             ),
+            Thinking(False),
         ],
     )
 

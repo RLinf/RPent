@@ -91,7 +91,10 @@ def _cli_module():
     return cli
 
 
-@pytest.mark.parametrize("arguments", [["--subagent"], ["--subagent", "unknown"]])
+@pytest.mark.parametrize(
+    "arguments",
+    [["--subagent"], ["--subagent", "unknown"], ["--narrator", "narrator"]],
+)
 def test_subagent_requires_a_known_role(arguments):
     with pytest.raises(SystemExit) as exc:
         _cli_module()._build_argparser().parse_args(arguments)

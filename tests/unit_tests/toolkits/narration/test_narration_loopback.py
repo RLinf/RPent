@@ -41,14 +41,19 @@ from toolkits.narration.tts_client import OvosTtsClient
 
 
 @contextmanager
-def http_server(mcp):
+def http_server(mcp, *, methods=None):
     """Serve a real MCP transport on an ephemeral loopback port."""
+    app = mcp.streamable_http_app()
+
+    async def serve(scope, receive, send):
+        if methods is not None and scope["type"] == "http":
+            methods.append(scope["method"])
+        await app(scope, receive, send)
+
     with socket.socket() as listener:
         listener.bind(("127.0.0.1", 0))
         port = listener.getsockname()[1]
-        server = uvicorn.Server(
-            uvicorn.Config(mcp.streamable_http_app(), log_level="error")
-        )
+        server = uvicorn.Server(uvicorn.Config(serve, log_level="error"))
         thread = threading.Thread(target=server.run, kwargs={"sockets": [listener]})
         thread.start()
         try:
@@ -63,6 +68,33 @@ def http_server(mcp):
             server.should_exit = True
             thread.join(timeout=5)
             assert not thread.is_alive()
+
+
+def test_cancelled_ovos_call_does_not_wait_for_remote_session_termination():
+    started = threading.Event()
+    release = threading.Event()
+    methods = []
+    ovos = FastMCP("slow-ovos", stateless_http=False, json_response=True)
+
+    @ovos.tool()
+    async def synthesize(text: str, lang: str) -> str:
+        started.set()
+        await asyncio.to_thread(release.wait, 5)
+        return text
+
+    async def cancel(url):
+        task = asyncio.create_task(OvosTtsClient(url).synthesize("你好"))
+        assert await asyncio.to_thread(started.wait, 3)
+        task.cancel()
+        try:
+            with pytest.raises(asyncio.CancelledError):
+                await asyncio.wait_for(task, timeout=2)
+        finally:
+            release.set()
+
+    with http_server(ovos, methods=methods) as url:
+        asyncio.run(cancel(url))
+    assert "DELETE" not in methods
 
 
 @pytest.mark.parametrize("caller", ["mcp_client", "planner"])

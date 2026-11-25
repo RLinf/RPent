@@ -163,7 +163,6 @@ def _build_argparser() -> argparse.ArgumentParser:
     )
     ap.add_argument(
         "--subagent",
-        "--narrator",
         choices=SUBAGENT_NAMES,
         default=None,
         help="Register a background subagent for api, claude_code, or codex; "
