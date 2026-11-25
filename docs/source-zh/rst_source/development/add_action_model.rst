@@ -325,6 +325,19 @@ Cosmos3 需要转换为 Diffusers 组件格式的任务训练 checkpoint，并�
 
 Cosmos3 需要 ``--cosmos3-config`` 和 ``--cosmos3-sglang-endpoint``；该方式只启动 RPC worker，连接已经运行的 SGLang 服务。
 
+.. _robotwin-model-guidance:
+
+RoboTwin 各动作模型的规划器提示词
+---------------------------------------------
+
+RoboTwin 在 ``robots/robotwin/prompt_bundle.py`` 中根据 ``policy_backend`` 选择提示词。LingBot-VLA 和 UniWAM 根据运行模式选择评测或探索工作流。Fast-WAM 即使收到探索模式变量，也使用评测工作流。它的用户提示词给出本地记忆目录，并要求规划器先查看第 0 步的原生任务指令和场景。
+
+* **LingBot-VLA** （``lingbot``）。调用 ``lingbot_act`` 时传入当前完整的 ``task_language`` 和 ``use_length=50``。同一任务的成功配方可用来估计连续执行几个动作块。
+* **UniWAM** （``uniwam``）。调用 ``wam_act`` 时省略 prompt 即使用原生任务指令，也可传入根据当前观测确定的子任务。每个动作块执行 16 个关节位置动作，``max_chunks`` 默认为 1。历史中包含解析动作，因此应根据实际进展选择下一次执行的块数。
+* **Fast-WAM** （``fast-wam``）。每次调用 ``wam_act`` 执行一个动作块，随后检查新状态和图像。可省略 prompt 使用原生任务指令，也可为本次调用传入有观测依据的子任务。
+
+新增后端时，在 ``robots/robotwin/prompts/action_models.py`` 中以其后端名为键，写清工具名、指令参数和动作块用法。工厂通过 ``action_model_guidance`` 将这段说明追加到 ``ACTION AND VERIFICATION``。新键默认进入精简的评测流程。若后端也支持探索，还需更新 bundle 中的系统和用户提示词工厂，选择适用的启动、记忆和重试说明。共享分节结构见 :ref:`add-robot-prompts`。
+
 测试
 ----
 

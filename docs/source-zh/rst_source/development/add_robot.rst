@@ -189,30 +189,34 @@ RPent 的整体进程划分、服务职责和通信方式见 :doc:`系统说明 
 
 定义 ``system_prompt()`` 和 ``user_prompt()`` 两个 prompt 工厂，并在机器人的 ``robot_spec.py`` 中构造 ``PromptBundle(system=system_prompt, user=user_prompt)`` （见上面的“入口”）。每个工厂返回一个有序的 ``dict[str, PromptNode]``，其中包含带标题的分节； ``PromptBundle.render`` 负责组装和填充。一套 prompt 供 API loop、Claude Code 和 Codex 等 planner 共用。正文使用工具的裸名（如 ``move_to``），并说明 Claude Code 和 Codex SDK 会将其显示为 ``mcp__rpent__<name>``；无需分别维护 CLI 与 API 版本。
 
+接入操作类机器人时，可以从 ``rpent/prompt/workflow.py`` 的共享工作流开始。评测模式在一个 episode 内完成任务并处理失败。探索模式增加了重试、会话交接和记忆写入规则。两种模式使用相同的七个系统提示词分节。
+
+- ``ROLE AND TASK`` — 明确目标，以及判定成功所需的证据。
+- ``RUNTIME AND SAFETY`` — 说明工具、文件访问与运动的限制。
+- ``INITIALIZATION AND MEMORY`` — 规定启动检查和记忆读取顺序。
+- ``PERCEPTION AND LOCALIZATION`` — 说明如何识别目标并确定其位置。
+- ``ACTION AND VERIFICATION`` — 选择动作，并根据观测验证其实际效果。
+- ``RECOVERY AND BUDGET`` — 根据剩余预算决定何时纠偏、重试或停止。
+- ``SUCCESS AND REPORTING`` — 核对环境判定并记录结果。
+
+各关键字参数会把机器人专用说明追加到对应分节。例如，``initialization`` 可以指定启动时要读的指南和要检查的相机视图。用户提示词用 ``TASK`` 传入本次任务，用 ``BEGIN`` 指明第一步。下面的示例从传给 ``PromptBundle.render`` 的变量中读取 ``task``。
+
 .. code-block:: python
 
-   # robots/myrobot/prompt_bundle.py
-   from robots.myrobot.prompts import system as system_parts
-   from robots.myrobot.prompts import user as user_parts
-   from rpent.prompt.utils import PromptNode
+   from rpent.prompt import evaluate, explore
+   from rpent.prompt.workflow import user_prompt as build_user_prompt
 
-   def system_prompt() -> PromptNode:
-       return {
-           "INTRO": system_parts.PREAMBLE,
-           "GOAL": system_parts.GOAL,
-           "RULES": system_parts.RULES,
-           "WORKFLOW": system_parts.WORKFLOW,
-           "ENVIRONMENT": system_parts.ENVIRONMENT,
-           "OUTPUT": system_parts.OUTPUT,
-       }
+   def system_prompt(variables=None):
+       variables = variables or {}
+       workflow = explore if variables.get("mode") == "explore" else evaluate
+       return workflow.system_prompt(
+           initialization="Read the robot guide and inspect the initial observation.",
+       )
 
-   def user_prompt() -> PromptNode:
-       return {
-           "TASK": user_parts.TASK,
-           "BEGIN": user_parts.BEGIN,
-       }
+   def user_prompt(variables=None):
+       return build_user_prompt(task="{{task}}", begin="Inspect the current scene.")
 
-将 prompt 内容保存在机器人包内，例如 ``robots/myrobot/prompts/system.py`` 和 ``user.py``。分节内容可以是普通字符串，也可以使用 ``BulletList`` 或 ``Numbered``。占位符 ``{{suite}}`` / ``{{task}}`` / ``{{seed}}`` / ``{{output_dir}}`` / ``{{recipe_tag}}`` 在渲染时填充。
+机器人专用说明放在 ``robots/<robot>/prompts/`` 下。如何根据后端指定工具参数和每次执行的动作长度，见 :ref:`robotwin-model-guidance`。
 
 .. _add-robot-toolkit:
 

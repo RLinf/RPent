@@ -250,34 +250,42 @@ refer to tools by their bare names (``move_to``, ...) and note once that the
 Claude Code and Codex SDKs show them as ``mcp__rpent__<name>``. Do not
 maintain separate prompt copies for CLI and API planners.
 
+For a manipulation robot, start with the workflow in ``rpent/prompt/workflow.py``.
+Evaluation uses one episode and recovers within it. Exploration adds retry,
+handoff and memory-writing instructions. Both use the same seven system sections.
+
+- ``ROLE AND TASK`` — Identify the goal and the evidence needed to establish success.
+- ``RUNTIME AND SAFETY`` — Set tool, access and motion limits.
+- ``INITIALIZATION AND MEMORY`` — Specify the startup checks and memory read order.
+- ``PERCEPTION AND LOCALIZATION`` — Explain how to identify and localize the target.
+- ``ACTION AND VERIFICATION`` — Choose an action and check its physical effect.
+- ``RECOVERY AND BUDGET`` — Decide when to correct, retry or stop.
+- ``SUCCESS AND REPORTING`` — Check the verdict and record the outcome.
+
+Each keyword adds robot-specific text after the shared instructions in that
+section. For example, a robot can supply its guide and camera checks through
+``initialization``. The user prompt carries the run's task in ``TASK`` and
+the first instruction in ``BEGIN``. This example expects ``task`` in the
+variables passed to ``PromptBundle.render``.
+
 .. code-block:: python
 
-   # robots/myrobot/prompt_bundle.py
-   from robots.myrobot.prompts import system as system_parts
-   from robots.myrobot.prompts import user as user_parts
-   from rpent.prompt.utils import PromptNode
+   from rpent.prompt import evaluate, explore
+   from rpent.prompt.workflow import user_prompt as build_user_prompt
 
-   def system_prompt() -> PromptNode:
-       return {
-           "INTRO": system_parts.PREAMBLE,
-           "GOAL": system_parts.GOAL,
-           "RULES": system_parts.RULES,
-           "WORKFLOW": system_parts.WORKFLOW,
-           "ENVIRONMENT": system_parts.ENVIRONMENT,
-           "OUTPUT": system_parts.OUTPUT,
-       }
+   def system_prompt(variables=None):
+       variables = variables or {}
+       workflow = explore if variables.get("mode") == "explore" else evaluate
+       return workflow.system_prompt(
+           initialization="Read the robot guide and inspect the initial observation.",
+       )
 
-   def user_prompt() -> PromptNode:
-       return {
-           "TASK": user_parts.TASK,
-           "BEGIN": user_parts.BEGIN,
-       }
+   def user_prompt(variables=None):
+       return build_user_prompt(task="{{task}}", begin="Inspect the current scene.")
 
-Keep the prompt content under the robot package, for example in
-``robots/myrobot/prompts/system.py`` and ``user.py``. Section bodies are plain
-strings (or ``BulletList`` / ``Numbered``) with ``{{suite}}`` / ``{{task}}`` /
-``{{seed}}`` / ``{{output_dir}}`` / ``{{recipe_tag}}`` placeholders filled at
-render time.
+Keep local instructions under ``robots/<robot>/prompts/``. For an example
+of selecting tool arguments and chunk timing by backend, see
+:ref:`robotwin-model-guidance`.
 
 .. _add-robot-toolkit:
 
