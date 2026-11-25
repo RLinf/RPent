@@ -25,6 +25,9 @@ from typing import Any
 
 import pytest
 
+from rpent.robots import RunConfig
+from rpent.utils.mcp_servers import McpServerSpec
+
 REPO_ROOT = Path(__file__).resolve().parents[4]
 ROBOT_HELP_CASES = [
     ("libero", ("--suite", "--task", "--libero-type")),
@@ -1179,3 +1182,201 @@ def test_invalid_memory_source_fails_before_startup(
         cli.main()
     assert exc.value.code == 2
     assert message in capsys.readouterr().err
+
+
+def test_shared_mcp_servers_merge_into_run_config(tmp_path: Path) -> None:
+    cli = _cli_module()
+
+    run_config = RunConfig(
+        recipe_tag="run",
+        output_dir=tmp_path,
+        prompt_vars={},
+        task_desc={},
+    )
+    shared = (McpServerSpec(name="lights", url="https://lights.example/mcp"),)
+
+    merged = cli._with_shared_mcp_servers(run_config, shared)
+
+    assert merged.mcp_servers == shared
+    assert run_config.mcp_servers == ()
+
+
+def test_shared_mcp_servers_reject_collision_with_robot_config(tmp_path: Path) -> None:
+    cli = _cli_module()
+
+    run_config = RunConfig(
+        recipe_tag="run",
+        output_dir=tmp_path,
+        prompt_vars={},
+        task_desc={},
+        mcp_servers=(McpServerSpec(name="web", url="https://robot.example/mcp"),),
+    )
+    shared = (McpServerSpec(name="web", url="https://shared.example/mcp"),)
+
+    with pytest.raises(ValueError, match="duplicate MCP server name 'web'"):
+        cli._with_shared_mcp_servers(run_config, shared)
+
+
+def test_cli_loads_mcp_config_and_merges_with_robot_servers(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    cli = _cli_module()
+    shared = tmp_path / "mcp.yaml"
+    shared.write_text(
+        "mcp_servers:\n"
+        "  power:\n"
+        "    url: http://127.0.0.1:8765/mcp\n"
+        "    tools: [read_power_meter]\n"
+    )
+    captured_configs: list[RunConfig] = []
+
+    def add_cli_args(parser, use_dashboard: bool) -> None:
+        del use_dashboard
+        parser.add_argument("--suite", default="s")
+
+    def parse_config(args) -> RunConfig:
+        del args
+        return RunConfig(
+            recipe_tag="run",
+            output_dir=tmp_path / "out",
+            prompt_vars={},
+            task_desc={},
+            mcp_servers=(McpServerSpec(name="dock", url="http://127.0.0.1:8766/mcp"),),
+        )
+
+    def fake_get_toolkit(name: str, **kwargs: Any) -> Any:
+        del name
+        captured_configs.append(kwargs["config"])
+        raise RuntimeError("stop after toolkit capture")
+
+    monkeypatch.setattr(cli, "enumerate_robots", lambda: ("libero",))
+    monkeypatch.setattr(cli, "get_toolkit", fake_get_toolkit)
+    monkeypatch.setattr(
+        cli,
+        "get_robot_spec",
+        lambda name: SimpleNamespace(
+            name=name,
+            add_cli_args=add_cli_args,
+            parse_config=parse_config,
+            init_runtime=lambda *args: ([], {}),
+            prepare_memory=None,
+            prepare_prompt_vars=None,
+            prompts=SimpleNamespace(render=lambda *args, **kwargs: "prompt"),
+            validate_args=None,
+            resolve_dashboard=None,
+            finalize_run=None,
+            supports_exploration=False,
+            supports_human_interactive_exploration=False,
+            is_real_robot=False,
+        ),
+    )
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "rpent",
+            "--robot",
+            "libero",
+            "--planner",
+            "gemini_cli",
+            "--memory-profile",
+            "local",
+            "--mcp-config",
+            str(shared),
+        ],
+    )
+
+    assert cli.main() == 1
+    assert len(captured_configs) == 1
+    assert [spec.name for spec in captured_configs[0].mcp_servers] == ["dock", "power"]
+    assert captured_configs[0].mcp_servers[1].tools == ("read_power_meter",)
+
+
+def test_cli_rejects_mcp_config_with_flash_planner(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    tmp_path: Path,
+) -> None:
+    cli = _cli_module()
+    started = False
+
+    def init_runtime(*args: Any) -> tuple[list[Any], dict[str, Any]]:
+        nonlocal started
+        started = True
+        return [], {}
+
+    monkeypatch.setattr(cli, "enumerate_robots", lambda: ("libero",))
+    monkeypatch.setattr(
+        cli,
+        "get_robot_spec",
+        lambda name: SimpleNamespace(
+            name=name,
+            add_cli_args=lambda parser, use_dashboard: None,
+            parse_config=lambda args: RunConfig(
+                recipe_tag="run",
+                output_dir=tmp_path / "out",
+                prompt_vars={},
+                task_desc={},
+            ),
+            init_runtime=init_runtime,
+            run_flash=object(),
+            validate_args=None,
+            resolve_dashboard=None,
+            supports_exploration=False,
+            supports_human_interactive_exploration=False,
+            is_real_robot=False,
+        ),
+    )
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "rpent",
+            "--robot",
+            "libero",
+            "--planner",
+            "flash",
+            "--mcp-config",
+            str(tmp_path / "mcp.yaml"),
+        ],
+    )
+
+    with pytest.raises(SystemExit) as exc:
+        cli.main()
+
+    assert exc.value.code == 2
+    assert (
+        "--mcp-config is not supported with --planner flash" in capsys.readouterr().err
+    )
+    assert started is False
+
+
+def test_cli_rejects_a_missing_mcp_config(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    tmp_path: Path,
+) -> None:
+    cli = _cli_module()
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "rpent",
+            "--robot",
+            "libero",
+            "--suite",
+            "libero_object",
+            "--task",
+            "0",
+            "--seed",
+            "0",
+            "--mcp-config",
+            str(tmp_path / "missing.yaml"),
+        ],
+    )
+
+    with pytest.raises(SystemExit):
+        cli.main()
+
+    assert "MCP config not found" in capsys.readouterr().err

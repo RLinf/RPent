@@ -39,6 +39,7 @@ from rpent.robots.prompt_bundle import PromptBundle
 
 if TYPE_CHECKING:
     from rpent.utils.daemon import ProcessDaemon
+    from rpent.utils.mcp_servers import McpServerSpec
 
 
 @dataclass(frozen=True)
@@ -50,6 +51,11 @@ class RunConfig:
     prompt_vars: dict[str, Any]
     task_desc: dict[str, Any]
     enable_direct_action: bool = False
+    #: External MCP servers available to this run. The robot contributes the
+    #: ``mcp_servers`` section of its own config; the CLI merges in servers from
+    #: ``--mcp-config``, and ``get_toolkit`` registers them on the robot's
+    #: :class:`~rpent.tools.toolkit.Toolkit`. Empty when no server is declared.
+    mcp_servers: tuple["McpServerSpec", ...] = ()
 
 
 @dataclass(frozen=True)

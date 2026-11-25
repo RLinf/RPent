@@ -25,7 +25,8 @@ import json
 import threading
 import time
 import traceback
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable, Mapping, Sequence
+from contextvars import ContextVar
 from dataclasses import dataclass, field, replace
 from typing import TYPE_CHECKING, Any
 
@@ -43,13 +44,45 @@ logger = get_logger("toolkit")
 if TYPE_CHECKING:
     from rpent.memory.manager import MemoryManager
     from rpent.session import EnvState, StepRecord
+    from rpent.utils.mcp_servers import McpServerSpec
 
 
 @dataclass(eq=False)
 class _ToolOperation:
     readonly: bool
+    _condition: threading.Condition
     cancel_event: threading.Event = field(default_factory=threading.Event)
+    _cancel_callbacks: list[Callable[[], None]] = field(default_factory=list)
     done: bool = False
+
+    def on_cancel(self, callback: Callable[[], None]) -> Callable[[], None]:
+        """Register a cancellation hook, invoking immediately if already cancelled."""
+        with self._condition:
+            already_cancelled = self.cancel_event.is_set()
+            if not already_cancelled:
+                self._cancel_callbacks.append(callback)
+        if already_cancelled:
+            callback()
+            return lambda: None
+
+        def unregister() -> None:
+            with self._condition:
+                try:
+                    self._cancel_callbacks.remove(callback)
+                except ValueError:
+                    pass
+
+        return unregister
+
+
+_current_operation: ContextVar[_ToolOperation | None] = ContextVar(
+    "_current_operation", default=None
+)
+
+
+def current_tool_operation() -> _ToolOperation | None:
+    """Return the scheduler operation bound to the running tool handler, if any."""
+    return _current_operation.get()
 
 
 class _Scheduler:
@@ -73,7 +106,7 @@ class _Scheduler:
                 raise ToolCancelled("Toolkit is closed.")
             if self.paused:
                 raise ToolCancelled("Tool calls are paused.")
-            call = _ToolOperation(readonly=readonly)
+            call = _ToolOperation(readonly=readonly, _condition=self.condition)
             self.pending.append(call)
             self.condition.notify_all()
             try:
@@ -105,14 +138,19 @@ class _Scheduler:
             self.condition.notify_all()
 
     def cancel(self, *, close: bool = False) -> list[_ToolOperation]:
+        callbacks: list[Callable[[], None]] = []
         with self.condition:
             self.paused = True
             self.closed |= close
             calls = [*self.pending, *self.active]
             for call in calls:
                 call.cancel_event.set()
+                callbacks.extend(call._cancel_callbacks)
+                call._cancel_callbacks.clear()
             self.condition.notify_all()
-            return calls
+        for callback in callbacks:
+            callback()
+        return calls
 
     def wait(self, calls: list[_ToolOperation]) -> None:
         with self.condition:
@@ -149,6 +187,7 @@ class Toolkit:
         memory: "MemoryManager",
     ) -> None:
         self._tools: dict[str, Tool] = {}
+        self._registered_mcp_servers: set[str] = set()
         self._dashboard_events = dashboard_events
         self._state = state
         self._memory = memory
@@ -177,6 +216,57 @@ class Toolkit:
         """Register declarations collected from explicitly chosen tool owners."""
         for tool in tools:
             self.add_tool(tool)
+
+    def add_mcp_servers(
+        self,
+        servers: Sequence["McpServerSpec"],
+    ) -> tuple[str, ...]:
+        """Register tools from external MCP servers onto this toolkit.
+
+        Servers already registered explicitly via :meth:`add_mcp_tools` are
+        skipped so a robot can customize specific servers without duplicating
+        them when ``get_toolkit`` attaches remaining ``RunConfig.mcp_servers``.
+
+        Args:
+            servers: Validated MCP server specs, usually ``RunConfig.mcp_servers``.
+
+        Returns:
+            The registered ``<server>__<tool>`` tool names.
+        """
+        from rpent.tools.mcp_tools import register_mcp_servers
+
+        return register_mcp_servers(self, servers)
+
+    def add_mcp_tools(
+        self,
+        servers: Sequence["McpServerSpec"],
+        *,
+        tools: Mapping[str, Sequence[str]],
+        sync_with_robot: bool | None = None,
+    ) -> tuple[str, ...]:
+        """Register selected external MCP tools explicitly in robot code.
+
+        Each registered tool is named ``<server>__<tool>`` and exposed through
+        every online planner. Servers listed in ``tools`` are marked registered
+        so automatic server attachment skips them.
+
+        Args:
+            servers: Candidate specs, usually ``RunConfig.mcp_servers``.
+            tools: Server name to the remote tool names to register. Servers
+                not listed are ignored.
+            sync_with_robot: Override ``spec.sync_with_robot`` for these tools.
+                When ``True``, calls run exclusively alongside robot actions,
+                trigger ``get_env_state``, and preserve their payload under
+                ``tool_result``.
+
+        Returns:
+            The registered ``<server>__<tool>`` tool names.
+        """
+        from rpent.tools.mcp_tools import register_mcp_tools
+
+        return register_mcp_tools(
+            self, servers, tools=tools, sync_with_robot=sync_with_robot
+        )
 
     def _register_common_tools(self) -> None:
         from rpent.tools.common import CommonTools
@@ -236,6 +326,10 @@ class Toolkit:
         kwargs = {
             field: getattr(parameters, field) for field in type(parameters).model_fields
         }
+        # A registered remote tool's schema may admit properties this model does
+        # not declare (``extra="allow"``); forward them so the call carries
+        # every argument the server accepted. Local schemas forbid extras.
+        kwargs.update(parameters.model_extra or {})
 
         try:
             operation = self._scheduler.acquire(readonly=tool.readonly)
@@ -247,6 +341,7 @@ class Toolkit:
         try:
             started = time.perf_counter()
             capture = current_tool_call.get()
+            token = _current_operation.set(operation)
             try:
                 self.raise_if_cancelled()
                 if capture is not None:
@@ -272,6 +367,8 @@ class Toolkit:
                 native = ToolResult(
                     data={"error": str(exc), "traceback": traceback.format_exc()}
                 )
+            finally:
+                _current_operation.reset(token)
 
             if capture is not None and capture.started:
                 capture.result(
@@ -308,6 +405,8 @@ class Toolkit:
                         for key, value in native.data.items():
                             observed.data.setdefault(key, value)
                         observed.data["error"] = native.data["error"]
+                    elif tool.preserve_result and native.data:
+                        observed.data.setdefault("tool_result", native.data)
                     native = ToolResult(
                         data=observed.data,
                         images=native.images + observed.images,
