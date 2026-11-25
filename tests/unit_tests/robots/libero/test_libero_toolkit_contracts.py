@@ -198,8 +198,10 @@ def test_generic_localization_is_registered_with_libero_observations(
         memory=MemoryManager(tmp_path / "memory"),
         state_output_dir=tmp_path / "state",
     )
-    assert _tool_names(tk) == EVALUATION_TOOLS | ({"geometry"} if enabled else set())
-    assert {"back_project", "segment"} <= _readonly_names(tk)
+    assert _tool_names(tk) == (
+        EVALUATION_TOOLS | {"check_free_space"} | ({"geometry"} if enabled else set())
+    )
+    assert {"back_project", "check_free_space", "segment"} <= _readonly_names(tk)
     if enabled:
         assert "geometry" in _readonly_names(tk)
         schema = tk._tools["geometry"].input_schema["properties"]
@@ -254,6 +256,41 @@ def test_generic_localization_is_registered_with_libero_observations(
         and segmented.data["evidence_status"] == "identity_unchecked"
     )
     assert tk.state.latest_step == step
+
+    with tk.state.record_step(state={}) as table_step:
+        x, y = np.meshgrid(np.linspace(-0.12, 0.12, 41), np.linspace(0.12, -0.12, 41))
+        table = np.stack((x, y, np.full_like(x, 0.5)), axis=-1)
+        tk.state.save(
+            "agentview_high.png", np.zeros(table.shape, dtype=np.uint8), step=table_step
+        )
+        tk.state.save("agentview_world_high.npz", table, step=table_step)
+        tk.state.save(
+            "agentview_metadata.json",
+            {
+                "height": 41,
+                "width": 41,
+                "intrinsic_K": [[250 / 3, 0, 20], [0, 250 / 3, 20], [0, 0, 1]],
+                "extrinsic_cam2world": [
+                    [1, 0, 0, 0],
+                    [0, -1, 0, 0],
+                    [0, 0, -1, 1],
+                    [0, 0, 0, 1],
+                ],
+            },
+            step=table_step,
+        )
+    checked = tk.execute_tool(
+        "check_free_space",
+        {
+            "camera": "agentview",
+            "center_xyz": [0, 0, 0.5],
+            "world_frame_id": selected.data["world_frame_id"],
+            "footprint_radius_m": 0.07,
+            "clearance_m": 0.08,
+        },
+    )
+    assert checked.data["status"] == "free" and checked.data["support_coverage"] == 1
+    assert checked.data["step"] == table_step and tk.state.latest_step == table_step
 
 
 def test_pinned_wrist_sample_uses_its_own_calibration(tmp_path):
@@ -325,6 +362,7 @@ def test_generic_tools_and_geometry_are_opt_in(
             "system", variables={**config.prompt_vars, "output_dir": str(tmp_path)}
         )
         assert ("points_rc" in prompt and "box_rc" in prompt) is generic
+        assert ("Use check_free_space" in prompt) is generic
         assert ('back_project({"row":' in prompt) is not generic
         assert ("mutually exclusive" in prompt) is not generic
         assert ("For geometry, give query" in prompt) is geometry
@@ -342,6 +380,9 @@ def test_generic_tools_and_geometry_are_opt_in(
             state_output_dir=tmp_path / "state",
         )
         schemas = {tool.name: tool.args_schema for tool in tk.list_tools()}
+        assert ("check_free_space" in schemas) is generic
+        if generic:
+            assert "observations" not in schemas["check_free_space"].model_fields
         examples = re.findall(
             r"\b(back_project|segment|geometry)\((\{.*?\})\)", prompt, re.S
         )
