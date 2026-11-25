@@ -28,6 +28,7 @@ from rpent.utils.daemon import ProcessDaemon, pick_free_port
 from rpent.utils.rpc import RpcClient, make_rpc_client
 
 WAM_BACKENDS = {
+    "uniwam": "uniwam",
     "cosmos-policy": "cosmos_policy",
     "cosmos3": "cosmos3",
     "fast-wam": "fast_wam",
@@ -35,6 +36,7 @@ WAM_BACKENDS = {
 BACKEND_ALIASES = {"cosmos": "cosmos-policy", "fast_wam": "fast-wam", "rlinf": "pi05"}
 PLATFORM_VLA_BACKENDS = {
     "libero": ("pi05",),
+    "robolab": ("pi05",),
     "robotwin": ("lingbot",),
     "robocasa": ("rldx",),
     "robodojo": ("vpp2", "awomo05"),

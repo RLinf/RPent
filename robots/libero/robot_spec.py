@@ -17,6 +17,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 import sys
 from datetime import datetime
 from functools import partial
@@ -89,7 +90,9 @@ def _resolve_dashboard(args: argparse.Namespace) -> DashboardSpec:
                 "name": "molmo",
                 "label": "Molmo",
                 "scope": "shared",
-                "planners": ("flash",),
+                **(
+                    {} if getattr(args, "geometry", False) else {"planners": ("flash",)}
+                ),
             },
         ),
         "primitives": (
@@ -104,6 +107,30 @@ def _resolve_dashboard(args: argparse.Namespace) -> DashboardSpec:
             "move_pose",
         ),
     }
+
+
+FLYWHEEL_CONFIG = {
+    "observation_format": "libero.observation",
+    "layouts": {
+        "libero.action": {
+            "state": {
+                "dataset_key": "state",
+                "fields": ({"path": ("states",), "shape": (8,)},),
+            },
+            "action": {
+                "dataset_key": "actions",
+                "fields": ({"path": (), "shape": (7,)},),
+            },
+        },
+    },
+    "images": {
+        "image": {"path": ("main_images",), "shape": (256, 256, 3)},
+        "wrist_image": {"path": ("wrist_images",), "shape": (256, 256, 3)},
+    },
+    "result_format": "libero.step_result",
+    "success": {"field": "terminated", "truncated": "truncated"},
+    "fps": 20,
+}
 
 
 def _run_flash(toolkit, cell_tag: str, note) -> dict:
@@ -131,6 +158,7 @@ def get_robot_spec() -> RobotSpec:
         parse_config=_parse_config,
         init_runtime=_init_runtime,
         resolve_dashboard=_resolve_dashboard,
+        flywheel=FLYWHEEL_CONFIG,
         supports_exploration=True,
         run_flash=_run_flash,
         validate_args=validate_options,
@@ -156,8 +184,12 @@ def get_toolkit(
         memory_access="inbox_write" if explore else "read_only",
         inbox_cell_tag=config.recipe_tag if explore else None,
     )
+    primitive_kwargs = dict(runtime_kwargs)
+    geometry_grounder = primitive_kwargs.pop("geometry_grounder", None)
     return LiberoToolkit(
-        runtime_kwargs=runtime_kwargs,
+        runtime_kwargs=primitive_kwargs,
+        generic_tools=config.prompt_vars.get("generic_tools", False),
+        geometry_grounder=geometry_grounder,
         dashboard_events=dashboard_events,
         memory=memory,
         enable_direct_action=config.enable_direct_action,
@@ -208,16 +240,6 @@ def _add_cli_args(parser: argparse.ArgumentParser, use_dashboard: bool) -> None:
     parser.add_argument("--task", type=int, default=None, required=required)
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument(
-        "--collect-flywheel-data",
-        action="store_true",
-        help="record this evaluation episode for Flywheel training",
-    )
-    parser.add_argument(
-        "--flywheel-root",
-        default=None,
-        help="Flywheel data root (default: <repo>/datacollection)",
-    )
-    parser.add_argument(
         "--auto-merge-memory",
         action=argparse.BooleanOptionalAction,
         default=True,
@@ -243,11 +265,25 @@ def _add_cli_args(parser: argparse.ArgumentParser, use_dashboard: bool) -> None:
         "If unset, a local env_server is spawned.",
     )
     parser.add_argument(
+        "--rgbd-tools",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help="Replace LIBERO's back_project and segment with the generic RGB-D "
+        "tools. Defaults to disabled.",
+    )
+    parser.add_argument(
+        "--geometry",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help="Enable local geometry alongside generic back_project and segment; "
+        "implies --rgbd-tools. Defaults to disabled.",
+    )
+    parser.add_argument(
         "--molmo-endpoint",
         default=None,
         help="[protocol://]host:port of an existing Molmo server "
         "(protocol=http|socket, defaults to http). "
-        "Required by --planner flash.",
+        "Required by --planner flash or --geometry.",
     )
     parser.add_argument(
         "--sam3-endpoint",
@@ -309,8 +345,11 @@ def _parse_config(args: argparse.Namespace) -> RunConfig:
             )
         if args.molmo_endpoint is None:
             raise ValueError("--planner flash requires --molmo-endpoint")
+    elif getattr(args, "geometry", False):
+        if args.molmo_endpoint is None:
+            raise ValueError("--geometry requires --molmo-endpoint")
     elif args.molmo_endpoint is not None:
-        raise ValueError("--molmo-endpoint requires --planner flash")
+        raise ValueError("--molmo-endpoint requires --planner flash or --geometry")
 
     recipe_tag = f"{args.suite.replace('libero_', '')}_t{args.task}_s{args.seed}"
     explore = bool(getattr(args, "explore", False))
@@ -319,8 +358,6 @@ def _parse_config(args: argparse.Namespace) -> RunConfig:
         raise ValueError("--explore cannot be used with --memory-profile hf")
     if explore and args.explore_sessions <= 0:
         raise ValueError("--explore-sessions must be greater than 0")
-    if explore and args.collect_flywheel_data:
-        raise ValueError("flywheel collection supports evaluation mode only")
     memory_profile = requested_profile or (
         "local" if explore or wam is not None else "hf"
     )
@@ -363,6 +400,10 @@ def _parse_config(args: argparse.Namespace) -> RunConfig:
                 "run exploration first or use --memory-profile hf"
             )
     prompt_vars = {
+        "generic_tools": bool(
+            getattr(args, "rgbd_tools", False) or getattr(args, "geometry", False)
+        ),
+        "geometry": getattr(args, "geometry", False),
         "policy_backend": policy_backend,
         "policy_kind": policy_kind,
         "suite": args.suite,
@@ -493,7 +534,7 @@ def _spawn_env_server(
         ],
         env_overrides={
             "LIBERO_TYPE": resolve_libero_type(args.suite, args.libero_type),
-            "MUJOCO_GL": "egl",
+            "MUJOCO_GL": os.environ.get("MUJOCO_GL", "egl"),
             "ROBOT_PLATFORM": "LIBERO",
         },
         log_path=str(output_dir / "env_server.log"),
@@ -536,11 +577,26 @@ def _connect_molmo_server(
     """Connect to Molmo running in its dependency-isolated environment."""
     if args.molmo_endpoint is None:
         raise ValueError(
-            "--planner flash requires --molmo-endpoint; Molmo uses a "
-            "separate environment because its transformers requirement "
+            "--planner flash or --geometry requires --molmo-endpoint; Molmo "
+            "uses a separate environment because its transformers requirement "
             "conflicts with LIBERO's policy environment"
         )
     return None, make_rpc_client(args.molmo_endpoint)
+
+
+def _molmo_clients(args: argparse.Namespace, rpc: RpcClient) -> dict[str, Any]:
+    from rpent.robots.components.molmo_client import MolmoClient
+
+    clients = {}
+    if getattr(args, "planner", None) == "flash":
+        clients["molmo_client"] = MolmoClient(rpc)
+    if getattr(args, "geometry", False):
+        from toolkits.geometry.local_point_agent import LocalPointAgent
+
+        clients["geometry_grounder"] = LocalPointAgent(
+            MolmoClient(rpc, point_mode="native")
+        )
+    return clients
 
 
 def _init_runtime(
@@ -551,7 +607,6 @@ def _init_runtime(
 ) -> tuple[list[ProcessDaemon], dict[str, Any]]:
     """Initialize every LIBERO component, or only ``components`` when given."""
     from robots.libero.env_client import LiberoEnvClient
-    from rpent.robots.components.molmo_client import MolmoClient
     from rpent.robots.components.sam3_client import Sam3Client
 
     am = select_am(args, "libero")
@@ -581,10 +636,12 @@ def _init_runtime(
         },
         policy_kind: lambda rpc: {"model": _make_model_client(rpc, wam)},
         "sam3": lambda rpc: {"sam3_client": Sam3Client(rpc)},
-        "molmo": lambda rpc: {"molmo_client": MolmoClient(rpc)},
+        "molmo": lambda rpc: _molmo_clients(args, rpc),
     }
     selected = set(starters) if components is None else set(components)
-    if getattr(args, "planner", None) != "flash":
+    if getattr(args, "planner", None) != "flash" and not getattr(
+        args, "geometry", False
+    ):
         selected.discard("molmo")
     unknown = selected.difference(starters)
     if unknown:
@@ -615,13 +672,5 @@ def _init_runtime(
             post_fn=partial(connectors[component], rpc),
         )
         runtime_kwargs.update(component_kwargs)
-
-    if args.collect_flywheel_data and "env" in selected:
-        runtime_kwargs["flywheel_config"] = {
-            "root": args.flywheel_root or str(get_repo_root() / "datacollection"),
-            "suite": args.suite,
-            "task_id": args.task,
-            "seed": args.seed,
-        }
 
     return list(owned_daemons.values()), runtime_kwargs

@@ -15,6 +15,7 @@
 """Check physical-to-model transforms and native action restoration on CPU."""
 
 import sys
+from collections import deque
 from types import SimpleNamespace
 from unittest.mock import Mock
 
@@ -24,8 +25,9 @@ import pytest
 from robots.libero.observation import physical_observation
 from robots.libero.wam_client import LiberoWAMClient
 from robots.robotwin.observation import physical_observation as robotwin_observation
-from robots.robotwin.wam_client import RoboTwinWAMClient
+from robots.robotwin.wam_client import RoboTwinWAMClient, robotwin_request
 from rpent.robots.components.fast_wam.server import FastWAMFacade, load_libero_policy
+from rpent.robots.components.uniwam.server import UniWAMFacade
 
 torch = pytest.importorskip("torch")
 
@@ -295,3 +297,90 @@ def test_robotwin_rejects_invalid_native_output_before_prefix_selection(bad_acti
             horizon=4,
             execute_steps=3,
         )
+
+
+class UniWAMPolicy:
+    def __init__(self):
+        self.history = deque(maxlen=16)
+        self.seen = []
+
+    def record_executed_qpos(self, obs):
+        self.history.append(np.array(obs["joint_action"]["vector"], copy=True))
+
+    def update_obs(self, obs):
+        if not self.history:
+            self.record_executed_qpos(obs)
+
+    def set_instruction(self, instruction):
+        self.instruction = instruction
+
+    def get_action(self):
+        self.seen.append(np.stack(self.history))
+        return np.zeros((16, 14))
+
+
+def test_uniwam_facade_replaces_stale_history_for_interleaved_requests():
+    policy = UniWAMPolicy()
+    facade = UniWAMFacade(policy, lambda p: p.history.clear())
+
+    def request(history):
+        return {
+            **robotwin_request(
+                {
+                    "views": {
+                        name: {"rgb": np.zeros((2, 2, 3), dtype=np.uint8)}
+                        for name in ("head", "left_wrist", "right_wrist")
+                    },
+                    "robot_state": {"qpos_target14": np.full(14, 99)},
+                    "task_language": "native instruction",
+                    "qpos_history": history,
+                },
+                history_length=16,
+            ),
+        }
+
+    for value in (1, 2, 1):
+        policy.history.append(np.full(14, -99))
+        result = facade._dispatch(
+            "wam.predict", (request(np.full((3, 14), value)),), {}
+        )
+        assert result["actions"].shape == (16, 14)
+        np.testing.assert_array_equal(policy.seen[-1], np.full((3, 14), value))
+    with pytest.raises(ValueError, match="finite"):
+        facade.predict(request(np.full((1, 14), np.nan)))
+
+
+def test_uniwam_client_maps_cameras_and_native_state():
+    policy = UniWAMPolicy()
+    facade = UniWAMFacade(policy, lambda p: p.history.clear())
+    captured = []
+
+    def call(method, args=(), kwargs=None, **unused):
+        if method == "wam.predict":
+            captured.append(facade._adapter[0](args[0]))
+        return facade._dispatch(method, args, kwargs or {})
+
+    client = RoboTwinWAMClient(SimpleNamespace(call=call))
+    views = {
+        name: {"rgb": np.full((2, 2, 3), i, dtype=np.uint8)}
+        for i, name in enumerate(("head", "left_wrist", "right_wrist"))
+    }
+    result = client.predict(
+        {
+            "views": views,
+            "robot_state": {"qpos_target14": np.arange(14)},
+            "task_language": "exact native text",
+            "qpos_history": np.ones((2, 14)),
+        }
+    )
+    assert result.shape == (16, 14)
+    payload = captured[0]
+    assert payload["instruction"] == "exact native text"
+    np.testing.assert_array_equal(payload["joint_action"]["vector"], np.arange(14))
+    assert payload["observation"]["right_camera"]["rgb"][0, 0, 0] == 2
+    with pytest.raises(ValueError, match="requires qpos_history"):
+        client.predict({"views": views})
+    assert len(policy.seen) == 1
+    policy.history.append(np.zeros(14))
+    client.reset()
+    assert not policy.history

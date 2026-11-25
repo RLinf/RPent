@@ -32,14 +32,19 @@ from rpent.robots.robot_spec import RobotSpec, RunConfig
 
 EXPECTED_ROBOTS = (
     "dual_franka",
+    "efe",
     "franka",
     "lekiwi",
     "libero",
     "robocasa",
     "robodojo",
+    "robolab",
     "robotwin",
     "yam",
 )
+
+# EFE drives one external episode and offers no task switch or reset.
+ROBOTS_WITHOUT_DASHBOARD = ("efe",)
 
 PROMPT_VARIABLES = {
     "yam": {
@@ -87,6 +92,11 @@ PROMPT_VARIABLES = {
         "memory_dir": "/memory",
         "output_dir": Path("/output"),
     },
+    "robolab": {
+        "task": "BananaInBowlTask",
+        "seed": 0,
+        "policy_backend": "pi05",
+    },
     "robotwin": {
         "task_name": "block_hammer_beat",
         "seed": 3,
@@ -121,6 +131,16 @@ PROMPT_VARIABLES = {
         "constraints": "1. Move exactly one arm per call",
         "output_dir": Path("/output"),
     },
+    "efe": {
+        "recipe_tag": "autobio-pickup-i00-standard_00000000",
+        "mode": "eval",
+        "task_name": "autobio-pickup-i00-standard",
+        "instruction": "Pick up the tube.",
+        "workdir": "/app",
+        "memory_dir": "/memory",
+        "skills": True,
+        "output_dir": Path("/output"),
+    },
 }
 
 
@@ -141,6 +161,9 @@ def test_registry_discovers_exactly_the_source_checkout_robots() -> None:
         assert callable(spec.add_cli_args)
         assert callable(spec.parse_config)
         assert callable(spec.init_runtime)
+        assert (spec.flywheel is not None) == (
+            name in {"libero", "robocasa", "robodojo", "robotwin"}
+        )
 
 
 @pytest.mark.parametrize("robot_name", EXPECTED_ROBOTS)
@@ -209,6 +232,9 @@ def test_dashboard_metadata_has_consistent_fields_and_runtime_components(
     spec = get_robot_spec(robot_name)
     parser = ArgumentParser()
     spec.add_cli_args(parser, use_dashboard=True)
+    if robot_name in ROBOTS_WITHOUT_DASHBOARD:
+        assert spec.resolve_dashboard is None
+        return
     dashboard = spec.resolve_dashboard(parser.parse_args([]))
     assert dashboard is not None
 

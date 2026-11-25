@@ -12,4 +12,4 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Optional episode collection and export with robot-supplied data rules."""
+"""Offline access to recorded robot trajectories."""

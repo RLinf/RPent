@@ -47,6 +47,10 @@ RPent 面向以下四类用户：
 
 ## 最新动态
 
+- [2026/11] 🔥 修复 API 规划器性能较差的问题。搭配 DeepSeek V4.1 Flash，API 规划器在 RoboTwin C2R 上的成功率达到 **65.6%（164/250）**。详见 [排行榜](https://rpent.readthedocs.io/zh-cn/latest/rst_source/leaderboard/index.html)。
+- [2026/11] 🔥 RPent 支持通过 Harbor 运行 Embodied First Exam（EFE）任务，可使用 Skills 或任务原生动作。详见 [EFE 使用指南](https://rpent.readthedocs.io/zh-cn/latest/rst_source/simulators/efe.html)。
+- [2026/11] 🔥 新增[通用 RGB-D 工具包](https://rpent.readthedocs.io/zh-cn/latest/rst_source/development/generic_toolkit.html)，可从已记录的相机观测中读取三维坐标、分割物体并测量指定部位的尺寸。
+- [2026/11] 🔥 新增数据飞轮。支持轨迹采集和数据清洗功能，用采集的成功轨迹对 VLA 进行监督微调后，RPent 在 RoboTwin 评测中的任务成功率从 48% 升至 72%，提高 **24 个百分点**。详见 [使用指南](https://rpent.readthedocs.io/zh-cn/latest/rst_source/guides/flywheel.html)。
 - [2026/10] 🔥 新增可选的 APXInf VLA endpoint 接入，参见 [部署指南](https://rpent.readthedocs.io/zh-cn/latest/rst_source/guides/advanced_deployment.html#apxinf-vla-service-optional)。
 - [2026/09] 🔥 新增交互式 RPent 排行榜，覆盖 LIBERO、LIBERO-PRO、RoboCasa365 与 RoboTwin，提供模型对比及套件汇总。查看 [排行榜](https://rpent.readthedocs.io/zh-cn/latest/rst_source/leaderboard/index.html)。
 - [2026/09] 🔥 RPent 支持 Franka 单臂与双臂真机扩展。文档：[Franka](https://rpent.readthedocs.io/zh-cn/latest/rst_source/real_world_robots/franka.html) · [Dual Franka](https://rpent.readthedocs.io/zh-cn/latest/rst_source/real_world_robots/dual_franka.html)。
@@ -87,8 +91,11 @@ RPent 面向以下四类用户：
           <li><b>WAM</b></li>
           <ul>
             <li>DreamZero</li>
+            <li><a href="https://rpent.readthedocs.io/zh-cn/latest/rst_source/simulators/robodojo.html#vpp2">VPP2</a>（RoboDojo）✅</li>
+            <li><a href="https://rpent.readthedocs.io/zh-cn/latest/rst_source/simulators/robodojo.html#awomo05">Awomo05</a>（RoboDojo）✅</li>
             <li><a href="docs/source-zh/rst_source/development/add_action_model.rst">Cosmos Policy</a>（LIBERO / LIBERO-Pro）</li>
             <li><a href="docs/source-zh/rst_source/development/add_action_model.rst">Fast-WAM</a>（LIBERO / LIBERO-Pro / RoboTwin）</li>
+            <li><a href="docs/source-zh/rst_source/development/add_action_model.rst">UniWAM</a>（RoboTwin）</li>
           </ul>
         </ul>
       </td>
@@ -98,6 +105,8 @@ RPent 面向以下四类用户：
           <li><a href="https://rpent.readthedocs.io/zh-cn/latest/rst_source/simulators/robocasa.html">RoboCasa</a> ✅</li>
           <li><a href="https://rpent.readthedocs.io/zh-cn/latest/rst_source/simulators/robotwin.html">RoboTwin</a> ✅</li>
           <li><a href="https://rpent.readthedocs.io/zh-cn/latest/rst_source/simulators/robodojo.html">RoboDojo</a> ✅</li>
+          <li><a href="https://rpent.readthedocs.io/zh-cn/latest/rst_source/simulators/robolab.html">RoboLab</a> ✅</li>
+          <li><a href="https://rpent.readthedocs.io/zh-cn/latest/rst_source/simulators/efe.html">EFE</a> ✅</li>
         </ul>
       </td>
       <td>
@@ -124,11 +133,15 @@ pip install -e ".[libero-pro]"
 # 其他环境配置：
 pip install -e ".[robocasa]"    # RoboCasa
 pip install -e ".[robotwin]"    # RoboTwin
+pip install -e ".[robolab]"     # RoboLab 策略环境
 pip install -e ".[franka]"      # Franka / 双臂 Franka
 ```
 
 `.[libero-pro]` 是默认推荐配置。其他环境见
 [安装文档](https://rpent.readthedocs.io/zh-cn/latest/rst_source/get_started/quickstart.html)。
+
+RoboLab 仿真环境安装、模型权重与单任务运行示例参见
+[RoboLab 指南](https://rpent.readthedocs.io/zh-cn/latest/rst_source/simulators/robolab.html)。
 
 RoboCasa 安装、任务 memory 与 Target50 协议参见
 [RoboCasa 指南](https://rpent.readthedocs.io/zh-cn/latest/rst_source/simulators/robocasa.html)。
@@ -182,12 +195,12 @@ rpent --robot libero --suite libero_object_swap --task 2 --seed 0 \
   --planner claude_code --model claude-opus-4-8
 ```
 
-其他规划器（`api`、`codex`）与模型提供商的配置见[规划器文档](https://rpent.readthedocs.io/zh-cn/latest/rst_source/guides/configure_planner.html)。
+其他规划器（`api`、`codex`、`gemini_cli`）与模型提供商的配置见[规划器文档](https://rpent.readthedocs.io/zh-cn/latest/rst_source/guides/configure_planner.html)。
 探索模式与本地 memory 评测详见 [LIBERO 文档](https://rpent.readthedocs.io/zh-cn/latest/rst_source/simulators/libero.html)。
 
 ### 交互模式
 
-使用 `claude_code` 或 `codex` 时，加上 `--tui`（`-t`）即可在终端里实时引导智能体。内置任务会预填在 `you>` 提示符处。直接按 Enter 即可提交该任务；如需修改或替换任务，请先编辑输入内容，再按 Enter 提交。任务运行期间，可以继续输入消息引导智能体（`/help` 查看命令，`/quit` 或 Ctrl-D 结束）。需要真实终端（TTY）。`api` planner 使用原生 CLI，先运行预设任务，再在每轮运行完成后接收输入，使用 `/exit` 退出。
+使用 `claude_code`、`codex` 或 `gemini_cli` 时，加上 `--tui`（`-t`）即可在终端交互。内置任务会预填在 `you>` 提示符处，可编辑后提交，也可直接按 Enter。追加消息默认排队，等待当前轮次完成；使用 `/interrupt [消息]` 可中断当前轮次，附带的消息会优先于队列发送。`/help` 查看命令，`/quit` 或 Ctrl-D 结束会话。需要真实终端（TTY）。`api` planner 使用原生 CLI，先运行预设任务，再在每轮运行完成后接收输入，使用 `/exit` 退出。
 
 ```bash
 rpent --robot libero --suite libero_object_swap --task 2 --seed 0 \
@@ -206,6 +219,16 @@ rpent --robot libero --dashboard --dashboard-language zh-cn \
 完整的命令行参数列表见 [命令行参考](https://rpent.readthedocs.io/zh-cn/latest/rst_source/guides/cli.html)。RoboCasa 与 RoboTwin 提供各自的任务参数，参见 [RoboCasa](https://rpent.readthedocs.io/zh-cn/latest/rst_source/simulators/robocasa.html) 与 [RoboTwin](https://rpent.readthedocs.io/zh-cn/latest/rst_source/simulators/robotwin.html) 文档。
 
 更详细的文档请参见 [RPent 中文文档](https://rpent.readthedocs.io/zh-cn/latest/)。
+
+## Adoption
+
+我们很高兴看到 RPent 已被领先企业和科研机构采用，其用户与合作伙伴包括 NVIDIA、华为、腾讯、老板电器、Z-Trans AI（Zetta 项目）、清华大学、北京大学和新加坡国立大学等。
+
+✨ 如果您觉得 RPent 对具身智能研究或机器人应用开发有所帮助，欢迎联系我们或提交 PR，将您的组织加入该列表。
+
+<div align="center">
+  <img src="https://cdn.jsdelivr.net/gh/RLinf/misc@beb75d9289a0dee012004c26436f8fb1c688f310/rpent/adoption/adoption.png" alt="RPent 社区：上方为含 Z-Trans AI（Zetta 项目） 和老板电器在内的 10 家企业，下方为 22 所高校和 8 家科研机构"/>
+</div>
 
 ## 参与贡献
 

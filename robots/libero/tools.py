@@ -17,8 +17,10 @@
 from __future__ import annotations
 
 import json
+import re
 import threading
 from collections.abc import Callable
+from contextlib import nullcontext
 from pathlib import Path
 from typing import TYPE_CHECKING, Annotated, Any, Literal
 
@@ -29,6 +31,7 @@ from robots.libero.env_client import LiberoEnvClient
 from rpent.robots.components.molmo_client import MolmoClient
 from rpent.robots.components.sam3_client import Sam3Client
 from rpent.session import EnvState, StepRecord
+from rpent.session.env_capture import CapturingEnvClient
 from rpent.tools import Tool, ToolResult, tool
 from rpent.utils.logging import get_logger
 
@@ -52,19 +55,18 @@ class LiberoPrimitives:
     """Wraps a single-env LIBERO-shaped env + action model with primitive-
     level methods.
 
-    ``pi0_pick`` and ``pi0_doubled`` override ``obs['task_descriptions']``
-    with a sub-instruction. ``move_to`` and friends are scripted (no VLM
+    ``pi0_pick`` and ``pi0_doubled`` pass a sub-instruction to the policy.
+    ``move_to`` and friends are scripted (no VLM
     call) and drive the underlying OSC controller directly.
     """
 
     def __init__(
         self,
-        env: LiberoEnvClient,
+        env: LiberoEnvClient | CapturingEnvClient,
         model: BaseVLAClient | LiberoWAMClient,
         sam3_client: Sam3Client,
         check_cancelled: Callable[[], None],
         molmo_client: MolmoClient | None = None,
-        flywheel_config: dict[str, Any] | None = None,
         policy_kind: str = "vla",
     ):
         self.env = env
@@ -84,8 +86,6 @@ class LiberoPrimitives:
         # Toggled via start_recording() / stop_recording().
         self._recording = False
         self._frames = []
-        self._flywheel_config = flywheel_config
-        self._flywheel = None
 
     def start_recording(self):
         self._recording = True
@@ -123,29 +123,12 @@ class LiberoPrimitives:
         if self.policy_kind == "wam":
             self.model.reset()
         self.set_obs(obs)
-        if self._flywheel_config is not None:
-            from robots.libero.flywheel import create_episode_writer
-
-            self._flywheel = create_episode_writer(self._flywheel_config, obs)
         return self._last_obs, info
-
-    def begin_primitive(self, name: str) -> None:
-        if self._flywheel is not None:
-            self._flywheel.begin_primitive(name)
-
-    def end_primitive(self) -> None:
-        if self._flywheel is not None:
-            self._flywheel.end_primitive()
-
-    def finalize_flywheel(self) -> Path | None:
-        return self._flywheel.finalize() if self._flywheel is not None else None
 
     def _step_env(self, action) -> None:
         """Execute one env action between cancellation checkpoints."""
         self._check_cancelled()
-        obs, reward, terminated, truncated, _info = self.env.step(action)
-        if self._flywheel is not None:
-            self._flywheel.add_transition(action, obs, reward, terminated, truncated)
+        obs, *_ = self.env.step(action)
         self.set_obs(obs)
         if self._recording:
             self.record_frame(obs)
@@ -166,39 +149,26 @@ class LiberoPrimitives:
         }
 
     def _vlm_chunk(self, instruction: str, *, raw_obs: dict | None = None):
-        """Predict and execute one chunk with a request-local task instruction."""
+        """Predict and execute one action chunk with a request-local instruction."""
         self._check_cancelled()
+        capturing = isinstance(self.env, CapturingEnvClient)
         policy_obs = (self._last_obs if raw_obs is None else raw_obs).copy()
         policy_obs["task_descriptions"] = instruction
-        actions = self.model.predict(policy_obs, options={"mode": "eval"})
-        self._check_cancelled()
-        vla_id = (
-            self._flywheel.add_proposal(instruction, actions)
-            if self._flywheel is not None
-            else -1
-        )
-        if not self._recording and self._flywheel is None:
-            chunk_obs, _r, _t, _tr, _i = self.env.chunk_step(actions)
-            obs = chunk_obs[-1] if self.env.return_all_frames else chunk_obs
-        else:
-            chunk_obs, rewards, terminated, truncated, _info = self.env.chunk_step(
-                actions, return_all_frames=True
+        policy_obs.setdefault("extra_view_images", None)
+        prediction = self.env.prediction(instruction) if capturing else nullcontext()
+        with prediction:
+            actions = self.model.predict(policy_obs, options={"mode": "eval"})
+            self._check_cancelled()
+            all_frames = self._recording
+            chunk_obs, *_ = self.env.chunk_step(
+                actions, return_all_frames=True if all_frames else None
             )
-            for index, obs in enumerate(chunk_obs):
-                if self._recording:
-                    self.record_frame(obs)
-                if self._flywheel is not None:
-                    self._flywheel.add_transition(
-                        actions[index],
-                        obs,
-                        rewards[index],
-                        terminated[index],
-                        truncated[index],
-                        vla_id=vla_id,
-                        proposal_index=index,
-                    )
-            obs = chunk_obs[-1]
-        self.set_obs(obs)
+        if not all_frames:
+            self.set_obs(chunk_obs[-1] if self.env.return_all_frames else chunk_obs)
+        else:
+            self.set_obs(chunk_obs[-1])
+            for obs in chunk_obs:
+                self.record_frame(obs)
         return self._last_obs
 
     @tool
@@ -1033,25 +1003,31 @@ def write_recipe_from_states(
             command_events.append(((record.step_idx, -1), command))
 
         for name in sorted(record.artifacts):
-            if not (name.startswith("segment_") and name.endswith(".json")):
+            # Older public calls used geometry_segment_<namespace>_<index>.
+            # Internal geometry tags also contain the request index or part name.
+            if not name.endswith(".json") or not (
+                name.startswith("segment_")
+                or re.fullmatch(r"geometry_segment_[^_]+_[0-9]+\.json", name)
+            ):
                 continue
             segment = state.load(name, step=record.step_idx)
-            if segment.get("error"):
+            if name.startswith("geometry_segment_") and "image_shape" not in segment:
                 continue
-            if segment["mode"] == "text":
-                segment_command = {
-                    "action": "segment",
-                    "prompt": segment["prompt"],
-                    "camera": segment["camera"],
-                }
-            else:
-                segment_command = {
-                    "action": "segment",
-                    "point": segment["point"],
-                    "camera": segment["camera"],
-                }
-            event_order = (record.step_idx, int(segment["segment_index"]))
-            command_events.append((event_order, segment_command))
+            if segment.get("error") or segment.get("found") is False:
+                continue
+            index = int(
+                segment.get("segment_index", Path(name).stem.rsplit("_", 1)[-1])
+            )
+            segment_command = {"action": "segment", "camera": segment["camera"]}
+            if segment.get("prompt"):
+                segment_command["prompt"] = segment["prompt"]
+            if segment.get("point") is not None:
+                segment_command["point"] = segment["point"]
+                if "image_shape" in segment:
+                    segment_command["image_shape"] = segment["image_shape"]
+            if segment.get("min_score", 0.2) != 0.2:
+                segment_command["min_score"] = segment["min_score"]
+            command_events.append(((record.step_idx, index), segment_command))
 
     # Never publish a failed trajectory as a recipe. The environment trace is
     # authoritative; an agent's self-reported finish status is not.
@@ -1153,10 +1129,8 @@ def _save_observation_artifacts(
     if agentview_meta:
         cam_meta_out = dict(agentview_meta)
         cam_meta_out["projection"] = (
-            "Prefer the back_project(row, col, step=NN) MCP tool; it "
-            "uses the 1024x1024 high-resolution world map by default. "
-            "Pass resolution='low' only when row/col came from the "
-            "256x256 calibration-frame image."
+            "Select pixels on the calibrated agentview image. Use back_project "
+            "for the same step and pixel grid to read their world coordinates."
         )
         cam_meta_out["note"] = (
             "The agentview_depth.npz observation is aligned with agentview.png. "

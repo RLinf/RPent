@@ -47,6 +47,10 @@ RPent is built for four kinds of users:
 
 ## What's NEW!
 
+- [2026/11] 🔥 Fixed an issue that caused the API planner to underperform. With DeepSeek V4.1 Flash, the API planner achieved a success rate of **65.6% (164/250)** on RoboTwin C2R. See the [Leaderboard](https://rpent.readthedocs.io/en/latest/rst_source/leaderboard/index.html).
+- [2026/11] 🔥 RPent supports Embodied First Exam (EFE) tasks through Harbor, with Skills or the task's native actions. See the [EFE guide](https://rpent.readthedocs.io/en/latest/rst_source/simulators/efe.html).
+- [2026/11] 🔥 Added a [generic RGB-D toolkit](https://rpent.readthedocs.io/en/latest/rst_source/development/generic_toolkit.html) for reading 3D coordinates, segmenting objects, and measuring object parts from recorded camera views.
+- [2026/11] 🔥 Added the data flywheel. Supervised fine-tuning of the VLA on successful trajectories collected with the flywheel raised RPent's task success rate on RoboTwin from 48% to 72%, a gain of **24 percentage points**. See the [user guide](https://rpent.readthedocs.io/en/latest/rst_source/guides/flywheel.html).
 - [2026/10] 🔥 Added an optional APXInf VLA endpoint. See the [deployment guide](https://rpent.readthedocs.io/en/latest/rst_source/guides/advanced_deployment.html#apxinf-vla-service-optional).
 - [2026/09] 🔥 Added the interactive RPent Leaderboard for LIBERO, LIBERO-PRO, RoboCasa365, and RoboTwin, with model comparisons and suite-level results. Explore the [Leaderboard](https://rpent.readthedocs.io/en/latest/rst_source/leaderboard/index.html).
 - [2026/09] 🔥 RPent supports Franka single-arm and dual-arm real-robot extensions. Doc: [Franka](https://rpent.readthedocs.io/en/latest/rst_source/real_world_robots/franka.html) · [Dual Franka](https://rpent.readthedocs.io/en/latest/rst_source/real_world_robots/dual_franka.html).
@@ -87,8 +91,11 @@ RPent is built for four kinds of users:
           <li><b>WAM</b></li>
           <ul>
             <li>DreamZero</li>
+            <li><a href="https://rpent.readthedocs.io/en/latest/rst_source/simulators/robodojo.html#vpp2-setup">VPP2</a> (RoboDojo) ✅</li>
+            <li><a href="https://rpent.readthedocs.io/en/latest/rst_source/simulators/robodojo.html#awomo05-setup">Awomo05</a> (RoboDojo) ✅</li>
             <li><a href="docs/source-en/rst_source/development/add_action_model.rst">Cosmos Policy</a> (LIBERO / LIBERO-Pro)</li>
             <li><a href="docs/source-en/rst_source/development/add_action_model.rst">Fast-WAM</a> (LIBERO / LIBERO-Pro / RoboTwin)</li>
+            <li><a href="docs/source-en/rst_source/development/add_action_model.rst">UniWAM</a> (RoboTwin)</li>
           </ul>
         </ul>
       </td>
@@ -98,6 +105,8 @@ RPent is built for four kinds of users:
           <li><a href="https://rpent.readthedocs.io/en/latest/rst_source/simulators/robocasa.html">RoboCasa</a> ✅</li>
           <li><a href="https://rpent.readthedocs.io/en/latest/rst_source/simulators/robotwin.html">RoboTwin</a> ✅</li>
           <li><a href="https://rpent.readthedocs.io/en/latest/rst_source/simulators/robodojo.html">RoboDojo</a> ✅</li>
+          <li><a href="https://rpent.readthedocs.io/en/latest/rst_source/simulators/robolab.html">RoboLab</a> ✅</li>
+          <li><a href="https://rpent.readthedocs.io/en/latest/rst_source/simulators/efe.html">EFE</a> ✅</li>
         </ul>
       </td>
       <td>
@@ -123,10 +132,14 @@ pip install -e ".[libero-pro]"  # Recommended default (LIBERO-PRO)
 # Other environment configurations:
 pip install -e ".[robocasa]"    # RoboCasa
 pip install -e ".[robotwin]"    # RoboTwin
+pip install -e ".[robolab]"     # RoboLab policy environment
 pip install -e ".[franka]"      # Franka and dual Franka
 ```
 
 `.[libero-pro]` is the recommended default. See the [installation docs](https://rpent.readthedocs.io/en/latest/rst_source/get_started/quickstart.html) for other environments.
+
+For RoboLab simulator setup, model checkpoints, and a single-task example, see the
+[RoboLab guide](https://rpent.readthedocs.io/en/latest/rst_source/simulators/robolab.html).
 
 For RoboCasa setup, task memory, and the Target50 protocol, see the
 [RoboCasa guide](https://rpent.readthedocs.io/en/latest/rst_source/simulators/robocasa.html).
@@ -181,12 +194,12 @@ rpent --robot libero --suite libero_object_swap --task 2 --seed 0 \
   --planner claude_code --model claude-opus-4-8
 ```
 
-See the [planner docs](https://rpent.readthedocs.io/en/latest/rst_source/guides/configure_planner.html) to configure other planners (`api`, `codex`) and model providers.
+See the [planner docs](https://rpent.readthedocs.io/en/latest/rst_source/guides/configure_planner.html) to configure other planners (`api`, `codex`, `gemini_cli`) and model providers.
 For the exploration workflow and local-memory evaluation, see [LIBERO exploration mode](https://rpent.readthedocs.io/en/latest/rst_source/simulators/libero.html#exploration-and-local-memory-evaluation).
 
 ### Interactive CLI mode
 
-With `claude_code` or `codex`, add `--tui` (`-t`) to steer the agent live from your terminal. The built-in task is pre-filled at the `you>` prompt. Press Enter to submit it as-is. To change or replace the task, edit the input before pressing Enter. While the agent runs, type follow-up messages to steer it (`/help` lists commands; `/quit` or Ctrl-D ends). Requires a TTY. The `api` planner uses a native CLI that runs the preset task first and accepts follow-ups between runs; use `/exit` to close it.
+With `claude_code`, `codex`, or `gemini_cli`, add `--tui` (`-t`) for terminal interaction. The built-in task is pre-filled at the `you>` prompt; edit it or press Enter to submit. Follow-up messages queue until the current turn completes. Use `/interrupt [message]` to interrupt; an attached message goes ahead of the queue. `/help` lists commands; `/quit` or Ctrl-D ends the session. Requires a TTY. The `api` planner uses a native CLI that runs the preset task first and accepts follow-ups between runs; use `/exit` to close it.
 
 ```bash
 rpent --robot libero --suite libero_object_swap --task 2 --seed 0 \
@@ -205,6 +218,16 @@ rpent --robot libero --dashboard --dashboard-language zh-cn \
 For a complete list of CLI options, see the [Command-Line Reference](https://rpent.readthedocs.io/en/latest/rst_source/guides/cli.html). RoboCasa and RoboTwin provide their own task parameters — see the [RoboCasa](https://rpent.readthedocs.io/en/latest/rst_source/simulators/robocasa.html) and [RoboTwin](https://rpent.readthedocs.io/en/latest/rst_source/simulators/robotwin.html) docs.
 
 For more detailed documentation, see the [RPent documentation](https://rpent.readthedocs.io/en/latest/).
+
+## Adoption
+
+We are happy to see RPent has been adopted by leading companies and research institutions, with users and collaborators including NVIDIA, Huawei, Tencent, ROBAM, Z-Trans AI (Zetta project), Tsinghua University, Peking University, and the National University of Singapore.
+
+✨ If you find RPent useful for embodied AI research or robotics applications, feel free to reach out or submit a PR to have your organization listed here.
+
+<div align="center">
+  <img src="https://cdn.jsdelivr.net/gh/RLinf/misc@beb75d9289a0dee012004c26436f8fb1c688f310/rpent/adoption/adoption.png" alt="RPent community: 10 companies, including Z-Trans AI (Zetta project) and ROBAM, followed by 22 universities and 8 research institutions"/>
+</div>
 
 ## Contributing
 

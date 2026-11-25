@@ -24,11 +24,14 @@ from collections.abc import Callable
 from dataclasses import replace
 from functools import partial
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal
+
+import numpy as np
 
 from robots.libero import tools as libero_tools
 from rpent.dashboard.events import DashboardEventSink
 from rpent.session import EnvState
+from rpent.session.env_capture import CapturingEnvClient
 from rpent.tools import ToolResult, iter_tools
 from rpent.tools.base import tool
 from rpent.tools.direct_action import direct_action_tool
@@ -36,7 +39,9 @@ from rpent.tools.toolkit import Toolkit
 from rpent.utils.logging import get_logger, get_output_dir
 
 if TYPE_CHECKING:
+    from robots.libero.env_client import LiberoEnvClient
     from rpent.memory.manager import MemoryManager
+    from toolkits.geometry.local_point_agent import VisualGrounder
 
 logger = get_logger("libero_toolkit")
 
@@ -55,9 +60,15 @@ class LiberoToolkit(Toolkit):
         attempts_per_session: int = 0,
         state_output_dir: Path | str | None = None,
         policy_kind: str = "vla",
+        generic_tools: bool = False,
+        geometry_grounder: VisualGrounder | None = None,
     ) -> None:
         if mode not in {"evaluation", "exploration"}:
             raise ValueError(f"unsupported LIBERO toolkit mode: {mode!r}")
+        sam3 = runtime_kwargs.get("sam3_client")
+        generic_tools = generic_tools or geometry_grounder is not None
+        if generic_tools and sam3 is None:
+            raise ValueError("Generic localization requires a SAM3 client.")
         self._state_output_dir = Path(state_output_dir or get_output_dir())
         state = EnvState(self._state_output_dir)
         super().__init__(
@@ -73,7 +84,37 @@ class LiberoToolkit(Toolkit):
         self._attempts_per_session: int = max(0, int(attempts_per_session))
         self._session_attempt: int = 1
         self.init_primitives(runtime_kwargs=runtime_kwargs)
-        self._register_libero_tools()
+        self._register_libero_tools(generic_tools=generic_tools)
+        self._geometry = None
+        if generic_tools:
+            from robots.libero.observations import LiberoGeometryObservations
+            from toolkits.back_project import back_project
+            from toolkits.segment import SegmentTool
+
+            observations = LiberoGeometryObservations(state)
+            self.add_tool(
+                back_project.with_handler(
+                    partial(back_project, observations=observations)
+                )
+            )
+            self.add_tool(
+                SegmentTool(
+                    observations=observations,
+                    state=state,
+                    segmenter=sam3,
+                ).segment
+            )
+            if geometry_grounder is not None:
+                from toolkits.geometry.geometry_tool import GeometryTool
+
+                self._geometry = GeometryTool(
+                    state=state,
+                    grounder=geometry_grounder,
+                    segmenter=sam3,
+                    observations=observations,
+                    check_cancelled=self.raise_if_cancelled,
+                )
+                self.add_tool(self._geometry.geometry)
         if policy_kind == "wam":
             finish = self._tools["finish"]
             self.add_tool(
@@ -88,23 +129,23 @@ class LiberoToolkit(Toolkit):
             self.add_tool(
                 direct_action_tool(
                     self._primitives.env.action_specs,
-                    partial(
-                        self._execute_primitive,
-                        "execute_action",
-                        self._primitives.execute_action,
-                    ),
+                    partial(self._execute_primitive, self._primitives.execute_action),
                 )
             )
 
     # ------------------------------------------------------------------
     # Registration
     # ------------------------------------------------------------------
-    def _register_libero_tools(self) -> None:
+    def _register_libero_tools(self, *, generic_tools: bool) -> None:
         for definition in iter_tools(libero_tools):
+            if generic_tools and definition.name == "back_project":
+                continue
             self.add_tool(
                 definition.with_handler(partial(definition, state=self._state))
             )
         for definition in iter_tools(self._primitives):
+            if generic_tools and definition.name == "segment":
+                continue
             excluded = (
                 {"pi0_pick", "pi0_doubled"}
                 if self._policy_kind == "wam"
@@ -113,10 +154,14 @@ class LiberoToolkit(Toolkit):
             if definition.name in excluded:
                 continue
             if definition.name == "segment":
-                handler = partial(definition, state=self._state)
+                definition = definition.with_handler(
+                    partial(definition, state=self._state)
+                )
             else:
-                handler = partial(self._execute_primitive, definition.name, definition)
-            self.add_tool(definition.with_handler(handler))
+                definition = definition.with_handler(
+                    partial(self._execute_primitive, definition)
+                )
+            self.add_tool(definition)
         if self._mode == "exploration":
             self.add_tool(self._reset_episode)
             finish = self._tools["finish"]
@@ -125,7 +170,7 @@ class LiberoToolkit(Toolkit):
             )
 
     def _execute_primitive(
-        self, name: str, handler: Callable[..., ToolResult], **kwargs: Any
+        self, handler: Callable[..., ToolResult], **kwargs: Any
     ) -> ToolResult:
         env = self._primitives.env
         if self._policy_kind == "wam" and (env.terminated or env.truncated):
@@ -134,11 +179,7 @@ class LiberoToolkit(Toolkit):
                 "Episode already ended; no further motion is allowed. "
                 f"Call finish with status={status!r}."
             )
-        self._primitives.begin_primitive(name)
-        try:
-            return handler(**kwargs)
-        finally:
-            self._primitives.end_primitive()
+        return handler(**kwargs)
 
     def _wam_finish(self, inner: Any, **kwargs: Any) -> ToolResult:
         """Require native task success before accepting a success claim."""
@@ -185,6 +226,8 @@ class LiberoToolkit(Toolkit):
         self._attempt += 1
         self._session_attempt += 1
         result = self._primitives.reset_episode(reason=reason)
+        if self._geometry is not None:
+            self._geometry.reset_cache()
         result["attempt"] = self._attempt
         result["notice"] = (
             f"Episode restarted; this is attempt {self._attempt}. The original "
@@ -249,6 +292,14 @@ class LiberoToolkit(Toolkit):
         """Wipe stale run artifacts, build the LiberoPrimitives, dump step 0."""
         self._state.reset()
 
+        runtime_kwargs = dict(runtime_kwargs)
+        if self._mode == "evaluation":
+            env = runtime_kwargs["env"]
+            runtime_kwargs["env"] = CapturingEnvClient(
+                env,
+                self._state,
+                capture_call=partial(_capture_libero_call, env),
+            )
         primitives = libero_tools.LiberoPrimitives(
             check_cancelled=self.raise_if_cancelled,
             policy_kind=self._policy_kind,
@@ -262,15 +313,8 @@ class LiberoToolkit(Toolkit):
         self._publish_step(record)
 
     def close(self) -> None:
-        """Finalize collected data and save the episode video independently."""
+        """Save the episode video on close."""
         super().close()
-        try:
-            episode = self._primitives.finalize_flywheel()
-            if episode is not None:
-                logger.info("flywheel episode finalized: %s", episode)
-        except Exception as e:
-            logger.warning("failed to finalize flywheel episode: %s", e)
-
         try:
             frames = self._primitives.stop_recording()
             if frames:
@@ -289,3 +333,69 @@ class LiberoToolkit(Toolkit):
         return libero_tools.write_recipe_from_states(
             self._state, recipe_tag, output_dir=get_output_dir()
         )
+
+
+def _capture_libero_call(
+    env: LiberoEnvClient,
+    method: Literal["step", "chunk_step"],
+    actions: Any,
+    *,
+    return_all_frames: bool | None = None,
+) -> dict[str, Any]:
+    """Execute a LIBERO call and collect its actions and observations."""
+    before = env.last_obs
+    if method == "step":
+        result = env.step(actions)
+        actions = [np.asarray(actions)]
+        steps = [result]
+    else:
+        if return_all_frames is None:
+            return_all_frames = env.return_all_frames
+        obs, rewards, term, trunc, infos = env.chunk_step(
+            actions, return_all_frames=True
+        )
+        result = (obs if return_all_frames else obs[-1], rewards, term, trunc, infos)
+        actions = np.asarray(actions)
+        steps = zip(obs, rewards, term, trunc, infos)
+
+    def observation_payload(obs):
+        return {
+            "format": "libero.observation",
+            "data": obs,
+            "completeness": "complete",
+            "inline_array_paths": ("/states",),
+        }
+
+    return {
+        "result": result,
+        "before_observation": observation_payload(before),
+        "before_observation_cached": True,
+        "steps": [
+            {
+                "action": {
+                    "format": "libero.action",
+                    "data": action,
+                    "completeness": "complete",
+                    "inline_array_paths": ("",),
+                },
+                "after_observation": observation_payload(obs),
+                "result": {
+                    "format": "libero.step_result",
+                    "data": {
+                        "reward": reward,
+                        "terminated": term,
+                        "truncated": trunc,
+                        "info": info,
+                    },
+                    "completeness": "complete",
+                    "inline_array_paths": (
+                        "/info/episode/success_once",
+                        "/info/episode/return",
+                        "/info/episode/episode_len",
+                        "/info/episode/reward",
+                    ),
+                },
+            }
+            for action, (obs, reward, term, trunc, info) in zip(actions, steps)
+        ],
+    }

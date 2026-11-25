@@ -23,6 +23,7 @@ import shlex
 import sys
 import threading
 import time
+from dataclasses import asdict
 from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -36,6 +37,7 @@ from rpent.evaluation import RunFinalizationContext
 from rpent.memory import MemoryManager
 from rpent.planner.base import build_planner, is_recoverable_agent_error
 from rpent.robots import get_toolkit
+from rpent.session.planner_capture import end_planner_task, start_planner_task
 from rpent.utils.config import get_memory_dir
 from rpent.utils.logging import get_logger, init_output_dir
 
@@ -236,6 +238,15 @@ def _run_dashboard_task(
                 **shared_runtime_kwargs,
             }
             prompt_vars = {**run_config.prompt_vars, "output_dir": output_dir}
+            # Refine the prompt with the connected task's own capabilities
+            # before any render, so prompt and toolkit describe one tool set.
+            if robot_spec.prepare_prompt_vars is not None:
+                prompt_vars = {
+                    **prompt_vars,
+                    **robot_spec.prepare_prompt_vars(
+                        task_args, run_config, runtime_kwargs
+                    ),
+                }
             session_message = robot_spec.prompts.render("user", variables=prompt_vars)
             sessions = max(
                 1,
@@ -312,7 +323,20 @@ def _run_dashboard_task(
                 solved = False
                 state.bind_toolkit(toolkit)
                 memory_manager = toolkit.memory
+                task_state = None
+                result = None
+                finish_result = None
+                environment_success = None
                 try:
+                    if task_args.record_trajectory and task_args.planner != "flash":
+                        task_state = start_planner_task(
+                            toolkit.state,
+                            instruction=session_message,
+                            config={
+                                "arguments": vars(task_args),
+                                "run": asdict(run_config),
+                            },
+                        )
                     planner = build_planner(
                         task_args.planner,
                         output_dir=output_dir,
@@ -324,6 +348,7 @@ def _run_dashboard_task(
                         max_tokens=args.max_tokens,
                         planner_timeout_s=args.planner_timeout_s,
                         reasoning_effort=args.reasoning_effort,
+                        codex_sandbox=args.codex_sandbox,
                         claude_code_max_budget_usd=args.claude_code_max_budget_usd,
                         dashboard_events=state,
                         no_images=args.no_images,
@@ -345,6 +370,7 @@ def _run_dashboard_task(
                             stats["planner_error_at_operator_verdict"] = agent_error
                     if robot_spec.supports_exploration:
                         solved = bool(toolkit.solved())
+                        environment_success = solved
                         if solved:
                             recipe_path = (
                                 toolkit.write_recipe(recipe_tag) or recipe_path
@@ -360,7 +386,23 @@ def _run_dashboard_task(
                                 success=environment_success
                             )
                     finally:
-                        toolkit.close()
+                        try:
+                            toolkit.close()
+                        finally:
+                            end_planner_task(
+                                task_state,
+                                result,
+                                finish_result=finish_result,
+                                environment_success=environment_success,
+                                exception=sys.exc_info()[1],
+                                cancelled_reason=(
+                                    "task_replaced"
+                                    if state.task_replacement_requested
+                                    else "operator"
+                                    if state.task_finalization_cancelled
+                                    else None
+                                ),
+                            )
                 if (
                     solved
                     or state.task_replacement_requested
