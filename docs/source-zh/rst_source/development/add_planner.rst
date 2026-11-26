@@ -44,11 +44,9 @@
 2. 从 ``toolkit.list_tools()`` 取得工具的 ``name``、``description`` 和 ``input_schema``，并通过 ``toolkit.execute_tool(name, arguments)`` 执行工具。
 3. 将 ``ToolResult.to_text()`` 的文本和 ``ToolResult.images`` 中的 PNG 字节转换成模型 SDK 所需的格式。
 4. 识别 ``ToolResult.data.get("_finish")``，并按 ``max_turns`` 等限制终止循环。
-5. 返回包含结束状态、消息、统计信息，以及可选 ``error`` 和 ``stop_reason`` 字段的 ``PlannerResult``。
+5. 从 ``solve()`` 返回 ``PlannerResult``，其中包含结束状态、消息、用量统计和可能出现的错误。例如，达到轮数上限时，可以用 ``stop_reason`` 说明原因。任务是否成功由环境判定。
 
-规划器可通过 ``stop_info`` 提供原始 ``reason`` 和公共 ``category``：``finish``、``completed``、``budget``、``timeout``、``cancelled``、``error`` 或 ``unknown``。``normalize_stop_info`` 保留后端原始原因，并为通用原因补充分组；未知原因仍归为 ``unknown``。结果产物与轨迹记录优先使用 ``stop_info.reason``，其次是 ``stop_reason``，最后兼容 ``stats`` 中的旧原因字段。运行器异常和清理失败优先于后端报告的完成状态，同时保留原始证据。``timeout`` 表示规划器配置的总时限耗尽，不用于 provider 请求错误。Claude 收到带错误标记的中断结果时，只有 SDK 能识别被中断的请求并确认取消，才将其记为预期取消。
-
-执行是否确定、结果是否交付、清理是否完成，以及是否允许开始新会话，应分别记录。开始新会话要求 ``execution_certain``、``result_delivery_complete``、``cleanup_complete`` 和 ``allow_new_session`` 均明确为 ``True``；缺少证据或仅凭分组不能允许继续执行。现有规划器可以不提供 ``stop_info``，保留原有恢复行为。
+如果规划器使用 ``stop_info``，请在本次会话中所有动作的结果都已确认并送达、清理工作也已完成后，再允许开启新的探索会话。
 
 由于 RPent 的工具定义和提示词渲染流程保持不变，新增规划器无需修改工具或环境服务。接口参见 :doc:`architecture`；添加工具见 :doc:`add_primitive`。
 

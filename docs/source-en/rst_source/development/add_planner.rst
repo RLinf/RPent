@@ -52,26 +52,14 @@ Any planner must:
    format expected by the model SDK.
 4. Detect ``ToolResult.data.get("_finish")`` and stop according to
    ``max_turns`` and any other limits.
-5. Return a ``PlannerResult`` containing the finish state, messages,
-   statistics, and optional ``error`` and ``stop_reason`` fields.
+5. Return a ``PlannerResult`` from ``solve()`` with the finish state, messages,
+   usage statistics, and any error. For example, if the planner reaches its turn
+   limit, it can report this in ``stop_reason``. The environment determines
+   whether the task succeeded.
 
-Planners may supply ``stop_info`` with their raw ``reason`` and a common
-``category``: ``finish``, ``completed``, ``budget``, ``timeout``, ``cancelled``, ``error``, or
-``unknown``. ``normalize_stop_info`` preserves backend reasons and fills the
-category for common reasons; unknown reasons remain unknown. Result artifacts
-and trajectory capture prefer ``stop_info.reason``, then ``stop_reason``, then
-the legacy reason in ``stats``. Runner exceptions and cleanup failures take
-precedence over a backend's reported completion; retain the original evidence.
-Use ``timeout`` for the configured planner deadline, not provider request errors.
-Claude records an error-marked interruption as an expected cancellation only
-when the SDK identifies the interrupted request and confirms cancellation.
-
-Keep execution certainty, result delivery, cleanup, and permission to start a
-new session as separate evidence. Starting a new session requires
-``execution_certain``, ``result_delivery_complete``, ``cleanup_complete``, and
-``allow_new_session`` to all be explicitly ``True``; missing evidence or a
-category alone does not authorize continuation. Existing planners may omit
-``stop_info`` and retain their current recovery behavior.
+If your planner uses ``stop_info``, allow a new exploration session only when
+all action outcomes are known, their results have been delivered, and cleanup
+is complete.
 
 Because the RPent tool schemas and prompt-rendering path stay the same,
 adding a planner does not require changes to tools or environment
