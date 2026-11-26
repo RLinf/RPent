@@ -35,7 +35,7 @@ from rpent.dashboard.events import (
 )
 from rpent.dashboard.interaction import DashboardInteractionPort, DashboardMessage
 from rpent.dashboard.planner_control import PlannerInteractionControl
-from rpent.planner.base import Planner, PlannerResult
+from rpent.planner.base import REASONING_EFFORTS, Planner, PlannerResult
 from rpent.planner.utils.agent_runtime import AgentArtifacts, short_json
 from rpent.planner.utils.agent_session import run_agent
 from rpent.planner.utils.sdk import int_field, jsonable
@@ -95,12 +95,11 @@ class AcpPlanner(Planner):
             timeout_s: Wall-clock limit for the CLI process.
             output_path: Rendered transcript path, or a temporary file if omitted.
             model: Optional model ID interpreted by the harness adapter.
-            reasoning_effort: Must be none; configure effort in the harness.
+            reasoning_effort: Requested effort; none preserves the CLI configuration.
         """
-        if reasoning_effort != "none":
-            raise ValueError(
-                f"{self.backend} does not support --reasoning-effort; use 'none'"
-            )
+        if reasoning_effort not in REASONING_EFFORTS:
+            raise ValueError(f"unsupported reasoning effort: {reasoning_effort}")
+        self._reasoning_effort = reasoning_effort
         self._output_dir = Path(output_dir)
         self._timeout_s = timeout_s
         self._output_path = Path(output_path) if output_path else None
@@ -122,17 +121,20 @@ class AcpPlanner(Planner):
             raise ValueError(
                 "input_queue and dashboard_interaction cannot be used together"
             )
-        return asyncio.run(
-            self._solve(
-                prompt=f"{system_prompt}\n\n{user_message}"
-                if system_prompt
-                else user_message,
-                toolkit=toolkit,
-                max_turns=max_turns,
-                input_queue=input_queue,
-                interaction=dashboard_interaction,
+        try:
+            return asyncio.run(
+                self._solve(
+                    prompt=f"{system_prompt}\n\n{user_message}"
+                    if system_prompt
+                    else user_message,
+                    toolkit=toolkit,
+                    max_turns=max_turns,
+                    input_queue=input_queue,
+                    interaction=dashboard_interaction,
+                )
             )
-        )
+        finally:
+            toolkit.set_tool_budget(None)
 
     async def _solve(
         self,
@@ -162,7 +164,6 @@ class AcpPlanner(Planner):
                     emit,
                     stderr_path,
                     mcp_url=url,
-                    max_turns=max_turns,
                     tool_names=(tool.name for tool in toolkit.list_tools()),
                     redact=redact,
                 )
@@ -170,6 +171,7 @@ class AcpPlanner(Planner):
             error = await run_agent(
                 prompt=prompt,
                 toolkit=toolkit,
+                max_turns=max_turns,
                 artifacts=artifacts,
                 recorder=recorder,
                 events=self._dashboard_events,
@@ -190,7 +192,7 @@ class AcpPlanner(Planner):
         return artifacts.result(
             finish_result=recorder.finish_result,
             final_response=recorder.final_response,
-            stats=recorder.stats(),
+            stats={**recorder.stats(), "turns_used": toolkit.tool_calls_used},
             error=error,
             stderr_path=stderr_path,
         )
@@ -204,7 +206,6 @@ class AcpPlanner(Planner):
         stderr_path: Path,
         *,
         mcp_url: str | None,
-        max_turns: int,
         tool_names: Iterable[str],
         redact: Callable[[str], str],
     ) -> AcpSession:
@@ -227,7 +228,6 @@ class AcpPlanner(Planner):
                     recorder.observe,
                     root / "stderr.log",
                     mcp_url=None,
-                    max_turns=1,
                     tool_names=(),
                     redact=redact,
                 )
@@ -259,6 +259,7 @@ class AcpSession:
         mcp_url: str | None = None,
         redact: Callable[[str], str],
         model: str | None,
+        reasoning_effort: str = "none",
         control: PlannerInteractionControl | None,
         emit_event: Callable[[dict[str, Any]], Any],
         stderr_path: Path,
@@ -270,6 +271,7 @@ class AcpSession:
         self._redact = redact
         self._cwd = cwd
         self._model = model
+        self._reasoning_effort = reasoning_effort
         self._control = control
         self._emit = emit_event
         self._stderr_path = stderr_path
@@ -318,22 +320,49 @@ class AcpSession:
         )
         session = await connection.new_session(cwd=str(self._cwd), mcp_servers=servers)
         self._session_id = session.session_id
-        if self._model:
+        config_options = session.config_options or []
+        for category, value in (
+            ("model", self._model),
+            (
+                "thought_level",
+                None if self._reasoning_effort == "none" else self._reasoning_effort,
+            ),
+        ):
+            if value is None:
+                continue
             selector = next(
                 (
                     option
-                    for option in session.config_options or []
-                    if option.category == "model" and option.type == "select"
+                    for option in config_options
+                    if option.category == category and option.type == "select"
                 ),
                 None,
             )
             if selector is None:
                 raise ValueError(
-                    "The ACP agent has no model selector; configure the model in the CLI"
+                    f"The ACP agent has no {category} selector; configure it in the CLI"
                 )
-            await connection.set_config_option(
-                session_id=self._session_id, config_id=selector.id, value=self._model
+            if category == "thought_level":
+                from acp.schema import SessionConfigSelectGroup
+
+                choices = [
+                    item.value
+                    for option in selector.options
+                    for item in (
+                        option.options
+                        if isinstance(option, SessionConfigSelectGroup)
+                        else [option]
+                    )
+                ]
+                if value not in choices:
+                    raise ValueError(
+                        f"Unsupported --reasoning-effort {value!r} for the selected model; "
+                        f"available values: {', '.join(choices)}"
+                    )
+            configured = await connection.set_config_option(
+                session_id=self._session_id, config_id=selector.id, value=value
             )
+            config_options = configured.config_options
         await self.submit(DashboardMessage("initial", prompt, "sending"))
         if self._control is None:
             await asyncio.shield(self._task)

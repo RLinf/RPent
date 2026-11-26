@@ -51,12 +51,14 @@ class GeminiCliPlanner(AcpPlanner):
         stderr_path,
         *,
         mcp_url,
-        max_turns,
         tool_names,
         redact,
     ) -> AcpSession:
         _write_settings(
-            root, mcp_url=mcp_url, max_turns=max_turns, tool_names=tool_names
+            root,
+            mcp_url=mcp_url,
+            tool_names=tool_names,
+            reasoning_effort=self._reasoning_effort,
         )
         binary = os.environ.get("GEMINI_BIN") or shutil.which("gemini")
         if not binary:
@@ -130,8 +132,8 @@ def _write_settings(
     root: Path,
     *,
     mcp_url: str | None,
-    max_turns: int,
     tool_names: Iterable[str] = (),
+    reasoning_effort: str = "none",
 ) -> Path:
     """Write workspace-only settings without changing the user's Gemini config."""
     allowed_tools = [f"{_MCP_TOOL_PREFIX}{name}" for name in tool_names]
@@ -142,11 +144,31 @@ def _write_settings(
             "memoryBoundaryMarkers": [],
         },
         "hooksConfig": {"enabled": False},
-        "model": {"maxSessionTurns": max(1, int(max_turns))},
+        "model": {"maxSessionTurns": -1},
         "privacy": {"usageStatisticsEnabled": False},
         "skills": {"enabled": False},
         "tools": {"core": allowed_tools or list(_NO_BUILTIN_TOOLS)},
     }
+    if reasoning_effort != "none":
+        if reasoning_effort not in {"low", "medium", "high"}:
+            raise ValueError(
+                "Gemini CLI supports --reasoning-effort none, low, medium, or high"
+            )
+        settings["modelConfigs"] = {
+            "overrides": [
+                {
+                    "match": {"isChatModel": True},
+                    "modelConfig": {
+                        "generateContentConfig": {
+                            "thinkingConfig": {
+                                "thinkingLevel": reasoning_effort.upper(),
+                                "thinkingBudget": None,
+                            }
+                        }
+                    },
+                }
+            ],
+        }
     if mcp_url:
         settings["mcpServers"] = {
             "rpent": {

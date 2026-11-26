@@ -226,7 +226,13 @@ def test_acp_harness_interactive_modes_reach_robot_configuration(
 
 @pytest.mark.parametrize(
     ("planner", "default_effort"),
-    [("api", "high"), ("codex", "none"), ("claude_code", "none")],
+    [
+        ("api", "high"),
+        ("codex", "none"),
+        ("claude_code", "none"),
+        ("gemini_cli", "none"),
+        ("opencode", "none"),
+    ],
 )
 @pytest.mark.parametrize("explicit_effort", [None, "none", "low", "xhigh"])
 def test_cli_reasoning_effort_defaults_and_explicit_overrides(
@@ -310,20 +316,6 @@ def test_robot_and_env_aliases_are_mutually_exclusive(
             ["--robot", "libero", "--explore", "--explore-sessions", "0"],
             "greater than 0",
         ),
-        *[
-            (
-                [
-                    "--robot",
-                    "libero",
-                    "--planner",
-                    planner,
-                    "--reasoning-effort",
-                    "high",
-                ],
-                f"--reasoning-effort is not supported by the {planner} planner",
-            )
-            for planner in ("gemini_cli", "opencode")
-        ],
         (
             [
                 "--robot",
@@ -587,14 +579,16 @@ def test_full_cli_exploration_finalizes_memory_without_starting_gpu_runtime(
     record_trajectory: bool,
 ) -> None:
     cli = _cli_module()
+    from rpent.dashboard.events import NullDashboardEventSink
     from rpent.planner.base import PlannerResult
     from rpent.robots import PromptBundle, RobotSpec, RunConfig
     from rpent.session import EnvState
-    from rpent.tools import common
+    from rpent.tools import Toolkit, common
     from rpent.tools.toolkit import ToolResult
 
     calls: dict[str, Any] = {}
     stores = []
+    toolkits = []
     model_requests = 0
 
     class FakeMemoryManager:
@@ -608,14 +602,19 @@ def test_full_cli_exploration_finalizes_memory_without_starting_gpu_runtime(
         def stop(self) -> None:
             self.stopped = True
 
-    class FakeToolkit:
+    class FakeToolkit(Toolkit):
         def __init__(self) -> None:
             self.calls: list[tuple[str, dict[str, Any]]] = []
             self.closed = False
-            self.memory = FakeMemoryManager()
+            super().__init__(
+                dashboard_events=NullDashboardEventSink(), memory=FakeMemoryManager()
+            )
 
-        def execute_tool(self, name: str, args: dict[str, Any]) -> ToolResult:
-            self.calls.append((name, args))
+        def _register_common_tools(self):
+            self.add_tool(common.CommonTools.finish.with_handler(self.finish))
+
+        def finish(self, **args: Any) -> ToolResult:
+            self.calls.append(("finish", args))
             if outcome == "request_budget":
                 return ToolResult(data={"error": "finish refused"})
             return ToolResult(
@@ -628,19 +627,7 @@ def test_full_cli_exploration_finalizes_memory_without_starting_gpu_runtime(
 
         def close(self) -> None:
             self.closed = True
-
-        def list_tools(self):
-            return (
-                common.CommonTools.finish.with_handler(
-                    lambda **args: ToolResult(data=args)
-                ),
-            )
-
-        def resume_calls(self):
-            pass
-
-        def cancel_active_and_wait(self) -> None:
-            pass
+            super().close()
 
         def solved(self) -> bool:
             return outcome != "request_budget" and any(
@@ -752,8 +739,11 @@ def test_full_cli_exploration_finalizes_memory_without_starting_gpu_runtime(
         return planner
 
     def get_toolkit(*args: Any, **kwargs: Any) -> FakeToolkit:
+        nonlocal toolkit
         calls["get_toolkit"] = (args, kwargs)
-        toolkit.state = EnvState(kwargs["state_output_dir"])
+        toolkit = FakeToolkit()
+        toolkits.append(toolkit)
+        toolkit._state = EnvState(kwargs["state_output_dir"])
         stores.append(toolkit.state)
         return toolkit
 
@@ -818,9 +808,7 @@ def test_full_cli_exploration_finalizes_memory_without_starting_gpu_runtime(
             else ["completed"] * len(stores)
         )
         if outcome == "request_budget":
-            assert all(
-                store.get_task().stop_reason == "request_limit" for store in stores
-            )
+            assert all(store.get_task().stop_reason == "tool_limit" for store in stores)
     else:
         assert all(store.get_task() is None for store in stores)
         assert all(store.planner_records() == [] for store in stores)
@@ -833,7 +821,8 @@ def test_full_cli_exploration_finalizes_memory_without_starting_gpu_runtime(
     transcript = json.loads((tmp_path / "transcript_libero_s0.json").read_text())
     if outcome == "request_budget":
         assert calls["planner_count"] == 2
-        assert len(toolkit.calls) == 8
+        assert [len(instance.calls) for instance in toolkits] == [4, 4]
+        assert all(instance.closed for instance in toolkits)
         assert "write_recipe" not in calls
         assert calls["merge_memory"] == {
             "cell_tag": "libero_s0",

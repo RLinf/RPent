@@ -20,7 +20,6 @@ import json
 import os
 import sys
 from pathlib import Path
-from types import SimpleNamespace
 from unittest.mock import Mock
 
 import acp
@@ -31,9 +30,10 @@ from mcp import ClientSession
 from mcp.client.streamable_http import streamable_http_client
 
 from rpent.dashboard.events import NullDashboardEventSink
+from rpent.memory import MemoryManager
 from rpent.planner.utils.acp import AcpPlanner, AcpSession
 from rpent.planner.utils.agent_runtime import agent_environment
-from rpent.tools import ToolResult
+from rpent.tools import Toolkit, ToolResult, tool
 from rpent.utils.logging import init_output_dir
 
 PNG = base64.b64decode(
@@ -83,9 +83,35 @@ class LocalAgent:
         )
 
     async def set_config_option(self, session_id, config_id, value, **kwargs):
-        assert (session_id, config_id, value) == ("local", "agent-model", "test-model")
-        self.selected_model = value
-        return schema.SetSessionConfigOptionResponse(config_options=[])
+        assert session_id == "local"
+        if config_id == "agent-model":
+            assert value == "test-model"
+            self.selected_model = value
+        else:
+            assert (config_id, value) == ("agent-effort", "high")
+            self.record["effort"] = value
+            Path(sys.argv[1]).write_text(json.dumps(self.record))
+        options = [schema.SessionConfigSelectOption(value="high", name="High")]
+        if sys.argv[2] == "effort-grouped":
+            options = [
+                schema.SessionConfigSelectGroup(
+                    group="levels", name="Levels", options=options
+                )
+            ]
+        return schema.SetSessionConfigOptionResponse(
+            config_options=[
+                schema.SessionConfigOptionSelect(
+                    id="agent-effort",
+                    name="Effort",
+                    category="thought_level",
+                    type="select",
+                    current_value="default",
+                    options=options,
+                )
+            ]
+            if sys.argv[2] != "no-effort"
+            else []
+        )
 
     async def prompt(self, session_id, prompt, **kwargs):
         assert self.selected_model == "test-model"
@@ -133,6 +159,10 @@ class LocalAgent:
         ("no-http", "must support HTTP MCP"),
         ("no-capabilities", "must support HTTP MCP"),
         ("no-model", "no model selector"),
+        ("effort", None),
+        ("effort-grouped", None),
+        ("no-effort", "no thought_level selector"),
+        ("unsupported-effort", "available values: high"),
     ],
 )
 def test_harness_reuses_acp_tools_probe_and_cleanup(tmp_path, monkeypatch, mode, error):
@@ -153,7 +183,6 @@ def test_harness_reuses_acp_tools_probe_and_cleanup(tmp_path, monkeypatch, mode,
             stderr_path,
             *,
             mcp_url,
-            max_turns,
             tool_names,
             redact,
         ):
@@ -168,29 +197,46 @@ def test_harness_reuses_acp_tools_probe_and_cleanup(tmp_path, monkeypatch, mode,
                 env=agent_environment(),
                 mcp_url=mcp_url,
                 model=self._model,
+                reasoning_effort=self._reasoning_effort,
                 control=control,
                 emit_event=emit,
                 stderr_path=stderr_path,
                 redact=redact,
             )
 
-    toolkit = Mock()
-    toolkit.list_tools.return_value = [
-        SimpleNamespace(name=name, description=name, input_schema={"type": "object"})
-        for name in ("observe", "finish")
-    ]
-    toolkit.execute_tool.side_effect = lambda name, args: (
-        ToolResult(data={"_finish": True, **args})
-        if name == "finish"
-        else ToolResult(data={"observed": True}, images=[PNG])
+    class TestToolkit(Toolkit):
+        def _register_common_tools(self):
+            pass
+
+    toolkit = TestToolkit(
+        dashboard_events=NullDashboardEventSink(),
+        memory=MemoryManager(tmp_path / "memory"),
     )
+    toolkit.add_tool(
+        tool(name="observe", readonly=True)(
+            lambda: ToolResult(data={"observed": True}, images=[PNG])
+        )
+    )
+
+    @tool(name="finish", readonly=True)
+    def finish(status: str) -> ToolResult:
+        return ToolResult(data={"_finish": True, "status": status})
+
+    toolkit.add_tool(finish, replace=True)
+    toolkit.execute_tool = Mock(wraps=toolkit.execute_tool)
+    toolkit.cancel_active_and_wait = Mock(wraps=toolkit.cancel_active_and_wait)
     planner = LocalHarnessPlanner(
         output_dir=tmp_path,
         timeout_s=15,
         dashboard_events=NullDashboardEventSink(),
         model="test-model",
+        reasoning_effort="low"
+        if mode == "unsupported-effort"
+        else "high"
+        if "effort" in mode
+        else "none",
     )
-    if mode != "no-model":
+    if mode not in {"no-model", "no-effort", "unsupported-effort"}:
         assert planner.probe("ping") == "<TEST_HARNESS_API_KEY>"
         assert json.loads(record.read_text())["url"] is None
     result = planner.solve(
@@ -206,6 +252,8 @@ def test_harness_reuses_acp_tools_probe_and_cleanup(tmp_path, monkeypatch, mode,
         toolkit.execute_tool.assert_not_called()
         return
     assert result.error is None
+    if mode in {"effort", "effort-grouped"}:
+        assert child["effort"] == "high"
     assert result.stats["backend"] == "local_harness"
     assert result.finish_result == {"_finish": True, "status": "success"}
     assert result.stats["tool_calls"] == 2

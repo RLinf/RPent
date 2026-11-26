@@ -73,7 +73,6 @@ def test_opencode_preserves_provider_and_scopes_tools(tmp_path, monkeypatch, pro
         lambda event: None,
         tmp_path / "stderr.log",
         mcp_url=None if probe else "http://127.0.0.1:1234/mcp/",
-        max_turns=3,
         tool_names=() if probe else ("observe", "finish"),
         redact=planner._load_secret_redactor(),
     )
@@ -81,7 +80,7 @@ def test_opencode_preserves_provider_and_scopes_tools(tmp_path, monkeypatch, pro
     assert config["provider"] == json.loads(original)["provider"]
     assert config["share"] == "disabled" and config["autoupdate"] is False
     agent = config["agent"][config["default_agent"]]
-    assert agent["steps"] == 3
+    assert "steps" not in agent
     assert agent["permission"] == (
         {"*": "deny"}
         if probe

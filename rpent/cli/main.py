@@ -62,7 +62,6 @@ from rpent.planner.base import (
     is_recoverable_agent_error,
 )
 from rpent.planner.check import (
-    ACP_PLANNERS,
     CHECK_PLANNERS,
     EXTERNALLY_CONFIGURED_PLANNERS,
 )
@@ -174,14 +173,19 @@ def _build_argparser() -> argparse.ArgumentParser:
             "one of them is an error rather than a silent no-op."
         ),
     )
-    ap.add_argument("--max-turns", type=int, default=100)
+    ap.add_argument(
+        "--max-turns",
+        type=int,
+        default=100,
+        help="RPent tool-call budget for the whole task; follow-up input does not reset it.",
+    )
     ap.add_argument("--max-tokens", type=int, default=8192)
     ap.add_argument(
         "--reasoning-effort",
         choices=REASONING_EFFORTS,
         default="none",
-        help="Planner reasoning effort for api, claude_code, and "
-        "codex. gemini_cli and opencode support none only. Higher effort may improve "
+        help="Planner reasoning effort; supported levels depend on the backend and model. "
+        "Gemini CLI supports up to high. For Gemini CLI and OpenCode, none keeps the CLI configuration. Higher effort may improve "
         "task success rate but increases runtime. Defaults to high for api "
         "and none for CLI/SDK planners.",
     )
@@ -442,10 +446,6 @@ def main() -> int:
     )
     if args.dashboard and args.tui:
         parser.error("--dashboard and --tui cannot be used together")
-    if args.planner in ACP_PLANNERS and args.reasoning_effort != "none":
-        parser.error(
-            f"--reasoning-effort is not supported by the {args.planner} planner; use 'none'"
-        )
     try:
         external_env_dashboard = (
             robot_spec.is_real_robot

@@ -129,7 +129,7 @@ class PlannerResult:
     """Result returned by a planner invocation.
 
     ``stop_reason`` optionally describes why planning ended, independently
-    of environment success. For example, reaching a request limit can stop
+    of environment success. For example, reaching a tool limit can stop
     planning without setting ``error``.
     """
 
@@ -190,7 +190,7 @@ class Planner(ABC):
                 (common + robot tools). Backends derive ``tools_spec`` via
                 ``toolkit.list_tools()`` and dispatch calls via
                 ``toolkit.execute_tool()``.
-            max_turns: Maximum LLM turns before giving up.
+            max_turns: RPent tool-call budget for this task, shared by follow-ups.
             input_queue: Optional queue of user-typed lines for interactive steering.
             dashboard_interaction: Optional Dashboard interaction channel.
 

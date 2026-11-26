@@ -315,16 +315,17 @@ class Toolkit:
             for tool in self._tools.values()
         )
 
-    def set_tool_budget(self, limit: int) -> None:
-        """Start a task's budget; resuming or adding input does not reset it."""
-        if limit < 1:
+    def set_tool_budget(self, limit: int | None) -> None:
+        """Start a task's budget, or clear its limit with None after cleanup."""
+        if limit is not None and limit < 1:
             raise ValueError("max_turns must be positive")
         with self._scheduler.condition:
             if self._scheduler.active or self._scheduler.pending:
                 raise RuntimeError("Wait for tool cleanup before starting a task.")
             self._scheduler.limit = limit
-            self._scheduler.calls = 0
-            self._scheduler.resume()
+            if limit is not None:
+                self._scheduler.calls = 0
+                self._scheduler.resume()
 
     @property
     def tool_calls_used(self) -> int:

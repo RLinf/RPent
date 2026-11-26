@@ -27,9 +27,16 @@ import pytest
 import rpent.planner.gemini_cli as gemini_module
 import rpent.planner.utils.agent_session as session_module
 from rpent.dashboard.events import NullDashboardEventSink, TranscriptEvent, UsageEvent
+from rpent.memory import MemoryManager
 from rpent.planner.gemini_cli import GeminiCliPlanner
 from rpent.planner.utils.acp import AcpRecorder
-from rpent.tools import ToolResult
+from rpent.tools import Toolkit, ToolResult
+from rpent.utils.logging import init_output_dir
+
+
+@pytest.fixture(autouse=True)
+def logging_directory(tmp_path):
+    init_output_dir(tmp_path)
 
 
 class FakeMcpServer:
@@ -66,12 +73,11 @@ def test_workspace_settings_expose_only_rpent_mcp_and_set_turn_limit(
     path = gemini_module._write_settings(
         tmp_path,
         mcp_url="http://127.0.0.1:43210/mcp/",
-        max_turns=7,
         tool_names=("inspect_scene", "finish"),
     )
 
     settings = json.loads(path.read_text())
-    assert settings["model"]["maxSessionTurns"] == 7
+    assert settings["model"]["maxSessionTurns"] == -1
     assert settings["tools"]["core"] == [
         "mcp_rpent_inspect_scene",
         "mcp_rpent_finish",
@@ -89,17 +95,29 @@ def test_workspace_settings_expose_only_rpent_mcp_and_set_turn_limit(
 
 
 @pytest.mark.parametrize("model", [None, "gemini-upstream-id"])
+@pytest.mark.parametrize("effort", ["none", "low", "medium", "high"])
 def test_launch_uses_exact_model_and_trusted_workspace_environment(
-    tmp_path, monkeypatch, acp_backend, model
+    tmp_path, monkeypatch, acp_backend, model, effort
 ) -> None:
     monkeypatch.setenv("NO_PROXY", "gateway.example")
     monkeypatch.delenv("no_proxy", raising=False)
     planner = GeminiCliPlanner(
         output_dir=str(tmp_path),
         model=model,
+        reasoning_effort=effort,
         dashboard_events=NullDashboardEventSink(),
     )
     assert planner.probe("ping") == "done"
+    settings = acp_backend["settings"]
+    if effort == "none":
+        assert "modelConfigs" not in settings
+    else:
+        override = settings["modelConfigs"]["overrides"][0]
+        assert override["match"] == {"isChatModel": True}
+        assert override["modelConfig"]["generateContentConfig"]["thinkingConfig"] == {
+            "thinkingLevel": effort.upper(),
+            "thinkingBudget": None,
+        }
 
     assert acp_backend["command"] == [
         "/fake/gemini",
@@ -114,6 +132,16 @@ def test_launch_uses_exact_model_and_trusted_workspace_environment(
     assert env["GEMINI_CLI_NO_RELAUNCH"] == "1"
     assert env["NO_PROXY"] == "gateway.example,127.0.0.1,localhost"
     assert env["no_proxy"] == env["NO_PROXY"]
+
+
+def test_gemini_rejects_unsupported_effort_before_launch(tmp_path):
+    planner = GeminiCliPlanner(
+        output_dir=tmp_path,
+        reasoning_effort="xhigh",
+        dashboard_events=NullDashboardEventSink(),
+    )
+    with pytest.raises(ValueError, match="supports --reasoning-effort"):
+        planner.probe("ping")
 
 
 @pytest.mark.parametrize("tool_error", [False, True])
@@ -235,7 +263,7 @@ def acp_backend(monkeypatch):
                 assert session_cwd == cwd
                 assert (session_cwd / ".gemini" / "settings.json").is_file()
                 seen["events"].append("new_session")
-                return SimpleNamespace(session_id="same-session")
+                return acp.schema.NewSessionResponse(session_id="same-session")
 
             async def prompt(self, session_id, prompt):
                 assert session_id == "same-session"
@@ -295,8 +323,10 @@ def test_relative_output_directory_uses_absolute_session_workspace(
     tmp_path, monkeypatch, acp_backend
 ):
     monkeypatch.chdir(tmp_path)
-    toolkit = Mock()
-    toolkit.list_tools.return_value = (SimpleNamespace(name="finish"),)
+    toolkit = Toolkit(
+        dashboard_events=NullDashboardEventSink(),
+        memory=MemoryManager(tmp_path / "memory"),
+    )
     result = make_planner(Path("logs/run")).solve(
         system_prompt="", user_message="task", toolkit=toolkit, max_turns=1
     )
@@ -329,10 +359,12 @@ def test_session_result_artifacts_and_cleanup(
     acp_backend["block"] = outcome == "timeout"
     if outcome in {"startup_error", "prompt_error"}:
         acp_backend[outcome] = RuntimeError(f"gemini unavailable: {secret}")
-    toolkit = Mock()
-    toolkit.list_tools.return_value = (SimpleNamespace(name="finish"),)
-    toolkit.cancel_active_and_wait.side_effect = lambda: acp_backend["events"].append(
-        "cancel_tools"
+    toolkit = Toolkit(
+        dashboard_events=NullDashboardEventSink(),
+        memory=MemoryManager(tmp_path / "memory"),
+    )
+    toolkit.cancel_active_and_wait = Mock(
+        side_effect=lambda: acp_backend["events"].append("cancel_tools")
     )
     result = make_planner(
         tmp_path, timeout_s=0.05 if outcome == "timeout" else 2
@@ -345,7 +377,7 @@ def test_session_result_artifacts_and_cleanup(
     server = FakeMcpServer.instances[0]
     assert server.started and server.stopped
     toolkit.cancel_active_and_wait.assert_called_once()
-    assert acp_backend["settings"]["model"]["maxSessionTurns"] == 6
+    assert acp_backend["settings"]["model"]["maxSessionTurns"] == -1
     assert acp_backend["settings"]["mcpServers"]["rpent"]["httpUrl"].endswith("/mcp/")
     assert acp_backend["command"][1] == "--acp"
     assert acp_backend["events"][-1] == "close"

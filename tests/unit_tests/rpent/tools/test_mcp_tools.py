@@ -553,7 +553,6 @@ def test_external_mcp_tools_work_across_all_online_planner_adapters(
             settings_path = write_gemini_settings(
                 tmp_path / "gemini",
                 mcp_url=http_url,
-                max_turns=5,
                 tool_names=(t.name for t in toolkit.list_tools()),
             )
             settings = json.loads(settings_path.read_text())

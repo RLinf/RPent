@@ -57,7 +57,6 @@ class OpenCodePlanner(AcpPlanner):
         stderr_path,
         *,
         mcp_url,
-        max_turns,
         tool_names,
         redact,
     ) -> AcpSession:
@@ -76,7 +75,6 @@ class OpenCodePlanner(AcpPlanner):
             agent={
                 root.name: {
                     "mode": "primary",
-                    "steps": max(1, max_turns),
                     "permission": {
                         "*": "deny",
                         **{f"rpent_{name}": "allow" for name in tool_names},
@@ -92,6 +90,7 @@ class OpenCodePlanner(AcpPlanner):
             cwd=root,
             env=env,
             model=self._model,
+            reasoning_effort=self._reasoning_effort,
             mcp_url=mcp_url,
             control=control,
             emit_event=emit,
