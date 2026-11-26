@@ -33,10 +33,13 @@ These options control the planner, memory, output directory, and Dashboard.
      - ``api`` requires a provider prefix; ``claude_code``, ``codex``, and ``gemini_cli`` use their backend defaults unless overridden.
    * - ``--max-turns``
      - ``100``
-     - Planner turn limit. For ``api``, counts model requests across the conversation, including retries and follow-ups.
+     - Planner turn limit. For ``api``, counts model requests across the conversation, including retries, compaction summaries, and follow-ups.
    * - ``--max-tokens``
      - ``8192``
      - ``api`` only: token limit per model response.
+   * - ``--context-window``
+     - ``—``
+     - ``api`` only: override the model's context window in tokens for compaction (falls back to model metadata or ``200000``).
    * - ``--reasoning-effort``
      - ``api``: ``high``; ``claude_code``, ``codex``, ``gemini_cli``: ``none``
      - Reasoning effort for ``api``, ``claude_code``, and ``codex``:

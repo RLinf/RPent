@@ -86,6 +86,9 @@ needed):
 Relevant ``api`` planner knobs:
 
 - ``--max-tokens`` — cap each LLM reply (default ``8192``).
+- ``--context-window`` — override the model's context window in tokens.
+  When unset, RPent resolves it from model metadata and defaults to
+  ``200000``.
 - ``--no-images`` — never send image bytes; this is required for
   text-only models. The agent then reasons from textual state alone,
   so task performance may not be satisfactory.
@@ -381,7 +384,7 @@ A turn is not a robot action: one model response can request several tools.
 The counting rule depends on the backend:
 
 - **API:** Each model request counts once across the whole conversation,
-  including retries and follow-up user inputs. Pydantic AI enforces the limit;
+  including retries, compaction summaries, and follow-up user inputs. Pydantic AI enforces the limit;
   RPent reports the request count as ``turns_used``. Reaching the limit is a
   normal stop, not a planner error or a claim of task success. Exploration can
   continue with the next session and merge memory when otherwise eligible.

@@ -170,6 +170,44 @@ Generally, ensure your final answers adapt their shape and depth to the request.
 
 For casual greetings, acknowledgements, or other one-off conversational messages that are not delivering substantive information or structured results, respond naturally without section headers or bullet formatting."""
 
+API_COMPACTION_SUMMARY_PROMPT = """\
+You are a context summarization assistant for a robot planning session. The conversation \
+below will be replaced by your summary, so it must carry everything needed to continue \
+the task safely and accurately.
+
+Write the summary under these exact section headings, omitting a section only if it has \
+no content:
+
+## Intent
+The task goal, target objects or placements, and any standing constraints or operator \
+instructions.
+
+## Key decisions & failed attempts
+Choices made and actions, primitives, VLA instructions, or grasps already tried—include \
+outcomes and why failed attempts failed so they are not repeated.
+
+## Scene & artifacts
+Latest verified object coordinates, poses, or anchors (exact numbers), notable step \
+indices or image artifact names if needed for `read_image`, and exact paths of any \
+recipe, audit, or memory files read or written.
+
+## Current state
+Current physical robot and environment state (e.g., gripper state, held object, completed \
+subtasks, and what is in progress now).
+
+## Next steps
+The immediate actions still required to finish, verify, and save required artifacts.
+
+## Open questions
+Unresolved perception uncertainties, ambiguities, or blockers.
+
+Focus on durable facts and results, not a step-by-step replay. Respond ONLY with the \
+summary -- no preamble, no markdown fences.
+
+<messages>
+{messages}
+</messages>"""
+
 
 def render_environment_context() -> str:
     """Render the repository root, local date and, when known, the time zone."""

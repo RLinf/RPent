@@ -21,9 +21,11 @@ RPent's runner saves the returned transcript through its existing output flow.
 
 import asyncio
 import json
+import re
 import threading
 from collections.abc import AsyncIterator, Sequence
 from contextlib import asynccontextmanager, nullcontext
+from dataclasses import replace
 from functools import partial
 from typing import Any
 from uuid import uuid4
@@ -56,14 +58,35 @@ from pydantic_ai.agent import WrapperAgent
 from pydantic_ai.capabilities import AbstractCapability, Thinking, on_event
 from pydantic_ai.capabilities.abstract import AgentNode, NodeResult, WrapRunHandler
 from pydantic_ai.exceptions import (
+    FallbackExceptionGroup,
+    ModelAPIError,
     UnexpectedModelBehavior,
     UsageLimitExceeded,
     UserError,
 )
-from pydantic_ai.messages import ModelMessage, UserContent, UserPromptPart
+from pydantic_ai.messages import (
+    ModelMessage,
+    ModelRequest,
+    SystemPromptPart,
+    UserContent,
+    UserPromptPart,
+)
 from pydantic_ai.models import Model, ModelRequestContext
 from pydantic_ai.run import AgentRun, AgentRunResult
-from pydantic_ai_harness.compaction import SlidingWindowCompaction
+from pydantic_ai_harness.compaction import (
+    DEFAULT_CONTEXT_WINDOW,
+    ClampOversizedMessages,
+    ClearToolResults,
+    ContextUsageEvent,
+    DeduplicateFileReads,
+    FallbackCompaction,
+    ReportContextUsage,
+    SlidingWindowCompaction,
+    SummarizingCompaction,
+    TieredCompaction,
+    drain_summary_events,
+    resolve_context_window,
+)
 
 from rpent.dashboard.events import DashboardEventSink, TranscriptEvent, UsageEvent
 from rpent.dashboard.interaction import DashboardInteractionPort, DashboardMessage
@@ -76,7 +99,11 @@ from rpent.planner.base import (
     cancel_and_wait,
     execute_tool,
 )
-from rpent.prompt.api import API_PLANNER_INSTRUCTIONS, render_environment_context
+from rpent.prompt.api import (
+    API_COMPACTION_SUMMARY_PROMPT,
+    API_PLANNER_INSTRUCTIONS,
+    render_environment_context,
+)
 from rpent.session.env_capture import current_tool_call
 from rpent.session.planner_capture import CapturingModel, sdk_payload
 from rpent.tools.toolkit import Toolkit, ToolResult
@@ -105,6 +132,7 @@ class ApiAgentLoop(Planner):
         model: Model,
         dashboard_events: DashboardEventSink,
         max_tokens: int = 8192,
+        context_window: int | None = None,
         reasoning_effort: str = "none",
         no_images: bool = False,
         timeout_s: float = 1200,
@@ -114,9 +142,12 @@ class ApiAgentLoop(Planner):
             raise ValueError(f"unsupported reasoning effort: {reasoning_effort}")
         if max_tokens < 1 or timeout_s <= 0:
             raise ValueError("max_tokens and timeout_s must be positive")
+        if context_window is not None and context_window < 1:
+            raise ValueError("context_window must be positive")
         self.model = model
         self.dashboard_events = dashboard_events
         self.max_tokens = max_tokens
+        self.context_window = context_window
         self.reasoning_effort = reasoning_effort
         self.no_images = no_images
         self.timeout_s = timeout_s
@@ -190,8 +221,14 @@ class ApiAgentLoop(Planner):
                 self.model, self.max_tokens, self.reasoning_effort
             ),
             capabilities=[
-                SlidingWindowCompaction(
-                    max_messages=80, max_fraction=0.8, keep_messages=40
+                _build_compaction(
+                    self.model,
+                    max_tokens=self.max_tokens,
+                    context_window=self.context_window,
+                ),
+                ReportContextUsage(
+                    context_window=self.context_window,
+                    tokenizer=_estimate_tokens,
                 ),
                 Thinking(
                     False if self.reasoning_effort == "none" else self.reasoning_effort
@@ -273,6 +310,125 @@ def _build_model_settings(
             ),
         )
     return ModelSettings(max_tokens=max_tokens, parallel_tool_calls=True)
+
+
+_IMAGE_REF_RE = re.compile(r"See file [0-9a-f]{6}\.")
+_ESTIMATED_IMAGE_TOKENS = 1_200
+
+
+def _estimate_tokens(text: str) -> int:
+    """Estimate text tokens while giving _ToolReturnImage refs realistic weight."""
+    stripped, images = _IMAGE_REF_RE.subn("", text)
+    return len(stripped) // 4 + images * _ESTIMATED_IMAGE_TOKENS
+
+
+def _read_file_key(call: ToolCallPart) -> str | None:
+    if call.tool_name != "read_text_file":
+        return None
+    path = call.args_as_dict().get("path")
+    return str(path) if path else None
+
+
+class _SummarizingCompaction(SummarizingCompaction):
+    """Avoid repeating leading system prompts already copied into the summary."""
+
+    async def compact(
+        self, messages: list[ModelMessage], ctx: RunContext
+    ) -> list[ModelMessage]:
+        result = await super().compact(messages, ctx)
+        if len(result) <= 1 or not isinstance(result[0], ModelRequest):
+            return result
+        leading = {
+            part.content
+            for part in result[0].parts
+            if isinstance(part, SystemPromptPart)
+        }
+        cleaned = [result[0]]
+        for msg in result[1:]:
+            if isinstance(msg, ModelRequest) and any(
+                isinstance(part, SystemPromptPart) and part.content in leading
+                for part in msg.parts
+            ):
+                parts = [
+                    part
+                    for part in msg.parts
+                    if not (
+                        isinstance(part, SystemPromptPart) and part.content in leading
+                    )
+                ]
+                if parts:
+                    cleaned.append(replace(msg, parts=parts))
+            else:
+                cleaned.append(msg)
+        return cleaned
+
+
+def _build_compaction(
+    model: Model, *, max_tokens: int, context_window: int | None = None
+) -> TieredCompaction:
+    """Assemble tiered compaction: zero-LLM cleanup first, then incremental summary."""
+    effective_window = (
+        context_window
+        if context_window is not None
+        else resolve_context_window(model) or DEFAULT_CONTEXT_WINDOW
+    )
+    max_part_tokens = max(512, min(30_000, int(effective_window * 0.25)))
+    min_clear_tokens = max(1, min(12_000, int(effective_window * 0.05)))
+    keep_tokens = max(256, min(24_000, int(effective_window * 0.20)))
+    return TieredCompaction(
+        target_fraction=0.8,
+        context_window=context_window,
+        tokenizer=_estimate_tokens,
+        tiers=[
+            ClampOversizedMessages(
+                max_part_tokens=max_part_tokens,
+                tokenizer=_estimate_tokens,
+            ),
+            DeduplicateFileReads(
+                file_key=_read_file_key,
+                tokenizer=_estimate_tokens,
+            ),
+            ClearToolResults(
+                max_tokens=1,
+                keep_pairs=6,
+                min_clear_tokens=min_clear_tokens,
+                tokenizer=_estimate_tokens,
+            ),
+            FallbackCompaction(
+                fallback_on=(
+                    ModelAPIError,
+                    FallbackExceptionGroup,
+                    UsageLimitExceeded,
+                    UnexpectedModelBehavior,
+                ),
+                fallback_chain=[
+                    _SummarizingCompaction(
+                        model=model,
+                        model_settings=ModelSettings(max_tokens=min(max_tokens, 4096)),
+                        max_messages=1,
+                        keep_messages=16,
+                        keep_tokens=keep_tokens,
+                        summary_prompt=API_COMPACTION_SUMMARY_PROMPT,
+                        incremental=True,
+                        receipts=True,
+                        preserve_first_user_message=True,
+                        keep_user_messages=False,
+                        tool_return_max_chars=1500,
+                        event_stream_handler=drain_summary_events,
+                        tokenizer=_estimate_tokens,
+                    ),
+                    SlidingWindowCompaction(
+                        max_messages=1,
+                        keep_messages=16,
+                        keep_tokens=keep_tokens,
+                        receipts=True,
+                        preserve_first_user_message=True,
+                        tokenizer=_estimate_tokens,
+                    ),
+                ],
+            ),
+        ],
+    )
 
 
 class _ConversationAgent(WrapperAgent):
@@ -678,6 +834,18 @@ class _Session(AbstractCapability):
         )
         if not self.interactive:
             logger.info("[%s] %s", kind, part.content)
+
+    @on_event(ContextUsageEvent)
+    async def log_context_usage(
+        self, ctx: RunContext, event: ContextUsageEvent
+    ) -> None:
+        logger.debug(
+            "context usage: %d/%d (%.0f%%, resolved=%s)",
+            event.used_tokens,
+            event.window_tokens,
+            event.fraction * 100,
+            event.resolved,
+        )
 
     def emit_user(self, text: str) -> None:
         self.toolkit.messages.append({"role": "user", "content": text})

@@ -33,10 +33,13 @@
      - ``api`` 要求服务提供方前缀；``claude_code``、``codex`` 和 ``gemini_cli`` 未显式指定时使用各自默认值。
    * - ``--max-turns``
      - ``100``
-     - 规划器轮数上限；``api`` 按整段对话的模型请求次数计算，包括重试和后续输入。
+     - 规划器轮数上限；``api`` 按整段对话的模型请求次数计算，包括重试、上下文摘要压缩和后续输入。
    * - ``--max-tokens``
      - ``8192``
      - 仅 ``api``：每次模型回复的 Token 上限。
+   * - ``--context-window``
+     - ``—``
+     - 仅 ``api``：手动指定用于上下文压缩的窗口大小（单位为 token；未设置时按模型元数据解析，默认 ``200000``）。
    * - ``--reasoning-effort``
      - ``api``：``high``；``claude_code``、``codex``、``gemini_cli``：``none``
      - ``api``、``claude_code`` 与 ``codex`` 的推理强度：``none``、``low``、``medium``、``high`` 或 ``xhigh``。在我们的 LIBERO Pro Long 评测中，关闭 reasoning 将平均运行时间从约 13.2 分钟缩短至 7.9 分钟（约 40%）。较高强度可能提升任务成功率；实际支持的档位取决于所选模型。``gemini_cli`` 仅接受 ``none``。
