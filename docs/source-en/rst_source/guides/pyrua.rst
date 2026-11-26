@@ -116,66 +116,68 @@ selected by ``--output-dir``.
 LIBERO-PRO Evaluation
 ---------------------
 
-This evaluation used the Codex planner with GPT-6 Astra at high reasoning
-effort. It covered the Spatial, Object, Goal, and Long LIBERO-PRO task
-families, each with task and swap suites. Tasks 0–9 used one seed per suite.
-The overall success rate was 80.00% (64/80 planned episodes).
+Across the complete 800-case LIBERO-PRO matrix, PyRUA Mode solved
+663 episodes (82.88%). The evaluation covered Spatial, Object, Goal, and
+Long, with task and swap suites, tasks 0–9, and seeds 1–10 in each suite.The eight suite scores are listed in :doc:`Performance <../leaderboard/performance>`.
 
-The table summarizes results by suite. Token usage, elapsed time, and
-planner turns are averaged over episodes with transcripts, including
-both successful and unsuccessful episodes. The historical summary lacks
-the transcript count, exact seed, action-model checkpoint, and the configured
-values of ``--code-timeout-s``, ``--code-max-calls`` and ``--max-turns``.
+The :doc:`Time & Token Costs <../leaderboard/time-token-costs>` table reports 781.98 seconds per evaluation episode and 1,791,802.63 mean tokens for PyRUA mode. Mean time and token usage include both successes and failures.
 
-.. list-table:: PyRUA single-seed evaluation on LIBERO-PRO
+
+It used the API planner with DeepSeek V4.1 Flash
+(``deepseek-v4.1-flash-1017``), high reasoning effort, Pi0.5 for action
+execution, and no task memory. Runs allowed up to 100 planner turns;
+each Python cell allowed 120 seconds and 100 robot tool calls.
+
+.. list-table:: PyRUA evaluation on LIBERO-PRO (800 cases)
    :header-rows: 1
 
    * - Suite
-     - Success Rate (%)
-     - Tokens (input/output)
-     - Time (s)
-     - Planner Turns
-   * - Object Task
-     - 100.00% (10/10)
-     - 409,966 / 1,057
-     - 152.8
-     - 11.6
-   * - Object Swap
-     - 100.00% (10/10)
-     - 396,309 / 1,083
-     - 165.3
-     - 11.5
+     - Success Rate (successes/cases)
+     - Mean Total Tokens (input + output)
+     - Mean Time (s)
+     - Time & Token Samples
    * - Spatial Task
-     - 80.00% (8/10)
-     - 385,299 / 1,017
-     - 147.4
-     - 11.3
+     - 95.00% (95/100)
+     - 1,104,045.70
+     - 567.25
+     - 99
    * - Spatial Swap
-     - 90.00% (9/10)
-     - 1,109,798 / 1,764
-     - 278.9
-     - 17.4
-   * - Long Task
-     - 50.00% (5/10)
-     - 1,655,538 / 2,610
-     - 481.6
-     - 24.0
-   * - Long Swap
-     - 60.00% (6/10)
-     - 2,150,170 / 3,361
-     - 690.4
-     - 29.5
+     - 87.00% (87/100)
+     - 1,550,259.47
+     - 663.28
+     - 94
+   * - Object Task
+     - 100.00% (100/100)
+     - 435,436.86
+     - 217.44
+     - 100
+   * - Object Swap
+     - 98.00% (98/100)
+     - 527,173.55
+     - 263.90
+     - 100
    * - Goal Task
-     - 80.00% (8/10)
-     - 824,506 / 1,580
-     - 258.6
-     - 16.1
+     - 79.00% (79/100)
+     - 1,775,835.65
+     - 769.18
+     - 93
    * - Goal Swap
-     - 80.00% (8/10)
-     - 962,640 / 1,831
-     - 300.7
-     - 16.6
-
-
-Elapsed time uses ``elapsed_s`` from the run record, measured after the
-environment runtime is ready. Planner turns use ``stats.turns_used``.
+     - 90.00% (90/100)
+     - 1,951,382.73
+     - 861.88
+     - 100
+   * - Long Task
+     - 60.00% (60/100)
+     - 3,345,833.40
+     - 1,387.30
+     - 100
+   * - Long Swap
+     - 54.00% (54/100)
+     - 3,621,965.83
+     - 1,515.42
+     - 100
+   * - Overall
+     - 82.88% (663/800)
+     - 1,791,802.63
+     - 781.98
+     - 786

@@ -238,6 +238,13 @@
       "id": "aspire",
       "kind": "external",
       "model": "ASPIRE"
+    },
+    {
+      "id": "rpent-pyrua-mode",
+      "kind": "rpent",
+      "display_name": "RPent Pyrua mode",
+      "model": "DeepSeek V4.1 Flash",
+      "description": "DeepSeek V4.1 Flash"
     }
   ],
   "benchmarks": [
@@ -683,7 +690,16 @@
     {"id": "long-task--deepseek-v4-1-flash-xhigh-deepseek-memory", "view_id": "long-task", "configuration_id": "deepseek-v4-1-flash-xhigh-deepseek-memory", "rate": "70.00", "successes": 70, "episodes": 100, "source_ids": ["deepseek-libero-pro-seed0-memory-20261022"], "protocol_id": "rpent-pro-deepseek-seed0-memory"},
     {"id": "long-swap--deepseek-v4-1-flash-xhigh-deepseek-memory", "view_id": "long-swap", "configuration_id": "deepseek-v4-1-flash-xhigh-deepseek-memory", "rate": "74.00", "successes": 74, "episodes": 100, "source_ids": ["deepseek-libero-pro-seed0-memory-20261022"], "protocol_id": "rpent-pro-deepseek-seed0-memory"},
     {"id": "robotwin--deepseek-v4-1-flash-api-xhigh", "view_id": "robotwin", "configuration_id": "deepseek-v4-1-flash-api-xhigh", "rate": "65.60", "successes": 164, "episodes": 250, "source_ids": ["deepseek-robotwin-c2r-250-20261116"], "protocol_id": "rpent-robotwin-api-deepseek-c2r", "task_failures": 86, "episode_timeouts": 0},
-    {"id": "robotwin--deepseek-v4-1-flash-xhigh", "view_id": "robotwin", "configuration_id": "deepseek-v4-1-flash-xhigh", "rate": "63.60", "successes": 159, "episodes": 250, "source_ids": ["deepseek-codex-robotwin-c2r-250-20261117"], "protocol_id": "rpent-robotwin-codex-deepseek-c2r", "task_failures": 91, "episode_timeouts": 0}
+    {"id": "robotwin--deepseek-v4-1-flash-xhigh", "view_id": "robotwin", "configuration_id": "deepseek-v4-1-flash-xhigh", "rate": "63.60", "successes": 159, "episodes": 250, "source_ids": ["deepseek-codex-robotwin-c2r-250-20261117"], "protocol_id": "rpent-robotwin-codex-deepseek-c2r", "task_failures": 91, "episode_timeouts": 0},
+    {"id": "libero-pro--rpent-pyrua-mode", "view_id": "libero-pro", "configuration_id": "rpent-pyrua-mode", "rate": "82.88", "successes": 663, "episodes": 800, "source_ids": ["deepseek-pyrua-800-local"], "protocol_id": "rpent-pro-code-policy"},
+    {"id": "spatial-task--rpent-pyrua-mode", "view_id": "spatial-task", "configuration_id": "rpent-pyrua-mode", "rate": "95.00", "successes": 95, "episodes": 100, "source_ids": ["deepseek-pyrua-800-local"], "protocol_id": "rpent-pro-code-policy"},
+    {"id": "spatial-swap--rpent-pyrua-mode", "view_id": "spatial-swap", "configuration_id": "rpent-pyrua-mode", "rate": "87.00", "successes": 87, "episodes": 100, "source_ids": ["deepseek-pyrua-800-local"], "protocol_id": "rpent-pro-code-policy"},
+    {"id": "object-task--rpent-pyrua-mode", "view_id": "object-task", "configuration_id": "rpent-pyrua-mode", "rate": "100.00", "successes": 100, "episodes": 100, "source_ids": ["deepseek-pyrua-800-local"], "protocol_id": "rpent-pro-code-policy"},
+    {"id": "object-swap--rpent-pyrua-mode", "view_id": "object-swap", "configuration_id": "rpent-pyrua-mode", "rate": "98.00", "successes": 98, "episodes": 100, "source_ids": ["deepseek-pyrua-800-local"], "protocol_id": "rpent-pro-code-policy"},
+    {"id": "goal-task--rpent-pyrua-mode", "view_id": "goal-task", "configuration_id": "rpent-pyrua-mode", "rate": "79.00", "successes": 79, "episodes": 100, "source_ids": ["deepseek-pyrua-800-local"], "protocol_id": "rpent-pro-code-policy"},
+    {"id": "goal-swap--rpent-pyrua-mode", "view_id": "goal-swap", "configuration_id": "rpent-pyrua-mode", "rate": "90.00", "successes": 90, "episodes": 100, "source_ids": ["deepseek-pyrua-800-local"], "protocol_id": "rpent-pro-code-policy"},
+    {"id": "long-task--rpent-pyrua-mode", "view_id": "long-task", "configuration_id": "rpent-pyrua-mode", "rate": "60.00", "successes": 60, "episodes": 100, "source_ids": ["deepseek-pyrua-800-local"], "protocol_id": "rpent-pro-code-policy"},
+    {"id": "long-swap--rpent-pyrua-mode", "view_id": "long-swap", "configuration_id": "rpent-pyrua-mode", "rate": "54.00", "successes": 54, "episodes": 100, "source_ids": ["deepseek-pyrua-800-local"], "protocol_id": "rpent-pro-code-policy"}
   ],
   "cost_results": {
     "source_ids": ["contributor-qwen-costs-20260918"],
@@ -702,7 +718,8 @@
       {"id": "libero-pro--deepseek-v4-1-flash-xhigh", "benchmark_id": "libero-pro", "configuration_id": "deepseek-v4-1-flash-xhigh", "mean_elapsed_seconds": 963.25, "source_ids": ["deepseek-libero-pro-800-20261001"], "mean_total_tokens": 5229711.52},
       {"id": "libero-pro--deepseek-v4-1-flash-xhigh-deepseek-memory", "benchmark_id": "libero-pro", "configuration_id": "deepseek-v4-1-flash-xhigh-deepseek-memory", "mean_elapsed_seconds": 632.65, "source_ids": ["deepseek-libero-pro-seed0-memory-20261022"], "mean_total_tokens": 4309012.18},
       {"id": "robotwin--deepseek-v4-1-flash-api-xhigh", "benchmark_id": "robotwin", "configuration_id": "deepseek-v4-1-flash-api-xhigh", "mean_elapsed_seconds": 591.48, "total_output_tokens": 12535527, "source_ids": ["deepseek-robotwin-c2r-250-20261116"]},
-      {"id": "robotwin--deepseek-v4-1-flash-xhigh", "benchmark_id": "robotwin", "configuration_id": "deepseek-v4-1-flash-xhigh", "mean_elapsed_seconds": 763.53, "total_output_tokens": 15179818, "source_ids": ["deepseek-codex-robotwin-c2r-250-20261117"]}
+      {"id": "robotwin--deepseek-v4-1-flash-xhigh", "benchmark_id": "robotwin", "configuration_id": "deepseek-v4-1-flash-xhigh", "mean_elapsed_seconds": 763.53, "total_output_tokens": 15179818, "source_ids": ["deepseek-codex-robotwin-c2r-250-20261117"]},
+      {"id": "libero-pro--rpent-pyrua-mode", "benchmark_id": "libero-pro", "configuration_id": "rpent-pyrua-mode", "mean_elapsed_seconds": 781.98, "source_ids": ["deepseek-pyrua-800-local"], "mean_total_tokens": 1791802.63}
     ]
   },
   "sources": [
@@ -957,6 +974,11 @@
       "id": "deepseek-codex-robotwin-c2r-250-20261117",
       "type": "experiment_report",
       "note": "Infini deepseek-v4.1-flash-1017 with the RPent Codex planner, xhigh reasoning effort, and frozen LingBot-VLA-RoboTwin-EEF-ckpt1500, using the published RLinf/RPent-memory RoboTwin clean-scene corpus (107 files). Evaluated on RPent main 38a6dbd with PR #356 and PR #358 merged (2f3a0c0) plus immediate turn interruption on accepted finish. Completed all 50 RoboTwin C2R demo_randomized tasks across their five verified seeds per task: 159/250 native simulator successes (63.60%), 91 task failures, zero episode timeouts, and zero infrastructure errors. Costs report mean episode elapsed_s (763.53 s; mean planner stats elapsed_s 759.61 s) and total output tokens (15,179,818, including 13,216,931 reasoning output tokens) across all 250 final episodes; total input tokens were 907,978,042 (including 853,417,344 cached input tokens), giving a mean input plus output total of 3,692,631.44 tokens per episode."
+    },
+    {
+      "id": "deepseek-pyrua-800-local",
+      "type": "experiment_report",
+      "note": "RPent Pyrua mode with DeepSeek V4.1 Flash (deepseek-v4.1-flash-1017), API planner and high reasoning effort, without task memory. Eight LIBERO-PRO suites, tasks 0–9 and seeds 1–10: 663/800 native simulator successes, 123 recorded failures, and 14 timeouts counted as failures. Mean elapsed time (781.98 s) and mean input plus output tokens (1,791,802.63) both cover the 786 complete final records (663 successes and 123 failures), excluding 14 timeouts. Success rates still use all 800 final cases, with timeouts counted as failures. Recorded elapsed_s excludes model and service startup but includes end-of-run cleanup. Historical retries are excluded. Cached input tokens are already included in total input tokens."
     }
   ],
   "palette": {
