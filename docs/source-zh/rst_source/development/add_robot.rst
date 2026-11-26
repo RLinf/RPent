@@ -208,7 +208,34 @@ RPent 的整体进程划分、服务职责和通信方式见 :doc:`系统说明 
 - ``action_models.py`` 按动作模型分别维护调用约定，包括输入指令、动作块长度和历史状态。
 - ``user.py`` 定义本轮任务字段 ``TASK`` 和启动指令 ``BEGIN``。
 
-``robots/<robot>/prompt_bundle.py`` 负责组装。它根据本轮模式选择公共工作流，将机器人专用说明追加到对应分节，并通过 ``action_model_guidance`` 将当前动作模型的调用约定追加到 ``ACTION AND VERIFICATION``。
+``robots/<robot>/prompt_bundle.py`` 负责组装。它根据本轮模式选择公共工作流，将机器人专用说明追加到对应分节，并通过 ``action_model_guidance`` 将当前动作模型的调用约定追加到 ``ACTION AND VERIFICATION``：
+
+.. code-block:: python
+
+   # robots/myrobot/prompt_bundle.py
+   from collections.abc import Mapping
+
+   from robots.myrobot.prompts import action_models, system, user
+   from robots.myrobot.prompts import explore as exploration
+   from rpent.prompt import evaluate, explore
+   from rpent.prompt.workflow import user_prompt as build_user_prompt
+
+   def system_prompt(variables: Mapping[str, object] | None = None) -> dict[str, str]:
+       variables = variables or {}
+       exploring = variables.get("mode") == "explore"
+       workflow = explore if exploring else evaluate
+       backend = str(variables.get("policy_backend") or "default")
+       return workflow.system_prompt(
+           role=system.ROLE,
+           perception=system.PERCEPTION,
+           success=exploration.SUCCESS if exploring else system.SUCCESS,
+           action_model_guidance=action_models.GUIDANCE.get(backend, ""),
+       )
+
+   def user_prompt(variables: Mapping[str, object] | None = None) -> dict[str, str]:
+       return build_user_prompt(user.TASK, user.BEGIN)
+
+``PromptBundle.render`` 会根据 ``RunConfig.prompt_vars`` 填充 ``{{task_name}}``、``{{seed}}``、``{{output_dir}}``、``{{memory_dir}}``、``{{recipe_tag}}`` 等占位符。不复用 ``rpent/prompt/workflow.py`` 的机器人也可以继续使用 ``rpent.prompt.utils`` 中的 ``BulletList`` 和 ``Numbered`` 组织自定义分节。
 
 .. _add-robot-toolkit:
 

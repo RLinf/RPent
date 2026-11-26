@@ -47,5 +47,9 @@ Bimanual or multi-object: track each hand's content and ownership. Preserve
 BUDGET = """Track step_lim - take_action_cnt. Use the same-task recipe as a guide
 to expected phase count. After two ineffective repetitions of an unchanged
 analytic target, re-observe and change it; this threshold does not cap model calls."""
-SUCCESS = """Only a fresh TASK_ENV.eval_success=true confirms success. Stop actions
-on native success or step exhaustion; check status and call finish exactly once."""
+SUCCESS_SIGNAL = "Only a fresh TASK_ENV.eval_success=true confirms success."
+SUCCESS = (
+    SUCCESS_SIGNAL
+    + " Stop actions on native success or step exhaustion; check status and call "
+    "finish exactly once."
+)

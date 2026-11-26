@@ -285,7 +285,38 @@ Organize robot-specific prompts under ``robots/<robot>/prompts/`` as follows:
 In ``robots/<robot>/prompt_bundle.py``, select the shared workflow for the
 run mode and append the robot's instructions to the corresponding sections.
 Pass the active model's guidance through ``action_model_guidance`` to append
-it to ``ACTION AND VERIFICATION``.
+it to ``ACTION AND VERIFICATION``:
+
+.. code-block:: python
+
+   # robots/myrobot/prompt_bundle.py
+   from collections.abc import Mapping
+
+   from robots.myrobot.prompts import action_models, system, user
+   from robots.myrobot.prompts import explore as exploration
+   from rpent.prompt import evaluate, explore
+   from rpent.prompt.workflow import user_prompt as build_user_prompt
+
+   def system_prompt(variables: Mapping[str, object] | None = None) -> dict[str, str]:
+       variables = variables or {}
+       exploring = variables.get("mode") == "explore"
+       workflow = explore if exploring else evaluate
+       backend = str(variables.get("policy_backend") or "default")
+       return workflow.system_prompt(
+           role=system.ROLE,
+           perception=system.PERCEPTION,
+           success=exploration.SUCCESS if exploring else system.SUCCESS,
+           action_model_guidance=action_models.GUIDANCE.get(backend, ""),
+       )
+
+   def user_prompt(variables: Mapping[str, object] | None = None) -> dict[str, str]:
+       return build_user_prompt(user.TASK, user.BEGIN)
+
+Placeholders such as ``{{task_name}}``, ``{{seed}}``, ``{{output_dir}}``,
+``{{memory_dir}}``, and ``{{recipe_tag}}`` are filled by
+``PromptBundle.render`` from ``RunConfig.prompt_vars``. Robots that define
+custom prompt trees outside ``rpent/prompt/workflow.py`` can also use
+``BulletList`` and ``Numbered`` from ``rpent.prompt.utils``.
 
 .. _add-robot-toolkit:
 

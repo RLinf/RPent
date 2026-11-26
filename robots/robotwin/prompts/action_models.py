@@ -16,9 +16,11 @@
 
 from rpent.robots.components.uniwam import ACTION_CHUNK_SIZE
 
+DEFAULT_WAM_GUIDANCE = """Use wam_act for one chunk and inspect the new state and images.
+Omit prompt for the native task or supply a grounded subtask when needed."""
+
 GUIDANCE = {
-    "fast-wam": """Use wam_act for one chunk and inspect the new state and images.
-Omit prompt for the native task or supply a grounded subtask when needed.""",
+    "fast-wam": DEFAULT_WAM_GUIDANCE,
     "lingbot": """Call lingbot_act with the exact complete current task_language
 and use_length=50. Use the successful same-task recipe's chunk cadence as a prior.""",
     "uniwam": (
