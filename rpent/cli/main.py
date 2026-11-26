@@ -61,7 +61,11 @@ from rpent.planner.base import (
     build_planner,
     is_recoverable_agent_error,
 )
-from rpent.planner.check import CHECK_PLANNERS, EXTERNALLY_CONFIGURED_PLANNERS
+from rpent.planner.check import (
+    ACP_PLANNERS,
+    CHECK_PLANNERS,
+    EXTERNALLY_CONFIGURED_PLANNERS,
+)
 from rpent.robots import RunConfig, enumerate_robots, get_robot_spec, get_toolkit
 from rpent.session.planner_capture import (
     end_planner_task,
@@ -438,7 +442,7 @@ def main() -> int:
     )
     if args.dashboard and args.tui:
         parser.error("--dashboard and --tui cannot be used together")
-    if args.planner in {"gemini_cli", "opencode"} and args.reasoning_effort != "none":
+    if args.planner in ACP_PLANNERS and args.reasoning_effort != "none":
         parser.error(
             f"--reasoning-effort is not supported by the {args.planner} planner; use 'none'"
         )

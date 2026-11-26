@@ -60,6 +60,6 @@ ACP CLI 适配器
 
 在 ``rpent/planner/base.py`` 的 ``build_planner`` 中添加构建分支。在线后端还需在 ``rpent/planner/check.py`` 中加入 ``CHECK_PLANNERS``，设置诊断超时并接入连接探测；CLI 从该列表生成在线规划器选项。自行配置模型服务的 CLI/SDK 规划器还需加入 ``EXTERNALLY_CONFIGURED_PLANNERS``。Dashboard 会话使用命令行选定的规划器。
 
-接入 ACP 适配器还需更新 ``rpent/cli/main.py`` 的 ``--reasoning-effort`` 校验：其中显式列出的 ``gemini_cli`` / ``opencode`` 组仅接受 ``none``。
+接入 ACP 适配器时，将名称加入 ``ACP_PLANNERS``，并在 ``build_planner`` 和 ``_check_acp`` 中选择对应的类。共享列表统一用于在线规划器注册、外部配置处理以及仅接受 ``--reasoning-effort none`` 的校验。
 
 验证工具调用、文本和图像返回、真实的 ``finish`` 调用、轮数上限、错误结果、消息排队、中断及进程清理。复用 ``tests/unit_tests/rpent/planner/`` 中的测试模式；真实模型连接需要单独验证。

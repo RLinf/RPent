@@ -280,6 +280,7 @@ def build_planner(
     """Build a planner for the given backend, resolving credentials from env vars."""
     # Imports are deferred to avoid a circular import: api_loop / claude_code /
     # codex / gemini_cli / opencode all import from this module (PlannerResult).
+    from rpent.planner.check import ACP_PLANNERS
 
     if planner_type == "api":
         from rpent.planner.api_loop import ApiAgentLoop
@@ -339,7 +340,7 @@ def build_planner(
             reasoning_effort=reasoning_effort,
             sandbox=codex_sandbox,
         )
-    if planner_type in {"gemini_cli", "opencode"}:
+    if planner_type in ACP_PLANNERS:
         from rpent.planner.gemini_cli import GeminiCliPlanner
         from rpent.planner.opencode import OpenCodePlanner
 

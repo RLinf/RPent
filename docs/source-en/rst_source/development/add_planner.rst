@@ -83,8 +83,9 @@ an online backend in ``rpent/planner/check.py`` with ``CHECK_PLANNERS``, its
 diagnostic timeout, and a connection probe; the CLI derives its online planner
 choices from that list. For CLI/SDK planners that own their provider configuration,
 also update ``EXTERNALLY_CONFIGURED_PLANNERS``. Dashboard sessions use the
-planner selected on the command line. For an ACP adapter, also update the
-``--reasoning-effort`` validation in ``rpent/cli/main.py``: its explicit
-``gemini_cli`` / ``opencode`` group accepts only ``none``.
+planner selected on the command line. For an ACP adapter, add its name to
+``ACP_PLANNERS`` and select its class in ``build_planner`` and ``_check_acp``.
+The shared list supplies online planner registration, external configuration
+handling, and the ``--reasoning-effort none`` restriction.
 
 Verify tool dispatch, text and image results, actual ``finish`` calls, turn limits, errors, queued input, cancellation, and process cleanup. Reuse test patterns in ``tests/unit_tests/rpent/planner/``. Validate real model connectivity separately.

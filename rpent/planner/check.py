@@ -81,15 +81,18 @@ CHECK_STATUSES = (
     STATUS_SDK_ERROR,
 )
 
-#: Planner backends this module can probe.
-CHECK_PLANNERS = ("api", "claude_code", "codex", "gemini_cli", "opencode")
+#: CLI backends sharing the ACP session driver and connection probe.
+ACP_PLANNERS = ("gemini_cli", "opencode")
 
 #: Backends whose endpoint is configured outside RPent, not by ``--base-url``.
 #: ``build_planner`` forwards ``base_url`` to the api model alone, so these
 #: backends reject the flag rather than dropping it silently — a check
 #: that honoured an endpoint the run ignores would be testing the wrong
 #: thing.
-EXTERNALLY_CONFIGURED_PLANNERS = ("claude_code", "codex", "gemini_cli", "opencode")
+EXTERNALLY_CONFIGURED_PLANNERS = ("claude_code", "codex", *ACP_PLANNERS)
+
+#: Planner backends this module can probe.
+CHECK_PLANNERS = ("api", *EXTERNALLY_CONFIGURED_PLANNERS)
 
 #: Diagnostic timeouts, deliberately independent of the 1200s run default.
 DEFAULT_TIMEOUT_S = {
@@ -297,8 +300,7 @@ def check_llm(request: LlmCheckRequest) -> LlmCheckResult:
         "api": _check_api,
         "claude_code": _check_claude_code,
         "codex": _check_codex,
-        "gemini_cli": _check_acp,
-        "opencode": _check_acp,
+        **dict.fromkeys(ACP_PLANNERS, _check_acp),
     }[planner]
 
     # The budget is logged where it is resolved: the SDK backends shorten it

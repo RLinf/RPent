@@ -329,7 +329,7 @@ class AcpSession:
             )
             if selector is None:
                 raise ValueError(
-                    "The ACP agent has no model selector; configure the model in the harness"
+                    "The ACP agent has no model selector; configure the model in the CLI"
                 )
             await connection.set_config_option(
                 session_id=self._session_id, config_id=selector.id, value=self._model
