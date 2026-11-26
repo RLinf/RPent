@@ -290,10 +290,29 @@ RPent 需要 OpenCode 的 ``acp`` 子命令支持 ``--pure``，已测试版本�
 
 为避免本地开发配置干扰机器人任务，RPent 在规划会话中限制自动加载的指令和工具：
 
-- 指令与 skills：规划任务不会自动加载 Claude Code、Codex、Gemini CLI 的项目开发指令和 skills。OpenCode 禁用项目配置、Claude Code 配置与外部 skills，同时保留自身全局配置。
-- 工具与插件：Gemini CLI 和 OpenCode 只开放 RPent 工具，并关闭扩展或外部插件。如需添加工具，见 :ref:`external-mcp-servers`；如需让规划器直接提交控制数值，见 :ref:`planner-direct-actions`。
+.. list-table::
+   :header-rows: 1
+   :widths: 20 40 40
 
-这些会话设置不修改全局配置，也不提供操作系统级沙箱隔离。
+   * - 规划器
+     - 指令与 skills
+     - 可用工具
+   * - Claude Code
+     - 不加载用户和项目的 Claude Code 配置。
+     - RPent 工具，以及默认开放的 Bash、Read、Write、Glob、Grep。
+   * - Codex
+     - 不加载项目开发指令，并禁用 RPent 仓库中的 skills。
+     - RPent 工具和 Codex 原生工具；原生工具的权限受 ``--codex-sandbox`` 限制。
+   * - Gemini CLI
+     - 不加载项目开发指令，禁用 skills。
+     - 只开放 RPent 工具，禁用扩展。
+   * - OpenCode
+     - 禁用项目配置、Claude Code 配置与外部 skills，保留自身全局配置。
+     - 只开放 RPent 工具，禁用外部插件。
+
+如需添加工具，见 :ref:`external-mcp-servers`；如需让规划器直接提交控制数值，见 :ref:`planner-direct-actions`。
+
+这些会话设置不修改全局配置；工具白名单不等同于操作系统级沙箱。
 
 .. _planner-limits:
 

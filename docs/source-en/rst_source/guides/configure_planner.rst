@@ -348,15 +348,31 @@ Configuration and Tool Isolation
 To keep local development settings from interfering with robot tasks, RPent limits
 the instructions and tools loaded automatically in planner sessions:
 
-- Instructions and skills: planner tasks do not automatically load Claude Code,
-  Codex, or Gemini CLI project development instructions or skills. OpenCode disables
-  project configuration, Claude Code configuration, and external skills while
-  retaining its own global configuration.
-- Tools and plugins: Gemini CLI and OpenCode expose only RPent tools and disable
-  extensions or external plugins. To add tools, see :ref:`external-mcp-servers`;
-  to let the planner submit direct control values, see :ref:`planner-direct-actions`.
+.. list-table::
+   :header-rows: 1
+   :widths: 20 40 40
 
-These session settings do not modify global configuration and are not an OS sandbox.
+   * - Planner
+     - Instructions and skills
+     - Available tools
+   * - Claude Code
+     - Does not load user or project Claude Code configuration.
+     - RPent tools plus Bash, Read, Write, Glob, and Grep by default.
+   * - Codex
+     - Does not load project development instructions; disables skills in the RPent repository.
+     - RPent tools and native Codex tools; native tool permissions depend on ``--codex-sandbox``.
+   * - Gemini CLI
+     - Does not load project development instructions; disables skills.
+     - RPent tools only; extensions are disabled.
+   * - OpenCode
+     - Disables project configuration, Claude Code configuration, and external skills; retains its own global configuration.
+     - RPent tools only; external plugins are disabled.
+
+To add tools, see :ref:`external-mcp-servers`; to let the planner submit direct
+control values, see :ref:`planner-direct-actions`.
+
+These session settings do not modify global configuration; a tool allowlist is
+not an OS sandbox.
 
 .. _planner-limits:
 
