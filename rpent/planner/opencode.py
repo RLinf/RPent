@@ -33,12 +33,20 @@ class OpenCodePlanner(AcpPlanner):
 
     @staticmethod
     def _load_secret_redactor() -> Callable[[str], str]:
-        config = json.loads(os.environ.get("OPENCODE_CONFIG_CONTENT") or "{}")
+        try:
+            config = json.loads(os.environ.get("OPENCODE_CONFIG_CONTENT") or "{}")
+        except json.JSONDecodeError:
+            config = {}
         secrets = {}
-        for name, provider in config.get("provider", {}).items():
-            key = provider.get("options", {}).get("apiKey")
-            if isinstance(key, str):
-                secrets[f"provider.{name}.options.apiKey"] = key
+        providers = config.get("provider") if isinstance(config, dict) else None
+        if isinstance(providers, dict):
+            for name, provider in providers.items():
+                options = (
+                    provider.get("options") if isinstance(provider, dict) else None
+                )
+                key = options.get("apiKey") if isinstance(options, dict) else None
+                if isinstance(key, str):
+                    secrets[f"provider.{name}.options.apiKey"] = key
         return AcpPlanner._load_secret_redactor(secrets)
 
     def _create_session(

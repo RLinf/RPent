@@ -20,6 +20,35 @@ from rpent.dashboard.events import NullDashboardEventSink
 from rpent.planner.base import build_planner
 from rpent.planner.check import LlmCheckRequest, check_llm
 from rpent.planner.opencode import OpenCodePlanner
+from rpent.planner.utils.acp import AcpSession
+
+
+@pytest.mark.parametrize(
+    ("config", "detail"),
+    [
+        ("{bad", "JSONDecodeError"),
+        ("null", "AttributeError"),
+        ("[]", "AttributeError"),
+        ('{"provider": null}', "Invalid provider configuration"),
+        ('{"provider": []}', "Invalid provider configuration"),
+        ('{"provider": {"local": null}}', "Invalid provider configuration"),
+        (
+            '{"provider": {"local": {"options": null}}}',
+            "Invalid provider configuration",
+        ),
+    ],
+)
+def test_check_reports_invalid_inline_config(monkeypatch, config, detail):
+    monkeypatch.setenv("OPENCODE_BIN", "/configured/opencode")
+    monkeypatch.setenv("OPENCODE_CONFIG_CONTENT", config)
+
+    async def reject_config(self, prompt):
+        raise RuntimeError("Invalid provider configuration")
+
+    monkeypatch.setattr(AcpSession, "run", reject_config)
+    result = check_llm(LlmCheckRequest(planner="opencode"))
+    assert result.status == "sdk_error"
+    assert detail in result.detail
 
 
 @pytest.mark.parametrize("probe", [False, True])
