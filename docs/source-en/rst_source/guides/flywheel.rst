@@ -22,7 +22,9 @@ the robot executes, and the corresponding observations.
 - ``--vlm``: Exports recorded ``api`` planner turns to ``samples.jsonl`` and a
   deduplicated ``images/`` directory for VLM training. It selects episodes with
   confirmed environment success by default, or includes failed and unknown
-  outcomes with ``--include-unsuccessful``.
+  outcomes with ``--include-unsuccessful``. In the RoboTwin evaluation below,
+  replacing the original ``Qwen3.8-27B`` planner with the fine-tuned model
+  raised RPent's task success rate from 16% to 30%.
 
 Installation
 ------------
@@ -47,8 +49,7 @@ Recording is off by default. Recording with ``--planner claude_code`` requires
 ``claude-agent-sdk 0.2.154+`` and ``Claude Code 2.1.274+``.
 LIBERO, RoboCasa365, RoboTwin, and RoboDojo record executed actions and observations
 only in evaluation mode. To export VLM training samples later, record with
-``--planner api``, which is the backend ``rpent-flywheel --vlm`` currently
-supports.
+``--planner api``, which is the backend ``rpent-flywheel --vlm`` supports.
 
 Enable recording and choose a run directory:
 
@@ -229,16 +230,12 @@ images:
      --input-root /path/to/run \
      --output-dir /path/to/vlm/goal-task-00
 
-- ``--vlm``: Export recorded ``api`` planner turns as VLM training samples.
-- ``--include-unsuccessful``: Optional (requires ``--vlm``). Also export turns
-  from episodes whose environment outcome is failed or unknown, instead of
-  requiring confirmed environment success.
-
 The VLM exporter selects and formats samples using the following rules:
 
 - Episode selection: By default, ``environment_success`` in the task result
-  must explicitly be ``true``. Pass ``--include-unsuccessful`` to include failed
-  runs or runs without an environment success verdict.
+  must explicitly be ``true``. Pass ``--include-unsuccessful`` (requires
+  ``--vlm``) to include failed runs or runs without an environment success
+  verdict.
 - Planner backend and turn validity: Only completed ``api`` planner calls with
   complete request and response payloads, a normal finish reason (excluding
   truncated, content-filtered, or errored replies), valid JSON-object tool
@@ -246,11 +243,10 @@ The VLM exporter selects and formats samples using the following rules:
   Turns from ``claude_code`` and ``codex`` are skipped.
 - Sample organization and reasoning content: Each row pairs the recorded
   conversation history and tool definitions sent to the model with one assistant
-  response to supervise. Results of tool calls made in that response belong to
-  subsequent turns. When a model emits internal reasoning (thinking) content,
-  that reasoning is stripped from both earlier assistant messages in the
-  conversation history and the target response, leaving only visible text and
-  tool calls.
+  response to supervise. When a model emits internal reasoning (thinking)
+  content, that reasoning is stripped from both earlier assistant messages in
+  the conversation history and the target response, leaving only visible text
+  and tool calls.
 - Image deduplication: Each distinct referenced image is copied once into
   ``images/`` (named by content hash) and referenced by its relative path in
   ``samples.jsonl``, so the exported directory is self-contained. Turns with
@@ -286,7 +282,7 @@ turns. Each line in ``samples.jsonl`` is a JSON object with these main fields:
      - Tool definitions exposed to the model on this turn.
    * - ``target``
      - The single ``assistant`` response to supervise, containing visible text
-       and/or tool calls.
+       or tool calls.
 
 Train with RLinf
 ----------------
@@ -324,9 +320,6 @@ and dataset.
 
 SFT Experiment Results
 ----------------------
-
-The evaluations below currently report VLA fine-tuning results; comparative
-evaluations for VLM fine-tuning are still in progress.
 
 LIBERO-PRO VLA Fine-Tuning Results
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -388,3 +381,34 @@ Success rates:
 
 In this evaluation, the SFT model succeeded in 12 more runs, increasing the
 task success rate from 48% to 72%, a gain of 24 percentage points.
+
+RoboTwin VLM Fine-Tuning Results
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Successful trajectories collected with RPent and exported with
+``rpent-flywheel --vlm`` were used to fine-tune ``Qwen3.8-27B``. The resulting
+VLM planner was evaluated against the original model within RPent.
+
+Evaluation covered the same 10 tasks used for training in RoboTwin's
+``demo_randomized`` configuration, with five seeds per task and 50 runs per
+model. Both groups used ``LingBot-VLA-RoboTwin-EEF-ckpt1500`` as the VLA model,
+set planner reasoning effort to ``medium``, and loaded task memory from
+``robotwin/`` in the ``RLinf/RPent-memory`` dataset on Hugging Face.
+
+Success rates:
+
+.. list-table::
+   :header-rows: 1
+
+   * - Model
+     - Successes / runs
+     - Success rate
+   * - Original model
+     - 8/50
+     - 16%
+   * - SFT model (step 48)
+     - 15/50
+     - 30%
+
+In this evaluation, the SFT model succeeded in 7 more runs, increasing the task
+success rate from 16% to 30%, a gain of 14 percentage points.

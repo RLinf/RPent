@@ -9,8 +9,8 @@ RPent 数据飞轮用于记录从任务规划到动作执行的轨迹，并从�
 
 ``rpent-flywheel`` 支持导出 VLA 或 VLM 训练数据：
 
-- ``--vla``\ （默认）：将确认成功轨迹中的 VLA 动作片段导出为 LeRobot 数据集，供 RLinf 进行监督微调。在本次对照评测中，微调后 RPent 在 LIBERO-PRO 上的任务成功率从 70% 升至 73%，在 RoboTwin 上从 48% 升至 72%。
-- ``--vlm``：将 ``api`` 规划器记录的对话轮次导出为 ``samples.jsonl`` 与去重后的 ``images/`` 目录，用于 VLM 训练。默认仅筛选环境确认成功的轨迹，也可通过 ``--include-unsuccessful`` 包含失败或结果未知的轨迹。
+- ``--vla``\ （默认）：将确认成功轨迹中的 VLA 动作片段导出为 LeRobot 数据集，供 RLinf 监督微调。在本次对照评测中，微调后 RPent 在 LIBERO-PRO 上的任务成功率从 70% 升至 73%，在 RoboTwin 上从 48% 升至 72%。
+- ``--vlm``：将 ``api`` 规划器记录的对话轮次导出为 ``samples.jsonl`` 与去重后的 ``images/`` 目录，用于 VLM 训练。默认仅筛选环境确认成功的轨迹，也可通过 ``--include-unsuccessful`` 包含失败或结果未知的轨迹。在下方 RoboTwin 对照评测中，用微调后的 ``Qwen3.8-27B`` 替换原规划器，RPent 的任务成功率从 16% 升至 30%。
 
 安装
 ----
@@ -26,7 +26,7 @@ RPent 数据飞轮用于记录从任务规划到动作执行的轨迹，并从�
 采集轨迹
 --------
 
-采集默认关闭。用 ``--planner claude_code`` 采集轨迹时，需要 ``claude-agent-sdk 0.2.154+`` 和 ``Claude Code 2.1.274+``。LIBERO、RoboCasa365、RoboTwin 和 RoboDojo 仅在评测模式下采集实际执行的动作及观测。如果后续要导出 VLM 训练样本，请使用 ``--planner api`` 进行采集，当前 ``rpent-flywheel --vlm`` 仅支持导出该后端记录的轮次。
+采集默认关闭。用 ``--planner claude_code`` 采集轨迹时，需要 ``claude-agent-sdk 0.2.154+`` 和 ``Claude Code 2.1.274+``。LIBERO、RoboCasa365、RoboTwin 和 RoboDojo 仅在评测模式下采集实际执行的动作及观测。如果后续要导出 VLM 训练样本，请使用 ``--planner api`` 采集轨迹；``rpent-flywheel --vlm`` 仅支持导出该后端记录的轮次。
 
 开启采集并指定运行目录：
 
@@ -174,14 +174,11 @@ VLA 导出程序按以下规则筛选和组织训练数据：
      --input-root /path/to/run \
      --output-dir /path/to/vlm/goal-task-00
 
-- ``--vlm``：导出 ``api`` 规划器记录的 VLM 训练样本。
-- ``--include-unsuccessful``：可选，须与 ``--vlm`` 一起使用。同时导出失败或环境结果未知的轨迹，不再仅限于环境确认成功的轨迹。
-
 VLM 导出程序按以下规则筛选和整理训练样本：
 
-- 轨迹筛选：默认要求任务结果中的 ``environment_success`` 明确为 ``true``；传入 ``--include-unsuccessful`` 后，失败或缺少环境成功判定的轨迹也会纳入导出。
+- 轨迹筛选：默认要求任务结果中的 ``environment_success`` 明确为 ``true``；传入 ``--include-unsuccessful``\ （须与 ``--vlm`` 一起使用）后，失败或缺少环境成功判定的轨迹也会纳入导出。
 - 后端与轮次有效性：仅导出 ``api`` 规划器已完成的调用，要求请求和回复内容完整、模型正常结束（排除因长度截断、内容过滤或报错中止的回复）、工具调用参数为合法 JSON 对象，且至少包含可见文本或工具调用。``claude_code`` 和 ``codex`` 的轮次会被跳过。
-- 样本组织与思考内容过滤：每条样本对应一轮模型调用，输入为该轮发给模型的对话历史和可用工具定义，监督目标为该轮的单条助手回复；该回复所调用工具的返回结果会出现在后续轮次的样本中。如果模型开启了深度思考（reasoning），导出时会去掉模型内部的思考过程，对话历史和监督目标中都只保留最终可见文本与工具调用。
+- 样本组织与思考内容过滤：每条样本对应一轮模型调用，输入为该轮发给模型的对话历史和可用工具定义，监督目标为该轮的单条助手回复。如果模型开启了深度思考（reasoning），导出时会去掉模型内部的思考过程，对话历史和监督目标中都只保留最终可见文本与工具调用。
 - 图像去重：所有引用到的不同图像按内容哈希各复制一份到 ``images/`` 目录，并将 ``samples.jsonl`` 中的图像路径改写为相对路径，使导出目录可独立迁移。引用的图像文件缺失时，该轮次会被排除。
 
 输出目录结构如下，不会自动划分验证集：
@@ -209,12 +206,12 @@ VLM 导出程序按以下规则筛选和整理训练样本：
    * - ``tools``
      - 该轮提供给模型的工具定义列表。
    * - ``target``
-     - 本轮用于监督训练的单条 ``assistant`` 回复，包含可见文本和/或工具调用。
+     - 本轮用于监督训练的单条 ``assistant`` 回复，包含可见文本或工具调用。
 
 使用 RLinf 训练
 ---------------
 
-对于上述 LIBERO 示例，可使用 ``--vla`` 导出的 LeRobot 数据集，在独立的 RLinf 环境中进行 Pi0.5 监督微调。RPent 负责采集和导出；模型训练、日志和权重保存由 RLinf 管理。
+对于上述 LIBERO 示例，可使用 ``--vla`` 导出的 LeRobot 数据集，在独立的 RLinf 环境中监督微调 Pi0.5。RPent 负责采集和导出；模型训练、日志和权重保存由 RLinf 管理。
 
 环境安装和训练配置请参考 `RLinf OpenPI 监督微调指南 <https://rlinf.readthedocs.io/zh-cn/latest/rst_source/examples/embodied/sft_openpi.html>`_。将 ``data.train_data_paths`` 设为导出目录下的 ``train/`` 子目录，其中包含 ``meta/info.json``。
 
@@ -238,8 +235,6 @@ VLM 导出程序按以下规则筛选和整理训练样本：
 
 SFT 实验结果
 ------------
-
-以下目前仅列出 VLA 微调结果；VLM 微调的对比评测尚未完成。
 
 LIBERO-PRO VLA 微调结果
 ~~~~~~~~~~~~~~~~~~~~~~~
@@ -288,3 +283,27 @@ RoboTwin VLA 微调结果
      - 72%
 
 本次评测中，SFT 后的模型多成功 12 场，任务成功率从 48% 提升至 72%，提高 24 个百分点。
+
+RoboTwin VLM 微调结果
+~~~~~~~~~~~~~~~~~~~~~
+
+使用 RPent 采集的成功轨迹，经 ``rpent-flywheel --vlm`` 导出后微调 ``Qwen3.8-27B``，并在 RPent 中替换 VLM 规划器与原模型对比评测。
+
+评测覆盖 RoboTwin ``demo_randomized`` 中与训练相同的 10 个任务，每任务 5 个 seed，每组共 50 场。两组均使用 ``LingBot-VLA-RoboTwin-EEF-ckpt1500`` 作为 VLA 模型，规划器 reasoning effort 设为 ``medium``，并加载 Hugging Face 数据集 ``RLinf/RPent-memory`` 中的 ``robotwin/`` 任务记忆。
+
+成功率如下：
+
+.. list-table::
+   :header-rows: 1
+
+   * - 模型
+     - 成功数 / 场次
+     - 成功率
+   * - 原模型
+     - 8/50
+     - 16%
+   * - SFT 模型（step 48）
+     - 15/50
+     - 30%
+
+本次评测中，SFT 后的模型多成功 7 场，任务成功率从 16% 提升至 30%，提高 14 个百分点。
