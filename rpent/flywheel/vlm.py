@@ -17,8 +17,6 @@
 from dataclasses import dataclass, field
 from typing import Any, Literal, TypedDict
 
-from rpent.session.records import ArtifactRef
-
 
 class VLMText(TypedDict):
     """Text visible to the model, including serialized tool results and state."""
@@ -32,8 +30,8 @@ class VLMImage(TypedDict):
 
     type: Literal["image"]
     # Path is relative to the trajectory root, or the dataset root after export.
-    artifact: ArtifactRef
-    observation_id: str | None
+    path: str
+    media_type: str
 
 
 class VLMToolCall(TypedDict):

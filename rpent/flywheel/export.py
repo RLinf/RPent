@@ -271,13 +271,13 @@ def _copy_images(
     images_by_digest: dict[str, str],
 ) -> list[str]:
     """Store each distinct image once and replace source paths with dataset paths."""
-    artifacts = [
-        block["artifact"]
+    images = [
+        block
         for message in row["messages"]
         for block in message["content"]
         if block["type"] == "image"
     ]
-    paths = {artifact["path"] for artifact in artifacts}
+    paths = {image["path"] for image in images}
     missing = sorted(
         path
         for path in paths
@@ -285,8 +285,8 @@ def _copy_images(
     )
     if missing:
         return missing
-    for artifact in artifacts:
-        path = artifact["path"]
+    for image in images:
+        path = image["path"]
         if path not in source_paths:
             source = root / path
             if not source.resolve().is_relative_to(root / "artifacts"):
@@ -294,12 +294,12 @@ def _copy_images(
             data = source.read_bytes()
             digest = sha256(data).hexdigest()
             if digest not in images_by_digest:
-                suffix = mimetypes.guess_extension(artifact["media_type"]) or ".bin"
+                suffix = mimetypes.guess_extension(image["media_type"]) or ".bin"
                 target = f"images/{digest}{suffix}"
                 (output / target).write_bytes(data)
                 images_by_digest[digest] = target
             source_paths[path] = images_by_digest[digest]
-        artifact["path"] = source_paths[path]
+        image["path"] = source_paths[path]
     return []
 
 

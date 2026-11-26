@@ -27,7 +27,6 @@ from rpent.flywheel.vlm import (
     VLMToolDefinition,
 )
 from rpent.planner.utils.sdk import json_object
-from rpent.session.records import ArtifactRef
 
 
 class TurnConversionError(ValueError):
@@ -87,8 +86,8 @@ def _image(item: dict[str, Any]) -> VLMImage:
         raise ValueError(f"Invalid image artifact path: {path}")
     return VLMImage(
         type="image",
-        artifact=ArtifactRef(path=data["path"], kind="bytes", media_type=media_type),
-        observation_id=None,
+        path=data["path"],
+        media_type=media_type,
     )
 
 

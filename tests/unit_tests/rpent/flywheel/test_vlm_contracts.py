@@ -276,9 +276,10 @@ def test_convert_two_saved_api_turns_with_observations_and_coordinates(tmp_path)
         {"type": "text", "text": "Wrist view."},
     ]
     assert attachment.content == [picture]
-    assert picture["type"] == "image" and picture["observation_id"] is None
-    assert picture["artifact"].media_type == "image/png"
-    assert (root / picture["artifact"].path).read_bytes() == PNG
+    assert set(picture) == {"type", "path", "media_type"}
+    assert picture["type"] == "image"
+    assert picture["media_type"] == "image/png"
+    assert (root / picture["path"]).read_bytes() == PNG
     assert second.target == VLMMessage(
         "assistant", content=[{"type": "text", "text": "Ready."}]
     )
@@ -363,6 +364,39 @@ def test_vlm_cli_exports_without_lerobot(api_opening, tmp_path):
     )
     sample = json.loads((output / "samples.jsonl").read_text())
     assert sample == asdict(api_turn_to_sample({"task_id": root.name}, api_opening))
+
+
+@pytest.mark.parametrize(
+    ("extra_args", "expected_flag"),
+    [
+        (["--vla", "--include-unsuccessful"], "--include-unsuccessful"),
+        (["--vlm", "--horizon", "20"], "--horizon"),
+        (["--vlm", "--repo-id", "x"], "--repo-id"),
+        (["--vlm", "--image-writer-threads", "0"], "--image-writer-threads"),
+    ],
+)
+def test_cli_rejects_mismatched_mode_flags(
+    extra_args, expected_flag, tmp_path, monkeypatch, capsys
+):
+    """Verify that mode-specific flags fail fast when combined with the other mode."""
+    from rpent.flywheel.cli import main
+
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "rpent-flywheel",
+            "--input-root",
+            str(tmp_path / "in"),
+            "--output-dir",
+            str(tmp_path / "out"),
+            *extra_args,
+        ],
+    )
+    with pytest.raises(SystemExit) as exc:
+        main()
+    assert exc.value.code == 2
+    assert expected_flag in capsys.readouterr().err
 
 
 def test_vlm_export_selects_confirmed_episodes_and_counts_rejections(
@@ -535,7 +569,7 @@ def test_vlm_export_deduplicates_image_bytes_across_episodes(api_opening, tmp_pa
     for row in map(json.loads, (moved / "samples.jsonl").read_text().splitlines()):
         paths.append(
             [
-                b["artifact"]["path"]
+                b["path"]
                 for m in row["messages"]
                 for b in m["content"]
                 if b["type"] == "image"
