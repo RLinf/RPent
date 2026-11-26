@@ -214,7 +214,7 @@ class HttpRpcServer(ThreadingHTTPServer):
 
     allow_reuse_address = True
     daemon_threads = True
-    request_queue_size = 256
+    request_queue_size = 2048
 
     def __init__(
         self,

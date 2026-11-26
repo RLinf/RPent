@@ -69,8 +69,48 @@ python -m robots.rl.rollout \
   --record-artifacts
 ```
 
+## Multi-Node & Cross-Cluster Deployment (48-GPU Topology)
+
+For large-scale oversampled GRPO across multiple GPU nodes (and heterogeneous clusters without shared storage), `robots/rl/server.py` provides two additional primitives supervised by `tools/rl/serve.py`:
+
+- **`SimPoolRouter` (`python -m robots.rl.server router`)**: Fronts multiple remote `SimPoolManager` HTTP backends with capacity-weighted least-loaded session placement (`_reserved / _capacity`), transparent zero-Base64 binary `/execute` passthrough, aggregated `GET /health`, and fan-out `/cohorts/{id}/close` and `/pool/{sleep,wake}` endpoints.
+- **Sleepable collocated pools (`--sleepable`)**: Collocated RL+simulator nodes mark `sleepable: true` so `RLinf` can invoke `POST /pool/sleep` after rollout to release simulator GPU VRAM before Megatron backward and `POST /pool/wake` after weight sync to respawn warm workers, while dedicated simulator nodes (`sleepable: false`) remain warm across steps.
+- **High-concurrency SAM3 queue (`max_pending: 2048`)**: `HttpRpcServer.request_queue_size` is raised to `2048` so 384 concurrent visual-perception episodes never hit socket listen-backlog drops.
+
+### Reference 48-GPU Cross-Cluster Layout (5× H100 + 1× A100)
+
+```
+                      ┌──────────────────────────────────────────────────┐
+                      │   Head Node (h100_1) SimPoolRouters              │
+                      │   :28561 LIBERO (192)  │  :28562 RoboTwin (192)  │
+                      └───────────┬────────────┴────────────┬────────────┘
+             ┌────────────────────┼─────────────────────────┼────────────────────┐
+             ▼                    ▼                         ▼                    ▼
+  h100 (8 GPUs, dedicated)   h100_1..4 (32 GPUs, RL)   jump_j2 SSH Tunnel   a100 (8 GPUs, dedicated)
+  • 32 LIBERO (non-sleep)    • 40 LIBERO/node (sleep)  -L 28572:a100:28552   • 80 RoboTwin (non-sleep)
+  • 48 RoboTwin (non-sleep)  • 16 RoboTwin/node (sleep)-R 28572:h100_1:28572 • 8 SAM3 (queue=2048)
+  • 16 SAM3 (queue=2048)     • 32× SGLang / Megatron
+```
+
+See `tools/rl/sim_services_48gpu.example.yaml` for a complete multi-node YAML template.
+
+### Cross-Cluster Production Issues & Fixes
+
+The following issues were encountered and resolved while running 48-GPU cross-cluster training (384 concurrent episodes across 5× H100 + 1× A100 bridged over a jump host):
+
+| Symptom / Failure | Root Cause | Fix Implemented |
+| :--- | :--- | :--- |
+| **`EMFILE: Too many open files` / `SIGABRT`** under 384 concurrent sessions | Default container `ulimit -n 1024` is exhausted by concurrent HTTP connections, Unix sockets, and Ray/Gloo channels (`>1,400` FDs). | `robots/rl/server.py` and `tools/rl/serve.py` automatically raise `RLIMIT_NOFILE` to `min(hard, 1048576)` at startup; launch scripts and SSH tunnels also set `ulimit -n 1048576`. |
+| **`httpx.RemoteProtocolError: Server disconnected without sending a response`** over cross-cluster tunnel | Default `uvicorn --timeout-keep-alive 5` raced with `httpx`'s default `keepalive_expiry=5.0` across WAN SSH tunnels, and unhandled `TransportError` surfaced as HTTP `500`. | Raised uvicorn `timeout_keep_alive=300` in `server.py`, set `SimPoolRouter` `httpx.Limits(keepalive_expiry=30.0)`, and mapped `httpx.TransportError` to HTTP `503` so clients retry cleanly. |
+| **SAM3 RPC connection drops during rollout bursts** | Default `ThreadingHTTPServer.request_queue_size = 256` overflowed when 384 episodes requested segmentation simultaneously. | Raised `HttpRpcServer.request_queue_size = 2048` in `rpent/utils/rpc/http_rpc.py` and configured `sam3.max_pending: 2048` across 24 SAM3 servers (16 H100 + 8 A100). |
+| **Collocated RL GPUs OOM during Megatron backward** | Peak 32-GPU Megatron backward uses `~79.2 GiB / 81.5 GiB` on H100; resident collocated sim workers (`5 LIBERO + 2 RoboTwin`/GPU) leave insufficient headroom. | Added `--sleepable` `/pool/sleep` (`~8.8s`, freeing collocated VRAM to `~5.5 GiB`) and `/pool/wake` (`~20.6s`). Fixed a race in `sleep()` by setting `_sleeping = True` before closing sessions and rejecting post-handshake spawns while sleeping so worker counts never overshoot target. |
+| **Intermittent 0-byte reads on shared BeeGFS (`link7.stl is empty`, `at least 4 vertices required`, import errors)** | Concurrent opens of MuJoCo meshes and Python modules across dozens of workers trigger BeeGFS short-reads; staging ~45 GB into container `/tmp` can trigger 100 GB overlay eviction. | Stage `envs/`, `assets/`, `runtime/graphics`, `RPent`, and `RLinf` into node-local RAM tmpfs (`/dev/shm/rpent_ppo`, symlinked at `/tmp/rpent_ppo`), keeping `/` overlay at `<1.2 GiB / 100 GiB (1%–2%)` and cutting LIBERO `open()` latency from `60s+` to `~13s`. |
+| **Proxy interception or silent drops across SSH tunnel** | Corporate/container `HTTP_PROXY` variables intercepted internal VPC / `127.0.0.1` traffic; idle SSH tunnels stalled without keep-alives. | Set `trust_env=False` in `SimPoolRouter` and `NO_PROXY` in service configs; run bidirectional auto-reconnecting SSH tunnels (`-o ServerAliveInterval=15 -o ServerAliveCountMax=3 -o ExitOnForwardFailure=yes`). |
+| **EGL / Vulkan renderer init failures inside isolated venvs** | Heterogeneous host drivers across H100/A100 containers mismatched container-default GL/Vulkan ICD paths. | Bundle driver-matched `libEGL`/`libGLX`/`libvulkan` and `egl.json`/`vulkan.json` in `runtime/graphics` and export `LD_LIBRARY_PATH`, `__EGL_VENDOR_LIBRARY_FILENAMES`, and `VK_ICD_FILENAMES` per simulator in `serve.py` YAML. |
+
 ## Unit Tests
 
 ```bash
-pytest tests/unit_tests/robots/rl/test_rl_core.py -v
+pytest tests/unit_tests/robots/rl/test_rl_core.py \
+       tests/unit_tests/robots/rl/test_sim_pool_multinode.py -v
 ```

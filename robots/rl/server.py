@@ -32,6 +32,7 @@ import gc
 import json
 import os
 import pickle
+import resource
 import signal
 import socket
 import struct
@@ -46,6 +47,7 @@ from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
+import httpx
 import uvicorn
 from fastapi import FastAPI, HTTPException, Request, Response
 from pydantic import BaseModel
@@ -526,6 +528,8 @@ class SimPoolManager:
         assets_path: str | None = None,
         libero_type: str | None = None,
         max_episodes_per_worker: int = 30,
+        sleepable: bool = False,
+        max_concurrent_spawns: int = 16,
         log_dir: Path | None = None,
     ) -> None:
         self.environment = environment
@@ -537,6 +541,8 @@ class SimPoolManager:
         self.assets_path = assets_path
         self.libero_type = libero_type
         self.max_episodes_per_worker = max_episodes_per_worker
+        self.sleepable = sleepable
+        self.max_concurrent_spawns = max_concurrent_spawns
         self.log_dir = log_dir
         self._sock_dir = Path(tempfile.mkdtemp(prefix=f"rpent-{environment}-pool-"))
         self._sock_path = self._sock_dir / "pool.sock"
@@ -550,6 +556,13 @@ class SimPoolManager:
         self._workers: set[_WorkerHandle] = set()
         self._next_worker_id = 0
         self._shutting_down = False
+        self._sleeping = False
+        self._lifecycle_lock = asyncio.Lock()
+        self._spawn_sem: asyncio.Semaphore | None = (
+            asyncio.Semaphore(max_concurrent_spawns)
+            if max_concurrent_spawns > 0
+            else None
+        )
 
     async def start(self) -> None:
         if self._sock_path.exists():
@@ -586,6 +599,12 @@ class SimPoolManager:
         waiter.set_result((reader, writer))
 
     async def _spawn_worker(self, gpu: int | None) -> _WorkerHandle:
+        if self._spawn_sem is not None:
+            async with self._spawn_sem:
+                return await self._spawn_worker_impl(gpu)
+        return await self._spawn_worker_impl(gpu)
+
+    async def _spawn_worker_impl(self, gpu: int | None) -> _WorkerHandle:
         wid = self._next_worker_id
         self._next_worker_id += 1
         loop = asyncio.get_running_loop()
@@ -639,6 +658,14 @@ class SimPoolManager:
                 proc.kill()
                 proc.wait(timeout=5)
             raise
+        if self._sleeping or self._shutting_down:
+            writer.close()
+            if proc.poll() is None:
+                proc.kill()
+                proc.wait(timeout=5)
+            raise asyncio.CancelledError(
+                "SimPoolManager entered sleep/shutdown during spawn"
+            )
         handle = _WorkerHandle(wid, gpu, proc, reader, writer)
         self._workers.add(handle)
         await self._idle.put(handle)
@@ -650,7 +677,7 @@ class SimPoolManager:
         handle.replaced = True
         self._workers.discard(handle)
         handle.kill()
-        if not self._shutting_down:
+        if not self._shutting_down and not self._sleeping:
             try:
                 await self._spawn_worker(handle.gpu)
             except Exception:
@@ -683,6 +710,8 @@ class SimPoolManager:
     async def open_session(
         self, req: dict[str, Any], *, is_disconnected=None
     ) -> dict[str, Any]:
+        if self._sleeping:
+            raise RuntimeError("SimPoolManager is sleeping; call /pool/wake first")
         worker = await self._acquire_idle_worker(is_disconnected)
         sid = uuid4().hex
         cohort_id = req.get("cohort_id")
@@ -760,6 +789,59 @@ class SimPoolManager:
             asyncio.create_task(self._replace_worker(worker))
             return {"closed": True, "recycled": True}
 
+    async def sleep(self) -> dict[str, Any]:
+        """Release all GPU workers on sleepable collocated nodes before training."""
+        async with self._lifecycle_lock:
+            if not self.sleepable:
+                return self.health()
+            self._sleeping = True
+            if self._sessions:
+                await asyncio.gather(
+                    *(self.close_session(sid) for sid in list(self._sessions)),
+                    return_exceptions=True,
+                )
+            while not self._idle.empty():
+                try:
+                    self._idle.get_nowait()
+                except asyncio.QueueEmpty:
+                    break
+            for worker in list(self._workers):
+                worker.replaced = True
+                worker.kill()
+            self._workers.clear()
+            self._sessions.clear()
+            self._session_cohorts.clear()
+            logger.info(
+                "SimPoolManager(%s) asleep: 0 GPU workers resident", self.environment
+            )
+            return self.health()
+
+    async def wake(self) -> dict[str, Any]:
+        """Respawn warm GPU workers on sleepable collocated nodes after training."""
+        async with self._lifecycle_lock:
+            if not self.sleepable:
+                return self.health()
+            if not self._sleeping and len(self._workers) >= self.num_workers:
+                return self.health()
+            self._sleeping = False
+            needed = max(0, self.num_workers - len(self._workers))
+            if needed:
+                await asyncio.gather(
+                    *(
+                        self._spawn_worker(
+                            self.gpus[i % len(self.gpus)] if self.gpus else None
+                        )
+                        for i in range(needed)
+                    )
+                )
+            logger.info(
+                "SimPoolManager(%s) awake: %d/%d warm workers ready",
+                self.environment,
+                len(self._workers),
+                self.num_workers,
+            )
+            return self.health()
+
     def health(self) -> dict[str, Any]:
         return {
             "ok": True,
@@ -768,6 +850,8 @@ class SimPoolManager:
             "workers_total": len(self._workers),
             "workers_idle": self._idle.qsize(),
             "active_sessions": len(self._sessions),
+            "sleepable": self.sleepable,
+            "sleeping": self._sleeping,
         }
 
     async def shutdown(self) -> None:
@@ -856,10 +940,319 @@ def create_app(manager: SimPoolManager) -> FastAPI:
     async def close_session(session_id: str):
         return await manager.close_session(session_id)
 
+    @app.post("/pool/sleep")
+    async def pool_sleep():
+        return await manager.sleep()
+
+    @app.post("/pool/wake")
+    async def pool_wake():
+        return await manager.wake()
+
     return app
 
 
+# ---------------------------------------------------------------------------
+# Multi-Node Async SimPoolRouter (Zero-Base64 Binary Passthrough)
+# ---------------------------------------------------------------------------
+
+
+class SimPoolRouter:
+    """Load-balance sessions across multiple remote SimPoolManager HTTP backends."""
+
+    def __init__(
+        self,
+        *,
+        environment: str,
+        backends: Sequence[str],
+        request_timeout_s: float = 1800.0,
+    ) -> None:
+        if not backends:
+            raise ValueError("SimPoolRouter requires at least one backend URL")
+        self.environment = environment
+        self.backends = [url.rstrip("/") for url in backends]
+        self.request_timeout_s = request_timeout_s
+        self._client: Any = None
+        self._capacity: dict[str, int] = dict.fromkeys(self.backends, 1)
+        self._reserved: dict[str, int] = dict.fromkeys(self.backends, 0)
+        self._sessions: dict[str, tuple[str, str | None]] = {}
+
+    async def start(self) -> None:
+        self._client = httpx.AsyncClient(
+            timeout=httpx.Timeout(
+                connect=30.0, read=self.request_timeout_s, write=120.0, pool=60.0
+            ),
+            limits=httpx.Limits(
+                max_connections=1024,
+                max_keepalive_connections=256,
+                keepalive_expiry=30.0,
+            ),
+            trust_env=False,
+        )
+        await self._refresh_capacities()
+        logger.info(
+            "SimPoolRouter(%s) ready across %d backends: total_target=%d (%s)",
+            self.environment,
+            len(self.backends),
+            sum(self._capacity.values()),
+            self._capacity,
+        )
+
+    async def shutdown(self) -> None:
+        if self._client is not None:
+            await self._client.aclose()
+            self._client = None
+
+    async def _refresh_capacities(self) -> list[dict[str, Any]]:
+        assert self._client is not None
+
+        async def _probe(url: str) -> dict[str, Any]:
+            try:
+                resp = await self._client.get(f"{url}/health", timeout=15.0)
+                resp.raise_for_status()
+                data = resp.json()
+                target = int(data.get("workers_target", data.get("workers_total", 0)))
+                if target > 0:
+                    self._capacity[url] = target
+                return {"url": url, **data}
+            except Exception as exc:
+                return {
+                    "url": url,
+                    "ok": False,
+                    "error": f"{type(exc).__name__}: {exc}",
+                }
+
+        return list(await asyncio.gather(*(_probe(url) for url in self.backends)))
+
+    async def health(self) -> dict[str, Any]:
+        rows = await self._refresh_capacities()
+        ok = all(bool(r.get("ok")) for r in rows)
+        return {
+            "ok": ok,
+            "environment": self.environment,
+            "workers_target": sum(int(r.get("workers_target", 0)) for r in rows),
+            "workers_total": sum(int(r.get("workers_total", 0)) for r in rows),
+            "workers_idle": sum(int(r.get("workers_idle", 0)) for r in rows),
+            "active_sessions": sum(int(r.get("active_sessions", 0)) for r in rows),
+            "sleepable": any(bool(r.get("sleepable")) for r in rows),
+            "sleeping": any(bool(r.get("sleeping")) for r in rows),
+            "backends": rows,
+        }
+
+    def _pick_backend(self) -> str:
+        def _key(url: str) -> tuple[int, float, int]:
+            cap = max(self._capacity.get(url, 1), 1)
+            res = self._reserved.get(url, 0)
+            full = 1 if res >= cap else 0
+            return (full, res / cap, res)
+
+        return min(self.backends, key=_key)
+
+    async def open_session(self, payload: dict[str, Any]) -> dict[str, Any]:
+        assert self._client is not None
+        backend = self._pick_backend()
+        self._reserved[backend] += 1
+        try:
+            try:
+                resp = await self._client.post(f"{backend}/sessions/open", json=payload)
+            except httpx.TransportError as exc:
+                logger.warning(
+                    "SimPoolRouter(%s) transport error opening session on %s: %s",
+                    self.environment,
+                    backend,
+                    exc,
+                )
+                raise HTTPException(
+                    status_code=503,
+                    detail=f"Backend {backend} transport error on open: {exc}",
+                ) from exc
+            if resp.status_code >= 400:
+                raise HTTPException(status_code=resp.status_code, detail=resp.text)
+            data = resp.json()
+            sid = str(data["session_id"])
+            self._sessions[sid] = (backend, payload.get("cohort_id"))
+            return data
+        except BaseException:
+            self._reserved[backend] = max(0, self._reserved[backend] - 1)
+            raise
+
+    async def execute(
+        self, session_id: str, raw_body: bytes, accept: str
+    ) -> tuple[int, bytes, str]:
+        assert self._client is not None
+        entry = self._sessions.get(session_id)
+        if entry is None:
+            raise KeyError(f"Unknown session {session_id}")
+        backend, _ = entry
+        headers = {"Content-Type": "application/json"}
+        if accept:
+            headers["Accept"] = accept
+        try:
+            resp = await self._client.post(
+                f"{backend}/sessions/{session_id}/execute",
+                content=raw_body,
+                headers=headers,
+            )
+        except httpx.TransportError as exc:
+            logger.warning(
+                "SimPoolRouter(%s) transport error executing session %s on %s: %s",
+                self.environment,
+                session_id,
+                backend,
+                exc,
+            )
+            raise HTTPException(
+                status_code=503,
+                detail=f"Backend {backend} transport error on execute: {exc}",
+            ) from exc
+        media_type = resp.headers.get("content-type", "application/json")
+        return resp.status_code, resp.content, media_type
+
+    async def close_session(self, session_id: str) -> dict[str, Any]:
+        assert self._client is not None
+        entry = self._sessions.pop(session_id, None)
+        if entry is None:
+            return {"closed": False, "already_closed": True}
+        backend, _ = entry
+        self._reserved[backend] = max(0, self._reserved[backend] - 1)
+        try:
+            resp = await self._client.post(
+                f"{backend}/sessions/{session_id}/close", json={}, timeout=60.0
+            )
+        except httpx.TransportError as exc:
+            logger.warning(
+                "SimPoolRouter(%s) transport error closing session %s on %s: %s",
+                self.environment,
+                session_id,
+                backend,
+                exc,
+            )
+            raise HTTPException(
+                status_code=503,
+                detail=f"Backend {backend} transport error on close: {exc}",
+            ) from exc
+        if resp.status_code >= 400:
+            raise HTTPException(status_code=resp.status_code, detail=resp.text)
+        return resp.json()
+
+    async def close_cohort(self, cohort_id: str) -> dict[str, Any]:
+        assert self._client is not None
+        for sid, (backend, cid) in list(self._sessions.items()):
+            if cid == cohort_id:
+                self._sessions.pop(sid, None)
+                self._reserved[backend] = max(0, self._reserved[backend] - 1)
+
+        async def _close(url: str) -> dict[str, Any]:
+            resp = await self._client.post(
+                f"{url}/cohorts/{cohort_id}/close", json={}, timeout=60.0
+            )
+            resp.raise_for_status()
+            return resp.json()
+
+        results = await asyncio.gather(
+            *(_close(url) for url in self.backends), return_exceptions=True
+        )
+        closed = sum(int(r.get("closed", 0)) for r in results if isinstance(r, dict))
+        return {"cohort_id": cohort_id, "closed": closed}
+
+    async def lifecycle(self, action: str) -> dict[str, Any]:
+        assert self._client is not None
+        assert action in ("sleep", "wake")
+        timeout_s = 600.0 if action == "wake" else 120.0
+        if action == "sleep":
+            self._sessions.clear()
+            for url in self.backends:
+                self._reserved[url] = 0
+
+        async def _call(url: str) -> dict[str, Any]:
+            resp = await self._client.post(
+                f"{url}/pool/{action}", json={}, timeout=timeout_s
+            )
+            resp.raise_for_status()
+            return {"url": url, **resp.json()}
+
+        rows = list(await asyncio.gather(*(_call(url) for url in self.backends)))
+        for row in rows:
+            target = int(row.get("workers_target", 0))
+            if target > 0:
+                self._capacity[row["url"]] = target
+        return {
+            "ok": all(bool(r.get("ok")) for r in rows),
+            "action": action,
+            "environment": self.environment,
+            "workers_target": sum(int(r.get("workers_target", 0)) for r in rows),
+            "workers_total": sum(int(r.get("workers_total", 0)) for r in rows),
+            "workers_idle": sum(int(r.get("workers_idle", 0)) for r in rows),
+            "active_sessions": sum(int(r.get("active_sessions", 0)) for r in rows),
+            "sleeping": any(bool(r.get("sleeping")) for r in rows),
+            "backends": rows,
+        }
+
+
+def create_router_app(router: SimPoolRouter) -> FastAPI:
+    @asynccontextmanager
+    async def lifespan(_app: FastAPI):
+        await router.start()
+        try:
+            yield
+        finally:
+            await router.shutdown()
+
+    app = FastAPI(
+        title=f"RPent SimPoolRouter ({router.environment})", lifespan=lifespan
+    )
+
+    @app.get("/health")
+    async def health():
+        return await router.health()
+
+    @app.post("/sessions/open")
+    async def open_session(req: OpenRequest):
+        return await router.open_session(req.model_dump())
+
+    @app.post("/cohorts/{cohort_id}/close")
+    async def close_cohort(cohort_id: str):
+        return await router.close_cohort(cohort_id)
+
+    @app.post("/sessions/{session_id}/execute")
+    async def execute(session_id: str, request: Request):
+        raw_body = await request.body()
+        accept = request.headers.get("accept", "")
+        try:
+            status_code, content, media_type = await router.execute(
+                session_id, raw_body, accept
+            )
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        return Response(content=content, status_code=status_code, media_type=media_type)
+
+    @app.post("/sessions/{session_id}/close")
+    async def close_session(session_id: str):
+        return await router.close_session(session_id)
+
+    @app.post("/pool/sleep")
+    async def pool_sleep():
+        return await router.lifecycle("sleep")
+
+    @app.post("/pool/wake")
+    async def pool_wake():
+        return await router.lifecycle("wake")
+
+    return app
+
+
+def _raise_nofile_limit(target: int = 1048576) -> None:
+    """Raise soft RLIMIT_NOFILE up to ``min(target, hard)`` for high-concurrency pools."""
+    try:
+        soft, hard = resource.getrlimit(resource.RLIMIT_NOFILE)
+        desired = target if hard == resource.RLIM_INFINITY else min(target, hard)
+        if soft < desired:
+            resource.setrlimit(resource.RLIMIT_NOFILE, (desired, hard))
+    except (OSError, ValueError):
+        pass
+
+
 def main() -> None:
+    _raise_nofile_limit()
     parser = argparse.ArgumentParser(description=__doc__)
     sub = parser.add_subparsers(dest="mode", required=True)
 
@@ -877,7 +1270,20 @@ def main() -> None:
     p_serve.add_argument("--assets-path", default=None)
     p_serve.add_argument("--libero-type", default=None)
     p_serve.add_argument("--max-episodes-per-worker", type=int, default=30)
+    p_serve.add_argument("--sleepable", action="store_true")
+    p_serve.add_argument("--max-concurrent-spawns", type=int, default=16)
     p_serve.add_argument("--log-dir", type=Path, default=None)
+
+    p_router = sub.add_parser(
+        "router", help="Run a multi-host SimPoolRouter over remote SimPoolManagers"
+    )
+    p_router.add_argument(
+        "--env", choices=("libero", "robotwin", "robocasa", "robodojo"), required=True
+    )
+    p_router.add_argument("--host", default="127.0.0.1")
+    p_router.add_argument("--port", type=int, required=True)
+    p_router.add_argument("--backends", nargs="+", required=True)
+    p_router.add_argument("--request-timeout-s", type=float, default=1800.0)
 
     p_worker = sub.add_parser("worker", help="Internal persistent GPU worker process")
     p_worker.add_argument(
@@ -896,6 +1302,22 @@ def main() -> None:
         signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))
         _run_worker(args)
         return
+    if args.mode == "router":
+        router = SimPoolRouter(
+            environment=args.env,
+            backends=args.backends,
+            request_timeout_s=args.request_timeout_s,
+        )
+        app = create_router_app(router)
+        uvicorn.run(
+            app,
+            host=args.host,
+            port=args.port,
+            log_level="warning",
+            backlog=2048,
+            timeout_keep_alive=300,
+        )
+        return
 
     manager = SimPoolManager(
         environment=args.env,
@@ -907,10 +1329,19 @@ def main() -> None:
         assets_path=args.assets_path,
         libero_type=args.libero_type,
         max_episodes_per_worker=args.max_episodes_per_worker,
+        sleepable=args.sleepable,
+        max_concurrent_spawns=args.max_concurrent_spawns,
         log_dir=args.log_dir,
     )
     app = create_app(manager)
-    uvicorn.run(app, host=args.host, port=args.port, log_level="warning")
+    uvicorn.run(
+        app,
+        host=args.host,
+        port=args.port,
+        log_level="warning",
+        backlog=2048,
+        timeout_keep_alive=300,
+    )
 
 
 if __name__ == "__main__":
