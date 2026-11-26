@@ -20,8 +20,9 @@ the robot executes, and the corresponding observations.
 - ``--vlm``: Exports recorded ``api`` planner turns to ``samples.jsonl`` and a
   deduplicated ``images/`` directory for VLM training.
 
-Fine-tuning either the VLA or the VLM on exported trajectories raised task
-success rates on LIBERO-PRO and RoboTwin (see SFT Experiment Results below).
+Fine-tuning on exported trajectories raised task success rates in both VLA
+(LIBERO-PRO, RoboTwin) and VLM (RoboTwin) experiments (see SFT Experiment
+Results below).
 
 Installation
 ------------

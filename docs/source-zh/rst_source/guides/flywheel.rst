@@ -12,7 +12,7 @@ RPent 数据飞轮用于记录从任务规划到动作执行的轨迹，并从�
 - ``--vla``\ （默认）：将确认成功轨迹中的 VLA 动作片段导出为 LeRobot 数据集，供 RLinf 监督微调。
 - ``--vlm``：将 ``api`` 规划器记录的模型调用导出为 ``samples.jsonl`` 与去重后的 ``images/`` 目录，用于 VLM 训练。
 
-使用导出数据微调 VLA 和 VLM 均提升了 LIBERO-PRO 与 RoboTwin 上的任务成功率，完整结果见下方的 SFT 实验结果。
+使用导出数据微调后，VLA 在 LIBERO-PRO 与 RoboTwin 上、VLM 在 RoboTwin 上的任务成功率均有提升，完整结果见下方的 SFT 实验结果。
 
 安装
 ----
