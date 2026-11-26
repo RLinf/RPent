@@ -24,9 +24,10 @@ Run a Task
 Use a Linux host with user namespaces enabled and Bubblewrap (``bwrap``)
 installed. On Ubuntu, install it with ``sudo apt install bubblewrap``.
 For the example below, complete the LIBERO-PRO and model setup in
-:doc:`../get_started/quickstart` and configure access to the Codex model.
+:doc:`../get_started/quickstart` and set up Codex using
+:doc:`configure_planner`.
 
-Add ``--policy-mode code`` to a standard LIBERO-PRO task command to
+Add ``--policy-mode code`` to a regular LIBERO-PRO task command to
 enable PyRUA mode. The following example runs task 2 in the LIBERO-PRO
 Object Swap suite with seed 0, using the Codex planner and GPT-6.1 Sol
 at low reasoning effort:
@@ -47,15 +48,16 @@ diagnostics appear in ``code_policy/worker.stderr.log``.
 PyRUA mode supports the ``api``, ``claude_code``, ``codex``, and ``gemini_cli`` planners
 via either the CLI or the Dashboard. It cannot be combined with
 ``--planner flash`` or ``--explore``. PyRUA mode does not load task
-memory or generate an action recipe.
+memory or generate an action recipe. See :doc:`cli` for the full option list.
 
 Run Without an Action Model
 ---------------------------
 
 Use ``--policy-mode code --no-am`` to disable VLA and WAM services and tools.
 For LIBERO this combination supports standard suites. Set up standard LIBERO
-and Claude Code first, then set ``SAM3_CHECKPOINT_PATH`` for a local SAM3
-server or pass ``--sam3-endpoint`` to reuse one.
+with :doc:`../simulators/libero` and Claude Code with :doc:`configure_planner`.
+Set ``SAM3_CHECKPOINT_PATH`` for a local SAM3 server or pass
+``--sam3-endpoint`` to reuse one.
 
 .. code-block:: bash
 
@@ -64,9 +66,11 @@ server or pass ``--sam3-endpoint`` to reuse one.
      --planner claude_code --model deepseek-v4.1-flash-1017 \
      --policy-mode code --no-am
 
-The standard LIBERO controller uses SAM3 and RGB-D localization, then
-native motion and gripper tools. Its action replies carry state. Call
-``robo.view_env_state(step=-1)`` when you need images.
+The planner uses SAM3 and RGB-D to locate objects. Check
+``code_policy/calls.jsonl`` in the run directory for native motion and gripper
+calls. In this mode, standard LIBERO action replies contain state without
+images. The planner calls
+``robo.view_env_state(step=-1)`` when it needs a fresh image.
 
 RoboDojo also supports ``--policy-mode code --no-am`` using native ARX-X5
 controls. See :doc:`../simulators/robodojo` for its setup.
@@ -75,21 +79,30 @@ How Code Execution Works
 ------------------------
 
 The planner submits code through ``python(code)`` and invokes robot tools using
-``robo.<tool_name>(argument=value)``. Use ``print(...)`` to display
-values; variables remain available in subsequent cells.
+``robo.<tool_name>(argument=value)``. It can use ``print(...)`` to display
+values and reuse variables in subsequent cells.
 
 Python can import the standard library and NumPy and write to the session's
 scratch directory. The sandbox separates the worker from the host workspace,
-environment variables and network. Planner shell permissions are configured
-separately.
+environment variables and network. For Codex planner shell permissions,
+see ``--codex-sandbox`` in the :doc:`CLI reference <cli>`.
 
 Each cell has a default timeout of 120 seconds, including tool calls,
-and allows up to 100 robot tool calls. These limits can be adjusted
-using ``--code-timeout-s`` and ``--code-max-calls``, respectively.
+and allows up to 100 robot tool calls. Adjust these limits with
+``--code-timeout-s`` and ``--code-max-calls``, respectively. A call beyond
+the limit raises a Python error. A timeout or cancellation discards the
+Python namespace. Robot actions already executed remain in effect.
+
+.. warning::
+
+   Stopping the Python worker does not trigger the robot's hardware
+   emergency stop.
+
 When ``robo.finish(...)`` successfully returns a completion marker,
 RPent terminates the current code cell and ends the planning session.
-When available, use ``request_scene_reset`` and ``request_operator_verdict``
-as separate planner tools so human input can arrive outside the cell timeout.
+When available, the planner calls ``request_scene_reset`` and
+``request_operator_verdict`` directly so the wait for human input falls
+outside the cell timeout.
 
 
 Inspect a Run
@@ -116,14 +129,19 @@ selected by ``--output-dir``.
 LIBERO-PRO Evaluation
 ---------------------
 
-Across the complete 800-case LIBERO-PRO matrix, PyRUA Mode solved
-663 episodes (82.88%). The evaluation covered Spatial, Object, Goal, and
-Long, with task and swap suites, tasks 0–9, and seeds 1–10 in each suite.The eight suite scores are listed in :doc:`Performance <../leaderboard/performance>`.
+PyRUA Mode succeeded in 663 of 800 LIBERO-PRO episodes (82.88%).
+The evaluation covered Spatial, Object, Goal, and
+Long, with task and swap suites, tasks 0–9, and seeds 1–10 in each suite.
+An episode counts as a success when LIBERO reports ``environment_success`` as
+``true`` in the transcript. The success rate includes all
+800 cases in the denominator. Failed and incomplete cases, including timeouts,
+count as failures. See :doc:`Performance <../leaderboard/performance>`.
 
-The :doc:`Time & Token Costs <../leaderboard/time-token-costs>` table reports 781.98 seconds per evaluation episode and 1,791,802.63 mean tokens for PyRUA mode. Mean time and token usage include both successes and failures.
+Mean time and mean total tokens per episode use the 786 complete final
+records, including 663 successes and 123 failures. The 14 timeouts are
+excluded from both means. See :doc:`Time & Token Costs <../leaderboard/time-token-costs>`.
 
-
-It used the API planner with DeepSeek V4.1 Flash
+The evaluation used the API planner with DeepSeek V4.1 Flash
 (``deepseek-v4.1-flash-1017``), high reasoning effort, Pi0.5 for action
 execution, and no task memory. Runs allowed up to 100 planner turns;
 each Python cell allowed 120 seconds and 100 robot tool calls.

@@ -210,10 +210,10 @@ def _build_argparser() -> argparse.ArgumentParser:
     ap.add_argument(
         "--no-images",
         action="store_true",
-        help="Never send image bytes to the model (api planner only). "
-        "Use for text-only models that reject image input "
-        "(e.g. 400 \"message type 'image_url' is not supported\"); "
-        "read_image then returns the image name instead, with a notice.",
+        help="Omit images from API planner requests. With --policy-mode code, "
+        "omit tool images from Python cell replies for every supported planner. "
+        "Use for text-only models. The API planner's read_image then "
+        "returns the image name with a notice.",
     )
     ap.add_argument(
         "--planner-timeout-s",

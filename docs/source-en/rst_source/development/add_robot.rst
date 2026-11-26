@@ -533,16 +533,20 @@ To support ``--policy-mode code --no-am``:
 
 1. Set ``RobotSpec.supports_no_am=True`` when the robot has native controls
    and feedback suitable for running without an action model.
-2. Resolve the model with ``select_optional_am``. Mark its service with
+2. Resolve the model with
+   ``rpent.robots.components.am_runtime.select_optional_am``. Mark its service with
    ``role="action_model"`` in the runtime component declarations and use
-   ``select_runtime_components`` in the runtime hook. The Dashboard uses the
-   same selection rule. Keep environment and perception services available.
+   ``rpent.robots.runtime.select_runtime_components`` in the runtime hook.
+   The Dashboard uses the same selection rule. Keep environment and perception
+   services available.
 3. Pass ``action_model_available`` to ``Toolkit`` based on the run's model
    connection. Mark dependent tools with ``@tool(requires_action_model=True)``.
-   The toolkit omits those tools from dispatch, planner schemas, and Python.
+   Without a model connection, ``Toolkit`` omits those tools from dispatch,
+   planner schemas, and Python.
 
-LIBERO and RoboDojo are reference implementations. Test the native action and
-observation path and verify that disabled models are neither resolved nor started.
+See ``robots/libero/`` and ``robots/robodojo/`` for reference implementations
+and :doc:`../guides/pyrua` for usage. Test the native action and observation
+path and verify that disabled models are neither resolved nor started.
 
 .. _add-robot-testing:
 

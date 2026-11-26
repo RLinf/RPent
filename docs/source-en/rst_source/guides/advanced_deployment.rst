@@ -212,9 +212,9 @@ In a local terminal, forward the port, replacing ``USER@HOST`` with the server l
 
 Open ``http://127.0.0.1:8000`` in your local browser. Keep the SSH connection and server-side RPent process running; see :doc:`dashboard` for task controls.
 
-.. _code-as-policy-optional:
-
 PyRUA Mode
 ----------
 
-See :doc:`pyrua` for setup, remote-service options and run diagnostics.
+PyRUA Mode (``--policy-mode code``) uses the same ``--env-endpoint``,
+``--am-endpoint``, and ``--sam3-endpoint`` options. See :doc:`pyrua` for
+sandbox prerequisites, usage, and run artifacts.

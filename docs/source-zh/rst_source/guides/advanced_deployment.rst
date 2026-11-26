@@ -162,9 +162,7 @@ SAM3 服务只加载一次模型，可以由多个 RPent 运行复用。
 
 在本机浏览器打开 ``http://127.0.0.1:8000``。保持 SSH 连接和服务器上的 RPent 进程运行；任务操作见 :doc:`dashboard`。
 
-.. _code-as-policy-optional:
-
 PyRUA 模式
 ----------
 
-安装要求、远程服务配置和运行记录见 :doc:`pyrua`。
+PyRUA 模式（``--policy-mode code``）沿用上文的 ``--env-endpoint``、``--am-endpoint`` 和 ``--sam3-endpoint`` 参数。沙箱要求、用法和运行记录见 :doc:`pyrua`。

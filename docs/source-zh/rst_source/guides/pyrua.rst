@@ -14,7 +14,7 @@
 运行一个任务
 ------------
 
-运行 PyRUA 需要启用用户命名空间的 Linux 环境，并安装 Bubblewrap（``bwrap``）。Ubuntu 上可用 ``sudo apt install bubblewrap`` 安装。运行下面的示例前，先按 :doc:`../get_started/quickstart` 安装 LIBERO-PRO、配置模型服务，并准备好 Codex 的模型访问。
+运行 PyRUA 需要启用用户命名空间的 Linux 环境，并安装 Bubblewrap（``bwrap``）。Ubuntu 上可用 ``sudo apt install bubblewrap`` 安装。运行下面的示例前，先按 :doc:`../get_started/quickstart` 安装 LIBERO-PRO 并配置模型服务，再按 :doc:`configure_planner` 配置 Codex。
 
 在普通 LIBERO-PRO 任务命令中加入 ``--policy-mode code``，即可启用 PyRUA 模式。下面的示例使用 Codex 规划器和 GPT-6.1 Sol 模型，推理强度设为 low，在 LIBERO-PRO Object Swap 套件中运行任务 2，seed 0。
 
@@ -27,12 +27,12 @@
 
 在 ``./runs/pyrua/code_policy/`` 查看执行过的代码片段，在 ``transcript_*.json`` 中查看 LIBERO 原生结果 ``environment_success``。如果 worker 启动失败，先确认已安装 ``bwrap`` 且系统允许用户命名空间。进入启动流程后，诊断信息会写入 ``code_policy/worker.stderr.log``。
 
-PyRUA 模式支持 ``api``、``claude_code``、``codex`` 和 ``gemini_cli`` 规划器，可通过 CLI 和 Dashboard 启动，不能与 ``--planner flash`` 或 ``--explore`` 一起使用。PyRUA 模式不加载任务记忆，也不生成动作序列（recipe）。
+PyRUA 模式支持 ``api``、``claude_code``、``codex`` 和 ``gemini_cli`` 规划器，可通过 CLI 和 Dashboard 启动，不能与 ``--planner flash`` 或 ``--explore`` 一起使用。PyRUA 模式不加载任务记忆，也不生成动作序列（recipe）。完整参数列表见 :doc:`cli`。
 
 关闭动作模型
 ------------
 
-用 ``--policy-mode code --no-am`` 关闭 VLA 和 WAM 服务及工具。LIBERO 的此组合适用于标准套件。先配置标准 LIBERO 和 Claude Code，再用 ``SAM3_CHECKPOINT_PATH`` 指定本地 SAM3 权重，或用 ``--sam3-endpoint`` 连接已有服务。
+用 ``--policy-mode code --no-am`` 关闭 VLA 和 WAM 服务及工具。在 LIBERO 中，``--no-am`` 适用于标准套件。按 :doc:`../simulators/libero` 配置标准 LIBERO，并按 :doc:`configure_planner` 配置 Claude Code。用 ``SAM3_CHECKPOINT_PATH`` 指定本地 SAM3 权重，或用 ``--sam3-endpoint`` 连接已有服务。
 
 .. code-block:: bash
 
@@ -41,20 +41,24 @@ PyRUA 模式支持 ``api``、``claude_code``、``codex`` 和 ``gemini_cli`` 规�
      --planner claude_code --model deepseek-v4.1-flash-1017 \
      --policy-mode code --no-am
 
-标准 LIBERO 使用 SAM3 与 RGB-D 定位，再调用原生的运动和夹爪工具执行动作。动作回复包含状态。需要查看图像时，调用 ``robo.view_env_state(step=-1)``。
+规划器用 SAM3 和 RGB-D 定位物体。检查运行目录的 ``code_policy/calls.jsonl``，确认有原生运动和夹爪工具的调用记录。在此模式下，标准 LIBERO 的动作回复包含状态，不附带图像。规划器需要新图像时会调用 ``robo.view_env_state(step=-1)``。
 
 RoboDojo 也支持 ``--policy-mode code --no-am``，动作由原生 ARX-X5 控制接口执行。环境配置见 :doc:`../simulators/robodojo`。
 
 执行原理
 ------------
 
-规划器通过 ``python(code)`` 提交代码，用 ``robo.<tool_name>(argument=value)`` 调用机器人工具。用 ``print(...)`` 显示结果，变量可在后续代码片段中复用。
+规划器通过 ``python(code)`` 提交代码，用 ``robo.<tool_name>(argument=value)`` 调用机器人工具。规划器可以用 ``print(...)`` 显示结果，并在后续代码片段中复用变量。
 
-Python 可以导入标准库和 NumPy，并在会话的临时目录写入文件。沙箱隔离 worker 与宿主机的工作区、环境变量和网络。规划器的 Shell 权限独立配置。
+Python 可以导入标准库和 NumPy，并在会话的临时目录写入文件。沙箱隔离 worker 与宿主机的工作区、环境变量和网络。Codex 规划器的 Shell 权限见 :doc:`命令行参考 <cli>` 中的 ``--codex-sandbox``。
 
-每段代码默认限时 120 秒（含工具调用），最多调用 100 次机器人工具，可分别用 ``--code-timeout-s`` 和 ``--code-max-calls`` 调整。调用 ``robo.finish(...)`` 并成功返回结束标记后，RPent 停止当前代码片段并结束本次规划。
+每段代码默认限时 120 秒（含工具调用），最多调用 100 次机器人工具。可分别用 ``--code-timeout-s`` 和 ``--code-max-calls`` 调整。超出调用次数上限会引发 Python 异常。超时或取消会清空 Python 命名空间，已执行的机器人动作仍然生效。
 
-如果工具集提供 ``request_scene_reset`` 或 ``request_operator_verdict``，请让规划器单独调用这些工具，等待人工输入的时间由工具自身管理。
+.. warning::
+
+   停止 Python worker 不会触发机器人的硬件急停。
+
+调用 ``robo.finish(...)`` 并成功返回结束标记后，RPent 停止当前代码片段并结束本次规划。如果工具集提供 ``request_scene_reset`` 或 ``request_operator_verdict``，规划器会直接调用这些工具，等待人工输入的时间不计入代码片段的限时。
 
 
 查看运行记录
@@ -80,11 +84,13 @@ Python 可以导入标准库和 NumPy，并在会话的临时目录写入文件�
 LIBERO-PRO 评测结果
 -------------------
 
-PyRUA 模式在完整的 800 回合 LIBERO-PRO 评测中成功完成 663 回合，总体成功率为 82.88%。评测覆盖 Spatial、Object、Goal 和 Long 四类任务的 task、swap 套件；每个套件运行任务 0–9，每个任务使用 seed 1–10。八个套件的成绩见 :doc:`评测成绩 <../leaderboard/performance>`。
+PyRUA 模式在 LIBERO-PRO 评测中成功了 663 回合，总计 800 回合，成功率为 82.88%。评测覆盖 Spatial、Object、Goal 和 Long 的 task 与 swap 套件。每个套件运行任务 0–9，每个任务使用 seed 1–10。
 
-:doc:`耗时与 Token 开销 <../leaderboard/time-token-costs>` 表中的平均每回合耗时为 781.98 秒，平均耗时和 Token 用量均包含成功和失败回合。
+成功以 LIBERO 原生判定为准，运行记录中的 ``environment_success`` 为 ``true`` 时计为成功。成功率以全部 800 回合为分母，失败和未完成的回合（含超时）均计为失败。各套件的成绩见 :doc:`评测成绩 <../leaderboard/performance>`。
 
-实验使用 API 规划器和 DeepSeek V4.1 Flash（``deepseek-v4.1-flash-1017``），推理强度为 high，由 Pi0.5 执行动作，不加载任务记忆。每回合最多规划 100 轮；每段 Python 代码限时 120 秒，最多调用 100 次机器人工具。
+每回合的平均耗时和平均总 Token 数按 786 条完整的最终记录计算，其中 663 条成功、123 条失败。14 次超时不纳入这两项平均值。汇总见 :doc:`耗时与 Token 开销 <../leaderboard/time-token-costs>`。
+
+评测使用 API 规划器和 DeepSeek V4.1 Flash（``deepseek-v4.1-flash-1017``），推理强度为 high，由 Pi0.5 执行动作，不加载任务记忆。每回合最多规划 100 轮。每段 Python 代码限时 120 秒，最多调用 100 次机器人工具。
 
 .. list-table:: PyRUA 在 LIBERO-PRO 上的 800 回合评测
    :header-rows: 1
