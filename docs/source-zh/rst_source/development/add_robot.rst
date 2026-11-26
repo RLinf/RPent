@@ -353,20 +353,20 @@ JSON 产物应使用 ``write_json_atomic``，避免中断写入留下不完整�
            },
        )
 
-通过 ``RobotSpec(..., finalize_run=_finalize_run)`` 注册回调。该钩子目前只用于普通终端运行，Dashboard 不会调用。benchmark manifest、机器人专用 runtime 字段和聚合逻辑应继续放在机器人目录中，而不是共享 CLI。
+通过 ``RobotSpec(..., finalize_run=_finalize_run)`` 注册回调。该钩子仅用于普通终端运行。将评测清单、机器人专用的运行字段和结果汇总逻辑放在机器人包中。
 
 无动作模型的代码策略
 --------------------
 
-共享 Python 运行时包装机器人的工具集。``PromptBundle`` 提供 Python 执行说明和当前可调用的 ``robo.*`` 接口。通过可选的 ``code_system`` 工厂回调返回适用于 Python 代码片段的机器人操作说明。
+可在 ``PromptBundle`` 中设置 ``code_system`` 工厂回调，为 PyRUA 中的规划器提供机器人专用说明。启用或关闭动作模型均可使用此回调。
 
 接入 ``--policy-mode code --no-am``：
 
 1. 机器人可以依靠原生控制与反馈完成任务时，声明 ``RobotSpec.supports_no_am=True``。
-2. 用 ``rpent.robots.components.am_runtime.select_optional_am`` 解析动作模型。在组件声明中标记 ``role="action_model"``，并在运行时钩子中调用 ``rpent.robots.runtime.select_runtime_components``。Dashboard 使用同一套筛选规则。环境和感知组件按正常方式启动。
+2. 用 ``rpent.robots.components.am_runtime.select_optional_am`` 解析动作模型。给模型组件标记 ``role="action_model"``，并在运行时钩子中调用 ``rpent.robots.runtime.select_runtime_components``。CLI 和 Dashboard 均会保留环境和感知组件。
 3. 根据本次运行是否连接动作模型，向 ``Toolkit`` 传入 ``action_model_available``。将依赖模型的工具标记为 ``@tool(requires_action_model=True)``。未连接模型时，``Toolkit`` 会从工具分派、规划器工具列表和 Python 接口中移除这些工具。
 
-参考实现见 ``robots/libero/`` 和 ``robots/robodojo/``，用法见 :doc:`../guides/pyrua`。测试应覆盖原生动作和观测，并确认关闭的模型不会被解析或启动。
+使用 ``--no-am`` 运行测试，确认原生控制和观测可用，并检查运行时是否跳过动作模型的解析和启动。参考实现见 ``robots/libero/`` 和 ``robots/robodojo/``，运行命令见 :doc:`../guides/pyrua`。
 
 .. _add-robot-testing:
 

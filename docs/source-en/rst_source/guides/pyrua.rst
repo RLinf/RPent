@@ -1,76 +1,60 @@
-
 .. _pyrua-mode:
 
 PyRUA Mode
 ==========
 
-**PyRUA Mode** allows the planner to execute Python code cells that call
-RPent's registered robot tools. A cell can use tool results for conditional
-execution and bounded loops. Variables, functions, and imports remain available
-across cells within the same session. Enable PyRUA mode with
-``--policy-mode code``.
-
-The workflow consists of three steps:
-
-1. The planner decides **what to do** and submits a Python code cell.
-2. The Python runtime executes the cell, while the robot toolkit handles
-   each ``robo.<tool_name>(...)`` call.
-3. RPent returns the execution output and latest tool result to the
-   planner, which then determines the next step.
+Use PyRUA Mode to let the planner group robot actions in Python and choose
+the next action based on tool results. RPent saves the code and tool calls
+so you can inspect how the task ran.
 
 Run a Task
 ----------
 
-Use a Linux host with user namespaces enabled and Bubblewrap (``bwrap``)
-installed. On Ubuntu, install it with ``sudo apt install bubblewrap``.
-For the example below, complete the LIBERO-PRO and model setup in
-:doc:`../get_started/quickstart` and set up Codex using
-:doc:`configure_planner`.
+Use Linux with user namespaces enabled and Bubblewrap (``bwrap``) installed.
+On Ubuntu, run ``sudo apt install bubblewrap``. Complete steps 1 and 2 of
+:doc:`../get_started/quickstart` to install LIBERO-PRO and download its assets
+and checkpoints. Set up :ref:`Codex <planner-codex>` and check your connection
+with ``rpent-check-llm --planner codex``.
 
-Add ``--policy-mode code`` to a regular LIBERO-PRO task command to
-enable PyRUA mode. The following example runs task 2 in the LIBERO-PRO
-Object Swap suite with seed 0, using the Codex planner and GPT-6.1 Sol
-at low reasoning effort:
+Run LIBERO-PRO Object Swap task 2 with seed 0. The
+``--policy-mode code`` option enables PyRUA Mode.
 
 .. code-block:: bash
 
    rpent --robot libero --libero-type pro \
      --suite libero_object_swap --task 2 --seed 0 \
-     --planner codex --model gpt-6.1-sol \
+     --planner codex \
      --policy-mode code --reasoning-effort low --output-dir ./runs/pyrua
 
-Look in ``./runs/pyrua/code_policy/`` for the executed cells. Check
-``environment_success`` in ``transcript_*.json`` for the native LIBERO result.
-If the worker fails to start, check that ``bwrap`` is installed and user
-namespaces are permitted. Once the worker starts launching, its startup
-diagnostics appear in ``code_policy/worker.stderr.log``.
+After the run, open ``./runs/pyrua/``. The ``environment_success`` field
+in ``transcript_*.json`` reports whether LIBERO marked the task successful.
+See :ref:`pyrua-run-records` for the code and tool logs.
 
-PyRUA mode supports the ``api``, ``claude_code``, ``codex``, and ``gemini_cli`` planners
-via either the CLI or the Dashboard. It cannot be combined with
-``--planner flash`` or ``--explore``. PyRUA mode does not load task
-memory or generate an action recipe. See :doc:`cli` for the full option list.
+Use ``api``, ``claude_code``, ``codex``, or ``gemini_cli`` in the CLI or
+:doc:`Dashboard <dashboard>`. Pass ``--policy-mode code`` when starting the
+Dashboard. Set ``--policy-mode tools`` to use
+``--planner flash``, ``--explore``, or task memory. See :doc:`cli` for options.
 
 Run Without an Action Model
 ---------------------------
 
-Use ``--policy-mode code --no-am`` to disable VLA and WAM services and tools.
-For LIBERO this combination supports standard suites. Set up standard LIBERO
-with :doc:`../simulators/libero` and Claude Code with :doc:`configure_planner`.
-Set ``SAM3_CHECKPOINT_PATH`` for a local SAM3 server or pass
-``--sam3-endpoint`` to reuse one.
+Add ``--no-am`` to use the robot's native controls with action model services
+and tools disabled. For the example below, set up
+:doc:`standard LIBERO <../simulators/libero>` in a separate Python environment
+from LIBERO-PRO. Activate it, use the Codex configuration above, and set
+``SAM3_CHECKPOINT_PATH`` for a local SAM3 service or pass
+``--sam3-endpoint`` to reuse one. The example uses only the SAM3 checkpoint.
 
 .. code-block:: bash
 
    rpent --robot libero --libero-type standard \
      --suite libero_object --task 0 --seed 0 \
-     --planner claude_code --model deepseek-v4.1-flash-1017 \
-     --policy-mode code --no-am
+     --planner codex \
+     --policy-mode code --no-am --output-dir ./runs/pyrua-no-am
 
-The planner uses SAM3 and RGB-D to locate objects. Check
-``code_policy/calls.jsonl`` in the run directory for native motion and gripper
-calls. In this mode, standard LIBERO action replies contain state without
-images. The planner calls
-``robo.view_env_state(step=-1)`` when it needs a fresh image.
+Check ``./runs/pyrua-no-am/code_policy/calls.jsonl`` for motion and gripper
+calls. Standard LIBERO action replies omit images in this mode. Look for
+``view_env_state`` in the call log to see when the planner requested images.
 
 These robots and simulators also support both flags. Follow the linked guides
 for environment, perception, and operator setup.
@@ -85,50 +69,23 @@ for environment, perception, and operator setup.
    * - :doc:`RoboCasa <../simulators/robocasa>` and :doc:`RoboTwin <../simulators/robotwin>`
      - Scripted motion and gripper tools.
    * - :doc:`RoboLab <../simulators/robolab>`
-     - Native DROID actions through ``robo.execute_action``.
+     - Native DROID actions.
    * - :doc:`EFE <../simulators/efe>`
-     - Tools from the connected EFE controller. This backend already runs without an RPent action model.
+     - Tools from the connected EFE controller. EFE already runs without an RPent action model.
    * - :doc:`Franka <../real_world_robots/franka>`, :doc:`Dual Franka <../real_world_robots/dual_franka>` and :doc:`YAM <../real_world_robots/yam>`
      - Native motion and gripper tools with the backend's operator controls.
 
 Task 1 on both Franka and Dual Franka requires an action model. Use task 0
 to check native motion and gripper control with ``--no-am``.
 
-How Code Execution Works
-------------------------
-
-The planner submits code through ``python(code)`` and invokes robot tools using
-``robo.<tool_name>(argument=value)``. It can use ``print(...)`` to display
-values and reuse variables in subsequent cells.
-
-Python can import the standard library and NumPy and write to the session's
-scratch directory. The sandbox separates the worker from the host workspace,
-environment variables and network. For Codex planner shell permissions,
-see ``--codex-sandbox`` in the :doc:`CLI reference <cli>`.
-
-Each cell has a default timeout of 120 seconds, including tool calls,
-and allows up to 100 robot tool calls. Adjust these limits with
-``--code-timeout-s`` and ``--code-max-calls``, respectively. A call beyond
-the limit raises a Python error. A timeout or cancellation discards the
-Python namespace. Robot actions already executed remain in effect.
-
-.. warning::
-
-   Stopping the Python worker does not trigger the robot's hardware
-   emergency stop.
-
-When ``robo.finish(...)`` successfully returns a completion marker,
-RPent terminates the current code cell and ends the planning session.
-When available, the planner calls ``request_scene_reset`` and
-``request_operator_verdict`` directly so the wait for human input falls
-outside the cell timeout.
-
+.. _pyrua-run-records:
 
 Inspect a Run
 -------------
 
-The following paths are relative to ``code_policy/`` in the run directory
-selected by ``--output-dir``.
+Open ``code_policy/`` under the directory set by ``--output-dir``.
+If PyRUA fails to start, check ``bwrap``, user namespaces, and any
+diagnostics in ``worker.stderr.log``.
 
 .. list-table::
    :header-rows: 1
@@ -140,10 +97,32 @@ selected by ``--output-dir``.
    * - ``calls.jsonl``
      - Robot calls made from Python, with their results and durations.
    * - ``worker.stderr.log``
-     - Sandbox startup and worker process diagnostics.
+     - Startup and runtime diagnostics.
    * - ``scratch/``
      - Files written by Python cells during the session.
 
+.. _how-code-execution-works:
+
+Adjust Run Limits
+-----------------
+
+Each cell has 120 seconds, including tool calls, and up to 100 robot calls
+by default. Change the limits with ``--code-timeout-s`` and
+``--code-max-calls``. A call beyond the limit raises a Python error.
+Time spent waiting for an operator's scene reset or verdict is outside
+the cell timeout.
+
+Python cells can use the standard library and NumPy and write to ``scratch/``.
+The sandbox isolates cells from the host workspace and network. Codex shell
+permissions use the separate ``--codex-sandbox`` setting.
+
+Python variables carry over between cells. A timeout or cancellation clears
+them, while completed robot actions remain in effect. Check the current robot
+state before continuing.
+
+.. warning::
+
+   Use the robot's hardware emergency stop when motion must stop immediately.
 
 LIBERO-PRO Evaluation
 ---------------------
@@ -158,7 +137,9 @@ count as failures. See :doc:`Performance <../leaderboard/performance>`.
 
 Mean time and mean total tokens per episode use the 786 complete final
 records, including 663 successes and 123 failures. The 14 timeouts are
-excluded from both means. See :doc:`Time & Token Costs <../leaderboard/time-token-costs>`.
+excluded from both means. Elapsed time excludes service startup and includes
+run cleanup. For retried episodes, only the final attempt counts. Input tokens
+include cached input. See :doc:`Time & Token Costs <../leaderboard/time-token-costs>`.
 
 The evaluation used the API planner with DeepSeek V4.1 Flash
 (``deepseek-v4.1-flash-1017``), high reasoning effort, Pi0.5 for action

@@ -162,7 +162,9 @@ SAM3 服务只加载一次模型，可以由多个 RPent 运行复用。
 
 在本机浏览器打开 ``http://127.0.0.1:8000``。保持 SSH 连接和服务器上的 RPent 进程运行；任务操作见 :doc:`dashboard`。
 
-PyRUA 模式
-----------
+用 PyRUA 连接远程服务
+------------------------
 
-PyRUA 模式（``--policy-mode code``）沿用上文的 ``--env-endpoint``、``--am-endpoint`` 和 ``--sam3-endpoint`` 参数。沙箱要求、用法和运行记录见 :doc:`pyrua`。
+在运行 RPent 的主机上安装 Bubblewrap。通过终端运行时，在上文连接 RPent 的命令中加上 ``--policy-mode code``。在 LIBERO 中使用 ``--no-am`` 时，连接与任务套件匹配的标准 LIBERO 环境，并省略 ``--am-endpoint``。
+
+使用 LIBERO Dashboard 时，在启动命令中加上 ``--policy-mode code``。Dashboard 为每项任务启动独立的仿真环境，可用 ``--am-endpoint`` 和 ``--sam3-endpoint`` 复用远程模型服务。运行要求和支持的配置见 :doc:`pyrua`。

@@ -242,9 +242,14 @@
     {
       "id": "rpent-pyrua-mode",
       "kind": "rpent",
-      "display_name": "RPent Pyrua mode",
+      "display_name": "RPent PyRUA Mode",
+      "backend": "API",
       "model": "DeepSeek V4.1 Flash",
-      "description": "DeepSeek V4.1 Flash"
+      "effort": "high",
+      "description": {
+        "en": "DeepSeek V4.1 Flash · API · high",
+        "zh": "DeepSeek V4.1 Flash · API · 高推理强度"
+      }
     }
   ],
   "benchmarks": [
@@ -377,6 +382,14 @@
           "text": {
             "en": "DeepSeek V4.1 Flash evaluated with its own seed-0 exploration memory.",
             "zh": "DeepSeek V4.1 Flash 使用自身 seed-0 探索的 memory 评测。"
+          }
+        },
+        {
+          "id": "libero-pro-pyrua",
+          "configuration_ids": ["rpent-pyrua-mode"],
+          "text": {
+            "en": "PyRUA uses Pi0.5 for actions and runs without task memory. Success rates include all 800 episodes. Mean time and tokens use 786 complete records (663 successes and 123 failures), excluding 14 timeouts. Time excludes service startup and includes cleanup.",
+            "zh": "PyRUA 使用 Pi0.5 执行动作，运行时不加载任务记忆。成功率按全部 800 回合计算。平均耗时和 Token 用量按 786 条完整记录计算，其中 663 条成功、123 条失败。14 次超时不计入平均值。耗时从服务就绪后计起，包含清理时间。"
           }
         }
       ]

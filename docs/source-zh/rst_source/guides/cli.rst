@@ -36,7 +36,7 @@
      - 规划器轮数上限；``api`` 按整段对话的模型请求次数计算，包括重试和后续输入。
    * - ``--policy-mode``
      - ``tools``
-     - 设为 ``code`` 后，规划器可提交 Python 代码片段来调用机器人工具。安装要求和支持的规划器见 :doc:`pyrua`。
+     - 设为 ``code`` 后，规划器可用 Python 调用机器人工具。安装要求和支持的规划器见 :doc:`pyrua`。
    * - ``--no-am``
      - ``false``
      - 与 ``--policy-mode code`` 一起使用，关闭动作模型服务及工具。支持的机器人和仿真环境见 :doc:`pyrua`。
@@ -230,7 +230,7 @@ Claude Code 和 Codex 也可复用已有的 CLI 认证。Gemini CLI 使用自身
    * - ``transcript_*.json``
      - 规划器对话、工具调用及结束信息。
    * - ``code_policy/``
-     - PyRUA 保存的代码、执行结果、机器人工具调用、worker 诊断与临时文件。详见 :doc:`pyrua`。
+     - PyRUA 保存的代码、执行结果和日志。详见 :ref:`pyrua-run-records`。
    * - ``trajectories/<task_id>/``
      - ``--record-trajectory`` 保存的任务记录及附件。探索模式的记录位于各 ``sessions/session_*/`` 目录下。详见 :doc:`flywheel`。
    * - ``episode.mp4``
@@ -240,7 +240,7 @@ Claude Code 和 Codex 也可复用已有的 CLI 认证。Gemini CLI 使用自身
    * - ``env_server.log`` / ``vla_server.log`` / ``wam_server.log`` / ``sam3_server.log``
      - 由本次运行启动的环境和模型服务器日志。
    * - ``*_recipe.jsonl``
-     - 成功任务导出的动作序列；失败任务不保证生成该文件。
+     - 支持此功能的机器人在工具模式下成功完成任务后导出的动作序列。
    * - ``states.json``
      - ``EnvState`` 的内部状态索引。通过 Dashboard 或 ``view_env_state`` 查看状态，调用方不要直接解析此文件。
    * - ``agentview_depth.npz/00.npz``

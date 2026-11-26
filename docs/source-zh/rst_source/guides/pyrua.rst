@@ -3,45 +3,39 @@
 使用 PyRUA 模式
 ================
 
-**PyRUA 模式** 让规划器通过 Python 代码片段调用 RPent 已注册的机器人工具。代码可以根据工具返回值执行条件判断和有限循环；同一会话中的后续代码片段可复用先前定义的变量、函数和导入的模块。使用 ``--policy-mode code`` 启用此模式。
-
-整个过程可以概括为：
-
-1. 规划器决定 **做什么**，并提交 Python 代码片段。
-2. Python 运行时执行代码，机器人工具集处理每次 ``robo.<tool_name>(...)`` 调用。
-3. RPent 把执行输出和最近一次工具结果返回给规划器，再由规划器决定下一步。
+启用 PyRUA 后，规划器用 Python 调用机器人工具，并根据结果决定下一步。运行记录中保留了代码和工具调用。
 
 运行一个任务
 ------------
 
-运行 PyRUA 需要启用用户命名空间的 Linux 环境，并安装 Bubblewrap（``bwrap``）。Ubuntu 上可用 ``sudo apt install bubblewrap`` 安装。运行下面的示例前，先按 :doc:`../get_started/quickstart` 安装 LIBERO-PRO 并配置模型服务，再按 :doc:`configure_planner` 配置 Codex。
+运行 PyRUA 需要启用用户命名空间的 Linux 环境，并安装 Bubblewrap（``bwrap``）。Ubuntu 上可用 ``sudo apt install bubblewrap`` 安装。按 :doc:`../get_started/quickstart` 的前两步安装 LIBERO-PRO、下载仿真资源和模型权重。配置 :ref:`Codex <planner-codex>` 后，用 ``rpent-check-llm --planner codex`` 检查连接。
 
-在普通 LIBERO-PRO 任务命令中加入 ``--policy-mode code``，即可启用 PyRUA 模式。下面的示例使用 Codex 规划器和 GPT-6.1 Sol 模型，推理强度设为 low，在 LIBERO-PRO Object Swap 套件中运行任务 2，seed 0。
+用下面的命令运行 LIBERO-PRO Object Swap 套件的任务 2，随机种子为 0。``--policy-mode code`` 用于启用 PyRUA 模式。
 
 .. code-block:: bash
 
    rpent --robot libero --libero-type pro \
      --suite libero_object_swap --task 2 --seed 0 \
-     --planner codex --model gpt-6.1-sol \
+     --planner codex \
      --policy-mode code --reasoning-effort low --output-dir ./runs/pyrua
 
-在 ``./runs/pyrua/code_policy/`` 查看执行过的代码片段，在 ``transcript_*.json`` 中查看 LIBERO 原生结果 ``environment_success``。如果 worker 启动失败，先确认已安装 ``bwrap`` 且系统允许用户命名空间。进入启动流程后，诊断信息会写入 ``code_policy/worker.stderr.log``。
+运行结束后，打开 ``./runs/pyrua/``。``transcript_*.json`` 中的 ``environment_success`` 字段记录 LIBERO 的任务判定。代码和工具调用的保存位置见 :ref:`pyrua-run-records`。
 
-PyRUA 模式支持 ``api``、``claude_code``、``codex`` 和 ``gemini_cli`` 规划器，可通过 CLI 和 Dashboard 启动，不能与 ``--planner flash`` 或 ``--explore`` 一起使用。PyRUA 模式不加载任务记忆，也不生成动作序列（recipe）。完整参数列表见 :doc:`cli`。
+命令行和 :doc:`Dashboard <dashboard>` 均支持 ``api``、``claude_code``、``codex`` 和 ``gemini_cli``。启动 Dashboard 时加上 ``--policy-mode code`` 即可启用 PyRUA。使用 ``--planner flash``、``--explore`` 或任务记忆时，请设置 ``--policy-mode tools``。参数列表见 :doc:`cli`。
 
 关闭动作模型
 ------------
 
-用 ``--policy-mode code --no-am`` 关闭 VLA 和 WAM 服务及工具。在 LIBERO 中，``--no-am`` 适用于标准套件。按 :doc:`../simulators/libero` 配置标准 LIBERO，并按 :doc:`configure_planner` 配置 Claude Code。用 ``SAM3_CHECKPOINT_PATH`` 指定本地 SAM3 权重，或用 ``--sam3-endpoint`` 连接已有服务。
+运行 PyRUA 时加上 ``--no-am``，即可关闭动作模型服务和工具，使用机器人原生控制。请在独立于 LIBERO-PRO 的 Python 环境中安装 :doc:`标准 LIBERO <../simulators/libero>`。激活后沿用上面的 Codex 配置，用 ``SAM3_CHECKPOINT_PATH`` 指定本地 SAM3 权重，或用 ``--sam3-endpoint`` 连接已有服务。此示例只需 SAM3 权重。
 
 .. code-block:: bash
 
    rpent --robot libero --libero-type standard \
      --suite libero_object --task 0 --seed 0 \
-     --planner claude_code --model deepseek-v4.1-flash-1017 \
-     --policy-mode code --no-am
+     --planner codex \
+     --policy-mode code --no-am --output-dir ./runs/pyrua-no-am
 
-规划器用 SAM3 和 RGB-D 定位物体。检查运行目录的 ``code_policy/calls.jsonl``，确认有原生运动和夹爪工具的调用记录。在此模式下，标准 LIBERO 的动作回复包含状态，不附带图像。规划器需要新图像时会调用 ``robo.view_env_state(step=-1)``。
+在 ``./runs/pyrua-no-am/code_policy/calls.jsonl`` 查看运动和夹爪调用记录。标准 LIBERO 在此模式下的动作回复不附带图像。查看日志中的 ``view_env_state`` 调用可确认规划器何时请求了图像。
 
 下表中的机器人和仿真环境也支持这两个选项。环境、感知和操作员控制的配置见表中的指南。
 
@@ -55,34 +49,20 @@ PyRUA 模式支持 ``api``、``claude_code``、``codex`` 和 ``gemini_cli`` 规�
    * - :doc:`RoboCasa <../simulators/robocasa>` 和 :doc:`RoboTwin <../simulators/robotwin>`
      - 脚本化运动和夹爪工具。
    * - :doc:`RoboLab <../simulators/robolab>`
-     - 通过 ``robo.execute_action`` 执行原生 DROID 动作。
+     - DROID 原生控制。
    * - :doc:`EFE <../simulators/efe>`
-     - 已连接的 EFE 控制器提供的工具。该后端本身无需 RPent 动作模型。
+     - 由已连接的 EFE 控制器提供工具。EFE 本身无需 RPent 动作模型。
    * - :doc:`Franka <../real_world_robots/franka>`、:doc:`双臂 Franka <../real_world_robots/dual_franka>` 和 :doc:`YAM <../real_world_robots/yam>`
      - 原生运动和夹爪工具，沿用各后端的操作员控制。
 
 单臂和双臂 Franka 的任务 1 均需要动作模型。可用任务 0 验证 ``--no-am`` 下的原生运动和夹爪控制。
 
-执行原理
-------------
-
-规划器通过 ``python(code)`` 提交代码，用 ``robo.<tool_name>(argument=value)`` 调用机器人工具。规划器可以用 ``print(...)`` 显示结果，并在后续代码片段中复用变量。
-
-Python 可以导入标准库和 NumPy，并在会话的临时目录写入文件。沙箱隔离 worker 与宿主机的工作区、环境变量和网络。Codex 规划器的 Shell 权限见 :doc:`命令行参考 <cli>` 中的 ``--codex-sandbox``。
-
-每段代码默认限时 120 秒（含工具调用），最多调用 100 次机器人工具。可分别用 ``--code-timeout-s`` 和 ``--code-max-calls`` 调整。超出调用次数上限会引发 Python 异常。超时或取消会清空 Python 命名空间，已执行的机器人动作仍然生效。
-
-.. warning::
-
-   停止 Python worker 不会触发机器人的硬件急停。
-
-调用 ``robo.finish(...)`` 并成功返回结束标记后，RPent 停止当前代码片段并结束本次规划。如果工具集提供 ``request_scene_reset`` 或 ``request_operator_verdict``，规划器会直接调用这些工具，等待人工输入的时间不计入代码片段的限时。
-
+.. _pyrua-run-records:
 
 查看运行记录
 ------------
 
-下表路径相对于运行目录下的 ``code_policy/``。可通过 ``--output-dir`` 指定运行目录。
+在 ``--output-dir`` 指定的运行目录中打开 ``code_policy/``。如果 PyRUA 启动失败，确认已安装 ``bwrap``、系统已启用用户命名空间，并查看 ``worker.stderr.log`` 中的诊断信息。
 
 .. list-table::
    :header-rows: 1
@@ -94,10 +74,24 @@ Python 可以导入标准库和 NumPy，并在会话的临时目录写入文件�
    * - ``calls.jsonl``
      - Python 发起的机器人工具调用及其结果和耗时。
    * - ``worker.stderr.log``
-     - 沙箱启动和 worker 运行诊断。
+     - 启动和运行诊断。
    * - ``scratch/``
      - 代码在本次会话中写入的文件。
 
+.. _how-code-execution-works:
+
+调整运行上限
+------------
+
+每段代码默认限时 120 秒，包含工具调用时间，最多可调用 100 次机器人工具。可用 ``--code-timeout-s`` 和 ``--code-max-calls`` 调整，超出调用次数会报错。等待操作员复位场景或确认结果的时间不计入代码片段的限时。
+
+代码可使用 Python 标准库和 NumPy，并在 ``scratch/`` 下写入文件。沙箱将这些代码与宿主机工作区和网络隔离。Codex 的终端权限由 ``--codex-sandbox`` 单独设置。
+
+后续代码片段可复用 Python 变量。超时或取消会清空变量，已执行的动作仍然生效。继续运行前，先检查机器人当前状态。
+
+.. warning::
+
+   需要立即停止实体机器人时，请使用硬件急停。
 
 LIBERO-PRO 评测结果
 -------------------
@@ -106,7 +100,7 @@ PyRUA 模式在 LIBERO-PRO 评测中成功了 663 回合，总计 800 回合，�
 
 成功以 LIBERO 原生判定为准，运行记录中的 ``environment_success`` 为 ``true`` 时计为成功。成功率以全部 800 回合为分母，失败和未完成的回合（含超时）均计为失败。各套件的成绩见 :doc:`评测成绩 <../leaderboard/performance>`。
 
-每回合的平均耗时和平均总 Token 数按 786 条完整的最终记录计算，其中 663 条成功、123 条失败。14 次超时不纳入这两项平均值。汇总见 :doc:`耗时与 Token 开销 <../leaderboard/time-token-costs>`。
+每回合的平均耗时和平均总 Token 数按 786 条完整的最终记录计算，其中 663 条成功、123 条失败。14 次超时不纳入这两项平均值。耗时从服务就绪后计起，包含运行结束后的清理。重试过的回合只统计最后一次尝试，输入 Token 包含缓存输入。汇总见 :doc:`耗时与 Token 开销 <../leaderboard/time-token-costs>`。
 
 评测使用 API 规划器和 DeepSeek V4.1 Flash（``deepseek-v4.1-flash-1017``），推理强度为 high，由 Pi0.5 执行动作，不加载任务记忆。每回合最多规划 100 轮。每段 Python 代码限时 120 秒，最多调用 100 次机器人工具。
 

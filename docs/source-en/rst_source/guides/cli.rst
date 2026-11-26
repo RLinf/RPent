@@ -36,7 +36,7 @@ These options control the planner, memory, output directory, and Dashboard.
      - Planner turn limit. For ``api``, counts model requests across the conversation, including retries and follow-ups.
    * - ``--policy-mode``
      - ``tools``
-     - Use ``code`` to submit Python cells instead of individual robot tool calls. See :doc:`pyrua` for setup and compatible planners.
+     - Set to ``code`` to let the planner call robot tools from Python. See :doc:`pyrua` for setup and supported planners.
    * - ``--no-am``
      - ``false``
      - Disable action model services and tools with ``--policy-mode code``. See :doc:`pyrua` for supported robots and simulators.
@@ -268,7 +268,7 @@ The table uses LIBERO as an example. Files depend on the environment, recording,
    * - ``transcript_*.json``
      - Planner conversation, tool calls, and completion information.
    * - ``code_policy/``
-     - PyRUA cell source, execution results, robot call logs, worker diagnostics and scratch files. See :doc:`pyrua`.
+     - PyRUA code, results, and logs. See :ref:`pyrua-run-records`.
    * - ``trajectories/<task_id>/``
      - Task records and attachments saved by ``--record-trajectory``. Exploration records are under each ``sessions/session_*/`` directory. See :doc:`flywheel`.
    * - ``episode.mp4``
@@ -278,7 +278,7 @@ The table uses LIBERO as an example. Files depend on the environment, recording,
    * - ``env_server.log`` / ``vla_server.log`` / ``wam_server.log`` / ``sam3_server.log``
      - Logs from environment and model servers started by this run.
    * - ``*_recipe.jsonl``
-     - Action sequence exported from a successful task; failed runs may not produce this file.
+     - Action sequence exported by supported robots after a successful tools-mode run.
    * - ``states.json``
      - Internal ``EnvState`` manifest. Inspect states through the Dashboard or ``view_env_state``; callers should not parse this file directly.
    * - ``agentview_depth.npz/00.npz``
