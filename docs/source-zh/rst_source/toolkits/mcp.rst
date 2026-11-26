@@ -3,7 +3,7 @@
 外部 MCP 工具
 =============
 
-通过 ``--mcp-config`` 传入 YAML 配置文件，可将 Streamable HTTP MCP 服务接入 RPent，使规划器在调用机器人动作的同时访问外部传感器、实验仪器或其他外部设备。同一份配置适用于 ``api``、``claude_code``、``codex`` 和 ``gemini_cli``。
+通过 ``--mcp-config`` 传入 YAML 配置文件，可将 Streamable HTTP MCP 服务接入 RPent，使规划器能在同一次任务中调用机器人动作并访问外部传感器、实验仪器或其他设备。同一份配置适用于 ``api``、``claude_code``、``codex``、``gemini_cli`` 和 ``opencode``。
 
 前置条件：
 
@@ -136,7 +136,7 @@
 
 .. dropdown:: 规划器前缀与服务名规则
 
-   - 各规划器会在 ``<server>__<tool>`` 基础上附加各自的 ``toolkit`` 前缀：``api`` 直接使用 ``power__read_power_meter``，``claude_code`` 与 ``codex`` 为 ``mcp__rpent__power__read_power_meter``，``gemini_cli`` 为 ``mcp_rpent_power__read_power_meter``。
+   - 各规划器会在 ``<server>__<tool>`` 基础上附加各自的 ``toolkit`` 前缀：``api`` 直接使用 ``power__read_power_meter``，``claude_code`` 与 ``codex`` 为 ``mcp__rpent__power__read_power_meter``，``gemini_cli`` 为 ``mcp_rpent_power__read_power_meter``，``opencode`` 为 ``rpent_power__read_power_meter``。
    - 服务名必须以字母或数字开头，其余字符仅限字母、数字、``_`` 或 ``-``，不能包含 ``__``，不能以 ``_`` 结尾，且不能为 ``rpent``。
 
 .. dropdown:: 配置合并与会话限制

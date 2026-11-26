@@ -1,7 +1,7 @@
 规划器配置
 ==========
 
-本页说明如何选择规划器、配置模型和认证，并在运行任务前检查连接。先完成 RPent 安装；下方任务命令以已按 :doc:`../get_started/quickstart` 配置好的 LIBERO 为例。
+选择规划器、配置模型和认证，并在运行任务前检查连接。下方任务命令以 LIBERO 为例，请先按 :doc:`../get_started/quickstart` 完成配置。
 
 用 ``--planner`` 选择后端，再按对应章节完成配置：
 
@@ -12,7 +12,7 @@
    * - 规划器
      - 适用场景
      - 认证与服务地址
-   * - :ref:`api <planner-api>` （默认）
+   * - :ref:`api <planner-api>`\ （默认）
      - 直接连接模型 API，按服务协议选择模型前缀。
      - 环境变量；可用 ``--base-url`` 覆盖地址。
    * - :ref:`claude_code <planner-claude-code>`
@@ -32,6 +32,10 @@
      - 无需模型 API；仍需感知和 VLA 服务，见 :doc:`flash`。
 
 ``--base-url`` 仅适用于 ``api``，其他在线规划器会拒绝此参数。使用 CLI 后端时，RPent 会自动启动并管理所选工具；无需手动启动后台进程。
+
+.. _planner-interaction:
+
+所有在线规划器都支持终端 ``--tui`` 和 ``--dashboard``。使用 Claude Code、Codex、Gemini CLI 或 OpenCode 时，追加消息默认排队；``api`` 的交互方式与手动中断方法见 :doc:`dashboard`。
 
 .. _planner-api:
 
@@ -119,7 +123,7 @@ Codex 规划器
    rpent --robot libero --planner codex --model gpt-5.5 \
      --suite libero_goal_task --task 1 --seed 0
 
-模型按 ``--model``、``CODEX_MODEL``、Codex 默认模型的顺序选择。可设置 ``CODEX_SERVICE_TIER=fast`` 请求 fast 服务档位；它不改变推理强度。
+模型按 ``--model``、``CODEX_MODEL``、Codex 默认模型的顺序选择。可设置 ``CODEX_SERVICE_TIER=fast`` 请求 fast 服务档位；该变量不会改变推理强度。
 
 .. _planner-codex-isolation:
 
@@ -153,7 +157,7 @@ Codex 独立配置与登录
 
 每个新终端都需设置上述环境变量；已有 ``sqlite_home`` 配置时，也应指向独立目录。自定义 API 用户应改为设置本次部署的 ``CODEX_API_KEY`` 和 ``CODEX_BASE_URL``。更多登录方式见 `Codex 认证说明 <https://developers.openai.com/codex/auth/>`_。
 
-该配置不会隔离工作区或迁移旧会话；任务记忆另由 ``--memory-dir`` 选择。不要提交凭据或该目录。
+独立配置目录不会隔离工作区或迁移旧会话；任务记忆另由 ``--memory-dir`` 选择。不要提交凭据或配置目录。
 
 .. dropdown:: 通过 Codex 使用本地模型
 
@@ -210,12 +214,17 @@ Gemini CLI 规划器
 OpenCode 规划器
 --------------------------------
 
-按 `OpenCode 安装指南 <https://opencode.ai/docs/>`_ 安装，配置模型提供商、认证和服务地址，并确认能独立对话。运行 ``opencode acp --help``，确认包含 ``--pure`` 选项；已测试版本为 v1.18.18。先检查安装版本和可用选项，再运行 RPent：
+按 `OpenCode 安装指南 <https://opencode.ai/docs/>`_ 安装，配置模型提供商、认证和服务地址，并确认能独立对话。已测试版本为 v1.18.18。检查安装版本和可用选项：
 
 .. code-block:: bash
 
    opencode --version
    opencode acp --help
+
+确认帮助信息包含 ``--pure`` 后，检查连接并运行任务：
+
+.. code-block:: bash
+
    rpent-check-llm --planner opencode
    rpent --robot libero --planner opencode \
      --suite libero_goal_task --task 1 --seed 0
@@ -224,10 +233,10 @@ OpenCode 规划器
 
 .. _planner-check:
 
-验证你的配置
+验证配置
 ------------
 
-运行任务或打开 ``--dashboard`` 前，先在终端使用相同的规划器和模型执行 ``rpent-check-llm``。它会发送一次真实模型请求，但不启动机器人，也不调用工具或发送图像。响应较慢时增加诊断时限：
+运行任务或打开 ``--dashboard`` 前，先在终端使用相同的在线规划器和模型执行 ``rpent-check-llm``。它会发送一次真实模型请求，但不启动机器人，也不调用工具或发送图像。响应较慢时增加诊断时限：
 
 .. code-block:: bash
 
@@ -235,9 +244,9 @@ OpenCode 规划器
 
 成功退出码为 ``0``，失败为 ``1``；``--json`` 输出便于脚本读取。失败时按提示检查认证、模型 ID、服务地址或网络。检查通过不代表工具调用、图像输入或机器人任务已验证。
 
-诊断默认时限：``api`` 30 秒，``opencode`` 90 秒；Claude Code、Codex、Gemini CLI 在启动环境中有对应密钥时为 90 秒，否则为 25 秒。CLI 仍可使用保存的登录；Claude Code/Codex 若未检测到密钥或登录配置，会直接报告缺少认证。``--timeout-s`` 可覆盖诊断时限，与任务的运行时限独立。
+.. dropdown:: 诊断时限与 JSON 状态值
 
-.. dropdown:: JSON 状态值
+   诊断默认时限：``api`` 30 秒，``opencode`` 90 秒。Claude Code、Codex、Gemini CLI 在启动环境中有对应密钥时为 90 秒，否则使用较短的 25 秒等待时限，仍可使用保存的 CLI 登录。Claude Code 和 Codex 若既未检测到密钥，也未检测到登录配置，会直接报告缺少认证。``--timeout-s`` 可覆盖诊断时限，与任务的运行时限独立。
 
    脚本可根据 ``status`` 字段判断结果，并读取 ``detail`` 获取诊断信息：
 
@@ -251,14 +260,10 @@ OpenCode 规划器
    - ``provider_error``：服务拒绝请求，例如额度不足或触发限流。
    - ``sdk_error``：SDK、CLI 进程或未分类错误。
 
-.. _planner-interaction:
-
-交互输入与配置隔离
+配置与工具隔离
 ------------------
 
-Claude Code、Codex、Gemini CLI、OpenCode 支持终端 ``--tui`` 和 ``--dashboard``，追加消息默认排队，手动中断方法见 :doc:`dashboard`。
-
-规划任务不会自动加载 Claude/Codex/Gemini 的项目开发指令和 skills。OpenCode 禁用项目配置、Claude 配置与外部 skills，保留自身全局配置。Gemini CLI 和 OpenCode 开放 RPent 工具包，关闭扩展或外部插件；添加工具请使用 :ref:`external-mcp-servers`。这些会话设置不修改全局配置，也不提供操作系统级沙箱隔离。
+规划任务不会自动加载 Claude Code、Codex、Gemini CLI 的项目开发指令和 skills。OpenCode 禁用项目配置、Claude Code 配置与外部 skills，保留自身全局配置。Gemini CLI 和 OpenCode 只开放 RPent 工具，关闭扩展或外部插件；添加工具请使用 :ref:`external-mcp-servers`。这些会话设置不修改全局配置，也不提供操作系统级沙箱隔离。
 
 .. _planner-limits:
 
@@ -276,11 +281,11 @@ Claude Code、Codex、Gemini CLI、OpenCode 支持终端 ``--tui`` 和 ``--dashb
    * - ``--max-turns``
      - 规划轮数上限，默认 ``100``；不是机器人动作数，见下表。
    * - ``--planner-timeout-s``
-     - 任务运行时限；未指定时读取 ``CELL_TIMEOUT_S``，再回退到 1200 秒。Codex 优先读取 ``CODEX_TIMEOUT_S``，Gemini CLI 优先读取 ``GEMINI_CLI_TIMEOUT_S``。终端交互式 API/Claude 会话不受此限。
+     - 任务运行时限；未指定时读取 ``CELL_TIMEOUT_S``，再回退到 1200 秒。Codex 优先读取 ``CODEX_TIMEOUT_S``，Gemini CLI 优先读取 ``GEMINI_CLI_TIMEOUT_S``。终端交互式 API 和 Claude Code 会话不受此限。
    * - ``--max-tokens``
      - 仅 ``api``：单次回复 token 上限，默认 ``8192``。
    * - ``--reasoning-effort``
-     - API/Claude Code/Codex 可选 ``none``、``low``、``medium``、``high``、``xhigh``，实际支持取决于模型。API 默认 ``high``，其余默认 ``none``；Gemini CLI/OpenCode 仅接受 ``none``。
+     - API、Claude Code、Codex 可选 ``none``、``low``、``medium``、``high``、``xhigh``，实际支持取决于模型。API 默认 ``high``，其余默认 ``none``；Gemini CLI 和 OpenCode 仅接受 ``none``。
 
 一次模型回复可能调用多个工具，因此各后端的轮数不能直接当作动作数比较：
 
@@ -294,19 +299,16 @@ Claude Code、Codex、Gemini CLI、OpenCode 支持终端 ``--tui`` 和 ``--dashb
      - 一次模型请求，包含重试和追加消息；预算覆盖整段对话。
    * - Claude Code
      - 模型请求工具，RPent 执行后返回结果；无工具的最终答复不占预算。每次追加输入获得新的预算。
-   * - Codex / Gemini CLI
+   * - Codex、Gemini CLI
      - 一次模型请求或回复；同一回复中的多个工具不分别计数。
    * - OpenCode
      - 一次模型执行步骤；同一步骤中的多个工具不分别计数。每次追加输入获得新的预算。
 
 达到轮数上限后，API 正常结束且不报错，探索模式可继续下一次尝试；Claude Code 返回 ``error_max_turns``；OpenCode 生成不再调用工具的最终回复。达到上限不代表任务成功。``flash`` 不运行模型循环，不使用该预算。
 
-Gemini CLI 和 OpenCode 的运行统计不包含 ``turns_used``，因为 ACP 不提供可靠的模型轮数。
+Gemini CLI 和 OpenCode 的运行统计不包含 ``turns_used``，因为其会话协议不提供可靠的模型轮数。
 
-直接执行动作
---------------------
-
-LIBERO、RoboCasa、RoboTwin 可加 ``--enable-direct-action``，让规划器调用 ``execute_action(values=[...])`` 直接提交控制数值；仍可使用 VLA 和脚本工具，具体数值个数和范围由当前环境的工具说明给出。
+规划器直接提交控制数值的方法见 :ref:`planner-direct-actions`。
 
 .. _planner-custom:
 

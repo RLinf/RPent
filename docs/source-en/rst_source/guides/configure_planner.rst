@@ -39,6 +39,12 @@ Select a backend with ``--planner`` and follow its setup section:
 ``--base-url`` is only for ``api``; other online planners reject it. For the CLI
 backends, RPent starts and manages the selected tool automatically.
 
+.. _planner-interaction:
+
+All online planners support terminal ``--tui`` and ``--dashboard`` modes. With
+Claude Code, Codex, Gemini CLI, and OpenCode, follow-ups queue by default; see
+:doc:`dashboard` for ``api`` interaction and manual interruption.
+
 .. _planner-api:
 
 The API Planner (Direct Model API)
@@ -248,13 +254,17 @@ The OpenCode Planner
 
 Follow the `OpenCode installation guide <https://opencode.ai/docs/>`_, configure
 its provider, credentials, and endpoint, and confirm that it can answer a message.
-Use a version whose ``opencode acp --help`` lists ``--pure``; v1.18.18 has been
-tested. Check the installed version and available options before running RPent:
+Version v1.18.18 has been tested. Check the installed version and available options:
 
 .. code-block:: bash
 
    opencode --version
    opencode acp --help
+
+Once the help output confirms ``--pure`` support, check the connection and run a task:
+
+.. code-block:: bash
+
    rpent-check-llm --planner opencode
    rpent --robot libero --planner opencode \
      --suite libero_goal_task --task 1 --seed 0
@@ -269,7 +279,7 @@ Set ``OPENCODE_BIN`` if the executable is not on ``PATH``.
 Verify Your Configuration
 -------------------------
 
-Run ``rpent-check-llm`` in a terminal with the same planner and model before
+Run ``rpent-check-llm`` in a terminal with the same online planner and model before
 starting a task or opening ``--dashboard``.
 It sends a real model request without starting a robot, calling tools, or sending
 images. Increase the diagnostic timeout for a slow service:
@@ -283,14 +293,14 @@ for scripts. Follow failure hints to check authentication, the model ID, endpoin
 or network. Passing this check does not validate tool use, image input, or a
 robot task.
 
-Diagnostic defaults are 30 seconds for ``api`` and 90 seconds for ``opencode``.
-Claude Code, Codex, and Gemini CLI use 90 seconds when the corresponding key is in
-the launch environment, otherwise 25 seconds. Stored CLI logins can still be used;
-Claude Code/Codex report missing authentication immediately if no key or login
-configuration is detected. ``--timeout-s`` overrides these limits independently
-of the task timeout.
+.. dropdown:: Diagnostic Timeouts and JSON Status Values
 
-.. dropdown:: JSON Status Values
+   Diagnostic defaults are 30 seconds for ``api`` and 90 seconds for ``opencode``.
+   Claude Code, Codex, and Gemini CLI use 90 seconds when the corresponding key is
+   in the launch environment. Otherwise, diagnostics use a shorter 25-second wait;
+   stored CLI logins still work. Claude Code and Codex report missing authentication
+   immediately if neither a key nor a login configuration is detected.
+   ``--timeout-s`` overrides these limits independently of the task timeout.
 
    Scripts can branch on the ``status`` field and read ``detail`` for diagnostics:
 
@@ -304,19 +314,13 @@ of the task timeout.
    - ``provider_error``: the service refused the request, such as a quota or rate limit.
    - ``sdk_error``: an SDK, CLI process, or unclassified error.
 
-.. _planner-interaction:
+Configuration and Tool Isolation
+--------------------------------
 
-Interactive Input and Configuration Isolation
-----------------------------------------------
-
-Claude Code, Codex, Gemini CLI, and OpenCode support terminal ``--tui`` and
-``--dashboard`` modes. Follow-ups queue by default; see :doc:`dashboard` for
-manual interruption.
-
-Planner tasks do not automatically load Claude/Codex/Gemini project development
-instructions or skills. OpenCode disables project configuration, Claude
+Planner tasks do not automatically load Claude Code, Codex, or Gemini CLI project
+development instructions or skills. OpenCode disables project configuration, Claude Code
 configuration, and external skills while retaining its own global configuration.
-Gemini CLI and OpenCode expose the RPent toolkit and disable extensions or
+Gemini CLI and OpenCode expose only RPent tools and disable extensions or
 external plugins. To add tools, use :ref:`external-mcp-servers`.
 These session settings do not modify global configuration and are not an OS sandbox.
 
@@ -339,14 +343,14 @@ Common settings are listed below; see :doc:`cli` for all options:
    * - ``--planner-timeout-s``
      - Task time limit. When omitted, use ``CELL_TIMEOUT_S``, then 1200 seconds.
        Codex checks ``CODEX_TIMEOUT_S`` first; Gemini CLI checks
-       ``GEMINI_CLI_TIMEOUT_S`` first. Terminal interactive API/Claude sessions
+       ``GEMINI_CLI_TIMEOUT_S`` first. Terminal interactive API and Claude Code sessions
        are exempt.
    * - ``--max-tokens``
      - ``api`` only: token limit per response, default ``8192``.
    * - ``--reasoning-effort``
-     - API/Claude Code/Codex accept ``none``, ``low``, ``medium``, ``high``, or
+     - API, Claude Code, and Codex accept ``none``, ``low``, ``medium``, ``high``, or
        ``xhigh``, subject to model support. API defaults to ``high``; others to
-       ``none``. Gemini CLI/OpenCode accept only ``none``.
+       ``none``. Gemini CLI and OpenCode accept only ``none``.
 
 A model response can request multiple tools, so turn counts do not measure
 robot actions:
@@ -363,7 +367,7 @@ robot actions:
    * - Claude Code
      - Request tools, execute them, and return their results. A final answer
        without tools does not consume the budget. Each follow-up gets a new budget.
-   * - Codex / Gemini CLI
+   * - Codex, Gemini CLI
      - One model request or response; multiple tools in one response do not
        count separately.
    * - OpenCode
@@ -376,15 +380,9 @@ final response without further tool calls. Reaching a limit does not mean the
 task succeeded. ``flash`` does not run a model loop or use this budget.
 
 Gemini CLI and OpenCode do not report ``turns_used`` in run statistics because
-ACP does not provide a reliable model-turn count.
+their session protocol does not provide a reliable model-turn count.
 
-Direct Actions
---------------------
-
-For LIBERO, RoboCasa, or RoboTwin, add ``--enable-direct-action`` to let the
-planner call ``execute_action(values=[...])`` with direct control values. VLA
-and scripted tools remain available; the tool description lists the expected
-values and ranges for the selected environment.
+To let the planner submit direct control values, see :ref:`planner-direct-actions`.
 
 .. _add-a-custom-planner:
 

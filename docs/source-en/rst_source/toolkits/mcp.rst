@@ -3,7 +3,7 @@
 External MCP Tools
 ==================
 
-Connect a Streamable HTTP MCP server to an RPent run by passing a YAML file path to ``--mcp-config`` so the planner can call external sensors, lab instruments, or other devices alongside robot primitives. The same configuration works across ``api``, ``claude_code``, ``codex``, and ``gemini_cli``.
+Connect a Streamable HTTP MCP server to an RPent run by passing a YAML file path to ``--mcp-config`` so the planner can call external sensors, lab instruments, or other devices alongside robot primitives. The same configuration works across ``api``, ``claude_code``, ``codex``, ``gemini_cli``, and ``opencode``.
 
 Prerequisites:
 
@@ -136,7 +136,7 @@ External tools are exposed as ``<server>__<tool>``, time out according to YAML `
 
 .. dropdown:: Planner prefixes and server naming rules
 
-   - Planner adapters apply their normal toolkit prefix on top of ``<server>__<tool>``: ``api`` uses ``power__read_power_meter``, ``claude_code`` and ``codex`` use ``mcp__rpent__power__read_power_meter``, and ``gemini_cli`` uses ``mcp_rpent_power__read_power_meter``.
+   - Planner adapters apply their normal toolkit prefix on top of ``<server>__<tool>``: ``api`` uses ``power__read_power_meter``, ``claude_code`` and ``codex`` use ``mcp__rpent__power__read_power_meter``, ``gemini_cli`` uses ``mcp_rpent_power__read_power_meter``, and ``opencode`` uses ``rpent_power__read_power_meter``.
    - Server names must start with a letter or digit, contain only letters, digits, ``_``, or ``-``, omit ``__`` and trailing ``_``, and not be ``rpent``.
 
 .. dropdown:: Config merging and sessions
