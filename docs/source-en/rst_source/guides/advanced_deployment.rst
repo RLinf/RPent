@@ -211,3 +211,16 @@ In a local terminal, forward the port, replacing ``USER@HOST`` with the server l
    ssh -N -L 8000:127.0.0.1:8000 USER@HOST
 
 Open ``http://127.0.0.1:8000`` in your local browser. Keep the SSH connection and server-side RPent process running; see :doc:`dashboard` for task controls.
+
+Run PyRUA with Remote Services
+------------------------------
+
+Install Bubblewrap on the host that runs RPent. For a terminal run, add
+``--policy-mode code`` to the command in *Connect RPent*. When using
+``--no-am`` with LIBERO, connect to a standard LIBERO environment that
+matches the selected suite and omit ``--am-endpoint``.
+
+For the LIBERO Dashboard, add ``--policy-mode code`` to its launch command.
+The Dashboard starts a fresh environment for each task. Use
+``--am-endpoint`` and ``--sam3-endpoint`` to reuse remote model services.
+See :doc:`pyrua` for prerequisites and supported configurations.

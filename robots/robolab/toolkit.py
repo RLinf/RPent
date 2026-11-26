@@ -39,17 +39,21 @@ class RoboLabToolkit(Toolkit):
         env: Any,
         model: Any | None,
         dashboard_events: DashboardEventSink,
-        memory: MemoryManager,
+        memory: MemoryManager | None,
         output_dir: Path,
     ) -> None:
         self.env = env
         self.model = model
         state = EnvState(output_dir)
-        super().__init__(dashboard_events=dashboard_events, state=state, memory=memory)
+        super().__init__(
+            dashboard_events=dashboard_events,
+            state=state,
+            memory=memory,
+            action_model_available=model is not None,
+        )
         self.add_tool(self.view_env_state)
         self.add_tool(direct_action_tool(env.action_specs, self._execute_action))
-        if model is not None:
-            self.add_tool(self.pi05_act)
+        self.add_tool(self.pi05_act)
         self._capture(command=None, result=None, elapsed_s=None)
         self._publish_step(self.state.latest_record())
 
@@ -132,7 +136,7 @@ class RoboLabToolkit(Toolkit):
             }
         )
 
-    @tool()
+    @tool(requires_action_model=True)
     def pi05_act(
         self,
         steps: Annotated[int, Field(ge=1, le=15, json_schema_extra={"default": 5})] = 5,

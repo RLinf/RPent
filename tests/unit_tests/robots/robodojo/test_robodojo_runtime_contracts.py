@@ -655,6 +655,28 @@ def test_default_runtime_starts_env_sam3_and_model(monkeypatch, tmp_path, backen
     }
 
 
+@pytest.mark.parametrize("backend", ["vpp2", "awomo05"])
+@pytest.mark.parametrize("components", [None, {"env", "sam3", "vla"}])
+def test_no_am_skips_routing_and_history(
+    runtime_services, tmp_path, monkeypatch, backend, components
+):
+    from rpent.dashboard.events import NullDashboardEventSink
+
+    events, _ = runtime_services
+    args = _args("--am-backend", backend, "--am-endpoint", "http://model")
+    args.no_am = True
+    monkeypatch.setattr(
+        am_runtime, "select_am", lambda *a: pytest.fail("action model resolved")
+    )
+    _, runtime = robot_spec._init_runtime(
+        args, tmp_path, NullDashboardEventSink(), components
+    )
+    assert {"env", "sam3_client"} <= runtime.keys()
+    assert runtime["vla_backend"] is None and "vla_client" not in runtime
+    assert [name for phase, name in events if phase == "spawn"] == ["env", "sam3"]
+    assert ("vpp2_history", False) in events
+
+
 def test_flash_rejected_before_services_start(monkeypatch, tmp_path):
     from rpent.dashboard.events import NullDashboardEventSink
 

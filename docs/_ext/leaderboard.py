@@ -168,6 +168,8 @@ def context(data: dict, language: str) -> dict:
         return "RPent / " + (config.get("model") or config.get("backend") or "—")
 
     def detail(config):
+        if config.get("description"):
+            return translate(config["description"])
         if config.get("perception_model"):
             return config["perception_model"] + (
                 " · visual localization" if language == "en" else " · 视觉定位"

@@ -43,6 +43,7 @@ from pydantic_ai.models.test import TestModel
 from pydantic_ai_harness.compaction._shared import estimate_text_tokens
 from pydantic_core import to_jsonable_python
 
+from rpent.code_policy.toolkit import CodePolicyTools
 from rpent.dashboard.events import RunStartedEvent, TranscriptEvent, UsageEvent
 from rpent.dashboard.state import DashboardState
 from rpent.planner.api_loop import ApiAgentLoop
@@ -249,6 +250,50 @@ def test_persistent_finish_refusal_stops_at_request_budget(tmp_path):
     assert result.error is None
     assert result.stats["turns_used"] == 3
     assert len(toolkit.calls) == 3
+
+
+@pytest.mark.parametrize(
+    ("first_code", "expected_requests"),
+    [
+        ("robo.finish(status='success', summary='done')", 1),
+        ("raise RuntimeError('retry')", 2),
+    ],
+)
+def test_code_policy_finish_ends_api_conversation(
+    tmp_path, first_code, expected_requests
+):
+    events = Events()
+    robot = RobotToolkit(events, state=EnvState(tmp_path / "state"))
+    toolkit = CodePolicyTools(robot, output_dir=tmp_path)
+    requests = 0
+
+    async def stream(messages, info):
+        nonlocal requests
+        requests += 1
+        assert requests <= expected_requests
+        code = (
+            first_code
+            if requests == 1
+            else "robo.finish(status='success', summary='done')"
+        )
+        yield tool("python", {"code": code})
+
+    try:
+        result, _, _ = solve(
+            tmp_path,
+            FunctionModel(stream_function=stream),
+            toolkit,
+            events,
+            max_turns=3,
+        )
+    finally:
+        toolkit.close()
+
+    assert result.error is None
+    assert result.finish_result == {"_finish": True, **FINISH_ARGS}
+    assert requests == expected_requests
+    assert result.stats["tool_calls"] == expected_requests
+    assert robot.calls == [("finish", FINISH_ARGS)]
 
 
 def test_anthropic_request_retains_all_prompt_cache_controls(tmp_path, monkeypatch):
@@ -1103,6 +1148,23 @@ def test_factory_passes_interactive_mode(tmp_path, monkeypatch):
     assert planner.interactive is True
 
 
+@pytest.mark.parametrize("planner_type", ["claude_code", "codex"])
+@pytest.mark.parametrize("use_memory", [True, False])
+def test_factory_mounts_memory_only_when_enabled(tmp_path, planner_type, use_memory):
+    from rpent.planner.base import build_planner
+
+    planner = build_planner(
+        planner_type,
+        output_dir=tmp_path,
+        recipe_tag="test",
+        robot_name="test",
+        memory_dir=tmp_path / "memory",
+        use_memory=use_memory,
+        dashboard_events=Events(),
+    )
+    assert planner._extra_dirs == ([str(tmp_path / "memory")] if use_memory else [])
+
+
 @pytest.mark.parametrize("no_images", [False, True])
 def test_offline_http_planner_executes_action_and_finish(tmp_path, no_images):
     from pydantic_ai.models.openai import OpenAIChatModel
@@ -1300,22 +1362,28 @@ def test_reasoning_effort_reaches_openai_chat_request_body(tmp_path, effort):
     ]
 
 
-def test_api_executes_readonly_calls_concurrently(tmp_path):
-    from weakref import ref
-
+def test_api_executes_readonly_calls_concurrently(tmp_path, monkeypatch):
     from rpent.session.env_capture import current_tool_call
+    from rpent.session.planner_capture import CapturingModel
 
     events = Events()
     toolkit = capturing_toolkit(tmp_path, events)
     rendezvous = threading.Barrier(2)
-    completed = []
-    captures = []
+    completed = {}
+    before_request = CapturingModel.before_request
+
+    def check_settled_calls(capture, ctx):
+        assert not capture.calls
+        before_request(capture, ctx)
+
+    monkeypatch.setattr(CapturingModel, "before_request", check_settled_calls)
 
     @declare_tool(readonly=True)
     def sense(label: str) -> ToolResult:
-        captures.append(ref(current_tool_call.get()))
+        capture = current_tool_call.get()
+        assert capture is not None
         rendezvous.wait(timeout=5)
-        completed.append(label)
+        completed[label] = capture.tool_call_id
         return ToolResult(data={"label": label})
 
     toolkit.add_tool(sense)
@@ -1329,16 +1397,16 @@ def test_api_executes_readonly_calls_concurrently(tmp_path):
                 "sense", {"label": "right"}, 1
             )
         else:
-            assert all(capture() is None for capture in captures)
+            assert current_tool_call.get() is None
             yield finish()
 
     result, _, _ = solve(
         tmp_path, FunctionModel(stream_function=stream), toolkit, events
     )
     assert result.error is None
-    assert sorted(completed) == ["left", "right"]
     calls = toolkit.state.planner_records()[0].tool_calls
     assert [c.raw_result.data["data"]["label"] for c in calls] == ["left", "right"]
+    assert completed == {"left": calls[0].tool_call_id, "right": calls[1].tool_call_id}
     assert all(c.status == "completed" for c in calls)
     assert result.finish_result == {"_finish": True, **FINISH_ARGS}
     assert result.stats["tool_calls"] == 3

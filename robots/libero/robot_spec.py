@@ -24,7 +24,7 @@ from functools import partial
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from robots.libero.prompt_bundle import system_prompt, user_prompt
+from robots.libero.prompt_bundle import code_system_prompt, system_prompt, user_prompt
 from robots.libero.suites import LIBERO_SUITE_NAMES, resolve_libero_type
 from rpent.dashboard.events import DashboardEventSink
 from rpent.dashboard.spec import DashboardSpec
@@ -34,11 +34,16 @@ from rpent.robots.components.am_runtime import (
     AMConfig,
     add_am_args,
     select_am,
+    select_optional_am,
     start_wam_service,
 )
 from rpent.robots.prompt_bundle import PromptBundle
 from rpent.robots.robot_spec import RobotSpec, RunConfig
-from rpent.robots.runtime import try_spawn_server, try_wait_server
+from rpent.robots.runtime import (
+    select_runtime_components,
+    try_spawn_server,
+    try_wait_server,
+)
 from rpent.utils.config import (
     add_cuda_device_arg,
     get_memory_dir,
@@ -70,6 +75,7 @@ FLASH_SUITES = frozenset(
 def _resolve_dashboard(args: argparse.Namespace) -> DashboardSpec:
     """Build the Dashboard configuration for the selected action model."""
     kind = "wam" if getattr(args, "am_backend", None) in WAM_BACKENDS else "vla"
+    no_am = getattr(args, "no_am", False)
     return {
         "task": {
             "command": "/rpent-task",
@@ -84,7 +90,12 @@ def _resolve_dashboard(args: argparse.Namespace) -> DashboardSpec:
         },
         "runtime_components": (
             {"name": "env", "label": "ENV", "scope": "unique"},
-            {"name": kind, "label": kind.upper(), "scope": "shared"},
+            {
+                "name": kind,
+                "label": kind.upper(),
+                "scope": "shared",
+                "role": "action_model",
+            },
             {"name": "sam3", "label": "SAM3", "scope": "shared"},
             {
                 "name": "molmo",
@@ -97,9 +108,7 @@ def _resolve_dashboard(args: argparse.Namespace) -> DashboardSpec:
         ),
         "primitives": (
             "move_to",
-            "pi0_pick",
-            "pi0_doubled",
-            "wam_act",
+            *(("pi0_pick", "pi0_doubled", "wam_act") if not no_am else ()),
             "release",
             "set_gripper",
             "rotate_wrist",
@@ -153,6 +162,7 @@ def get_robot_spec() -> RobotSpec:
         prompts=PromptBundle(
             system=system_prompt,
             user=user_prompt,
+            code_system=code_system_prompt,
         ),
         add_cli_args=_add_cli_args,
         parse_config=_parse_config,
@@ -160,6 +170,7 @@ def get_robot_spec() -> RobotSpec:
         resolve_dashboard=_resolve_dashboard,
         flywheel=FLYWHEEL_CONFIG,
         supports_exploration=True,
+        supports_no_am=True,
         run_flash=_run_flash,
         validate_args=validate_options,
         prepare_memory=prepare_memory,
@@ -179,13 +190,18 @@ def get_toolkit(
     from robots.libero.toolkit import LiberoToolkit
 
     explore = mode == "exploration"
-    memory = MemoryManager(
-        root=config.prompt_vars.get("memory_dir") or get_memory_dir("libero"),
-        memory_access="inbox_write" if explore else "read_only",
-        inbox_cell_tag=config.recipe_tag if explore else None,
-    )
+
+    memory = None
+    if config.use_memory:
+        memory = MemoryManager(
+            root=config.prompt_vars.get("memory_dir") or get_memory_dir("libero"),
+            memory_access="inbox_write" if explore else "read_only",
+            inbox_cell_tag=config.recipe_tag if explore else None,
+        )
+
     primitive_kwargs = dict(runtime_kwargs)
     geometry_grounder = primitive_kwargs.pop("geometry_grounder", None)
+
     return LiberoToolkit(
         runtime_kwargs=primitive_kwargs,
         generic_tools=config.prompt_vars.get("generic_tools", False),
@@ -321,10 +337,13 @@ def _parse_config(args: argparse.Namespace) -> RunConfig:
         raise ValueError("--task is required")
     planner = getattr(args, "planner", None)
     args.libero_type = resolve_libero_type(args.suite, args.libero_type)
-    am = select_am(args, "libero")
-    wam = am if am.is_wam else None
-    policy_kind = "wam" if wam else "vla"
-    policy_backend = wam.backend if wam else (args.am_backend or "pi05")
+    no_am = getattr(args, "no_am", False)
+    if no_am and args.libero_type != "standard":
+        raise ValueError("--no-am supports standard LIBERO")
+    am = select_optional_am(args, "libero")
+    wam = am if am is not None and am.is_wam else None
+    policy_kind = None if no_am else "wam" if wam else "vla"
+    policy_backend = am.backend if am is not None else None
     if wam:
         if planner == "flash" or getattr(args, "explore", False):
             raise ValueError("WAM supports evaluation without Flash Mode only")
@@ -372,7 +391,11 @@ def _parse_config(args: argparse.Namespace) -> RunConfig:
         if args.memory_dir
         else default_memory_dir
     )
-    local_eval = not explore and memory_profile == "local"
+    local_eval = (
+        not explore
+        and memory_profile == "local"
+        and getattr(args, "policy_mode", "tools") != "code"
+    )
     if local_eval and wam is None:
         if planner == "flash":
             from robots.libero.memory import replay_directory
@@ -609,16 +632,8 @@ def _init_runtime(
     from robots.libero.env_client import LiberoEnvClient
     from rpent.robots.components.sam3_client import Sam3Client
 
-    am = select_am(args, "libero")
-    wam = am if am.is_wam else None
-    policy_kind = "wam" if wam else "vla"
     starters = {
         "env": lambda: _spawn_env_server(args, output_dir),
-        policy_kind: lambda: (
-            start_wam_service(wam, output_dir)
-            if wam
-            else _spawn_vla_server(args, output_dir)
-        ),
         "sam3": lambda: _spawn_sam3_server(args, output_dir),
         "molmo": lambda: _connect_molmo_server(args),
     }
@@ -634,18 +649,27 @@ def _init_runtime(
                 },
             )
         },
-        policy_kind: lambda rpc: {"model": _make_model_client(rpc, wam)},
         "sam3": lambda rpc: {"sam3_client": Sam3Client(rpc)},
         "molmo": lambda rpc: _molmo_clients(args, rpc),
     }
-    selected = set(starters) if components is None else set(components)
-    if getattr(args, "planner", None) != "flash" and not getattr(
-        args, "geometry", False
-    ):
-        selected.discard("molmo")
-    unknown = selected.difference(starters)
-    if unknown:
-        raise ValueError(f"unknown LIBERO runtime components: {sorted(unknown)}")
+    selected = {
+        component["name"]
+        for component in select_runtime_components(
+            args, _resolve_dashboard(args)["runtime_components"], components
+        )
+    }
+    wait_order = ["env", "sam3", "molmo"]
+    if selected.intersection({"vla", "wam"}):
+        am = select_am(args, "libero")
+        wam = am if am.is_wam else None
+        policy_kind = "wam" if wam else "vla"
+        starters[policy_kind] = lambda: (
+            start_wam_service(wam, output_dir)
+            if wam
+            else _spawn_vla_server(args, output_dir)
+        )
+        connectors[policy_kind] = lambda rpc: {"model": _make_model_client(rpc, wam)}
+        wait_order.append(policy_kind)
 
     pending: dict[str, tuple[ProcessDaemon | None, RpcClient]] = {}
     owned_daemons: dict[str, ProcessDaemon] = {}
@@ -659,7 +683,6 @@ def _init_runtime(
             )
 
     runtime_kwargs: dict[str, Any] = {}
-    wait_order = ("env", "sam3", "molmo", policy_kind)
     for component in (name for name in wait_order if name in pending):
         daemon, rpc = pending[component]
         component_kwargs = try_wait_server(

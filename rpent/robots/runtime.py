@@ -23,15 +23,41 @@ the dashboard UI stays in sync with the actual processes.
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from argparse import Namespace
+from collections.abc import Callable, Sequence
 from typing import TYPE_CHECKING, Any
 
 from rpent.dashboard.events import DashboardEventSink, RuntimeStatusEvent
+from rpent.dashboard.spec import RuntimeComponentSpec
 from rpent.utils.daemon import ProcessDaemon
 from rpent.utils.rpc import wait_for_ready
 
 if TYPE_CHECKING:
     from rpent.utils.rpc import RpcClient
+
+
+def select_runtime_components(
+    args: Namespace,
+    components: Sequence[RuntimeComponentSpec],
+    requested: set[str] | None = None,
+) -> tuple[RuntimeComponentSpec, ...]:
+    """Select the same services for Dashboard and robot startup."""
+    if requested is not None:
+        unknown = requested - {component["name"] for component in components}
+        if unknown:
+            raise ValueError(f"unknown runtime components: {sorted(unknown)}")
+    return tuple(
+        component
+        for component in components
+        if (requested is None or component["name"] in requested)
+        and (
+            not component.get("planners")
+            or getattr(args, "planner", None) in component["planners"]
+        )
+        and not (
+            getattr(args, "no_am", False) and component.get("role") == "action_model"
+        )
+    )
 
 
 def stop_owned_daemons(

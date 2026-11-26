@@ -56,6 +56,8 @@ class RunConfig:
     #: ``--mcp-config``, and ``get_toolkit`` registers them on the robot's
     #: :class:`~rpent.tools.toolkit.Toolkit`. Empty when no server is declared.
     mcp_servers: tuple["McpServerSpec", ...] = ()
+    #: False builds toolkits without a memory corpus or file tools.
+    use_memory: bool = True
 
 
 @dataclass(frozen=True)
@@ -112,3 +114,5 @@ class RobotSpec:
     #: Fields are ordered, with key paths relative to payload data. raw_dtype applies
     #: to native values; dtype_from selects an earlier field's dtype by index.
     flywheel: dict[str, Any] | None = None
+    #: This backend can provide robot tools without an action model.
+    supports_no_am: bool = False

@@ -97,6 +97,7 @@
   }
   function detailLabel(r) {
     const c=configs.get(r.configuration_id);
+    if(c.description) return tr(c.description);
     if(c.perception_model) return `${c.perception_model} · ${lang==='en'?'visual localization':'视觉定位'}`;
     if(r.evaluation_note) return tr(r.evaluation_note);
     const reasoning=c.effort==='max'&&c.reasoning===true?['max.reasoning']:[c.effort,c.reasoning===false?t('noReasoning'):c.reasoning===true?'reasoning':null];

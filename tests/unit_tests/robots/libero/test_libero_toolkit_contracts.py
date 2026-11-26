@@ -37,6 +37,7 @@ from rpent.memory import MemoryManager
 from rpent.prompt.utils import Numbered
 from rpent.robots import RunConfig
 from rpent.robots.components.sam3_client import Sam3Result
+from rpent.robots.runtime import select_runtime_components
 from rpent.session import EnvState
 from rpent.tools import Toolkit, ToolResult
 from rpent.tools.common import CommonTools
@@ -133,6 +134,43 @@ def test_wam_configuration_and_toolkit_use_local_memory(tmp_path, monkeypatch, b
     args.memory_profile = "hf"
     with pytest.raises(ValueError, match="no compatible HF corpus"):
         spec.parse_config(args)
+
+
+@pytest.mark.parametrize("backend", ["pi05", "cosmos-policy"])
+def test_no_am_runtime_starts_only_environment_and_sam3(tmp_path, monkeypatch, backend):
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--output-dir")
+    parser.add_argument("--memory-profile")
+    parser.add_argument("--memory-dir")
+    parser.add_argument("--policy-mode", default="code")
+    parser.add_argument("--no-am", action="store_true")
+    spec = robot_spec.get_robot_spec()
+    spec.add_cli_args(parser, False)
+    args = parser.parse_args(
+        ["--suite", "libero_object", "--task", "0", "--no-am", "--am-backend", backend]
+    )
+    config = spec.parse_config(args)
+    assert config.task_desc["policy_kind"] is None
+    assert config.task_desc["policy_backend"] is None
+    components = {
+        component["name"]
+        for component in select_runtime_components(
+            args, spec.resolve_dashboard(args)["runtime_components"]
+        )
+    }
+    assert {"env", "sam3"} <= components
+    assert components.isdisjoint({"wam", "vla"})
+
+    started = []
+
+    def spawn(daemons, events, component, starter):
+        started.append(component)
+        return None, object()
+
+    monkeypatch.setattr(robot_spec, "try_spawn_server", spawn)
+    monkeypatch.setattr(robot_spec, "try_wait_server", lambda *a, **kw: {})
+    spec.init_runtime(args, tmp_path, NullDashboardEventSink(), None)
+    assert started == ["env", "sam3"]
 
 
 def test_toolkit_factory_configures_memory_access_by_mode(

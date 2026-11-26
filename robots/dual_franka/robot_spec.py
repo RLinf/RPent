@@ -25,7 +25,11 @@ from functools import partial
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from robots.dual_franka.prompt_bundle import system_prompt, user_prompt
+from robots.dual_franka.prompt_bundle import (
+    code_system_prompt,
+    system_prompt,
+    user_prompt,
+)
 from robots.dual_franka.runtime_config import DEFAULT_CONFIG
 from robots.dual_franka.tasks import DUAL_FRANKA_TASKS, get_dual_franka_task
 from robots.franka.runtime_config import (
@@ -39,10 +43,15 @@ from rpent.robots.components.am_runtime import (
     AMConfig,
     add_am_args,
     select_am,
+    select_optional_am,
 )
 from rpent.robots.prompt_bundle import PromptBundle
 from rpent.robots.robot_spec import RobotSpec, RunConfig
-from rpent.robots.runtime import try_spawn_server, try_wait_server
+from rpent.robots.runtime import (
+    select_runtime_components,
+    try_spawn_server,
+    try_wait_server,
+)
 from rpent.utils.config import (
     add_cuda_device_arg,
     get_memory_dir,
@@ -74,7 +83,7 @@ DUAL_FRANKA_DASHBOARD_SPEC: DashboardSpec = {
     },
     "runtime_components": (
         {"name": "env", "label": "DUAL FRANKA", "scope": "unique"},
-        {"name": "vla", "label": "VLA", "scope": "shared"},
+        {"name": "vla", "label": "VLA", "scope": "shared", "role": "action_model"},
         {"name": "sam3", "label": "SAM3", "scope": "shared"},
     ),
     "primitives": (
@@ -95,13 +104,16 @@ def get_robot_spec() -> RobotSpec:
     return RobotSpec(
         name="dual_franka",
         run_flash=_run_flash,
-        prompts=PromptBundle(system=system_prompt, user=user_prompt),
+        prompts=PromptBundle(
+            system=system_prompt, user=user_prompt, code_system=code_system_prompt
+        ),
         add_cli_args=_add_cli_args,
         parse_config=_parse_config,
         init_runtime=_init_runtime,
         resolve_dashboard=lambda args: DUAL_FRANKA_DASHBOARD_SPEC,
         is_real_robot=True,
         supports_exploration=True,
+        supports_no_am=True,
         supports_human_interactive_exploration=True,
     )
 
@@ -139,11 +151,13 @@ def get_toolkit(
     from robots.dual_franka.toolkit import DualFrankaToolkit
 
     explore = mode == "exploration"
-    memory = MemoryManager(
-        root=config.prompt_vars.get("memory_dir") or get_memory_dir("dual_franka"),
-        memory_access="inbox_write" if explore else "read_only",
-        inbox_cell_tag=config.recipe_tag if explore else None,
-    )
+    memory = None
+    if config.use_memory:
+        memory = MemoryManager(
+            root=config.prompt_vars.get("memory_dir") or get_memory_dir("dual_franka"),
+            memory_access="inbox_write" if explore else "read_only",
+            inbox_cell_tag=config.recipe_tag if explore else None,
+        )
     return DualFrankaToolkit(
         runtime_kwargs=runtime_kwargs,
         dashboard_events=dashboard_events,
@@ -212,15 +226,19 @@ def _add_cli_args(parser: argparse.ArgumentParser, use_dashboard: bool) -> None:
 
 
 def _parse_config(args: argparse.Namespace) -> RunConfig:
-    select_am(args, "dual_franka")
-    set_robot_config_path(args.robot_config or DEFAULT_CONFIG)
-    validate_calibration_sources()
+    am = select_optional_am(args, "dual_franka")
     if args.task_id is None:
         raise ValueError("--task-id is required")
+    task = get_dual_franka_task(args.task_id)
+    if am is None and task.requires_action_model:
+        raise ValueError(
+            f"--no-am cannot be used with task {args.task_id} ({task.name})"
+        )
+    set_robot_config_path(args.robot_config or DEFAULT_CONFIG)
+    validate_calibration_sources()
     from robots.franka.flash.replay import prepare
 
     args._flash_options = prepare(args, "dual_franka")
-    task = get_dual_franka_task(args.task_id)
     recipe_tag = _task_recipe_tag(args.task_id)
     explore = args.explore
     timestamp = datetime.now().strftime("%Y%m%d-%H:%M:%S")
@@ -419,16 +437,17 @@ def _init_runtime(
     to attach, or leave it unset to spawn a local subprocess. Manual calls can
     supply descriptions directly instead of selecting a registered task.
     """
-    select_am(args, "dual_franka")
+    select_optional_am(args, "dual_franka")
     from robots.dual_franka.env_client import DualFrankaEnvClient
     from rpent.robots.components.pi05_vla_client import Pi05VLAClient
     from rpent.robots.components.sam3_client import Sam3Client
 
-    available = {"env", "vla", "sam3"}
-    selected = available if components is None else components
-    unknown = selected.difference(available)
-    if unknown:
-        raise ValueError(f"unknown dual-Franka runtime components: {sorted(unknown)}")
+    selected = {
+        component["name"]
+        for component in select_runtime_components(
+            args, DUAL_FRANKA_DASHBOARD_SPEC["runtime_components"], components
+        )
+    }
 
     needs_vla = args.am_endpoint is not None
     if task_description is not None:

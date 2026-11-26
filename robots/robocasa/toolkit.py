@@ -51,7 +51,7 @@ class RoboCasaToolkit(Toolkit):
         *,
         runtime_kwargs: dict[str, Any],
         dashboard_events: DashboardEventSink,
-        memory: MemoryManager,
+        memory: MemoryManager | None,
         enable_direct_action: bool = False,
         mode: str = "evaluation",
         attempts_per_session: int = 0,
@@ -65,6 +65,7 @@ class RoboCasaToolkit(Toolkit):
             dashboard_events=dashboard_events,
             state=state,
             memory=memory,
+            action_model_available=runtime_kwargs.get("vla_client") is not None,
         )
         self._mode = mode
         self._attempt = 1

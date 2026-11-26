@@ -18,6 +18,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 
+from robots.robotwin.prompts import code_policy as code_parts
 from robots.robotwin.prompts import evaluate as evaluate_parts
 from robots.robotwin.prompts import explore as explore_parts
 from robots.robotwin.prompts import user as user_parts
@@ -29,6 +30,7 @@ def system_prompt(
 ) -> PromptNode:
     """Return the RoboTwin system prompt for the selected run mode."""
     variables = variables or {}
+
     if variables.get("policy_backend") == "uniwam":
         from robots.robotwin.prompts.uniwam import evaluate
 
@@ -48,10 +50,21 @@ def system_prompt(
     return evaluate_parts.system_prompt(variables)
 
 
+def code_system_prompt(variables: Mapping[str, object] | None = None) -> PromptNode:
+    """Return operating guidance for Python cells."""
+    return code_parts.system_prompt(
+        policy_kind=(variables or {}).get("policy_kind", "vla")
+    )
+
+
 def user_prompt(
     variables: Mapping[str, object] | None = None,
 ) -> PromptNode:
     variables = variables or {}
+
+    if variables.get("policy_mode") == "code":
+        return {"CELL": user_parts.CELL}
+
     is_uniwam = variables.get("policy_backend") == "uniwam"
     if variables.get("policy_kind") == "wam" and not is_uniwam:
         return {
@@ -63,6 +76,7 @@ def user_prompt(
         if is_uniwam
         else "RLinf/LingBot-VLA-RoboTwin-EEF-ckpt1500"
     )
+
     prompt = {
         "CELL": user_parts.CELL + f"- checkpoint: {checkpoint}\n",
         "BEGIN": user_parts.BEGIN,
@@ -72,4 +86,4 @@ def user_prompt(
     return prompt
 
 
-__all__ = ["system_prompt", "user_prompt"]
+__all__ = ["code_system_prompt", "system_prompt", "user_prompt"]

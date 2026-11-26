@@ -63,11 +63,11 @@ class LiberoPrimitives:
     def __init__(
         self,
         env: LiberoEnvClient | CapturingEnvClient,
-        model: BaseVLAClient | LiberoWAMClient,
+        model: BaseVLAClient | LiberoWAMClient | None,
         sam3_client: Sam3Client,
         check_cancelled: Callable[[], None],
         molmo_client: MolmoClient | None = None,
-        policy_kind: str = "vla",
+        policy_kind: str | None = "vla",
     ):
         self.env = env
         self.model = model
@@ -171,7 +171,7 @@ class LiberoPrimitives:
                 self.record_frame(obs)
         return self._last_obs
 
-    @tool
+    @tool(requires_action_model=True)
     def wam_act(
         self,
         prompt: Annotated[str, Field(min_length=1)] | None = None,
@@ -206,7 +206,7 @@ class LiberoPrimitives:
             }
         )
 
-    @tool
+    @tool(requires_action_model=True)
     def pi0_pick(
         self,
         prompt: str,
@@ -293,7 +293,7 @@ class LiberoPrimitives:
             }
         )
 
-    @tool
+    @tool(requires_action_model=True)
     def pi0_doubled(self, prompt: str, *, max_chunks: int = 20) -> ToolResult:
         """Pi0.5 closed-loop contact skill for non-pick interactions (e.g. stove/knob/button/short push). Returned success/task_success only mirrors official termination; for intermediate contact skills, success=false does not necessarily mean the contact interaction failed. Inspect image/state evidence. Do not use it as a general pick/place shortcut.
 
@@ -1306,11 +1306,12 @@ def _save_observation_artifacts(
 # ---------------------------------------------------------------------------
 
 
-@tool(readonly=True, exclude=("state",))
+@tool(readonly=True, exclude=("state", "include_images"))
 def view_env_state(
     step: Annotated[int, Field(json_schema_extra={"default": -1})] = -1,
     *,
     state: EnvState,
+    include_images: bool = True,
 ) -> ToolResult:
     """Read one recorded state and its observation artifacts. Step -1 selects the latest entry. Embeds policy, agentview, and wrist images when available. Use the calibration-frame images for pixel back-projection; JSON state alone is not enough. Use agentview for global tabletop layout and object locations; use wrist for close-range details near the gripper, occlusions, and container/cabinet interiors.
 
@@ -1338,6 +1339,8 @@ def view_env_state(
         "result": record.result,
         "elapsed_s": record.elapsed_s,
     }
+    if not include_images:
+        return ToolResult(data=out)
     for names in (
         ("agentview_policy.png",),
         ("agentview_high.png", "agentview.png"),

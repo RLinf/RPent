@@ -77,12 +77,15 @@ RPent 的整体进程划分、服务职责和通信方式见 :doc:`系统说明 
        config: RunConfig,
    ):
        from robots.myrobot.toolkit import MyRobotToolkit
+       memory = None
+       if config.use_memory:
+           memory = MemoryManager(
+               root=config.prompt_vars.get("memory_dir") or get_memory_dir("myrobot"),
+           )
        return MyRobotToolkit(
            runtime_kwargs=runtime_kwargs,
            dashboard_events=dashboard_events,
-           memory=MemoryManager(
-               root=config.prompt_vars.get("memory_dir") or get_memory_dir("myrobot"),
-           ),
+           memory=memory,
        )
 
    def _add_cli_args(parser, use_dashboard) -> None:
@@ -233,9 +236,7 @@ toolkit 模块通常包含四部分：
 
 **Toolkit 类** 继承 ``rpent.tools.toolkit.Toolkit``：
 
-- 在 ``super().__init__(...)`` 中传入 ``memory`` （一个
-  必需的 :class:`~rpent.memory.MemoryManager`）和 ``state``。``memory_access`` 和
-  ``inbox_cell_tag`` 在构造 ``MemoryManager`` 时配置；eval 默认只读。
+- 在 ``super().__init__(...)`` 中传入 ``memory``\ （``MemoryManager | None``）和 ``state``。仅在 ``config.use_memory`` 为真时构造 ``MemoryManager``，构造时设置 ``memory_access`` 和 ``inbox_cell_tag``。评测默认以只读方式访问记忆。
 - 在 ``__init__`` 中通过自定义的初始化辅助方法构建 primitives（LIBERO 中的方法名为 ``init_primitives``；它会调用 ``EnvState.reset()``、构造原语并 dump 第 0 步）,
 - 用 ``self.add_tools(iter_tools(self._primitives))`` 或 ``self.add_tool(definition)`` 注册绑定后的工具；通过 ``definition.with_handler(...)`` 绑定内部资源或执行检查，由 Toolkit 采集动作后的状态；
 - 重写 ``close()``，通过 ``EnvState`` 保存 agent 侧剩余工件（例如 ``state.save("episode.mp4", frames, step=None)``）。
@@ -250,12 +251,15 @@ toolkit 模块通常包含四部分：
 .. code-block:: python
 
    def get_toolkit(*, runtime_kwargs, dashboard_events, config):
+       memory = None
+       if config.use_memory:
+           memory = MemoryManager(
+               root=config.prompt_vars.get("memory_dir") or get_memory_dir("myrobot"),
+           )
        toolkit = MyRobotToolkit(
            runtime_kwargs=runtime_kwargs,
            dashboard_events=dashboard_events,
-           memory=MemoryManager(
-               root=config.prompt_vars.get("memory_dir") or get_memory_dir("myrobot"),
-           ),
+           memory=memory,
        )
        if any(server.name == "dock" for server in config.mcp_servers):
            toolkit.add_mcp_tools(
@@ -349,7 +353,20 @@ JSON 产物应使用 ``write_json_atomic``，避免中断写入留下不完整�
            },
        )
 
-通过 ``RobotSpec(..., finalize_run=_finalize_run)`` 注册回调。该钩子目前只用于普通终端运行，Dashboard 不会调用。benchmark manifest、机器人专用 runtime 字段和聚合逻辑应继续放在机器人目录中，而不是共享 CLI。
+通过 ``RobotSpec(..., finalize_run=_finalize_run)`` 注册回调。该钩子仅用于普通终端运行。将评测清单、机器人专用的运行字段和结果汇总逻辑放在机器人包中。
+
+无动作模型的代码策略
+--------------------
+
+可在 ``PromptBundle`` 中设置 ``code_system`` 工厂回调，为 PyRUA 中的规划器提供机器人专用说明。启用或关闭动作模型均可使用此回调。
+
+接入 ``--policy-mode code --no-am``：
+
+1. 机器人可以依靠原生控制与反馈完成任务时，声明 ``RobotSpec.supports_no_am=True``。
+2. 用 ``rpent.robots.components.am_runtime.select_optional_am`` 解析动作模型。给模型组件标记 ``role="action_model"``，并在运行时钩子中调用 ``rpent.robots.runtime.select_runtime_components``。CLI 和 Dashboard 均会保留环境和感知组件。
+3. 根据本次运行是否连接动作模型，向 ``Toolkit`` 传入 ``action_model_available``。将依赖模型的工具标记为 ``@tool(requires_action_model=True)``。未连接模型时，``Toolkit`` 会从工具分派、规划器工具列表和 Python 接口中移除这些工具。
+
+使用 ``--no-am`` 运行测试，确认原生控制和观测可用，并检查运行时是否跳过动作模型的解析和启动。参考实现见 ``robots/libero/`` 和 ``robots/robodojo/``，运行命令见 :doc:`../guides/pyrua`。
 
 .. _add-robot-testing:
 

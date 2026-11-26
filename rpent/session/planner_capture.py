@@ -263,7 +263,7 @@ class CapturingModel(WrapperModel):
             if call_run != run_id or (step is not None and call_step != step):
                 continue
             if not call.finished:
-                call.finish("cancelled", detail)
+                call.finish("cancelled" if call.started else "not_executed", detail)
                 self.state.update_tool_call(
                     call.tool_call_id,
                     missing={"feedback": MissingInfo("not_applicable", detail)},

@@ -18,6 +18,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 
+from robots.robodojo.prompts import code_policy as code_parts
 from robots.robodojo.prompts import evaluate as evaluate_parts
 from robots.robodojo.prompts import explore as explore_parts
 from robots.robodojo.prompts import user as user_parts
@@ -28,16 +29,28 @@ from rpent.prompt.utils import PromptNode
 def system_prompt(
     variables: Mapping[str, object] | None = None,
 ) -> PromptNode:
-    """Select the RoboDojo evaluation or exploration system prompt."""
-    if (variables or {}).get("mode") == "explore":
+    """Select the RoboDojo system prompt for the selected run mode."""
+    variables = variables or {}
+
+    if variables.get("mode") == "explore":
         return explore_parts.system_prompt(variables)
+
     return evaluate_parts.system_prompt(variables)
+
+
+def code_system_prompt(variables: Mapping[str, object] | None = None) -> PromptNode:
+    """Return operating guidance for Python cells."""
+    return code_parts.system_prompt(backend=(variables or {}).get("vla_backend"))
 
 
 def user_prompt(
     variables: Mapping[str, object] | None = None,
 ) -> PromptNode:
-    backend = (variables or {}).get("vla_backend") or "vpp2"
+    variables = variables or {}
+    if variables.get("policy_mode") == "code":
+        return {"TASK": "{{task}} / layout {{layout}} / seed group {{seed}}"}
+
+    backend = variables.get("vla_backend") or "vpp2"
     sections = {
         "TASK": user_parts.TASK.replace(
             "{{policy_control}}",
@@ -45,9 +58,11 @@ def user_prompt(
         ),
         "BEGIN": user_parts.BEGIN,
     }
-    if (variables or {}).get("mode") == "eval-fair":
+
+    if variables.get("mode") == "eval-fair":
         return {"TASK": "{{task}} / layout {{layout}}"}
+
     return sections
 
 
-__all__ = ["system_prompt", "user_prompt"]
+__all__ = ["code_system_prompt", "system_prompt", "user_prompt"]

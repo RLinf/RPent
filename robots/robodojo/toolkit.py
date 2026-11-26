@@ -61,7 +61,7 @@ class RoboDojoToolkit(Toolkit):
         *,
         primitives_kwargs: dict[str, Any],
         dashboard_events: DashboardEventSink,
-        memory: MemoryManager,
+        memory: MemoryManager | None,
         eval_fair: bool = False,
         mode: str = "evaluation",
         attempts_per_session: int = 5,
@@ -89,6 +89,7 @@ class RoboDojoToolkit(Toolkit):
             dashboard_events=dashboard_events,
             state=state,
             memory=memory,
+            action_model_available=primitives_kwargs.get("vla_client") is not None,
         )
         if self._mode == "exploration":
             self.raise_if_cancelled()
@@ -153,14 +154,10 @@ class RoboDojoToolkit(Toolkit):
         except Exception as exc:
             return {"score": None, "score_error": f"{type(exc).__name__}: {exc}"}
 
-    def _register_robodojo_tools(self, vla_backend: str) -> None:
+    def _register_robodojo_tools(self, vla_backend: str | None) -> None:
         from robots.robodojo import tools as robodojo_tools
 
-        policy_tool = (
-            POLICY_TOOLS[vla_backend]
-            if self._primitives.vla_client is not None
-            else None
-        )
+        policy_tool = POLICY_TOOLS.get(vla_backend)
         for definition in iter_tools(robodojo_tools):
             if definition.name not in OBSERVATION_TOOLS:
                 continue

@@ -28,6 +28,7 @@ import pytest
 import robots.robolab.robot_spec as robolab_spec
 from robots.robolab.env_server import RoboLabEnvFacade
 from robots.robolab.toolkit import RoboLabToolkit
+from rpent.cli.policy import configure_policy
 from rpent.dashboard.events import NullDashboardEventSink
 from rpent.evaluation import RunFinalizationContext
 from rpent.memory import MemoryManager
@@ -35,6 +36,8 @@ from rpent.robots.base import get_robot_spec
 from rpent.robots.components import am_runtime
 from rpent.robots.components.action_spec import box_action_spec, validate_action
 from rpent.robots.components.pi05_vla_client import Pi05VLAClient
+from rpent.robots.robot_spec import RunConfig
+from rpent.utils.logging import init_output_dir
 
 
 def test_robolab_registers_and_parses_without_simulator(tmp_path):
@@ -115,21 +118,28 @@ def test_runtime_keeps_virtualenv_python_symlinks(tmp_path, monkeypatch, env_gpu
     assert vla_daemon.env_overrides["CUDA_VISIBLE_DEVICES"] == "2"
 
 
-def test_external_env_connection_ignores_local_gpu(monkeypatch, tmp_path):
+@pytest.mark.parametrize("no_am", [False, True])
+def test_external_env_connection_ignores_local_gpu(monkeypatch, tmp_path, no_am):
     parser = argparse.ArgumentParser()
-    robolab_spec.get_robot_spec().add_cli_args(parser, False)
+    robot = robolab_spec.get_robot_spec()
+    robot.add_cli_args(parser, False)
     args = parser.parse_args(
         [
             "--task",
             "BananaInBowlTask",
             "--policy-backend",
-            "none",
+            "pi05" if no_am else "none",
             "--env-endpoint",
             "http://remote:1234",
             "--device",
             "cuda:7",
         ]
     )
+
+    args.no_am = no_am
+    robot.validate_args(args)
+    assert robot.supports_no_am
+    assert "pi05_act" not in robot.resolve_dashboard(args)["primitives"]
 
     class RPC:
         def call(self, method, **kwargs):
@@ -335,6 +345,26 @@ class _FakeModel:
     def predict(self, obs):
         assert obs["task_descriptions"] == "Put the banana in the bowl."
         return np.ones((15, 8), dtype=np.float32)
+
+
+def test_code_policy_builds_robolab_toolkit_without_memory(tmp_path):
+    init_output_dir(tmp_path)
+    config = configure_policy(
+        RunConfig("test", tmp_path, {"memory_dir": tmp_path / "memory"}, {}),
+        argparse.Namespace(policy_mode="code"),
+    )
+    toolkit = robolab_spec.get_toolkit(
+        runtime_kwargs={"env": _FakeEnv(), "model": _FakeModel()},
+        dashboard_events=NullDashboardEventSink(),
+        config=config,
+    )
+    assert toolkit.memory is None
+    assert {item.name for item in toolkit.list_tools()} >= {
+        "finish",
+        "pi05_act",
+        "view_env_state",
+    }
+    assert toolkit.state.get(0).state["success"] is None
 
 
 def test_policy_tool_executes_until_native_success_and_records_state(tmp_path):

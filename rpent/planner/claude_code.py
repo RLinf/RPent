@@ -60,6 +60,7 @@ from rpent.session import MissingInfo, Payload
 from rpent.session.claude_capture import ClaudeTraceCapture
 from rpent.session.env_capture import ToolCallCapture
 from rpent.tools import Toolkit, ToolResult
+from rpent.tools.base import finish_payload
 from rpent.utils.config import get_repo_root
 from rpent.utils.logging import get_logger, init_output_dir
 from rpent.utils.templates import substitute
@@ -455,13 +456,8 @@ class _Recorder:
 
     def observe_tool_result(self, name: str, result: ToolResult) -> None:
         """Accept only the toolkit's authoritative finish verdict."""
-        if (
-            name == "finish"
-            and not result.is_error
-            and result.data.get("_finish") is True
-            and self.finish_result is None
-        ):
-            self.finish_result = dict(result.data)
+        if verdict := finish_payload(name, result.data, is_error=result.is_error):
+            self.finish_result = self.finish_result or verdict
 
     def observe(self, message: Any) -> str:
         kind = _kind(message)

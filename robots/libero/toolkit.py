@@ -54,12 +54,12 @@ class LiberoToolkit(Toolkit):
         *,
         runtime_kwargs: dict[str, Any],
         dashboard_events: DashboardEventSink,
-        memory: MemoryManager,
+        memory: MemoryManager | None,
         enable_direct_action: bool = False,
         mode: str = "evaluation",
         attempts_per_session: int = 0,
         state_output_dir: Path | str | None = None,
-        policy_kind: str = "vla",
+        policy_kind: str | None = "vla",
         generic_tools: bool = False,
         geometry_grounder: VisualGrounder | None = None,
     ) -> None:
@@ -75,9 +75,11 @@ class LiberoToolkit(Toolkit):
             dashboard_events=dashboard_events,
             state=state,
             memory=memory,
+            action_model_available=policy_kind is not None,
         )
         self._mode = mode
         self._policy_kind = policy_kind
+        self._require_native_success = policy_kind in ("wam", None)
         self._solved: bool = False
         self._attempt: int = 1
         # Bound the resettable attempts owned by this planner session.
@@ -115,11 +117,11 @@ class LiberoToolkit(Toolkit):
                     check_cancelled=self.raise_if_cancelled,
                 )
                 self.add_tool(self._geometry.geometry)
-        if policy_kind == "wam":
+        if self._require_native_success:
             finish = self._tools["finish"]
             self.add_tool(
                 replace(
-                    finish.with_handler(partial(self._wam_finish, finish)),
+                    finish.with_handler(partial(self._native_finish, finish)),
                     description="End the episode with its observed outcome. "
                     "Success requires native environment success.",
                 ),
@@ -143,14 +145,12 @@ class LiberoToolkit(Toolkit):
             self.add_tool(
                 definition.with_handler(partial(definition, state=self._state))
             )
+        excluded = (
+            {"pi0_pick", "pi0_doubled"} if self._policy_kind == "wam" else {"wam_act"}
+        )
         for definition in iter_tools(self._primitives):
             if generic_tools and definition.name == "segment":
                 continue
-            excluded = (
-                {"pi0_pick", "pi0_doubled"}
-                if self._policy_kind == "wam"
-                else {"wam_act"}
-            )
             if definition.name in excluded:
                 continue
             if definition.name == "segment":
@@ -173,7 +173,7 @@ class LiberoToolkit(Toolkit):
         self, handler: Callable[..., ToolResult], **kwargs: Any
     ) -> ToolResult:
         env = self._primitives.env
-        if self._policy_kind == "wam" and (env.terminated or env.truncated):
+        if self._require_native_success and (env.terminated or env.truncated):
             status = "success" if env.terminated else "failure"
             raise ValueError(
                 "Episode already ended; no further motion is allowed. "
@@ -181,7 +181,7 @@ class LiberoToolkit(Toolkit):
             )
         return handler(**kwargs)
 
-    def _wam_finish(self, inner: Any, **kwargs: Any) -> ToolResult:
+    def _native_finish(self, inner: Any, **kwargs: Any) -> ToolResult:
         """Require native task success before accepting a success claim."""
         if kwargs.get("status") == "success" and not self.solved():
             return ToolResult(
@@ -267,9 +267,13 @@ class LiberoToolkit(Toolkit):
                     record.step_idx,
                     e,
                 )
-        out = libero_tools.view_env_state(record.step_idx, state=self._state)
+        out = libero_tools.view_env_state(
+            record.step_idx,
+            state=self._state,
+            include_images=self._policy_kind is not None,
+        )
         out.data["agent_elapsed_s"] = elapsed_s
-        if self._policy_kind == "wam" and (record.terminated or record.truncated):
+        if self._require_native_success and (record.terminated or record.truncated):
             status = "success" if record.terminated else "failure"
             out.data["next_action"] = (
                 f"Episode ended. Call finish with status={status!r}; "
@@ -293,6 +297,8 @@ class LiberoToolkit(Toolkit):
         self._state.reset()
 
         runtime_kwargs = dict(runtime_kwargs)
+        if self._policy_kind is None:
+            runtime_kwargs["model"] = None
         if self._mode == "evaluation":
             env = runtime_kwargs["env"]
             runtime_kwargs["env"] = CapturingEnvClient(

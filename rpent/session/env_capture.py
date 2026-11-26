@@ -66,7 +66,9 @@ class ToolCallCapture:
         self._result_captured = True
 
     def finish(
-        self, status: Literal["completed", "failed", "cancelled"], detail: str = ""
+        self,
+        status: Literal["completed", "failed", "cancelled", "not_executed"],
+        detail: str = "",
     ) -> None:
         """Finish execution without inventing timestamps for unstarted calls."""
         missing = {}
@@ -76,7 +78,7 @@ class ToolCallCapture:
             )
         self.state.update_tool_call(
             self.tool_call_id,
-            status=status if self.started else "not_executed",
+            status=status if self.started or status == "cancelled" else "not_executed",
             ended_at=datetime.now(timezone.utc) if self.started else None,
             missing=missing,
         )

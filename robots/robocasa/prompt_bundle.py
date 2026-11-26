@@ -18,6 +18,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 
+from robots.robocasa.prompts import code_policy as code_parts
 from robots.robocasa.prompts import evaluate as evaluate_parts
 from robots.robocasa.prompts import explore as explore_parts
 from rpent.prompt.utils import PromptNode
@@ -25,17 +26,26 @@ from rpent.prompt.utils import PromptNode
 
 def system_prompt(
     variables: Mapping[str, object] | None = None,
-) -> dict[str, PromptNode]:
+) -> PromptNode:
     """Return the RoboCasa system prompt tree."""
     if (variables or {}).get("mode", "eval") == "explore":
         return explore_parts.system_prompt()
     return evaluate_parts.system_prompt(variables)
 
 
+def code_system_prompt(variables: Mapping[str, object] | None = None) -> PromptNode:
+    """Return operating guidance for Python cells."""
+    return code_parts.system_prompt(
+        action_model=not (variables or {}).get("no_am", False)
+    )
+
+
 def user_prompt(
     variables: Mapping[str, object] | None = None,
 ) -> dict[str, PromptNode]:
     """Return the first user message tree."""
+    if (variables or {}).get("policy_mode") == "code":
+        return {"Task": "- task: {{task_name}} / {{split}}\n- seed: {{seed}}"}
     mode = (
         explore_parts.USER_MODE
         if (variables or {}).get("mode", "eval") == "explore"

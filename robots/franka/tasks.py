@@ -29,6 +29,7 @@ class FrankaTask:
     constraints: tuple[str, ...]
     setup: str = ""
     vla_instruction: str | None = None
+    requires_action_model: bool = False
 
 
 FRANKA_TASKS = {
@@ -50,6 +51,7 @@ FRANKA_TASKS = {
     ),
     1: FrankaTask(
         name="vla_grasp",
+        requires_action_model=True,
         instruction=(
             "Use bounded analytic motion to stage near the named object, ensure the "
             "gripper is open, then use vla_grasp for the contact-rich grasp attempt."

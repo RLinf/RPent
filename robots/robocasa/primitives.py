@@ -33,7 +33,7 @@ class RoboCasaPrimitives:
         env_client,
         workdir,
         hi_res,
-        vla_client,
+        vla_client=None,
         check_cancelled=None,
         allow_reset: bool | None = None,
     ):
@@ -638,7 +638,7 @@ class RoboCasaPrimitives:
         )
 
     # ---- VLA wrappers (public API for execute) ----
-    @tool(exclude=("use_prompt",))
+    @tool(exclude=("use_prompt",), requires_action_model=True)
     def rldx_skill(
         self,
         base_clip: float | None = None,
@@ -674,7 +674,7 @@ class RoboCasaPrimitives:
         )
         return ToolResult(data=data)
 
-    @tool(exclude=("use_prompt",))
+    @tool(exclude=("use_prompt",), requires_action_model=True)
     def rldx_arm(
         self,
         base_clip: float | None = 0.1,

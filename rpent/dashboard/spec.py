@@ -46,6 +46,7 @@ class RuntimeComponentSpecRequired(TypedDict):
 
 class RuntimeComponentSpec(RuntimeComponentSpecRequired, total=False):
     planners: tuple[str, ...]
+    role: Literal["action_model"]
 
 
 class DashboardSpecRequired(TypedDict):

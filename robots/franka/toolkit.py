@@ -44,7 +44,7 @@ class FrankaToolkit(Toolkit):
         *,
         runtime_kwargs: dict[str, Any],
         dashboard_events: DashboardEventSink,
-        memory: MemoryManager,
+        memory: MemoryManager | None,
         state_output_dir: Path | str | None = None,
     ) -> None:
         runtime_kwargs = dict(runtime_kwargs)
@@ -56,6 +56,7 @@ class FrankaToolkit(Toolkit):
             dashboard_events=dashboard_events,
             state=state,
             memory=memory,
+            action_model_available=runtime_kwargs.get("model") is not None,
         )
         self._primitives = self._primitives_cls(
             check_cancelled=self.raise_if_cancelled,

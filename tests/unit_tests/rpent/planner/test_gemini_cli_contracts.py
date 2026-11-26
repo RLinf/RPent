@@ -121,13 +121,14 @@ def test_environment_trusts_generated_workspace_and_bypasses_loopback_proxy(
 
 
 @pytest.mark.parametrize("tool_error", [False, True])
-def test_recorder_uses_actual_finish_and_accumulates_usage(tool_error):
+@pytest.mark.parametrize("tool_name", ["finish", "python", "inspect_scene"])
+def test_recorder_uses_actual_finish_and_accumulates_usage(tool_error, tool_name):
     events = []
     recorder = _Recorder(SimpleNamespace(enabled=True, emit=events.append))
     recorder.observe(
         {
             "type": "rpent_tool",
-            "name": "finish",
+            "name": tool_name,
             "args": {"status": "success", "summary": "done"},
             "result": {"_finish": True, "status": "success", "summary": "done"},
             "is_error": tool_error,
@@ -152,7 +153,7 @@ def test_recorder_uses_actual_finish_and_accumulates_usage(tool_error):
         )
     assert recorder.finish_result == (
         None
-        if tool_error
+        if tool_error or tool_name == "inspect_scene"
         else {"_finish": True, "status": "success", "summary": "done"}
     )
     assert recorder.final_response == "complete"
@@ -248,7 +249,7 @@ def acp_backend(monkeypatch):
                 elif FakeMcpServer.instances and seen.get("finish", True):
                     server = FakeMcpServer.instances[-1]
                     server.on_tool_result(
-                        "finish",
+                        seen.get("finish_tool", "finish"),
                         {"status": "success", "summary": "done"},
                         ToolResult(
                             data={
@@ -311,6 +312,7 @@ def test_relative_output_directory_uses_absolute_session_workspace(
     [
         "finish",
         "finish_then_block",
+        "python_finish",
         "no_finish",
         "startup_error",
         "prompt_error",
@@ -324,8 +326,13 @@ def test_session_result_artifacts_and_cleanup(
     monkeypatch.setenv("GEMINI_API_KEY", secret)
     acp_backend["reply"] = f"request failed for {secret}"
     acp_backend["stderr"] = f"provider rejected {secret}\n"
-    acp_backend["finish"] = outcome in {"finish", "finish_then_block"}
-    acp_backend["block_after_finish"] = outcome == "finish_then_block"
+    acp_backend["finish"] = outcome in {"finish", "finish_then_block", "python_finish"}
+    acp_backend["block_after_finish"] = outcome in {
+        "finish_then_block",
+        "python_finish",
+    }
+    if outcome == "python_finish":
+        acp_backend["finish_tool"] = "python"
     acp_backend["block"] = outcome == "timeout"
     if outcome in {"startup_error", "prompt_error"}:
         acp_backend[outcome] = RuntimeError(f"gemini unavailable: {secret}")

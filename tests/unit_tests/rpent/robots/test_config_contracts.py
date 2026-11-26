@@ -32,8 +32,10 @@ from robots.franka.runtime_config import (
     get_robot_config_path,
     set_robot_config_path,
 )
+from rpent.dashboard.events import NullDashboardEventSink
 from rpent.robots import get_robot_spec
 from rpent.robots.components import am_runtime
+from rpent.robots.runtime import select_runtime_components
 from rpent.utils.config import get_memory_dir
 
 
@@ -386,7 +388,14 @@ def test_am_backend_selects_one_model_category(robot_name, default_backend):
         item
         for item in spec.resolve_dashboard(args)["runtime_components"]
         if item["name"] in {"vla", "wam"}
-    ] == [{"name": "vla", "label": "VLA", "scope": "shared"}]
+    ] == [
+        {
+            "name": "vla",
+            "label": "VLA",
+            "scope": "shared",
+            "role": "action_model",
+        }
+    ]
     args = parser.parse_args(
         ["--am-backend", "fast-wam", "--am-endpoint", "http://localhost:8117"]
     )
@@ -398,10 +407,61 @@ def test_am_backend_selects_one_model_category(robot_name, default_backend):
         item
         for item in dashboard["runtime_components"]
         if item["name"] in {"vla", "wam"}
-    ] == [{"name": "wam", "label": "WAM", "scope": "shared"}]
+    ] == [
+        {
+            "name": "wam",
+            "label": "WAM",
+            "scope": "shared",
+            "role": "action_model",
+        }
+    ]
     assert "wam_act" in dashboard["primitives"]
     assert "--vla-backend" not in parser.format_help()
     assert "--wam-backend" not in parser.format_help()
+
+
+@pytest.mark.parametrize(
+    "robot_name, backend, component",
+    [
+        ("franka", "pi05", "vla"),
+        ("dual_franka", "pi05", "vla"),
+        ("yam", "pi05", "vla"),
+        ("robocasa", "rldx", "vla"),
+        ("robotwin", "lingbot", "vla"),
+        ("robotwin", "fast-wam", "wam"),
+    ],
+)
+def test_no_am_excludes_the_model_from_dashboard_and_runtime(
+    robot_name, backend, component, tmp_path
+):
+    robot = get_robot_spec(robot_name)
+    args = _parser(robot_name, dashboard=True).parse_args(
+        [
+            "--am-backend",
+            backend,
+            "--am-endpoint",
+            "http://localhost:8116",
+            "--am-checkpoint",
+            "/unused",
+        ]
+    )
+    args.no_am = True
+    assert robot.supports_no_am
+    dashboard = robot.resolve_dashboard(args)
+    selected = select_runtime_components(args, dashboard["runtime_components"])
+    assert "env" in {item["name"] for item in selected}
+    assert all(item.get("role") != "action_model" for item in selected)
+    assert robot.init_runtime(
+        args, tmp_path, NullDashboardEventSink(), {component}
+    ) == ([], {})
+
+
+@pytest.mark.parametrize("robot_name", ["franka", "dual_franka"])
+def test_no_am_rejects_tasks_that_require_a_model(robot_name):
+    args = _parser(robot_name).parse_args(["--task-id", "1"])
+    args.no_am = True
+    with pytest.raises(ValueError, match="--no-am cannot be used with task 1"):
+        get_robot_spec(robot_name).parse_config(args)
 
 
 @pytest.mark.parametrize(

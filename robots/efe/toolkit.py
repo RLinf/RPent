@@ -85,7 +85,7 @@ class EfeToolkit(Toolkit):
         *,
         client: EfeEnvClient,
         dashboard_events: DashboardEventSink,
-        memory: MemoryManager,
+        memory: MemoryManager | None,
         state_output_dir: Path | str,
         enable_skills: bool = True,
     ) -> None:

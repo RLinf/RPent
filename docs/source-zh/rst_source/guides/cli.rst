@@ -34,6 +34,18 @@
    * - ``--max-turns``
      - ``100``
      - 规划器轮数上限；``api`` 按整段对话的模型请求次数计算，包括重试和后续输入。
+   * - ``--policy-mode``
+     - ``tools``
+     - 设为 ``code`` 后，规划器可用 Python 调用机器人工具。安装要求和支持的规划器见 :doc:`pyrua`。
+   * - ``--no-am``
+     - ``false``
+     - 与 ``--policy-mode code`` 一起使用，关闭动作模型服务及工具。支持的机器人和仿真环境见 :doc:`pyrua`。
+   * - ``--code-timeout-s``
+     - ``120``
+     - 每段 Python 代码的时间上限，单位为秒，包含工具调用。
+   * - ``--code-max-calls``
+     - ``100``
+     - 每段 Python 代码可调用机器人工具的次数上限。
    * - ``--max-tokens``
      - ``8192``
      - 仅 ``api``：每次模型回复的 Token 上限。
@@ -54,7 +66,7 @@
      - 外部 MCP 配置文件（YAML）路径，其中的 ``mcp_servers`` 会自动注册到当前机器人的 ``toolkit`` 中；支持 ``api``、``claude_code``、``codex`` 和 ``gemini_cli``\ （``flash`` 会拒绝此参数）。参见 :ref:`external-mcp-servers`。
    * - ``--no-images``
      - ``false``
-     - 仅 ``api``：不向模型发送图像。
+     - 省略发给 API 规划器的图像。在 ``--policy-mode code`` 下，所有受支持的规划器收到的 Python 执行结果都省略工具图像。
    * - ``--claude-code-max-budget-usd``
      - ``—``
      - Claude Code 美元预算；默认取 ``MAX_BUDGET_USD`` 或 10。
@@ -217,6 +229,8 @@ Claude Code 和 Codex 也可复用已有的 CLI 认证。Gemini CLI 使用自身
      - 用途
    * - ``transcript_*.json``
      - 规划器对话、工具调用及结束信息。
+   * - ``code_policy/``
+     - PyRUA 保存的代码、执行结果和日志。详见 :ref:`pyrua-run-records`。
    * - ``trajectories/<task_id>/``
      - ``--record-trajectory`` 保存的任务记录及附件。探索模式的记录位于各 ``sessions/session_*/`` 目录下。详见 :doc:`flywheel`。
    * - ``episode.mp4``
@@ -226,7 +240,7 @@ Claude Code 和 Codex 也可复用已有的 CLI 认证。Gemini CLI 使用自身
    * - ``env_server.log`` / ``vla_server.log`` / ``wam_server.log`` / ``sam3_server.log``
      - 由本次运行启动的环境和模型服务器日志。
    * - ``*_recipe.jsonl``
-     - 成功任务导出的动作序列；失败任务不保证生成该文件。
+     - 支持此功能的机器人在工具模式下成功完成任务后导出的动作序列。
    * - ``states.json``
      - ``EnvState`` 的内部状态索引。通过 Dashboard 或 ``view_env_state`` 查看状态，调用方不要直接解析此文件。
    * - ``agentview_depth.npz/00.npz``

@@ -40,6 +40,8 @@ def system_prompt(variables: Mapping[str, object] | None = None) -> PromptNode:
 
 
 def user_prompt(variables: Mapping[str, object] | None = None) -> PromptNode:
+    if (variables or {}).get("policy_mode") == "code":
+        return {"CELL": user_parts.CELL}
     return {"CELL": user_parts.CELL, "BEGIN": user_parts.BEGIN}
 
 

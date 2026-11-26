@@ -35,6 +35,8 @@ def system_prompt(variables: Mapping[str, object] | None = None) -> PromptNode:
 
 def user_prompt(variables: Mapping[str, object] | None = None) -> PromptNode:
     """Assemble the task-specific initial user prompt."""
+    if (variables or {}).get("policy_mode") == "code":
+        return {"TASK": user_parts.TASK, "TASK CONSTRAINTS": user_parts.CONSTRAINTS}
     return {
         "TASK": user_parts.TASK,
         "TASK CONSTRAINTS": user_parts.CONSTRAINTS,

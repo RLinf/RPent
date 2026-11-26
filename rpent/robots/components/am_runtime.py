@@ -244,6 +244,13 @@ class AMConfig:
         return daemon
 
 
+def select_optional_am(args: argparse.Namespace, platform: str) -> AMConfig | None:
+    """Resolve model configuration only when the run enables action models."""
+    if getattr(args, "no_am", False):
+        return None
+    return select_am(args, platform)
+
+
 def select_am(args: argparse.Namespace, platform: str) -> AMConfig:
     """Resolve the chosen model and reject inapplicable explicit launch options."""
     backend = getattr(args, "am_backend", None) or PLATFORM_VLA_BACKENDS[platform][0]

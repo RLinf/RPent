@@ -98,12 +98,15 @@ these two functions:
        config: RunConfig,
    ):
        from robots.myrobot.toolkit import MyRobotToolkit
+       memory = None
+       if config.use_memory:
+           memory = MemoryManager(
+               root=config.prompt_vars.get("memory_dir") or get_memory_dir("myrobot"),
+           )
        return MyRobotToolkit(
            runtime_kwargs=runtime_kwargs,
            dashboard_events=dashboard_events,
-           memory=MemoryManager(
-               root=config.prompt_vars.get("memory_dir") or get_memory_dir("myrobot"),
-           ),
+           memory=memory,
        )
 
    def _add_cli_args(parser, use_dashboard) -> None:
@@ -321,10 +324,10 @@ filenames rather than maintaining a parallel observation index.
 
 **Toolkit class** — subclass ``rpent.tools.toolkit.Toolkit``:
 
-- forward the required ``memory`` (a :class:`~rpent.memory.MemoryManager`) and ``state`` to
-  ``super().__init__(...)``. Configure ``memory_access`` and
-  ``inbox_cell_tag`` on the ``MemoryManager``; eval uses read-only access by
-  default.
+- Pass ``memory`` (``MemoryManager | None``) and ``state`` to
+  ``super().__init__(...)``. Construct the manager when ``config.use_memory``
+  is true. Configure ``memory_access`` and ``inbox_cell_tag`` on the manager.
+  Eval uses read-only memory by default.
 - build the primitives in ``__init__`` through a custom initialization
   helper (named ``init_primitives`` in LIBERO; it calls
   ``EnvState.reset()``, constructs the primitives, and dumps step 0),
@@ -350,12 +353,15 @@ restrict a server to specific tools or force ``sync_with_robot=True``, call
 .. code-block:: python
 
    def get_toolkit(*, runtime_kwargs, dashboard_events, config):
+       memory = None
+       if config.use_memory:
+           memory = MemoryManager(
+               root=config.prompt_vars.get("memory_dir") or get_memory_dir("myrobot"),
+           )
        toolkit = MyRobotToolkit(
            runtime_kwargs=runtime_kwargs,
            dashboard_events=dashboard_events,
-           memory=MemoryManager(
-               root=config.prompt_vars.get("memory_dir") or get_memory_dir("myrobot"),
-           ),
+           memory=memory,
        )
        if any(server.name == "dock" for server in config.mcp_servers):
            toolkit.add_mcp_tools(
@@ -512,8 +518,33 @@ cannot leave a partial result:
 
 Register the callback as ``RobotSpec(..., finalize_run=_finalize_run)``. This
 hook is currently limited to normal terminal runs; the Dashboard does not call
-it. Keep benchmark manifests, robot-specific runtime fields, and aggregation
-logic in the robot package rather than the shared CLI.
+it. Store benchmark manifests, robot-specific runtime fields, and aggregation
+logic in the robot package.
+
+Code Policy Without an Action Model
+-----------------------------------
+
+The optional ``code_system`` factory in ``PromptBundle`` gives the planner
+robot-specific instructions in PyRUA Mode with or without an action model.
+
+To support ``--policy-mode code --no-am``:
+
+1. Set ``RobotSpec.supports_no_am=True`` when the robot has native controls
+   and feedback suitable for running without an action model.
+2. Resolve the model with
+   ``rpent.robots.components.am_runtime.select_optional_am``. Mark its service with
+   ``role="action_model"`` in the runtime component declarations and use
+   ``rpent.robots.runtime.select_runtime_components`` in the runtime hook.
+   This keeps environment and perception services available in the CLI and
+   Dashboard.
+3. Pass ``action_model_available`` to ``Toolkit`` based on the run's model
+   connection. Mark dependent tools with ``@tool(requires_action_model=True)``.
+   Without a model connection, ``Toolkit`` omits those tools from dispatch,
+   planner schemas, and Python.
+
+With ``--no-am``, verify that native controls and observations work and model
+setup is skipped. See ``robots/libero/`` and ``robots/robodojo/`` for examples and
+:doc:`../guides/pyrua` for run commands.
 
 .. _add-robot-testing:
 

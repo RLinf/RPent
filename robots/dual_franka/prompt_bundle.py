@@ -18,6 +18,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 
+from robots.dual_franka.prompts import code_policy as code_parts
 from robots.dual_franka.prompts import explore as explore_parts
 from robots.dual_franka.prompts import system as system_parts
 from robots.dual_franka.prompts import user as user_parts
@@ -39,8 +40,17 @@ def system_prompt(variables: Mapping[str, object] | None = None) -> PromptNode:
     return node
 
 
+def code_system_prompt(variables: Mapping[str, object] | None = None) -> PromptNode:
+    """Return operating guidance for Python cells."""
+    return code_parts.system_prompt(
+        action_model=not (variables or {}).get("no_am", False)
+    )
+
+
 def user_prompt(variables: Mapping[str, object] | None = None) -> PromptNode:
     """Assemble the task-specific initial user prompt."""
+    if (variables or {}).get("policy_mode") == "code":
+        return {"TASK": user_parts.TASK, "TASK CONSTRAINTS": user_parts.CONSTRAINTS}
     node: dict[str, object] = {
         "TASK": user_parts.TASK,
         "TASK CONSTRAINTS": user_parts.CONSTRAINTS,

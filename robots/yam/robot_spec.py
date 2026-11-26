@@ -27,10 +27,10 @@ from robots.yam.tasks import TASK_INSTRUCTIONS, resolve_task_language
 from rpent.dashboard.events import DashboardEventSink
 from rpent.dashboard.spec import DashboardSpec
 from rpent.memory import MemoryManager
-from rpent.robots.components.am_runtime import add_am_args, select_am
+from rpent.robots.components.am_runtime import add_am_args, select_optional_am
 from rpent.robots.prompt_bundle import PromptBundle
 from rpent.robots.robot_spec import RobotSpec, RunConfig
-from rpent.robots.runtime import try_wait_server
+from rpent.robots.runtime import select_runtime_components, try_wait_server
 from rpent.utils.config import get_memory_dir, get_repo_root
 from rpent.utils.rpc import make_rpc_client
 
@@ -66,7 +66,7 @@ YAM_DASHBOARD_SPEC: DashboardSpec = {
     },
     "runtime_components": (
         {"name": "env", "label": "ENV", "scope": "unique"},
-        {"name": "vla", "label": "VLA", "scope": "shared"},
+        {"name": "vla", "label": "VLA", "scope": "shared", "role": "action_model"},
     ),
     "primitives": (
         "status",
@@ -84,6 +84,7 @@ def get_robot_spec() -> RobotSpec:
         name="yam",
         resolve_dashboard=lambda args: YAM_DASHBOARD_SPEC,
         supports_exploration=True,
+        supports_no_am=True,
         is_real_robot=True,
         finalize_run=finalize_run,
         prompts=PromptBundle(system=system_prompt, user=user_prompt),
@@ -105,11 +106,13 @@ def get_toolkit(
     from robots.yam.toolkit import YamToolkit
 
     explore = mode == "exploration"
-    memory = MemoryManager(
-        root=config.prompt_vars.get("memory_dir") or get_memory_dir("yam"),
-        memory_access="inbox_write" if explore else "read_only",
-        inbox_cell_tag=config.recipe_tag if explore else None,
-    )
+    memory = None
+    if config.use_memory:
+        memory = MemoryManager(
+            root=config.prompt_vars.get("memory_dir") or get_memory_dir("yam"),
+            memory_access="inbox_write" if explore else "read_only",
+            inbox_cell_tag=config.recipe_tag if explore else None,
+        )
     if config.prompt_vars["task_id"] == 0:
         runtime_kwargs = {
             key: value for key, value in runtime_kwargs.items() if key != "model"
@@ -168,7 +171,7 @@ def _add_runtime_args(parser: argparse.ArgumentParser, *, required: bool) -> Non
 
 
 def _parse_config(args: argparse.Namespace) -> RunConfig:
-    select_am(args, "yam")
+    am = select_optional_am(args, "yam")
     if args.task_id is None:
         raise ValueError("--task-id is required")
     instruction = resolve_task_language(args.task_id, args.task_language)
@@ -209,7 +212,7 @@ def _parse_config(args: argparse.Namespace) -> RunConfig:
             "instruction": instruction,
             "mode": "explore" if explore else "eval",
             "vla_enabled": bool(
-                args.task_id != 0 and args.am_endpoint and not args.without_vla
+                args.task_id != 0 and am and am.endpoint and not args.without_vla
             ),
             "memory_profile": memory_profile,
             "memory_dir": str(memory_dir),
@@ -222,8 +225,8 @@ def _parse_config(args: argparse.Namespace) -> RunConfig:
             "task_id": args.task_id,
             "requested_seed": args.seed,
             "instruction": instruction,
-            "policy_name": MODEL_SPEC.policy_name,
-            "action_layout": MODEL_SPEC.action_layout,
+            "policy_name": MODEL_SPEC.policy_name if am is not None else None,
+            "action_layout": MODEL_SPEC.action_layout if am is not None else None,
             "camera_order": list(MODEL_SPEC.camera_order),
         },
     )
@@ -235,19 +238,18 @@ def _init_runtime(
     dashboard_events: DashboardEventSink,
     components: set[str] | None,
 ) -> tuple[list["ProcessDaemon"], dict[str, Any]]:
-    am = select_am(args, "yam")
+    am = select_optional_am(args, "yam")
     del output_dir
-    available = {"env", "vla"}
-    selected = (
-        ({"env", "vla"} if args.am_endpoint else {"env"})
-        if components is None
-        else set(components)
-    )
+    if components is None and not args.am_endpoint:
+        components = {"env"}
+    selected = {
+        component["name"]
+        for component in select_runtime_components(
+            args, YAM_DASHBOARD_SPEC["runtime_components"], components
+        )
+    }
     if getattr(args, "without_vla", False) or args.task_id == 0:
         selected = set(selected) - {"vla"}
-    unknown = selected.difference(available)
-    if unknown:
-        raise ValueError(f"unknown YAM runtime components: {sorted(unknown)}")
     if "env" in selected and not args.env_endpoint:
         raise ValueError(
             "--env-endpoint is required for YAM; start env_server on the control machine first"
@@ -271,6 +273,7 @@ def _init_runtime(
             )
         )
     if "vla" in selected:
+        assert am is not None
         vla_rpc = make_rpc_client(am.endpoint)
         primitives_kwargs.update(
             try_wait_server(
