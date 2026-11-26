@@ -368,7 +368,7 @@ def export_vlm_samples(
                         continue
                     try:
                         sample = api_turn_to_sample(task, planner)
-                    except (ValueError, KeyError) as exc:
+                    except (ValueError, KeyError, TypeError) as exc:
                         report["excluded"].append(
                             {
                                 **source,

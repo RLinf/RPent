@@ -394,6 +394,14 @@ def test_vlm_export_selects_confirmed_episodes_and_counts_rejections(
             ],
         }
     )
+    null_media_type = deepcopy(missing_image)
+    null_media_type["request"]["data"]["messages"][-1]["parts"][-1]["content"][0][
+        "media_type"
+    ] = None
+    null_image_path = deepcopy(missing_image)
+    null_image_path["request"]["data"]["messages"][-1]["parts"][-1]["content"][0][
+        "data"
+    ]["path"] = None
     records = [
         api_opening,
         dict(api_opening, backend="codex"),
@@ -403,6 +411,8 @@ def test_vlm_export_selects_confirmed_episodes_and_counts_rejections(
         invalid_args,
         missing_image,
         legacy,
+        null_media_type,
+        null_image_path,
     ]
     _write_vlm_episode(
         jobs / "success",
@@ -440,7 +450,7 @@ def test_vlm_export_selects_confirmed_episodes_and_counts_rejections(
         report["exported_episode_count"],
     ) == (5, 1, 1)
     assert (report["turn_count"], report["sample_count"], report["image_count"]) == (
-        12,
+        14,
         2,
         0,
     )
@@ -451,7 +461,7 @@ def test_vlm_export_selects_confirmed_episodes_and_counts_rejections(
         "incomplete_response": 2,
         "invalid_tool_arguments": 1,
         "missing_images": 1,
-        "invalid_turn": 0,
+        "invalid_turn": 2,
     }
     assert report["skipped_backend_counts"] == {"codex": 1, "claude_code": 1}
     assert (

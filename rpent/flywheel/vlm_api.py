@@ -72,12 +72,13 @@ def _assistant_message(parts: list[dict[str, Any]]) -> VLMMessage:
 def _image(item: dict[str, Any]) -> VLMImage:
     """Convert a recorded image artifact reference into a VLM image."""
     data = item.get("data")
-    media_type = item.get("media_type", "")
+    media_type = item.get("media_type")
     if not (
         item.get("kind") == "binary"
         and isinstance(data, dict)
         and data.get("$type") == "artifact_ref"
         and data.get("kind") == "bytes"
+        and isinstance(media_type, str)
         and media_type.startswith("image/")
     ):
         raise ValueError("Expected an image byte artifact reference")
