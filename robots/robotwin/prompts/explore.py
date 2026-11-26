@@ -34,7 +34,11 @@ the layout. An unsolved finish is refused while attempts remain."""
 )
 
 SUCCESS = (
-    system.SUCCESS
+    system.SUCCESS_SIGNAL
+    + " Stop robot actions on native success, save the audit and memory proposals, "
+    "and call finish once. If an unsolved episode exhausts step_lim while attempts "
+    "remain, archive the attempt, reset, and retry; call finish only after native "
+    "success or when the session attempt budget is spent."
     + "\n\n"
     + """Before finish, write {{output_dir}}/{{recipe_tag}}.json with task_name,
 task_config, seed, eval_success, total attempts, final_state and successful_strategy.

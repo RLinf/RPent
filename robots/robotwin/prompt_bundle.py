@@ -27,10 +27,18 @@ def _backend(variables: Mapping[str, object]) -> str:
     return str(variables.get("policy_backend") or default)
 
 
+def _guidance(backend: str, variables: Mapping[str, object]) -> str:
+    if backend in action_models.GUIDANCE:
+        return action_models.GUIDANCE[backend]
+    if variables.get("policy_kind") == "wam" or backend == "wam":
+        return action_models.DEFAULT_WAM_GUIDANCE
+    return ""
+
+
 def system_prompt(variables: Mapping[str, object] | None = None) -> dict[str, str]:
     variables = variables or {}
     backend = _backend(variables)
-    guidance = action_models.GUIDANCE.get(backend, "")
+    guidance = _guidance(backend, variables)
     if backend not in {"lingbot", "uniwam"}:
         # Other WAM adapters use local memory and the compact evaluation protocol.
         return evaluate.system_prompt(
