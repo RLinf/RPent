@@ -33,18 +33,19 @@ These options control the planner, memory, output directory, and Dashboard.
      - ``api`` requires a provider prefix; ``claude_code``, ``codex``, ``gemini_cli``, and ``opencode`` use their backend defaults unless overridden.
    * - ``--max-turns``
      - ``100``
-     - Planner turn limit. For ``api``, counts model requests across the conversation, including retries and follow-ups.
+     - RPent tool-call budget for the whole task. Follow-up messages and interrupts do not reset it; see :ref:`planner-limits`.
    * - ``--max-tokens``
      - ``8192``
      - ``api`` only: token limit per model response.
    * - ``--reasoning-effort``
      - ``api``: ``high``; ``claude_code``, ``codex``, ``gemini_cli``, ``opencode``: ``none``
-     - Reasoning effort for ``api``, ``claude_code``, and ``codex``:
-       ``none``, ``low``, ``medium``, ``high``, or ``xhigh``. Disabling
-       reasoning reduced the average runtime from approximately 13.2 to
-       7.9 minutes (about 40%) in our LIBERO Pro Long evaluations.
-       Higher effort may improve task success rate. Supported levels
-       ultimately depend on the selected model. ``gemini_cli`` and ``opencode`` accept only ``none``.
+     - Reasoning effort for online planners:
+       ``none``, ``low``, ``medium``, ``high``, or ``xhigh``, subject to backend
+       and model support. Gemini CLI supports levels up to ``high``;
+       OpenCode uses the model's advertised levels. For these two backends,
+       ``none`` keeps the CLI configuration. Disabling reasoning reduced the
+       average runtime from approximately 13.2 to 7.9 minutes (about 40%) in our
+       LIBERO Pro Long evaluations. Higher effort may improve task success rate.
    * - ``--planner-timeout-s``
      - ``—``
      - Defaults to ``CODEX_TIMEOUT_S`` (Codex) or ``GEMINI_CLI_TIMEOUT_S`` (Gemini CLI), then ``CELL_TIMEOUT_S``, then 1200 seconds; terminal interactive API/Claude sessions are exempt.
@@ -167,7 +168,7 @@ The following defaults apply to LIBERO; check each other environment’s ``--hel
      - HF corpus: ``auto``, ``GPT_5.5_xhigh``, or ``GPT_6_astra_low``. See :doc:`memory`; explicit versions cannot be combined with local memory or exploration.
    * - ``--max-episode-steps``
      - ``10000``
-     - Environment step limit, separate from planner turns (``--max-turns``).
+     - Environment step limit, separate from the tool-call budget (``--max-turns``).
 
 Action-Model Compatibility
 ~~~~~~~~~~~~~~~~~~~~~~~~~~

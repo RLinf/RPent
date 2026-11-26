@@ -233,7 +233,7 @@ Pass adapter options via ``--agent-kwarg key=value``:
      - Codex reasoning effort: ``none``, ``low``, ``medium``, ``high``, or ``xhigh``.
    * - ``max_turns=N``
      - ``200``
-     - Maximum planner model turns (not shell command count).
+     - RPent tool-call budget for the trial.
    * - ``memory_source=/path``
      - Unset
      - Upload an existing RPent memory directory into the trial (starts with an empty ``memory/`` when unset).

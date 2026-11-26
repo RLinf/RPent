@@ -388,7 +388,7 @@ Common settings are listed below; see :doc:`cli` for all options:
    * - Option
      - Purpose
    * - ``--max-turns``
-     - Planner turn limit, default ``100``; see the table below for how turns are counted.
+     - RPent tool-call budget for the whole task, default ``100``. Follow-up messages and interrupts do not reset it.
    * - ``--planner-timeout-s``
      - Task time limit. When omitted, use ``CELL_TIMEOUT_S``, then 1200 seconds.
        Codex checks ``CODEX_TIMEOUT_S`` first; Gemini CLI checks
@@ -397,41 +397,19 @@ Common settings are listed below; see :doc:`cli` for all options:
    * - ``--max-tokens``
      - ``api`` only: token limit per response, default ``8192``.
    * - ``--reasoning-effort``
-     - API, Claude Code, and Codex accept ``none``, ``low``, ``medium``, ``high``, or
-       ``xhigh``, subject to model support. API defaults to ``high``; others to
-       ``none``. Gemini CLI and OpenCode accept only ``none``.
+     - ``none``, ``low``, ``medium``, ``high``, or ``xhigh``, subject to backend and model support. API defaults to ``high``; others to ``none``.
 
-A model response can request multiple tools, so turns are not robot actions.
-Backends also differ in how they count turns and reset the budget:
+Gemini CLI supports reasoning levels up to ``high``; OpenCode uses the selected
+model's advertised levels. For these two backends, ``none`` keeps the CLI configuration.
 
-.. list-table::
-   :header-rows: 1
-   :widths: 25 75
+Each RPent tool call accepted for execution counts once, including read-only tools,
+``finish``, and calls that fail during execution. Multiple calls in one response
+count separately. Invalid calls rejected before execution and the planner CLI's built-in
+tools do not count. ``turns_used`` records this count for every online planner.
 
-   * - Backend
-     - Meaning of one turn
-   * - API
-     - One model request, including retries and follow-ups; the budget covers
-       the whole conversation.
-   * - Claude Code
-     - Request tools, execute them, and return their results. A final answer
-       without tools does not consume the budget. Each follow-up gets a new budget.
-   * - Codex, Gemini CLI
-     - One model request or response; multiple tools in one response do not
-       count separately.
-   * - OpenCode
-     - One model step; multiple tools in one step do not count separately.
-       Each follow-up gets a new budget.
-
-At the turn limit, API stops without an error, so exploration can continue with
-the next attempt. Claude Code instead reports ``error_max_turns``, while OpenCode
-produces a final response without further tool calls. None of these outcomes
-means the task succeeded.
-
-Because their session protocol does not provide a reliable model-turn count,
-Gemini CLI and OpenCode omit ``turns_used`` from run statistics.
-
-``flash`` does not run a model loop, so this turn budget does not apply.
+At the limit, RPent waits for accepted calls to finish and ends planning without
+an error. Reaching the limit does not mean the task succeeded. Each planner session
+starts a fresh budget; ``flash`` does not use this budget.
 
 .. _add-a-custom-planner:
 

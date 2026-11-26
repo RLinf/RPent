@@ -60,7 +60,9 @@ ACP CLI 适配器
 - MCP 接入：通过 ``AcpSession`` 的 ``mcp_url`` 传入地址，如 OpenCode；或写入工作区配置，如 Gemini CLI。
 - 模型选择：使用 CLI 的 ACP 模型选择器时，才向 ``AcpSession`` 传入模型 ID。
 - 认证：沿用 CLI 的认证配置。
-- 轮数限制：ACP 没有统一的模型轮数上限，因此需使用 CLI 原生的限制选项。
+- 推理强度：CLI 提供 ACP ``thought_level`` 选项时，将 ``reasoning_effort`` 传给 ``AcpSession``；否则使用 CLI 自身的配置项。
+
+共享驱动按 RPent 工具调用次数执行 ``max_turns`` 限制，整个任务共用额度。关闭 CLI 原生的模型轮数限制，避免任务提前结束。
 
 接入与验证
 ---------------
@@ -68,6 +70,6 @@ ACP CLI 适配器
 实现完成后，需要让 RPent 能构建规划器并检查连接。Dashboard 复用命令行选定的规划器，因此无需单独接入。两种实现的注册位置如下：
 
 - 自定义 ``Planner``：在 ``rpent/planner/base.py`` 的 ``build_planner`` 中添加构建分支。在线后端还需在 ``rpent/planner/check.py`` 中注册到 ``CHECK_PLANNERS``，设置诊断超时和连接探测；CLI 从该列表生成在线规划器选项。自行配置模型服务的 CLI/SDK 规划器应加入 ``EXTERNALLY_CONFIGURED_PLANNERS``。
-- ``AcpPlanner`` 适配器：在 ``rpent/planner/check.py`` 中加入 ``ACP_PLANNERS``，设置诊断超时，并在 ``build_planner`` 和 ``_check_acp`` 中选择对应的类。``ACP_PLANNERS`` 统一用于在线规划器注册、外部配置处理以及仅接受 ``--reasoning-effort none`` 的校验。
+- ``AcpPlanner`` 适配器：在 ``rpent/planner/check.py`` 中加入 ``ACP_PLANNERS``，设置诊断超时，并在 ``build_planner`` 和 ``_check_acp`` 中选择对应的类。``ACP_PLANNERS`` 统一用于在线规划器注册和外部配置处理。
 
-注册后，参考 ``tests/unit_tests/rpent/planner/`` 编写离线测试，覆盖工具调用、文本和图像返回、真实的 ``finish`` 调用、轮数上限、错误结果、消息排队、中断及进程清理。离线测试通过后，再单独验证真实模型连接。
+注册后，参考 ``tests/unit_tests/rpent/planner/`` 编写离线测试，覆盖工具调用、文本和图像返回、真实的 ``finish`` 调用、工具调用额度、错误结果、消息排队、中断及进程清理。离线测试通过后，再单独验证真实模型连接。

@@ -312,7 +312,7 @@ RPent 需要 OpenCode 的 ``acp`` 子命令支持 ``--pure``，已测试版本�
 
 如需添加工具，见 :ref:`external-mcp-servers`；如需让规划器直接提交控制数值，见 :ref:`planner-direct-actions`。
 
-这些会话设置不修改全局配置；工具白名单不等同于操作系统级沙箱。
+这些会话设置是 RPent 内部的配置，不修改全局配置。
 
 .. _planner-limits:
 
@@ -328,36 +328,19 @@ RPent 需要 OpenCode 的 ``acp`` 子命令支持 ``--pure``，已测试版本�
    * - 参数
      - 用途
    * - ``--max-turns``
-     - 规划轮数上限，默认 ``100``，具体计数方式见下表。
+     - 整个任务的 RPent 工具调用上限，默认 ``100``。追加消息和中断均不重置额度。
    * - ``--planner-timeout-s``
      - 任务运行时限；未指定时读取 ``CELL_TIMEOUT_S``，再回退到 1200 秒。Codex 优先读取 ``CODEX_TIMEOUT_S``，Gemini CLI 优先读取 ``GEMINI_CLI_TIMEOUT_S``。终端交互式 API 和 Claude Code 会话不受此限。
    * - ``--max-tokens``
      - 仅 ``api``：单次回复 token 上限，默认 ``8192``。
    * - ``--reasoning-effort``
-     - API、Claude Code、Codex 可选 ``none``、``low``、``medium``、``high``、``xhigh``，实际支持取决于模型。API 默认 ``high``，其余默认 ``none``；Gemini CLI 和 OpenCode 仅接受 ``none``。
+     - 可选 ``none``、``low``、``medium``、``high``、``xhigh``，实际支持取决于后端和模型。API 默认 ``high``，其余默认 ``none``。
 
-一次模型回复可能调用多个工具，因此轮数不等于机器人动作数。此外，各后端对“一轮”的定义和预算重置方式也不同：
+Gemini CLI 的推理强度最高支持 ``high``；OpenCode 使用所选模型提供的档位。这两个后端的 ``none`` 表示沿用 CLI 配置。
 
-.. list-table::
-   :header-rows: 1
-   :widths: 25 75
+每次获准执行的 RPent 工具调用计一次，包括只读工具、``finish`` 和执行失败的调用。同一回复中的多个调用分别计数。执行前被拒绝的无效调用、规划器 CLI 自带的工具不计入额度。所有在线规划器的 ``turns_used`` 都记录这个计数。
 
-   * - 后端
-     - 一轮的含义
-   * - API
-     - 一次模型请求，包含重试和追加消息；预算覆盖整段对话。
-   * - Claude Code
-     - 模型请求工具，RPent 执行后返回结果；无工具的最终答复不占预算。每次追加输入获得新的预算。
-   * - Codex、Gemini CLI
-     - 一次模型请求或回复；同一回复中的多个工具不分别计数。
-   * - OpenCode
-     - 一次模型执行步骤；同一步骤中的多个工具不分别计数。每次追加输入获得新的预算。
-
-达到轮数上限后，API 正常结束且不报错，因此探索模式可继续下一次尝试。Claude Code 则返回 ``error_max_turns``；OpenCode 生成不再调用工具的最终回复。这些结束方式都不代表任务成功。
-
-由于会话协议不提供可靠的模型轮数，Gemini CLI 和 OpenCode 的运行统计不包含 ``turns_used``。
-
-``flash`` 不运行模型循环，因此不使用轮数预算。
+达到上限后，RPent 等待已获准的调用执行完毕，再结束规划，不报错。额度用完不代表任务成功。每次规划会话使用独立额度；``flash`` 不使用此额度。
 
 .. _planner-custom:
 

@@ -33,13 +33,13 @@
      - ``api`` 要求服务提供方前缀；``claude_code``、``codex``、``gemini_cli`` 和 ``opencode`` 未显式指定时使用各自默认值。
    * - ``--max-turns``
      - ``100``
-     - 规划器轮数上限；``api`` 按整段对话的模型请求次数计算，包括重试和后续输入。
+     - 整个任务的 RPent 工具调用上限，追加消息和中断均不重置额度。见 :ref:`planner-limits`。
    * - ``--max-tokens``
      - ``8192``
      - 仅 ``api``：每次模型回复的 Token 上限。
    * - ``--reasoning-effort``
      - ``api``：``high``；``claude_code``、``codex``、``gemini_cli``、``opencode``：``none``
-     - ``api``、``claude_code`` 与 ``codex`` 的推理强度：``none``、``low``、``medium``、``high`` 或 ``xhigh``。在我们的 LIBERO Pro Long 评测中，关闭 reasoning 将平均运行时间从约 13.2 分钟缩短至 7.9 分钟（约 40%）。较高强度可能提升任务成功率；实际支持的档位取决于所选模型。``gemini_cli`` 和 ``opencode`` 仅接受 ``none``。
+     - 在线规划器的推理强度：``none``、``low``、``medium``、``high`` 或 ``xhigh``，实际支持取决于后端和模型。Gemini CLI 最高支持 ``high``；OpenCode 使用模型提供的档位。这两个后端的 ``none`` 表示沿用 CLI 配置。在我们的 LIBERO Pro Long 评测中，关闭 reasoning 将平均运行时间从约 13.2 分钟缩短至 7.9 分钟（约 40%）。较高强度可能提升任务成功率。
    * - ``--planner-timeout-s``
      - ``—``
      - 优先使用 ``CODEX_TIMEOUT_S`` （Codex）或 ``GEMINI_CLI_TIMEOUT_S`` （Gemini CLI），再依次使用 ``CELL_TIMEOUT_S`` 或 1200 秒；终端交互式 API/Claude 会话不受此限。
@@ -134,7 +134,7 @@ RPent CLI 保留原有 ``--cuda-device`` 作为本地服务的共享默认值；
      - HF 记忆版本：``auto``、``GPT_5.5_xhigh`` 或 ``GPT_6_astra_low``。详见 :doc:`memory`；显式版本不能与本地记忆或探索模式同时使用。
    * - ``--max-episode-steps``
      - ``10000``
-     - 环境步数上限，与规划器的 ``--max-turns`` 分开计算。
+     - 环境步数上限，与 ``--max-turns`` 的工具调用额度分开计算。
 
 动作模型参数兼容
 ~~~~~~~~~~~~~~~~

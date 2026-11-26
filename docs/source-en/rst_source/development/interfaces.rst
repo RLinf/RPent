@@ -83,7 +83,7 @@ Most users pick a built-in ``api``, ``claude_code``, ``codex``, ``gemini_cli``, 
 
 Contract: adapt the declarations from ``toolkit.list_tools()`` for the model; dispatch each call via
 ``toolkit.execute_tool(name, input_dict)``; feed results back to the model; return
-``PlannerResult`` on the ``finish`` tool or when turns are exhausted.
+``PlannerResult`` on the ``finish`` tool or when the task's tool-call budget is exhausted.
 
 Toolkit
 -------

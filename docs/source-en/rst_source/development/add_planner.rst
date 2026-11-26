@@ -80,8 +80,11 @@ cancellation, and cleanup. Each adapter configures the following for its CLI:
 - Model selection: pass a model ID to ``AcpSession`` only when using the CLI's
   ACP model selector.
 - Authentication: reuse the CLI's authentication configuration.
-- Turn limits: because ACP has no standard model-turn budget, use the CLI's
-  native limit.
+- Reasoning effort: pass ``reasoning_effort`` to ``AcpSession`` for an ACP
+  ``thought_level`` selector, or configure the CLI directly.
+
+The shared driver enforces ``max_turns`` as a task-wide RPent tool-call budget.
+Disable native model-turn limits so they do not stop the task early.
 
 Wire and Validate the Planner
 -----------------------------
@@ -98,10 +101,9 @@ no separate integration. Registration depends on the base class:
 - ``AcpPlanner`` adapter: add its name to ``ACP_PLANNERS`` in
   ``rpent/planner/check.py``, set its diagnostic timeout, and select its class in
   ``build_planner`` and ``_check_acp``. ``ACP_PLANNERS`` supplies online planner
-  registration, external configuration handling, and the
-  ``--reasoning-effort none`` restriction.
+  registration and external configuration handling.
 
 After registration, use the test patterns in ``tests/unit_tests/rpent/planner/``
-to verify tool dispatch, text and image results, actual ``finish`` calls, turn
-limits, errors, queued input, cancellation, and process cleanup offline. Once
+to verify tool dispatch, text and image results, actual ``finish`` calls, tool-call
+budgets, errors, queued input, cancellation, and process cleanup offline. Once
 those tests pass, validate real model connectivity separately.
