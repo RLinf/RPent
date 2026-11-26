@@ -3,9 +3,10 @@
 Planner Configuration
 =====================
 
-Choose a planner, configure its model and credentials, then check the connection
-before running a task. Install RPent first; the task examples below assume LIBERO
-is ready as described in :doc:`../get_started/quickstart`.
+RPent can call model APIs directly or plan tasks through tools such as Claude Code
+and Codex. After choosing a planner, configure its model and credentials, then
+check the connection. The task examples below use LIBERO; complete the installation
+and environment setup in :doc:`../get_started/quickstart` before running them.
 
 Select a backend with ``--planner`` and follow its setup section:
 
@@ -36,22 +37,27 @@ Select a backend with ``--planner`` and follow its setup section:
      - No model API needed; perception and VLA services are still required.
        See :doc:`flash`.
 
-``--base-url`` is only for ``api``; other online planners reject it. For the CLI
-backends, RPent starts and manages the selected tool automatically.
+Configuration depends on the backend:
+
+- ``--base-url`` is only for ``api``; passing it to another online planner is an error.
+- RPent starts and manages CLI backends automatically, so you do not need to
+  start a background process yourself.
 
 .. _planner-interaction:
 
-All online planners support terminal ``--tui`` and ``--dashboard`` modes. With
-Claude Code, Codex, Gemini CLI, and OpenCode, follow-ups queue by default; see
-:doc:`dashboard` for ``api`` interaction and manual interruption.
+To add instructions during a run, use terminal ``--tui`` or ``--dashboard`` mode;
+all online planners support both. Claude Code, Codex, Gemini CLI, and OpenCode queue
+follow-ups by default, while ``api`` has a different terminal input flow. See
+:doc:`dashboard` for each mode's behavior and manual interruption.
 
 .. _planner-api:
 
 The API Planner (Direct Model API)
 ---------------------------------------
 
-Choose the ``--model`` prefix for your service's API protocol. The part after
-the colon must be a model ID accepted by that service:
+The ``api`` planner calls a model service directly, reading its key and endpoint
+from environment variables. Choose the ``--model`` prefix for the service's API
+protocol; the part after the colon must be a model ID the service accepts:
 
 .. list-table::
    :header-rows: 1
@@ -88,16 +94,17 @@ For example, set an Anthropic key, check the connection, and run a task:
      --suite libero_goal_task --task 1 --seed 0
 
 For a custom service, set the endpoint variable above or add ``--base-url`` to
-both the check and task commands; the flag takes precedence. Text-only models
-require ``--no-images``. This leaves the planner with textual state only and
-may reduce task performance.
+both the check and task commands. If both are set, ``--base-url`` takes precedence.
+
+If the model supports only text, add ``--no-images``. The planner must then rely
+on textual state, which may reduce task performance.
 
 .. _planner-claude-code:
 
 The Claude Code Planner
 ----------------------------
 
-RPent includes the Claude Code dependencies; no separate CLI installation is
+RPent includes the Claude Code dependencies, so no separate CLI installation is
 needed. Configure a Claude login or ``ANTHROPIC_API_KEY``, then run:
 
 .. code-block:: bash
@@ -107,9 +114,12 @@ needed. Configure a Claude login or ``ANTHROPIC_API_KEY``, then run:
      --suite libero_goal_task --task 1 --seed 0
 
 Use ``--model`` without a provider prefix; omitting it selects ``sonnet``.
-Set ``--claude-code-max-budget-usd`` to limit spending. Its default comes from
-``MAX_BUDGET_USD``, or 10 dollars when unset. See the `Claude Agent SDK docs
-<https://code.claude.com/docs/en/agent-sdk/overview>`_ for authentication options.
+
+To limit spending, set ``--claude-code-max-budget-usd``. If omitted, RPent uses
+``MAX_BUDGET_USD``, or 10 dollars if that variable is also unset.
+
+For other authentication options, see the `Claude Agent SDK docs
+<https://code.claude.com/docs/en/agent-sdk/overview>`_.
 
 .. dropdown:: Local Models with Claude Code
 
@@ -124,6 +134,7 @@ Set ``--claude-code-max-budget-usd`` to limit spending. Its default comes from
         --suite libero_goal_task --task 1 --seed 0
 
    Use ``EMPTY`` only for a local service that needs no authentication.
+
    Claude Code assumes a 200,000-token context window for unknown models. If the
    server has a different limit, configure context and auto-compaction through the
    `Claude Code environment variables <https://code.claude.com/docs/en/env-vars>`_.
@@ -133,8 +144,9 @@ Set ``--claude-code-max-budget-usd`` to limit spending. Its default comes from
 The Codex Planner
 ----------------------
 
-Codex reuses an existing login by default. For a custom OpenAI Responses-compatible
-service, set ``CODEX_BASE_URL`` and ``CODEX_API_KEY``. This planner does not read
+The Codex planner reuses an existing login by default. For a custom service,
+first confirm that it supports the OpenAI Responses API, then set
+``CODEX_BASE_URL`` and ``CODEX_API_KEY``. This planner does not read
 ``OPENAI_BASE_URL`` or ``OPENAI_API_KEY``.
 
 .. code-block:: bash
@@ -144,17 +156,53 @@ service, set ``CODEX_BASE_URL`` and ``CODEX_API_KEY``. This planner does not rea
      --suite libero_goal_task --task 1 --seed 0
 
 Model selection follows ``--model``, then ``CODEX_MODEL``, then Codex's default.
-Set ``CODEX_SERVICE_TIER=fast`` to request the fast service tier; it does not
+
+To request the fast service tier, set ``CODEX_SERVICE_TIER=fast``; this does not
 change reasoning effort.
+
+.. dropdown:: Local Models with Codex
+
+   For example, serve Qwen3.6-27B through vLLM's Responses API:
+
+   .. code-block:: bash
+
+      vllm serve /path/to/Qwen3.6-27B \
+        --served-model-name Qwen/Qwen3.6-27B \
+        --max-model-len 262144 \
+        --reasoning-parser qwen3 \
+        --enable-auto-tool-choice \
+        --tool-call-parser qwen3_coder
+
+   In the RPent terminal, set the endpoint and the context limit the server accepts:
+
+   .. code-block:: bash
+
+      export CODEX_BASE_URL=http://127.0.0.1:8000
+      export CODEX_API_KEY=EMPTY
+      export CODEX_MODEL_CONTEXT_WINDOW=262144
+      export CODEX_AUTO_COMPACT_TOKEN_LIMIT=230000
+      rpent --robot libero --planner codex --model Qwen/Qwen3.6-27B \
+        --suite libero_goal_task --task 1 --seed 0
+
+   Set the context length manually here because vLLM reports ``max_model_len``,
+   while Codex reads ``context_window``. Without the expected field, Codex falls
+   back to default metadata for unrecognized model IDs.
+
+   ``--model`` must match ``--served-model-name``. Set ``CODEX_MODEL_CONTEXT_WINDOW``
+   to the server's ``--max-model-len`` and keep ``CODEX_AUTO_COMPACT_TOKEN_LIMIT``
+   below it to leave room for subsequent responses. These two context environment
+   variables are optional; omitting them uses Codex's defaults.
+
+   If you use another model, follow its deployment instructions for parser settings.
 
 .. _planner-codex-isolation:
 
 Separate Codex Configuration and Login
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-Use a separate directory to keep RPent's Codex configuration, credentials, and
-session history apart from your development setup. Use the Codex executable
-bundled with RPent's SDK dependency in the terminal used for RPent:
+If you want to keep RPent's Codex configuration, credentials, and session history
+apart from your development setup, use a separate directory. In the RPent terminal,
+first set that directory and locate the Codex executable bundled with the SDK:
 
 .. code-block:: bash
 
@@ -185,49 +233,19 @@ should instead set ``CODEX_API_KEY`` and ``CODEX_BASE_URL`` for this deployment.
 See `Codex authentication <https://developers.openai.com/codex/auth/>`_ for other
 login methods.
 
-This does not isolate the workspace or migrate old sessions. Task memory is
-selected separately with ``--memory-dir``. Do not commit credentials or this
-directory.
-
-.. dropdown:: Local Models with Codex
-
-   For example, serve Qwen3.6-27B through vLLM's Responses API:
-
-   .. code-block:: bash
-
-      vllm serve /path/to/Qwen3.6-27B \
-        --served-model-name Qwen/Qwen3.6-27B \
-        --max-model-len 262144 \
-        --reasoning-parser qwen3 \
-        --enable-auto-tool-choice \
-        --tool-call-parser qwen3_coder
-
-   In the RPent terminal, set the endpoint and the context limit the server accepts:
-
-   .. code-block:: bash
-
-      export CODEX_BASE_URL=http://127.0.0.1:8000
-      export CODEX_API_KEY=EMPTY
-      export CODEX_MODEL_CONTEXT_WINDOW=262144
-      export CODEX_AUTO_COMPACT_TOKEN_LIMIT=230000
-      rpent --robot libero --planner codex --model Qwen/Qwen3.6-27B \
-        --suite libero_goal_task --task 1 --seed 0
-
-   vLLM reports ``max_model_len``, while Codex expects ``context_window`` and uses
-   default metadata for unrecognized model IDs.
-
-   ``--model`` must match ``--served-model-name``. Set ``CODEX_MODEL_CONTEXT_WINDOW``
-   to the server's ``--max-model-len`` and keep the auto-compaction threshold below
-   it to leave room for subsequent responses. Both variables are optional; omitting
-   them uses Codex's defaults. For other models, use their recommended parser settings.
+A separate configuration directory does not isolate the workspace or migrate old
+sessions; task memory is still selected with ``--memory-dir``. Also keep credentials
+and this directory out of version control.
 
 .. _planner-gemini-cli:
 
 The Gemini CLI Planner
 ---------------------------
 
-Install a `Gemini CLI <https://github.com/google-gemini/gemini-cli>`_ version
-supporting ``--acp``, then configure its authentication and endpoint:
+RPent reuses Gemini CLI's authentication and endpoint configuration. If Gemini CLI
+is not installed, install a version supporting ``--acp`` from
+`Gemini CLI <https://github.com/google-gemini/gemini-cli>`_, then start it to
+complete the setup:
 
 .. code-block:: bash
 
@@ -244,17 +262,21 @@ Confirm that Gemini CLI can answer a message, exit it, then check and run RPent:
 
 Omit ``--model`` to use Gemini CLI's default. To override it, use the service's
 model ID, such as ``--model Argon``, without ``google:``. Use the same model
-for the check and task. Set ``GEMINI_BIN`` if the executable is not named
-``gemini`` or is not on ``PATH``.
+for the check and task.
+
+Set ``GEMINI_BIN`` if the executable is not named ``gemini`` or is not on ``PATH``.
 
 .. _planner-opencode:
 
 The OpenCode Planner
 --------------------------------
 
-Follow the `OpenCode installation guide <https://opencode.ai/docs/>`_, configure
-its provider, credentials, and endpoint, and confirm that it can answer a message.
-Version v1.18.18 has been tested. Check the installed version and available options:
+RPent reuses OpenCode's provider, credentials, and endpoint configuration. If you
+have not configured it, follow the `OpenCode installation guide
+<https://opencode.ai/docs/>`_ and confirm that it can answer a message.
+
+RPent requires an OpenCode version whose ``acp`` subcommand supports ``--pure``;
+v1.18.18 has been tested. Before running RPent, check the installed version and options:
 
 .. code-block:: bash
 
@@ -272,6 +294,7 @@ Once the help output confirms ``--pure`` support, check the connection and run a
 Omit ``--model`` to use OpenCode's default. To switch models, pass a complete
 ``provider/model`` ID from ``opencode models`` to both commands; the connection
 check verifies model selection.
+
 Set ``OPENCODE_BIN`` if the executable is not on ``PATH``.
 
 .. _planner-check:
@@ -281,25 +304,30 @@ Verify Your Configuration
 
 Run ``rpent-check-llm`` in a terminal with the same online planner and model before
 starting a task or opening ``--dashboard``.
-It sends a real model request without starting a robot, calling tools, or sending
-images. Increase the diagnostic timeout for a slow service:
+The check sends a real model request without starting a robot, calling tools, or
+sending images.
+
+If the service responds slowly, increase the wait with ``--timeout-s``. This command
+also uses ``--json`` to produce diagnostic output for scripts:
 
 .. code-block:: bash
 
    rpent-check-llm --planner gemini_cli --timeout-s 120 --json
 
-The exit code is ``0`` on success and ``1`` on failure; ``--json`` provides output
-for scripts. Follow failure hints to check authentication, the model ID, endpoint,
-or network. Passing this check does not validate tool use, image input, or a
-robot task.
+The exit code is ``0`` on success and ``1`` on failure. If it fails, follow the hints
+to check authentication, the model ID, endpoint, or network. A successful check
+only confirms basic connectivity; tool use, image input, and robot tasks still
+need separate verification.
 
 .. dropdown:: Diagnostic Timeouts and JSON Status Values
 
    Diagnostic defaults are 30 seconds for ``api`` and 90 seconds for ``opencode``.
    Claude Code, Codex, and Gemini CLI use 90 seconds when the corresponding key is
-   in the launch environment. Otherwise, diagnostics use a shorter 25-second wait;
-   stored CLI logins still work. Claude Code and Codex report missing authentication
-   immediately if neither a key nor a login configuration is detected.
+   in the launch environment. Without that key, the wait is shorter at 25 seconds,
+   but stored CLI logins still work.
+
+   Claude Code and Codex report missing authentication immediately if neither a
+   key nor a login configuration is detected.
    ``--timeout-s`` overrides these limits independently of the task timeout.
 
    Scripts can branch on the ``status`` field and read ``detail`` for diagnostics:
@@ -317,11 +345,17 @@ robot task.
 Configuration and Tool Isolation
 --------------------------------
 
-Planner tasks do not automatically load Claude Code, Codex, or Gemini CLI project
-development instructions or skills. OpenCode disables project configuration, Claude Code
-configuration, and external skills while retaining its own global configuration.
-Gemini CLI and OpenCode expose only RPent tools and disable extensions or
-external plugins. To add tools, use :ref:`external-mcp-servers`.
+To keep local development settings from interfering with robot tasks, RPent limits
+the instructions and tools loaded automatically in planner sessions:
+
+- Instructions and skills: planner tasks do not automatically load Claude Code,
+  Codex, or Gemini CLI project development instructions or skills. OpenCode disables
+  project configuration, Claude Code configuration, and external skills while
+  retaining its own global configuration.
+- Tools and plugins: Gemini CLI and OpenCode expose only RPent tools and disable
+  extensions or external plugins. To add tools, see :ref:`external-mcp-servers`;
+  to let the planner submit direct control values, see :ref:`planner-direct-actions`.
+
 These session settings do not modify global configuration and are not an OS sandbox.
 
 .. _planner-limits:
@@ -338,8 +372,7 @@ Common settings are listed below; see :doc:`cli` for all options:
    * - Option
      - Purpose
    * - ``--max-turns``
-     - Planner turn limit, default ``100``. This is not a robot action count;
-       see the table below.
+     - Planner turn limit, default ``100``; see the table below for how turns are counted.
    * - ``--planner-timeout-s``
      - Task time limit. When omitted, use ``CELL_TIMEOUT_S``, then 1200 seconds.
        Codex checks ``CODEX_TIMEOUT_S`` first; Gemini CLI checks
@@ -352,8 +385,8 @@ Common settings are listed below; see :doc:`cli` for all options:
        ``xhigh``, subject to model support. API defaults to ``high``; others to
        ``none``. Gemini CLI and OpenCode accept only ``none``.
 
-A model response can request multiple tools, so turn counts do not measure
-robot actions:
+A model response can request multiple tools, so turns are not robot actions.
+Backends also differ in how they count turns and reset the budget:
 
 .. list-table::
    :header-rows: 1
@@ -375,14 +408,14 @@ robot actions:
        Each follow-up gets a new budget.
 
 At the turn limit, API stops without an error, so exploration can continue with
-the next attempt; Claude Code reports ``error_max_turns``. OpenCode produces a
-final response without further tool calls. Reaching a limit does not mean the
-task succeeded. ``flash`` does not run a model loop or use this budget.
+the next attempt. Claude Code instead reports ``error_max_turns``, while OpenCode
+produces a final response without further tool calls. None of these outcomes
+means the task succeeded.
 
-Gemini CLI and OpenCode do not report ``turns_used`` in run statistics because
-their session protocol does not provide a reliable model-turn count.
+Because their session protocol does not provide a reliable model-turn count,
+Gemini CLI and OpenCode omit ``turns_used`` from run statistics.
 
-To let the planner submit direct control values, see :ref:`planner-direct-actions`.
+``flash`` does not run a model loop, so this turn budget does not apply.
 
 .. _add-a-custom-planner:
 
