@@ -44,10 +44,15 @@ from rpent.memory import MemoryManager
 from rpent.robots.components.am_runtime import (
     add_am_args,
     select_am,
+    select_optional_am,
 )
 from rpent.robots.prompt_bundle import PromptBundle
 from rpent.robots.robot_spec import RobotSpec, RunConfig
-from rpent.robots.runtime import try_spawn_server, try_wait_server
+from rpent.robots.runtime import (
+    select_runtime_components,
+    try_spawn_server,
+    try_wait_server,
+)
 from rpent.utils.config import (
     add_cuda_device_arg,
     get_memory_dir,
@@ -135,7 +140,7 @@ ROBOCASA_DASHBOARD_SPEC: DashboardSpec = {
     },
     "runtime_components": (
         {"name": "env", "label": "ENV", "scope": "unique"},
-        {"name": "vla", "label": "VLA", "scope": "shared"},
+        {"name": "vla", "label": "VLA", "scope": "shared", "role": "action_model"},
     ),
     "primitives": (
         "move_to",
@@ -222,6 +227,7 @@ def get_robot_spec() -> RobotSpec:
         resolve_dashboard=lambda args: ROBOCASA_DASHBOARD_SPEC,
         flywheel=FLYWHEEL_CONFIG,
         supports_exploration=True,
+        supports_no_am=True,
         finalize_run=finalize_cell_result,
         prepare_memory=prepare_memory,
         validate_args=validate_options,
@@ -333,7 +339,7 @@ def _add_cli_args(parser: argparse.ArgumentParser, use_dashboard: bool) -> None:
 
 def _parse_config(args: argparse.Namespace) -> RunConfig:
     """Validate final ``args`` and derive per-run identifiers."""
-    select_am(args, "robocasa")
+    select_optional_am(args, "robocasa")
     validate_options(args)
     if not args.task_name:
         raise ValueError("--task-name is required")
@@ -487,7 +493,7 @@ def _init_runtime(
     Each server can be spawned or attached-to independently: pass an
     endpoint to attach, or leave it unset to spawn a local subprocess.
     """
-    select_am(args, "robocasa")
+    select_optional_am(args, "robocasa")
     from robots.robocasa.env_client import RoboCasaEnvClient
     from robots.robocasa.vla_client import RoboCasaVLAClient
 
@@ -513,10 +519,12 @@ def _init_runtime(
         "vla": lambda rpc: {"vla_client": RoboCasaVLAClient(rpc)},
     }
     timeouts = {"env": 120.0, "vla": 300.0}
-    selected = set(starters) if components is None else components
-    unknown = selected.difference(starters)
-    if unknown:
-        raise ValueError(f"unknown RoboCasa runtime components: {sorted(unknown)}")
+    selected = {
+        component["name"]
+        for component in select_runtime_components(
+            args, ROBOCASA_DASHBOARD_SPEC["runtime_components"], components
+        )
+    }
 
     # HF selection waits for the Dashboard task's model. Local shared services
     # can validate their fixed root before a task is selected.

@@ -52,6 +52,7 @@ from rpent.session import EnvState
 
 class FakeEnv:
     def __init__(self) -> None:
+        self.meta = {}
         self.resets = 0
         self.moves: list[tuple[str, np.ndarray]] = []
         self.rotations: list[tuple[str, np.ndarray]] = []
@@ -958,6 +959,10 @@ def test_code_policy_preserves_dual_franka_operator_gates(
     try:
         provider = CodePolicyTools(toolkit, output_dir=tmp_path)
         try:
+            setup = toolkit.execute_tool("describe_dual_franka_setup", {}).data
+            assert setup["vla"] is None
+            assert "move_delta" in setup["available_primitives"]
+            assert "vla_right_grasp" not in setup["available_primitives"]
             code = "robo.move_delta(arm='right', delta_xyz=[0.0, 0.0, 0.01])"
             blocked = provider.execute_tool("python", {"code": code})
             assert blocked.data["last_tool_result"].get("error")

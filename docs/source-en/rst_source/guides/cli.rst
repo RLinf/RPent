@@ -39,7 +39,7 @@ These options control the planner, memory, output directory, and Dashboard.
      - Use ``code`` to submit Python cells instead of individual robot tool calls. See :doc:`pyrua` for setup and compatible planners.
    * - ``--no-am``
      - ``false``
-     - Disable action model services and tools with ``--policy-mode code`` on standard LIBERO and RoboDojo.
+     - Disable action model services and tools with ``--policy-mode code``. See :doc:`pyrua` for supported robots and simulators.
    * - ``--code-timeout-s``
      - ``120``
      - Time limit in seconds per Python cell, including robot tool calls.

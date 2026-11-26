@@ -40,6 +40,8 @@ position. Supply intermediate waypoints to clear the table and the other arm.
 The controller may drift during rotation; inspect the final pose and the raw
 motion result before proceeding. Each Cartesian command is limited to 0.20 m
 translation or 0.35 rad rotation. Respect the runtime's motion-call budget.
+For Cartesian grasping, localize the target, choose an approach and tool
+orientation, then open, approach, close, lift and verify. Use observed coordinates.
 """
 
 VLA_SKILLS = r"""
@@ -49,8 +51,7 @@ primitives. Inference uses the host's configured checkpoint instruction. These
 skills can affect both arms and do not use Cartesian delta limits. Inspect
 `boundary_reached` and visual evidence: a segment boundary is not proof of task
 success. Call handoff directly after a confirmed grasp without speculative arm
-preparation. For Cartesian grasping, localize, choose an approach and tool
-orientation, open, approach, close, lift and verify. Do not use example coordinates.
+preparation.
 """
 
 SAFETY_AND_RECOVERY = r"""
@@ -68,13 +69,13 @@ before completing the task; do not infer it from a successful tool call.
 """
 
 
-def system_prompt() -> dict[str, PromptNode]:
+def system_prompt(*, action_model: bool = True) -> dict[str, PromptNode]:
     """Assemble code execution rules and dual_franka operating knowledge."""
     return {
         "Frames and units": FRAMES_AND_UNITS,
         "Observation": OBSERVATION,
         "Motion": MOTION,
-        "VLA skills": VLA_SKILLS,
+        "VLA skills": VLA_SKILLS if action_model else None,
         "Safety and recovery": SAFETY_AND_RECOVERY,
         "Task success": TASK_SUCCESS,
     }

@@ -56,6 +56,7 @@ class FrankaToolkit(Toolkit):
             dashboard_events=dashboard_events,
             state=state,
             memory=memory,
+            action_model_available=runtime_kwargs.get("model") is not None,
         )
         self._primitives = self._primitives_cls(
             check_cancelled=self.raise_if_cancelled,

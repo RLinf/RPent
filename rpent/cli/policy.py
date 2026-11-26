@@ -44,7 +44,11 @@ def configure_policy(config: RunConfig, args: Namespace) -> RunConfig:
     """Select the policy prompts and memory configuration."""
     if getattr(args, "policy_mode", "tools") != "code":
         return config
-    prompt_vars = {**config.prompt_vars, "policy_mode": "code"}
+    prompt_vars = {
+        **config.prompt_vars,
+        "policy_mode": "code",
+        "no_am": getattr(args, "no_am", False),
+    }
     for name in ("memory_dir", "memory_inbox"):
         prompt_vars.pop(name, None)
     return replace(config, prompt_vars=prompt_vars, use_memory=False)

@@ -46,6 +46,7 @@ def get_robot_spec() -> RobotSpec:
     """Return the EFE robot descriptor."""
     return RobotSpec(
         name="efe",
+        supports_no_am=True,
         prompts=PromptBundle(system=system_prompt, user=user_prompt),
         add_cli_args=_add_cli_args,
         parse_config=_parse_config,

@@ -111,6 +111,7 @@ class RoboTwinToolkit(Toolkit):
             dashboard_events=dashboard_events,
             state=state,
             memory=memory,
+            action_model_available=runtime_kwargs.get("model") is not None,
         )
         self._mode = mode
         self._policy_kind = runtime_kwargs.get("policy_kind", "vla")

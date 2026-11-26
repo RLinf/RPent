@@ -17,6 +17,15 @@
 from robots.robotwin.prompts.evaluate import PERCEPTION, TASK_FAMILIES, WAM_WORKFLOW
 from rpent.prompt.utils import PromptNode
 
+LINGBOT_WORKFLOW = """
+`lingbot_act` uses the original instruction and current images in chunks of
+50 native actions. Use one chunk near contact, two for stable progress, and
+three only for a continuous phase already progressing. Use it for grasp,
+handover and contact-rich motion. Script free-space transport, staging,
+release and retreat after verifying the previous phase. When progress stalls,
+observe and change the staging variable that blocks the next phase.
+"""
+
 
 def system_prompt(*, policy_kind: str | None) -> dict[str, PromptNode]:
     """Return RoboTwin's observation and control conventions."""
@@ -48,14 +57,5 @@ box extent and median. Use interior pixels and refresh with `render` if
 needed before sampling.
 """,
         "Task checks": TASK_FAMILIES,
-        "Action model": WAM_WORKFLOW
-        if policy_kind == "wam"
-        else """
-`lingbot_act` uses the original instruction and current images in chunks of
-50 native actions. Use one chunk near contact, two for stable progress, and
-three only for a continuous phase already progressing. Use it for grasp,
-handover and contact-rich motion. Script free-space transport, staging,
-release and retreat after verifying the previous phase. When progress stalls,
-observe and change the staging variable that blocks the next phase.
-""",
+        "Action model": {"wam": WAM_WORKFLOW, "vla": LINGBOT_WORKFLOW}.get(policy_kind),
     }

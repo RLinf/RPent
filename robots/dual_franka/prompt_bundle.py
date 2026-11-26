@@ -40,9 +40,11 @@ def system_prompt(variables: Mapping[str, object] | None = None) -> PromptNode:
     return node
 
 
-def code_system_prompt(_variables: Mapping[str, object] | None = None) -> PromptNode:
+def code_system_prompt(variables: Mapping[str, object] | None = None) -> PromptNode:
     """Return operating guidance for Python cells."""
-    return code_parts.system_prompt()
+    return code_parts.system_prompt(
+        action_model=not (variables or {}).get("no_am", False)
+    )
 
 
 def user_prompt(variables: Mapping[str, object] | None = None) -> PromptNode:

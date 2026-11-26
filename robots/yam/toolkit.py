@@ -79,7 +79,12 @@ class YamToolkit(Toolkit):
             raise ValueError(f"unsupported YAM toolkit mode: {mode!r}")
         self._state_output_dir = Path(state_output_dir or get_output_dir())
         state = EnvState(self._state_output_dir)
-        super().__init__(dashboard_events=dashboard_events, state=state, memory=memory)
+        super().__init__(
+            dashboard_events=dashboard_events,
+            state=state,
+            memory=memory,
+            action_model_available=runtime_kwargs.get("model") is not None,
+        )
         self._mode = mode
         self._dashboard_language = dashboard_language
         self._attempt = 1
@@ -133,10 +138,9 @@ class YamToolkit(Toolkit):
             self.rotate_wrist,
             self.set_gripper,
             self.release,
+            self.pi05_act,
         ):
             self.add_tool(definition)
-        if self._primitives.model is not None:
-            self.add_tool(self.pi05_act)
         if self._mode == "exploration":
             self.add_tool(self._reset_episode)
         self.add_tool(self._finish, replace=True)
@@ -492,7 +496,7 @@ class YamToolkit(Toolkit):
         """Open one YAM gripper to 1.0."""
         return self._step("release", arm=arm, val=val, steps=steps)
 
-    @tool
+    @tool(requires_action_model=True)
     def pi05_act(
         self,
         *,

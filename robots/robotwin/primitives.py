@@ -52,7 +52,7 @@ class RoboTwinPrimitives:
         self,
         *,
         env: RoboTwinEnvClient,
-        model: LingBotVLAClient | RoboTwinWAMClient,
+        model: LingBotVLAClient | RoboTwinWAMClient | None = None,
         seed: int,
         check_cancelled: Callable[[], None],
         seed_mode: str = "exact",
@@ -231,7 +231,7 @@ class RoboTwinPrimitives:
             }
         )
 
-    @tool
+    @tool(requires_action_model=True)
     def lingbot_act(
         self,
         *,
@@ -256,7 +256,7 @@ class RoboTwinPrimitives:
             override_prompt=False,
         )
 
-    @tool
+    @tool(requires_action_model=True)
     def wam_act(
         self,
         prompt: Annotated[str, Field(min_length=1)] | None = None,

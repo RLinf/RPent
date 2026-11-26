@@ -64,7 +64,7 @@ class DualFrankaPrimitives(FrankaPrimitives):
         self,
         *,
         env: Any,
-        model: Any | None,
+        model: Any | None = None,
         task_description: str,
         check_cancelled: Callable[[], None],
         sam3_client: Any | None = None,
@@ -187,14 +187,18 @@ class DualFrankaPrimitives(FrankaPrimitives):
                         "handoff_release_delay_s": 1.5,
                         "min_steps_after_gripper_event": 2,
                     },
-                },
+                }
+                if self.model is not None
+                else None,
                 "sam3": {
                     "tool": "segment",
                     "status": "optional; returns an error and falls back to manual camera projection when no SAM3 client is configured",
                     "usage": "Use text prompt or one [row, col] positive camera point, then inspect the returned mask overlay before trusting point_xyz. SAM3 text grounding is phrase-sensitive; if a prompt returns a very low score, retry a shorter/rephrased prompt or point prompt rather than lowering min_score blindly.",
                 },
                 "available_primitives": [
-                    tool.name for tool in DualFrankaToolkit.declared_tools()
+                    tool.name
+                    for tool in DualFrankaToolkit.declared_tools()
+                    if not tool.requires_action_model or self.model is not None
                 ],
                 "operator_guidance": "Named VLA semantic boundaries are segment boundaries, not proof of physical success. Verify images, gripper widths/open flags, joint_health, and projection evidence after every action. recover_joint_posture re-commands and preserves each gripper's open/closed state; inspect its gripper_preserved result before continuing.",
             }
@@ -421,7 +425,7 @@ class DualFrankaPrimitives(FrankaPrimitives):
             "robot_state": state,
         }
 
-    @tool
+    @tool(requires_action_model=True)
     def vla_right_grasp(
         self,
         prompt: str,
@@ -442,7 +446,7 @@ class DualFrankaPrimitives(FrankaPrimitives):
         )
         return ToolResult(data=data)
 
-    @tool
+    @tool(requires_action_model=True)
     def vla_handoff(
         self,
         prompt: str,
@@ -463,7 +467,7 @@ class DualFrankaPrimitives(FrankaPrimitives):
         )
         return ToolResult(data=data)
 
-    @tool
+    @tool(requires_action_model=True)
     def vla_left_place(
         self,
         prompt: str,

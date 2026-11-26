@@ -32,10 +32,18 @@ from robots.franka.tasks import FRANKA_TASKS, get_franka_task
 from rpent.dashboard.events import DashboardEventSink, RuntimeStatusEvent
 from rpent.dashboard.spec import DashboardSpec
 from rpent.memory import MemoryManager
-from rpent.robots.components.am_runtime import add_am_args, select_am
+from rpent.robots.components.am_runtime import (
+    add_am_args,
+    select_am,
+    select_optional_am,
+)
 from rpent.robots.prompt_bundle import PromptBundle
 from rpent.robots.robot_spec import RobotSpec, RunConfig
-from rpent.robots.runtime import try_spawn_server, try_wait_server
+from rpent.robots.runtime import (
+    select_runtime_components,
+    try_spawn_server,
+    try_wait_server,
+)
 from rpent.utils.config import get_memory_dir, get_repo_root
 from rpent.utils.daemon import ProcessDaemon, pick_free_port
 from rpent.utils.rpc import make_rpc_client
@@ -62,7 +70,7 @@ FRANKA_DASHBOARD_SPEC: DashboardSpec = {
     },
     "runtime_components": (
         {"name": "env", "label": "FRANKA", "scope": "unique"},
-        {"name": "vla", "label": "VLA", "scope": "shared"},
+        {"name": "vla", "label": "VLA", "scope": "shared", "role": "action_model"},
     ),
     "primitives": (
         "move_delta",
@@ -88,6 +96,7 @@ def get_robot_spec() -> RobotSpec:
         resolve_dashboard=lambda args: FRANKA_DASHBOARD_SPEC,
         is_real_robot=True,
         supports_exploration=False,
+        supports_no_am=True,
     )
 
 
@@ -128,17 +137,21 @@ def _add_cli_args(parser: argparse.ArgumentParser, use_dashboard: bool) -> None:
 
 
 def _parse_config(args: argparse.Namespace) -> RunConfig:
-    select_am(args, "franka")
+    am = select_optional_am(args, "franka")
+    if args.task_id is None:
+        raise ValueError("--task-id is required")
+    task = get_franka_task(args.task_id)
+    if am is None and task.requires_action_model:
+        raise ValueError(
+            f"--no-am cannot be used with task {args.task_id} ({task.name})"
+        )
     set_robot_config_path(args.robot_config)
     # Fail fast before servers/planner start when easy_handeye YAMLs are
     # missing (e.g. the calibration has not been run on this machine).
     validate_calibration_sources()
-    if args.task_id is None:
-        raise ValueError("--task-id is required")
     from robots.franka.flash.replay import prepare
 
     args._flash_options = prepare(args, "franka")
-    task = get_franka_task(args.task_id)
     timestamp = datetime.now().strftime("%Y%m%d-%H:%M:%S")
     output_dir = Path(
         args.output_dir
@@ -227,15 +240,16 @@ def _init_runtime(
     The Franka VLA is attach-only; it is skipped unless ``--am-endpoint`` is
     provided.
     """
-    select_am(args, "franka")
+    select_optional_am(args, "franka")
     from robots.franka.env_client import FrankaEnvClient
     from rpent.robots.components.pi05_vla_client import Pi05VLAClient
 
-    available = {"env", "vla"}
-    selected = available if components is None else components
-    unknown = selected.difference(available)
-    if unknown:
-        raise ValueError(f"unknown Franka runtime components: {sorted(unknown)}")
+    selected = {
+        component["name"]
+        for component in select_runtime_components(
+            args, FRANKA_DASHBOARD_SPEC["runtime_components"], components
+        )
+    }
 
     needs_vla = args.am_endpoint is not None
 

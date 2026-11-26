@@ -72,8 +72,27 @@ calls. In this mode, standard LIBERO action replies contain state without
 images. The planner calls
 ``robo.view_env_state(step=-1)`` when it needs a fresh image.
 
-RoboDojo also supports ``--policy-mode code --no-am`` using native ARX-X5
-controls. See :doc:`../simulators/robodojo` for its setup.
+These robots and simulators also support both flags. Follow the linked guides
+for environment, perception, and operator setup.
+
+.. list-table::
+   :header-rows: 1
+
+   * - Robot or simulator
+     - Control available with ``--no-am``
+   * - :doc:`RoboDojo <../simulators/robodojo>`
+     - Native ARX-X5 controls.
+   * - :doc:`RoboCasa <../simulators/robocasa>` and :doc:`RoboTwin <../simulators/robotwin>`
+     - Scripted motion and gripper tools.
+   * - :doc:`RoboLab <../simulators/robolab>`
+     - Native DROID actions through ``robo.execute_action``.
+   * - :doc:`EFE <../simulators/efe>`
+     - Tools from the connected EFE controller. This backend already runs without an RPent action model.
+   * - :doc:`Franka <../real_world_robots/franka>`, :doc:`Dual Franka <../real_world_robots/dual_franka>` and :doc:`YAM <../real_world_robots/yam>`
+     - Native motion and gripper tools with the backend's operator controls.
+
+Task 1 on both Franka and Dual Franka requires an action model. Use task 0
+to check native motion and gripper control with ``--no-am``.
 
 How Code Execution Works
 ------------------------

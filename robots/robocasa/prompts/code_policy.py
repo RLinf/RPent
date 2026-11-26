@@ -18,7 +18,7 @@ from robots.robocasa.prompts.evaluate import GRIPPER_RULES, LOCALIZATION, NAVIGA
 from rpent.prompt.utils import PromptNode
 
 
-def system_prompt() -> dict[str, PromptNode]:
+def system_prompt(*, action_model: bool = True) -> dict[str, PromptNode]:
     """Return RoboCasa's observation and control conventions."""
     return {
         "State and progress": """
@@ -44,6 +44,8 @@ moves longer than 0.30 m. Approach vertically with 5–10 mm increments near
 contact and `step_clip=0.012` for fine moves and retreats. On a stall, change
 the approach or move the base closer. `rotate_pitch` is relative. Confirm
 that a grasp moves the target during a small lift before carrying it.
+Use task progress to verify articulation and control changes. Preserve
+completed relations, verify position after release and recover in place.
 """,
         "Action model": """
 Pass the live `task_language` as the prompt to `rldx_skill` (arm and base) or
@@ -51,7 +53,7 @@ Pass the live `task_language` as the prompt to `rldx_skill` (arm and base) or
 invalidate frame history (`vla_desync`), so continue a capped skill while
 contact (`grasp_contact`, `held_apart`) or `task_progress` supports it.
 After two unproductive calls, re-observe and change one staging variable.
-Use task progress to verify articulation and control changes. Preserve
-completed relations, verify position after release and recover in place.
-""",
+"""
+        if action_model
+        else None,
     }

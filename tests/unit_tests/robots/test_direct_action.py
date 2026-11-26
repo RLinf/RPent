@@ -22,6 +22,7 @@ import numpy as np
 import pytest
 
 from rpent.cli.main import _build_argparser
+from rpent.cli.policy import configure_policy, planner_policy
 from rpent.dashboard.events import NullDashboardEventSink
 from rpent.robots.components.action_spec import box_action_spec
 from rpent.tools import ToolResult
@@ -106,9 +107,9 @@ def make_primitive(robot, action_size=None):
     return primitive
 
 
-@pytest.mark.parametrize("enabled", [False, True])
+@pytest.mark.parametrize("enabled,no_am", [(False, False), (True, False), (True, True)])
 def test_cli_factory_gates_tool_and_preserves_action_records(
-    robot, enabled, monkeypatch, tmp_path
+    robot, enabled, no_am, monkeypatch, tmp_path
 ):
     module = importlib.import_module(f"robots.{robot}.toolkit")
     spec = importlib.import_module(f"robots.{robot}.robot_spec")
@@ -164,18 +165,40 @@ def test_cli_factory_gates_tool_and_preserves_action_records(
     )
     if enabled:
         args.append("--enable-direct-action")
-    config = spec._parse_config(parser.parse_args(args))
+    if no_am:
+        args += ["--policy-mode", "code", "--no-am"]
+        if robot == "libero":
+            args += ["--libero-type", "standard"]
+    args = parser.parse_args(args)
+    robot_spec = spec.get_robot_spec()
+    config = configure_policy(robot_spec.parse_config(args), args)
+    client = None if no_am else object()
+    runtime = {
+        "robotwin": {"env": primitive.env, "model": client},
+        "robocasa": {"vla_client": client},
+    }.get(robot, {})
     toolkit = spec.get_toolkit(
-        runtime_kwargs={"env": primitive.env} if robot == "robotwin" else {},
+        runtime_kwargs=runtime,
         dashboard_events=NullDashboardEventSink(),
         config=config,
     )
     names = {definition.name for definition in toolkit.list_tools()}
     assert ("execute_action" in names) == enabled
     assert "move_to" in names
-    assert {"libero": "pi0_pick", "robocasa": "rldx_skill", "robotwin": "lingbot_act"}[
-        robot
-    ] in names
+    model_tool = {
+        "libero": "pi0_pick",
+        "robocasa": "rldx_skill",
+        "robotwin": "lingbot_act",
+    }[robot]
+    assert (model_tool in names) == (not no_am)
+    if no_am:
+        with planner_policy(toolkit, args, tmp_path, config.prompt_vars) as (
+            _planner_tools,
+            prompt_vars,
+        ):
+            prompt = robot_spec.prompts.render("system", variables=prompt_vars)
+            assert "robo.move_to(" in prompt
+            assert model_tool not in prompt
     values = [0.1] * {"libero": 7, "robocasa": 12, "robotwin": 14}[robot]
     result = toolkit.execute_tool("execute_action", {"values": values}).data
     if not enabled:

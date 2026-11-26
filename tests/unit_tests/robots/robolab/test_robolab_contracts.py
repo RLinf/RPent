@@ -118,21 +118,28 @@ def test_runtime_keeps_virtualenv_python_symlinks(tmp_path, monkeypatch, env_gpu
     assert vla_daemon.env_overrides["CUDA_VISIBLE_DEVICES"] == "2"
 
 
-def test_external_env_connection_ignores_local_gpu(monkeypatch, tmp_path):
+@pytest.mark.parametrize("no_am", [False, True])
+def test_external_env_connection_ignores_local_gpu(monkeypatch, tmp_path, no_am):
     parser = argparse.ArgumentParser()
-    robolab_spec.get_robot_spec().add_cli_args(parser, False)
+    robot = robolab_spec.get_robot_spec()
+    robot.add_cli_args(parser, False)
     args = parser.parse_args(
         [
             "--task",
             "BananaInBowlTask",
             "--policy-backend",
-            "none",
+            "pi05" if no_am else "none",
             "--env-endpoint",
             "http://remote:1234",
             "--device",
             "cuda:7",
         ]
     )
+
+    args.no_am = no_am
+    robot.validate_args(args)
+    assert robot.supports_no_am
+    assert "pi05_act" not in robot.resolve_dashboard(args)["primitives"]
 
     class RPC:
         def call(self, method, **kwargs):

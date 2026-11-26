@@ -34,7 +34,11 @@ from rpent.memory.source import prepare_explicit_source
 from rpent.robots.components.am_runtime import add_am_args, select_am
 from rpent.robots.prompt_bundle import PromptBundle
 from rpent.robots.robot_spec import RobotSpec, RunConfig
-from rpent.robots.runtime import try_spawn_server, try_wait_server
+from rpent.robots.runtime import (
+    select_runtime_components,
+    try_spawn_server,
+    try_wait_server,
+)
 from rpent.utils.config import (
     add_cuda_device_arg,
     get_memory_dir,
@@ -58,7 +62,7 @@ ROBOLAB_DASHBOARD_SPEC: DashboardSpec = {
     },
     "runtime_components": (
         {"name": "env", "label": "ENV", "scope": "unique"},
-        {"name": "vla", "label": "VLA", "scope": "shared"},
+        {"name": "vla", "label": "VLA", "scope": "shared", "role": "action_model"},
     ),
     "primitives": ("view_env_state", "pi05_act", "execute_action"),
 }
@@ -68,6 +72,7 @@ def get_robot_spec() -> RobotSpec:
     """Register RoboLab as a simulated RPent robot."""
     return RobotSpec(
         name="robolab",
+        supports_no_am=True,
         prompts=PromptBundle(system=system_prompt, user=user_prompt),
         add_cli_args=_add_cli_args,
         parse_config=_parse_config,
@@ -81,7 +86,7 @@ def get_robot_spec() -> RobotSpec:
 
 def _resolve_dashboard(args: argparse.Namespace) -> DashboardSpec:
     """Expose only the components and tools enabled for this session."""
-    if args.policy_backend == "pi05":
+    if args.policy_backend == "pi05" and not getattr(args, "no_am", False):
         return ROBOLAB_DASHBOARD_SPEC
     return {
         **ROBOLAB_DASHBOARD_SPEC,
@@ -189,7 +194,9 @@ def _parse_config(args: argparse.Namespace) -> RunConfig:
         prompt_vars={
             "task": args.task,
             "seed": args.seed,
-            "policy_backend": args.policy_backend,
+            "policy_backend": "none"
+            if getattr(args, "no_am", False)
+            else args.policy_backend,
             "memory_dir": str(memory_dir),
             "output_dir": str(output_dir),
         },
@@ -199,6 +206,8 @@ def _parse_config(args: argparse.Namespace) -> RunConfig:
 
 
 def _validate_args(args: argparse.Namespace) -> None:
+    if getattr(args, "no_am", False):
+        return
     if args.policy_backend == "none":
         for field in (
             "am_endpoint",
@@ -317,15 +326,14 @@ def _init_runtime(
     from robots.robolab.env_client import RoboLabEnvClient
     from rpent.robots.components.pi05_vla_client import Pi05VLAClient
 
-    selected = (
-        ({"env", "vla"} if args.policy_backend == "pi05" else {"env"})
-        if components is None
-        else set(components)
-    )
-    if selected - {"env", "vla"}:
-        raise ValueError(
-            f"unknown RoboLab runtime components: {sorted(selected - {'env', 'vla'})}"
+    if components is None and args.policy_backend == "none":
+        components = {"env"}
+    selected = {
+        component["name"]
+        for component in select_runtime_components(
+            args, ROBOLAB_DASHBOARD_SPEC["runtime_components"], components
         )
+    }
     if "vla" in selected and args.policy_backend == "none":
         raise ValueError("Pi0.5 is disabled")
     starters = {"env": _spawn_env, "vla": _spawn_vla}

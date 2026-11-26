@@ -52,7 +52,9 @@ def system_prompt(
 
 def code_system_prompt(variables: Mapping[str, object] | None = None) -> PromptNode:
     """Return operating guidance for Python cells."""
-    return code_parts.system_prompt(policy_kind=(variables or {}).get("policy_kind"))
+    return code_parts.system_prompt(
+        policy_kind=(variables or {}).get("policy_kind", "vla")
+    )
 
 
 def user_prompt(

@@ -65,6 +65,7 @@ class RoboCasaToolkit(Toolkit):
             dashboard_events=dashboard_events,
             state=state,
             memory=memory,
+            action_model_available=runtime_kwargs.get("vla_client") is not None,
         )
         self._mode = mode
         self._attempt = 1

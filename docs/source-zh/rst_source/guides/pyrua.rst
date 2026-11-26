@@ -43,7 +43,25 @@ PyRUA 模式支持 ``api``、``claude_code``、``codex`` 和 ``gemini_cli`` 规�
 
 规划器用 SAM3 和 RGB-D 定位物体。检查运行目录的 ``code_policy/calls.jsonl``，确认有原生运动和夹爪工具的调用记录。在此模式下，标准 LIBERO 的动作回复包含状态，不附带图像。规划器需要新图像时会调用 ``robo.view_env_state(step=-1)``。
 
-RoboDojo 也支持 ``--policy-mode code --no-am``，动作由原生 ARX-X5 控制接口执行。环境配置见 :doc:`../simulators/robodojo`。
+下表中的机器人和仿真环境也支持这两个选项。环境、感知和操作员控制的配置见表中的指南。
+
+.. list-table::
+   :header-rows: 1
+
+   * - 机器人或仿真环境
+     - ``--no-am`` 下可用的控制方式
+   * - :doc:`RoboDojo <../simulators/robodojo>`
+     - ARX-X5 原生控制。
+   * - :doc:`RoboCasa <../simulators/robocasa>` 和 :doc:`RoboTwin <../simulators/robotwin>`
+     - 脚本化运动和夹爪工具。
+   * - :doc:`RoboLab <../simulators/robolab>`
+     - 通过 ``robo.execute_action`` 执行原生 DROID 动作。
+   * - :doc:`EFE <../simulators/efe>`
+     - 已连接的 EFE 控制器提供的工具。该后端本身无需 RPent 动作模型。
+   * - :doc:`Franka <../real_world_robots/franka>`、:doc:`双臂 Franka <../real_world_robots/dual_franka>` 和 :doc:`YAM <../real_world_robots/yam>`
+     - 原生运动和夹爪工具，沿用各后端的操作员控制。
+
+单臂和双臂 Franka 的任务 1 均需要动作模型。可用任务 0 验证 ``--no-am`` 下的原生运动和夹爪控制。
 
 执行原理
 ------------

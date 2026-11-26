@@ -36,11 +36,13 @@ from rpent.robots.components.am_runtime import (
     WAM_BACKENDS,
     add_am_args,
     select_am,
+    select_optional_am,
     start_wam_service,
 )
 from rpent.robots.prompt_bundle import PromptBundle
 from rpent.robots.robot_spec import RobotSpec, RunConfig
 from rpent.robots.runtime import (
+    select_runtime_components,
     stop_owned_daemons,
     try_spawn_server,
     try_wait_server,
@@ -234,7 +236,12 @@ def _resolve_dashboard(args: argparse.Namespace) -> DashboardSpec:
         },
         "runtime_components": (
             {"name": "env", "label": "ENV", "scope": "unique"},
-            {"name": kind, "label": kind.upper(), "scope": "shared"},
+            {
+                "name": kind,
+                "label": kind.upper(),
+                "scope": "shared",
+                "role": "action_model",
+            },
         ),
         "primitives": (
             "wam_act" if kind == "wam" else "lingbot_act",
@@ -258,6 +265,7 @@ def get_robot_spec() -> RobotSpec:
         resolve_dashboard=_resolve_dashboard,
         flywheel=FLYWHEEL_CONFIG,
         supports_exploration=True,
+        supports_no_am=True,
         validate_args=validate_options,
         prepare_memory=prepare_memory,
     )
@@ -369,9 +377,9 @@ def _add_cli_args(parser: argparse.ArgumentParser, use_dashboard: bool) -> None:
 def _parse_config(args: argparse.Namespace) -> RunConfig:
     if not args.task_name:
         raise ValueError("--task-name is required")
-    am = select_am(args, "robotwin")
-    wam = am if am.is_wam else None
-    if wam is not None and am.backend != "uniwam":
+    am = select_optional_am(args, "robotwin")
+    wam = am if am is not None and am.is_wam else None
+    if wam is not None and wam.backend != "uniwam":
         if getattr(args, "explore", False) or getattr(args, "planner", None) == "flash":
             raise ValueError("WAM supports evaluation without Flash Mode only")
         if getattr(args, "memory_profile", None) == "hf":
@@ -389,7 +397,7 @@ def _parse_config(args: argparse.Namespace) -> RunConfig:
     output_dir = Path(output_dir)
     initial_seed = int(args.seed)
     default_memory_dir = get_memory_dir("robotwin")
-    if wam is not None and am.backend != "uniwam":
+    if wam is not None and wam.backend != "uniwam":
         default_memory_dir /= wam.backend
     memory_dir = (
         Path(args.memory_dir).expanduser().resolve()
@@ -405,9 +413,16 @@ def _parse_config(args: argparse.Namespace) -> RunConfig:
         if memory_profile == "local"
         else f"{args.task_name}_s0"
     )
+    if wam is not None:
+        policy_kind, policy_name, action_layout = "wam", wam.backend, "negotiated"
+    elif am is not None:
+        policy_kind = "vla"
+        policy_name, action_layout = MODEL_SPEC.policy_name, MODEL_SPEC.action_layout
+    else:
+        policy_kind = policy_name = action_layout = None
     prompt_vars = {
-        "policy_kind": "wam" if wam else "vla",
-        "policy_backend": am.backend,
+        "policy_kind": policy_kind,
+        "policy_backend": am.backend if am else None,
         "task_name": args.task_name,
         "seed": args.seed,
         "task_config": task_config,
@@ -442,10 +457,10 @@ def _parse_config(args: argparse.Namespace) -> RunConfig:
             "seed_mode": "exact",
             "task_config": task_config,
             "instruction": None,
-            "policy_name": wam.backend if wam else MODEL_SPEC.policy_name,
-            "action_layout": "negotiated" if wam else MODEL_SPEC.action_layout,
+            "policy_name": policy_name,
+            "action_layout": action_layout,
             "env_cuda_device": env_cuda_device,
-            "vla_cuda_device": vla_cuda_device,
+            "vla_cuda_device": vla_cuda_device if am is not None else None,
         },
     )
 
@@ -567,13 +582,13 @@ def _init_runtime(
     components: set[str] | None,
 ) -> tuple[list["ProcessDaemon"], dict[str, Any]]:
     """Initialize every RoboTwin component, or only ``components`` when given."""
-    am = select_am(args, "robotwin")
-    wam = am if am.is_wam else None
-    available = {"env", "wam" if wam else "vla"}
-    selected = available if components is None else components
-    unknown = selected.difference(available)
-    if unknown:
-        raise ValueError(f"unknown RoboTwin runtime components: {sorted(unknown)}")
+    am = select_optional_am(args, "robotwin")
+    selected = {
+        component["name"]
+        for component in select_runtime_components(
+            args, _resolve_dashboard(args)["runtime_components"], components
+        )
+    }
 
     owned_daemons: dict[str, ProcessDaemon] = {}
     env_pending: tuple[ProcessDaemon | None, Any] | None = None
@@ -601,11 +616,12 @@ def _init_runtime(
             raise RuntimeError(f"[vla] spawn failed: {exc}") from exc
 
     if "wam" in selected:
+        assert am is not None and am.is_wam
         wam_pending = try_spawn_server(
             owned_daemons,
             dashboard_events,
             "wam",
-            lambda: start_wam_service(wam, output_dir),
+            lambda: start_wam_service(am, output_dir),
         )
 
     runtime_kwargs: dict[str, Any] = {}

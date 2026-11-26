@@ -39,7 +39,7 @@
      - 设为 ``code`` 后，规划器可提交 Python 代码片段来调用机器人工具。安装要求和支持的规划器见 :doc:`pyrua`。
    * - ``--no-am``
      - ``false``
-     - 标准 LIBERO 和 RoboDojo 在 ``--policy-mode code`` 下可用此选项关闭动作模型服务及工具。
+     - 与 ``--policy-mode code`` 一起使用，关闭动作模型服务及工具。支持的机器人和仿真环境见 :doc:`pyrua`。
    * - ``--code-timeout-s``
      - ``120``
      - 每段 Python 代码的时间上限，单位为秒，包含工具调用。

@@ -43,7 +43,7 @@ class FrankaPrimitives:
         self,
         *,
         env: Any,
-        model: Any | None,
+        model: Any | None = None,
         task_description: str,
         check_cancelled: Callable[[], None],
     ) -> None:
@@ -87,7 +87,7 @@ class FrankaPrimitives:
         data = self.env.set_gripper(open=False)
         return ToolResult(data=data)
 
-    @tool
+    @tool(requires_action_model=True)
     def vla_grasp(
         self, prompt: str, max_chunks: Annotated[int, Field(ge=1, le=20)] = 4
     ) -> ToolResult:

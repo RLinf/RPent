@@ -53,6 +53,7 @@ DUAL_FRANKA_TASKS = {
     ),
     1: FrankaTask(
         name="clean_desk_dirty_clean_sorting_agent_vla",
+        requires_action_model=True,
         vla_instruction=CLEAN_DESK_VLA_PROMPT,
         instruction=(
             "Complete a dual-arm collaborative tabletop object-storage task "
