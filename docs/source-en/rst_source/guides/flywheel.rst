@@ -12,35 +12,32 @@ and their results. Environments that support action recording also capture the
 subtask instructions given to the vision-language-action (VLA) model, the actions
 the robot executes, and the corresponding observations.
 
-``rpent-flywheel`` exports either VLA or VLM training data:
+``rpent-flywheel`` exports VLA or VLM training data:
 
-- ``--vla`` (default): Writes executed VLA action segments from confirmed
+- ``--vla`` (default): Exports executed VLA action segments from confirmed
   successful trajectories to a LeRobot dataset for supervised fine-tuning with
-  RLinf. In the evaluations below, replacing the original VLA with the fine-tuned
-  model raised RPent's task success rate from 70% to 73% on LIBERO-PRO and from
-  48% to 72% on RoboTwin.
+  RLinf.
 - ``--vlm``: Exports recorded ``api`` planner turns to ``samples.jsonl`` and a
-  deduplicated ``images/`` directory for VLM training. It selects episodes with
-  confirmed environment success by default, or includes failed and unknown
-  outcomes with ``--include-unsuccessful``. In the RoboTwin evaluation below,
-  replacing the original ``Qwen3.8-27B`` planner with the fine-tuned model
-  raised RPent's task success rate from 16% to 30%.
+  deduplicated ``images/`` directory for VLM training.
+
+Fine-tuning either the VLA or the VLM on exported trajectories raised task
+success rates on LIBERO-PRO and RoboTwin (see SFT Experiment Results below).
 
 Installation
 ------------
 
+Exporting VLM samples (``--vlm``) works with the base RPent installation.
+Exporting VLA datasets (``--vla``) requires the optional ``flywheel`` extra,
+which installs LeRobot.
+
 The example below uses LIBERO-PRO. Follow :doc:`../get_started/quickstart` for
 environment setup and simulator assets, and :doc:`configure_planner` for API
 credentials. From the RPent repository root, install LIBERO-PRO with the
-optional export dependencies:
+optional VLA export dependencies:
 
 .. code-block:: bash
 
    uv pip install -e ".[libero-pro,flywheel]"
-
-The optional ``flywheel`` extra installs LeRobot and is required only for VLA
-export (``--vla``). Exporting VLM turns (``--vlm``) works with the base RPent
-installation.
 
 Record a Trajectory
 -------------------
@@ -48,8 +45,8 @@ Record a Trajectory
 Recording is off by default. Recording with ``--planner claude_code`` requires
 ``claude-agent-sdk 0.2.154+`` and ``Claude Code 2.1.274+``.
 LIBERO, RoboCasa365, RoboTwin, and RoboDojo record executed actions and observations
-only in evaluation mode. To export VLM training samples later, record with
-``--planner api``, which is the backend ``rpent-flywheel --vlm`` supports.
+only in evaluation mode. To export VLM training samples, record with
+``--planner api``; ``rpent-flywheel --vlm`` supports only this backend.
 
 Enable recording and choose a run directory:
 
@@ -67,109 +64,33 @@ Enable recording and choose a run directory:
 
 The evaluation example saves its trajectory under
 ``/path/to/run/trajectories/<task_id>/`` and attachments in the ``artifacts/``
-subdirectory.
-
-Trajectory Data Format
-----------------------
-
-The directory tree shows how a trajectory is stored, and the tables describe
-the data format of each file.
-
-.. code-block:: text
-
-   /path/to/run/trajectories/<task_id>/
-   ├── task.json
-   ├── planners.jsonl
-   ├── predictions.jsonl
-   ├── actions.jsonl
-   └── artifacts/
-
-.. list-table:: ``task.json`` records the instruction, configuration, and outcome of one task run
-   :header-rows: 1
-
-   * - Field
-     - Meaning
-   * - ``task.task_id``
-     - Unique ID for this run, used as the trajectory directory name ``<task_id>``.
-   * - ``task.instruction``
-     - Task instruction for this run.
-   * - ``task.config``
-     - Run configuration stored in ``task.config.data``, including CLI and run
-       settings, ``system_prompt``, and registered ``tools``.
-   * - ``task.result``
-     - Run outcome. ``task.result.data.environment_success`` indicates whether the task succeeded.
-
-.. list-table:: ``planners.jsonl`` (one model call per line)
-   :header-rows: 1
-
-   * - Field
-     - Meaning
-   * - ``planner_id``
-     - Unique ID of this model call within the trajectory.
-   * - ``backend``
-     - Planner backend that made the call (``api``, ``claude_code``, or ``codex``).
-   * - ``status``
-     - State of this model call (``open``, ``completed``, ``failed``, or ``cancelled``).
-   * - ``request``
-     - The request sent to the model, with conversation context and available
-       tools in the backend's format.
-   * - ``response``
-     - Model output, which can include text or requests to call tools.
-
-.. list-table:: ``predictions.jsonl`` (one VLA prediction per line)
-   :header-rows: 1
-
-   * - Field
-     - Meaning
-   * - ``prediction_id``
-     - Unique ID of this prediction within the trajectory.
-   * - ``instruction``
-     - Instruction the VLA used for this prediction.
-   * - ``action_ids``
-     - The ``action_id`` values in ``actions.jsonl`` for actions executed from
-       this prediction, in execution order.
-
-.. list-table:: ``actions.jsonl`` (one executed environment action per line)
-   :header-rows: 1
-
-   * - Field
-     - Meaning
-   * - ``action_id``
-     - Unique ID of this action within the trajectory.
-   * - ``source``
-     - ``vla`` for a policy prediction, ``tool_computed`` for an action the tool
-       computes and executes, or ``direct`` for a control value submitted through
-       the direct action tool.
-   * - ``action.format``
-     - Action format used by the robot.
-   * - ``action.data``
-     - Control command the environment executed at this step.
-   * - ``before_observation``
-     - Environment observation before this action.
+subdirectory. See :ref:`trajectory-data-format` for the file layout and fields.
 
 Export Training Data
 --------------------
 
-``rpent-flywheel`` supports two mutually exclusive export modes: ``--vla``
-(default) for LeRobot VLA datasets and ``--vlm`` for API planner turn samples.
+``rpent-flywheel`` runs in either ``--vla`` or ``--vlm`` mode. Both modes share
+these input and output rules:
 
-In both modes, ``--input-root`` accepts either a single trajectory directory
-containing ``task.json`` or a parent directory containing multiple runs.
-``--output-dir`` must not exist, and original recordings are left unchanged.
-When several runs are saved in separate directories like these, set
-``--input-root`` to their parent directory and use ``--pattern`` (keeping
-quotes around shell wildcards) to select matching run directories:
+- ``--input-root`` accepts a single trajectory directory containing
+  ``task.json`` or a parent directory containing multiple runs. When runs live
+  in separate subdirectories, pass their parent directory and filter with
+  ``--pattern`` (quote shell wildcards, for example ``--pattern 'run_*'``):
 
-.. code-block:: text
+  .. code-block:: text
 
-   /path/to/
-   ├── run_001/trajectories/<task_id_1>/
-   └── run_002/trajectories/<task_id_2>/
+     /path/to/
+     ├── run_001/trajectories/<task_id_1>/
+     └── run_002/trajectories/<task_id_2>/
+
+- ``--output-dir`` must not exist, and original recordings remain unchanged.
+- Neither mode creates an automatic validation split. Both write
+  ``report.json`` in ``--output-dir`` with export counts and exclusions.
 
 Export VLA Training Data
 ~~~~~~~~~~~~~~~~~~~~~~~~
 
-Export recorded trajectories from one robot to a new output directory:
+Export recorded trajectories from one robot:
 
 .. code-block:: bash
 
@@ -178,13 +99,11 @@ Export recorded trajectories from one robot to a new output directory:
      --input-root /path/to/run \
      --output-dir /path/to/lerobot/goal-task-00
 
-``--vla`` exports only VLA training data and is the default when omitted.
-Export each robot separately. By default, the exporter compresses and saves one
-image at a time (``--image-writer-threads 0``). To write images in parallel,
-specify a thread count in the command above, for example
-``--image-writer-threads 4``.
+Export each robot separately. By default, images are compressed and written one
+at a time (``--image-writer-threads 0``); pass a thread count such as
+``--image-writer-threads 4`` to write images in parallel.
 
-To export matching run directories whose names start with ``run_`` together:
+To aggregate run directories whose names start with ``run_``:
 
 .. code-block:: bash
 
@@ -194,28 +113,24 @@ To export matching run directories whose names start with ``run_`` together:
      --pattern 'run_*' \
      --output-dir /path/to/lerobot/combined
 
-The command searches these run directories and their subdirectories for
-trajectories, applies the selection rules below, and writes the results to
-``/path/to/lerobot/combined/train/``. Keep the quotes around ``run_*``.
+This searches matching run directories and their subdirectories, applies the
+rules below, and writes the dataset to ``/path/to/lerobot/combined/train/``.
 
-The VLA exporter selects and organizes training data using the following rules:
+VLA export rules:
 
 - Success criterion: ``environment_success`` in the task result must explicitly
   be ``true``. Failed tasks, missing results, and tasks whose success cannot be
   confirmed are excluded.
 - Action source: Only executed actions uniquely linked to a valid VLA prediction
   record are retained. The prediction must contain a non-empty instruction and
-  belong to the same tool call as the action. The exporter skips non-VLA actions
-  (such as actions the tool computes itself) and predicted actions that were
-  never executed.
+  belong to the same tool call as the action. Non-VLA actions (such as actions
+  computed by tools) and predicted actions that were never executed are skipped.
 - Data organization: Each continuous segment is saved as a separate LeRobot
   episode. Each executed action corresponds to one frame containing the
   observation before execution, the action, and the corresponding VLA instruction.
 
-The dataset is written to the ``train/`` subdirectory of ``--output-dir`` without
-an automatic validation split. ``report.json`` in the output directory lists
-export counts and exclusions. If no actions qualify, only the report is
-written.
+The dataset is written under ``<output_dir>/train/``. If no actions qualify,
+only ``report.json`` is written.
 
 Export VLM Training Data
 ~~~~~~~~~~~~~~~~~~~~~~~~
@@ -230,30 +145,27 @@ images:
      --input-root /path/to/run \
      --output-dir /path/to/vlm/goal-task-00
 
-The VLM exporter selects and formats samples using the following rules:
+VLM export rules:
 
-- Episode selection: By default, ``environment_success`` in the task result
+- Trajectory selection: By default, ``environment_success`` in the task result
   must explicitly be ``true``. Pass ``--include-unsuccessful`` (requires
   ``--vlm``) to include failed runs or runs without an environment success
   verdict.
-- Planner backend and turn validity: Only completed ``api`` planner calls with
-  complete request and response payloads, a normal finish reason (excluding
-  truncated, content-filtered, or errored replies), valid JSON-object tool
-  arguments, and at least one visible text reply or tool call are exported.
-  Turns from ``claude_code`` and ``codex`` are skipped.
-- Sample organization and reasoning content: Each row pairs the recorded
-  conversation history and tool definitions sent to the model with one assistant
-  response to supervise. When a model emits internal reasoning (thinking)
-  content, that reasoning is stripped from both earlier assistant messages in
-  the conversation history and the target response, leaving only visible text
-  and tool calls.
+- Backend and turn validity: Export includes only completed ``api`` planner
+  turns and skips ``claude_code`` and ``codex``. Each turn must have complete
+  request and response payloads, a normal finish reason (not truncated,
+  content-filtered, or errored), valid JSON-object tool arguments, and at least
+  one visible text reply or tool call.
+- Sample layout and reasoning: Each row pairs the recorded conversation history
+  and tool definitions sent to the model with one assistant response to
+  supervise. Internal reasoning content is removed from both earlier assistant
+  messages and the target response, leaving only visible text and tool calls.
 - Image deduplication: Each distinct referenced image is copied once into
   ``images/`` (named by content hash) and referenced by its relative path in
-  ``samples.jsonl``, so the exported directory is self-contained. Turns with
+  ``samples.jsonl``, making the output directory self-contained. Turns with
   missing image files are excluded.
 
-The output directory has the following structure, without an automatic
-validation split:
+Output layout:
 
 .. code-block:: text
 
@@ -262,30 +174,34 @@ validation split:
    ├── images/
    └── report.json
 
-``report.json`` in the output directory records export counts and excluded
-turns. Each line in ``samples.jsonl`` is a JSON object with these main fields:
+.. dropdown:: ``samples.jsonl`` main fields (one supervised planner turn per line)
 
-.. list-table:: ``samples.jsonl`` (one supervised planner turn per line)
-   :header-rows: 1
+   .. list-table::
+      :header-rows: 1
 
-   * - Field
-     - Meaning
-   * - ``episode_id``
-     - Task ID (``task.task_id``) of the episode this turn comes from.
-   * - ``turn_id``
-     - Planner call ID (``planner_id``) within the episode.
-   * - ``messages``
-     - Conversation history sent to the model for this turn, containing
-       ``system``, ``user``, ``assistant``, and ``tool`` messages with text,
-       image references under ``images/``, and prior tool calls.
-   * - ``tools``
-     - Tool definitions exposed to the model on this turn.
-   * - ``target``
-     - The single ``assistant`` response to supervise, containing visible text
-       or tool calls.
+      * - Field
+        - Meaning
+      * - ``episode_id``
+        - Task ID (``task.task_id``) of the trajectory this turn comes from.
+      * - ``turn_id``
+        - Planner turn ID (``planner_id``) within the trajectory.
+      * - ``messages``
+        - Conversation history sent to the model for this turn, containing
+          ``system``, ``user``, ``assistant``, and ``tool`` messages with text,
+          image references under ``images/``, and prior tool calls.
+      * - ``tools``
+        - Tool definitions exposed to the model on this turn.
+      * - ``target``
+        - The single ``assistant`` response to supervise, containing visible text
+          or tool calls.
 
-Train with RLinf
-----------------
+Load ``samples.jsonl`` and ``images/`` into any VLM fine-tuning framework that
+supports multimodal conversations and tool calls.
+
+.. _train-with-rlinf:
+
+Train a VLA with RLinf
+----------------------
 
 For the LIBERO example, use the LeRobot dataset exported by ``--vla`` for Pi0.5
 supervised fine-tuning in a separate RLinf environment. RPent handles collection
@@ -348,9 +264,6 @@ Success rates:
      - 73/100
      - 73%
 
-In this evaluation, the SFT model succeeded in three more runs, increasing the
-success rate by three percentage points.
-
 RoboTwin VLA Fine-Tuning Results
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
@@ -378,9 +291,6 @@ Success rates:
    * - SFT model (step 500)
      - 36/50
      - 72%
-
-In this evaluation, the SFT model succeeded in 12 more runs, increasing the
-task success rate from 48% to 72%, a gain of 24 percentage points.
 
 RoboTwin VLM Fine-Tuning Results
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -410,5 +320,89 @@ Success rates:
      - 15/50
      - 30%
 
-In this evaluation, the SFT model succeeded in 7 more runs, increasing the task
-success rate from 16% to 30%, a gain of 14 percentage points.
+.. _trajectory-data-format:
+
+Trajectory Data Format
+----------------------
+
+Each recorded trajectory uses this directory layout:
+
+.. code-block:: text
+
+   /path/to/run/trajectories/<task_id>/
+   ├── task.json
+   ├── planners.jsonl
+   ├── predictions.jsonl
+   ├── actions.jsonl
+   └── artifacts/
+
+.. dropdown:: ``task.json``: instruction, configuration, and outcome of one task run
+
+   .. list-table::
+      :header-rows: 1
+
+      * - Field
+        - Meaning
+      * - ``task.task_id``
+        - Unique ID for this run, used as the trajectory directory name ``<task_id>``.
+      * - ``task.instruction``
+        - Task instruction for this run.
+      * - ``task.config``
+        - Run configuration stored in ``task.config.data``, including CLI and run
+          settings, the system prompt, and registered tool definitions.
+      * - ``task.result``
+        - Run outcome. ``task.result.data.environment_success`` indicates whether the task succeeded.
+
+.. dropdown:: ``planners.jsonl``: one model call per line
+
+   .. list-table::
+      :header-rows: 1
+
+      * - Field
+        - Meaning
+      * - ``planner_id``
+        - Unique ID of this model call within the trajectory.
+      * - ``backend``
+        - Planner backend that made the call (``api``, ``claude_code``, or ``codex``).
+      * - ``status``
+        - State of this model call (``open``, ``completed``, ``failed``, or ``cancelled``).
+      * - ``request``
+        - The request sent to the model, with conversation context and available
+          tools in the backend's format.
+      * - ``response``
+        - Model output, which can include text or requests to call tools.
+
+.. dropdown:: ``predictions.jsonl``: one VLA prediction per line
+
+   .. list-table::
+      :header-rows: 1
+
+      * - Field
+        - Meaning
+      * - ``prediction_id``
+        - Unique ID of this prediction within the trajectory.
+      * - ``instruction``
+        - Instruction the VLA used for this prediction.
+      * - ``action_ids``
+        - The ``action_id`` values in ``actions.jsonl`` for actions executed from
+          this prediction, in execution order.
+
+.. dropdown:: ``actions.jsonl``: one executed environment action per line
+
+   .. list-table::
+      :header-rows: 1
+
+      * - Field
+        - Meaning
+      * - ``action_id``
+        - Unique ID of this action within the trajectory.
+      * - ``source``
+        - ``vla`` for a policy prediction, ``tool_computed`` for an action the tool
+          computes and executes, or ``direct`` for a control value submitted through
+          the direct action tool.
+      * - ``action.format``
+        - Action format used by the robot.
+      * - ``action.data``
+        - Control command the environment executed at this step.
+      * - ``before_observation``
+        - Environment observation before this action.
