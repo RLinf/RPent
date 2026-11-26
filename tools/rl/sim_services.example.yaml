@@ -1,0 +1,47 @@
+# Example service topology for 8-GPU embodied RL (GPUs 0-3: RLinf; GPUs 4-7: simulators + SAM3).
+# Launch with:
+#   python tools/rl/serve.py --config /path/to/sim_services.yaml
+#
+# Each service runs in its own isolated Python virtual environment so simulator
+# dependencies (MuJoCo/LIBERO, SAPIEN/RoboTwin, SAM3) stay decoupled from the
+# pure-RL training environment.
+
+host: 127.0.0.1
+log_dir: /path/to/workspace/runs/sim_services
+
+env:
+  LD_LIBRARY_PATH: /usr/lib/x86_64-linux-gnu:/usr/local/cuda/lib64
+  PYTHONPATH: /path/to/RPent:/path/to/RLinf
+  CUDA_DEVICE_ORDER: PCI_BUS_ID
+  OMP_NUM_THREADS: "4"
+
+sam3:
+  python: /path/to/envs/sam3/bin/python
+  checkpoint: /path/to/models/sam3/sam3.pt
+  gpus: [4, 5, 6, 7]
+  backend_base_port: 28500
+  pool_port: 28510
+
+simulators:
+  libero:
+    python: /path/to/envs/libero/bin/python
+    port: 28561
+    gpus: [4, 5, 6, 7]
+    # Size workers >= per-domain oversampling demand (e.g. 2 prompts * group_size 8 = 16)
+    # so every oversampled episode starts concurrently with zero queuing.
+    workers: 16
+    libero_type: pro
+    max_episodes_per_worker: 30
+    env:
+      LIBERO_CONFIG_PATH: /path/to/assets/libero-config
+      MUJOCO_GL: egl
+
+  robotwin:
+    python: /path/to/envs/robotwin/bin/python
+    port: 28562
+    gpus: [4, 5, 6, 7]
+    workers: 16
+    assets_path: /path/to/assets/robotwin
+    max_episodes_per_worker: 30
+    env:
+      ROBOTWIN_ASSETS_PATH: /path/to/assets/robotwin
