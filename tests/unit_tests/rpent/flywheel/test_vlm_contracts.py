@@ -439,7 +439,13 @@ def test_vlm_export_selects_confirmed_episodes_and_counts_rejections(
         ),
         ("nonboolean", {"data": {"environment_success": 1}}),
     ]:
-        _write_vlm_episode(jobs / name, result, [api_opening])
+        _write_vlm_episode(
+            jobs / name,
+            result,
+            [api_opening, dict(api_opening, planner_id="P2", backend="codex")]
+            if name == "failed"
+            else [api_opening],
+        )
 
     out = tmp_path / "dataset"
     report = export_vlm_samples(jobs, out)
@@ -450,13 +456,13 @@ def test_vlm_export_selects_confirmed_episodes_and_counts_rejections(
         report["exported_episode_count"],
     ) == (5, 1, 1)
     assert (report["turn_count"], report["sample_count"], report["image_count"]) == (
-        14,
+        15,
         2,
         0,
     )
     assert report["excluded_episode_counts"] == {"no_confirmed_environment_success": 4}
     assert report["excluded_turn_counts"] == {
-        "no_confirmed_environment_success": 4,
+        "no_confirmed_environment_success": 5,
         "unsupported_backend": 2,
         "incomplete_response": 2,
         "invalid_tool_arguments": 1,
@@ -482,6 +488,7 @@ def test_vlm_export_selects_confirmed_episodes_and_counts_rejections(
         5,
         6,
     )
+    assert all_episodes["skipped_backend_counts"] == {"codex": 2, "claude_code": 1}
 
 
 def test_vlm_export_deduplicates_image_bytes_across_episodes(api_opening, tmp_path):

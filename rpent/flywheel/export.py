@@ -350,14 +350,13 @@ def export_vlm_samples(
                         "turn_id": planner["planner_id"],
                     }
                     backend = planner["backend"]
-                    if backend != "api":
-                        report["skipped_backend_counts"][backend] += 1
                     if not selected:
                         report["excluded"].append(
                             {**source, "reason": "no_confirmed_environment_success"}
                         )
                         continue
                     if backend != "api":
+                        report["skipped_backend_counts"][backend] += 1
                         report["excluded"].append(
                             {
                                 **source,
