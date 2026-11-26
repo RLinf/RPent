@@ -1,10 +1,11 @@
 Add a Planner
 =============
 
-Add a model backend by implementing ``Planner``, which receives prompts, calls
-tools, and returns a task result. For a CLI supporting ACP (Agent Client
-Protocol), subclass ``AcpPlanner`` to reuse session execution and interaction.
-Both paths use the same toolkit and registration steps below.
+Planners call models, execute robot tools, and return task results. To add a
+backend, subclass ``Planner`` for a custom API or SDK, or subclass ``AcpPlanner``
+for a CLI that supports ACP (Agent Client Protocol) to reuse session execution
+and interaction. Both paths use the RPent toolkit and require registration and
+verification after implementation.
 
 Custom Planners
 ----------------
@@ -63,29 +64,44 @@ your custom planner.
 ACP CLI Adapters
 ----------------
 
-For an ACP CLI, subclass ``AcpPlanner`` from ``rpent/planner/utils/acp.py`` and
-set its ``backend`` and display ``label``. Implement ``_create_session`` to
-prepare the command, environment, and tool policy and return an ``AcpSession``.
-See ``gemini_cli.py`` and ``opencode.py``: both use ACP for sessions and HTTP MCP
-for RPent tools. Register the adapter under the CLI's name.
+If the CLI supports ACP, you can reuse ``AcpPlanner`` from
+``rpent/planner/utils/acp.py``. Subclass it, set its ``backend`` and display
+``label``, and implement ``_create_session`` to prepare the command, environment,
+and tool policy and return an ``AcpSession``.
 
-The base handles sessions, event recording, connection probes, queued input,
-cancellation, and cleanup. OpenCode passes its MCP URL through ``AcpSession``;
-Gemini CLI uses workspace settings. Pass a model ID to ``AcpSession`` only when
-using the CLI's ACP model selector. The adapter owns authentication and native
-turn limits; ACP has no standard model-turn budget.
+See ``rpent/planner/gemini_cli.py`` and ``rpent/planner/opencode.py`` for complete
+examples; both use ACP for sessions and HTTP MCP for RPent tools.
+
+``AcpPlanner`` handles sessions, event recording, connection probes, queued input,
+cancellation, and cleanup. Each adapter configures the following for its CLI:
+
+- MCP registration: pass ``mcp_url`` to ``AcpSession``, as OpenCode does, or write
+  workspace settings, as Gemini CLI does.
+- Model selection: pass a model ID to ``AcpSession`` only when using the CLI's
+  ACP model selector.
+- Authentication: reuse the CLI's authentication configuration.
+- Turn limits: because ACP has no standard model-turn budget, use the CLI's
+  native limit.
 
 Wire and Validate the Planner
 -----------------------------
 
-Add a construction branch in ``rpent/planner/base.py:build_planner``. Register
-an online backend in ``rpent/planner/check.py`` with ``CHECK_PLANNERS``, its
-diagnostic timeout, and a connection probe; the CLI derives its online planner
-choices from that list. For CLI/SDK planners that own their provider configuration,
-also update ``EXTERNALLY_CONFIGURED_PLANNERS``. Dashboard sessions use the
-planner selected on the command line. For an ACP adapter, add its name to
-``ACP_PLANNERS`` and select its class in ``build_planner`` and ``_check_acp``.
-The shared list supplies online planner registration, external configuration
-handling, and the ``--reasoning-effort none`` restriction.
+Once implemented, register the backend so RPent can construct it and check its
+connection. Dashboard uses the planner selected on the command line, so it needs
+no separate integration. Registration depends on the base class:
 
-Verify tool dispatch, text and image results, actual ``finish`` calls, turn limits, errors, queued input, cancellation, and process cleanup. Reuse test patterns in ``tests/unit_tests/rpent/planner/``. Validate real model connectivity separately.
+- Custom ``Planner``: add a construction branch in ``build_planner`` in
+  ``rpent/planner/base.py``. For an online backend, register it in ``CHECK_PLANNERS``
+  in ``rpent/planner/check.py`` with a diagnostic timeout and connection probe;
+  the CLI derives its online planner choices from that list. If the CLI/SDK owns
+  its provider configuration, also add it to ``EXTERNALLY_CONFIGURED_PLANNERS``.
+- ``AcpPlanner`` adapter: add its name to ``ACP_PLANNERS`` in
+  ``rpent/planner/check.py``, set its diagnostic timeout, and select its class in
+  ``build_planner`` and ``_check_acp``. ``ACP_PLANNERS`` supplies online planner
+  registration, external configuration handling, and the
+  ``--reasoning-effort none`` restriction.
+
+After registration, use the test patterns in ``tests/unit_tests/rpent/planner/``
+to verify tool dispatch, text and image results, actual ``finish`` calls, turn
+limits, errors, queued input, cancellation, and process cleanup offline. Once
+those tests pass, validate real model connectivity separately.
