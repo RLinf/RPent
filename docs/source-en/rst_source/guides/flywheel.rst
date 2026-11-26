@@ -302,8 +302,9 @@ VLM planner was evaluated against the original model within RPent.
 
 Evaluation covered the same 10 tasks used for training in RoboTwin's
 ``demo_randomized`` configuration, with five seeds per task and 50 runs per
-model. Both groups used ``LingBot-VLA-RoboTwin-EEF-ckpt1500`` as the VLA model,
-set planner reasoning effort to ``medium``, and loaded task memory from
+model; 10 of the 50 task-seed pairs overlap with the training trajectories and
+40 do not. Both groups used ``LingBot-VLA-RoboTwin-EEF-ckpt1500`` as the VLA
+model, set planner reasoning effort to ``medium``, and loaded task memory from
 ``robotwin/`` in the ``RLinf/RPent-memory`` dataset on Hugging Face.
 
 Success rates:
@@ -311,15 +312,18 @@ Success rates:
 .. list-table::
    :header-rows: 1
 
-   * - Model
-     - Successes / runs
-     - Success rate
-   * - Original model
-     - 8/50
-     - 16%
-   * - SFT model (step 48)
-     - 15/50
-     - 30%
+   * - Evaluation slice
+     - Original model
+     - SFT model (step 48)
+   * - All 50 task-seeds
+     - 8/50 (16%)
+     - 15/50 (30%)
+   * - Overlapping with training (10)
+     - 5/10 (50%)
+     - 8/10 (80%)
+   * - Non-overlapping (40)
+     - 3/40 (7.5%)
+     - 7/40 (17.5%)
 
 .. _trajectory-data-format:
 

@@ -222,22 +222,25 @@ RoboTwin VLM 微调结果
 
 使用 RPent 采集的成功轨迹，经 ``rpent-flywheel --vlm`` 导出后微调 ``Qwen3.8-27B``，并在 RPent 中替换 VLM 规划器与原模型对比评测。
 
-评测覆盖 RoboTwin ``demo_randomized`` 中与训练相同的 10 个任务，每任务 5 个 seed，每组共 50 场。两组均使用 ``LingBot-VLA-RoboTwin-EEF-ckpt1500`` 作为 VLA 模型，规划器推理强度设为 ``medium``，并加载 Hugging Face 数据集 ``RLinf/RPent-memory`` 中的 ``robotwin/`` 任务记忆。
+评测覆盖 RoboTwin ``demo_randomized`` 中与训练相同的 10 个任务，每任务 5 个 seed，每组共 50 场；其中 10 个任务–seed 与训练轨迹重合，其余 40 个未出现在训练轨迹中。两组均使用 ``LingBot-VLA-RoboTwin-EEF-ckpt1500`` 作为 VLA 模型，规划器推理强度设为 ``medium``，并加载 Hugging Face 数据集 ``RLinf/RPent-memory`` 中的 ``robotwin/`` 任务记忆。
 
 成功率如下：
 
 .. list-table::
    :header-rows: 1
 
-   * - 模型
-     - 成功数 / 场次
-     - 成功率
-   * - 原模型
-     - 8/50
-     - 16%
-   * - SFT 模型（step 48）
-     - 15/50
-     - 30%
+   * - 评测范围
+     - 原模型
+     - SFT 模型（step 48）
+   * - 全部 50 个任务–seed
+     - 8/50（16%）
+     - 15/50（30%）
+   * - 与训练轨迹重合（10 个）
+     - 5/10（50%）
+     - 8/10（80%）
+   * - 未出现在训练轨迹中（40 个）
+     - 3/40（7.5%）
+     - 7/40（17.5%）
 
 .. _trajectory-data-format:
 
