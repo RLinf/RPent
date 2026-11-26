@@ -42,6 +42,7 @@ if TYPE_CHECKING:
 #: Toolkits expose plain tool names; planners add/strip this prefix.
 MCP_TOOL_PREFIX = "mcp__rpent__"
 REASONING_EFFORTS = ("none", "low", "medium", "high", "xhigh")
+CODEX_SANDBOX_CHOICES = ("read-only", "workspace-write", "full-access")
 
 
 def resolve_model(planner: str, model: str | None) -> str | None:
@@ -270,6 +271,7 @@ def build_planner(
     max_tokens: int = 8192,
     planner_timeout_s: int | None = None,
     reasoning_effort: str = "none",
+    codex_sandbox: str = "full-access",
     claude_code_max_budget_usd: float | None = None,
     dashboard_events: DashboardEventSink,
     no_images: bool = False,
@@ -335,6 +337,7 @@ def build_planner(
             output_path=Path(output_dir) / f"codex_{recipe_tag}.txt",
             dashboard_events=dashboard_events,
             reasoning_effort=reasoning_effort,
+            sandbox=codex_sandbox,
         )
     if planner_type == "gemini_cli":
         from rpent.planner.gemini_cli import GeminiCliPlanner

@@ -25,6 +25,9 @@ from typing import Any
 
 import pytest
 
+from rpent.robots import RunConfig
+from rpent.utils.mcp_servers import McpServerSpec
+
 REPO_ROOT = Path(__file__).resolve().parents[4]
 ROBOT_HELP_CASES = [
     ("libero", ("--suite", "--task", "--libero-type")),
@@ -779,6 +782,8 @@ def test_full_cli_exploration_finalizes_memory_without_starting_gpu_runtime(
             str(tmp_path / "memory"),
             "--output-dir",
             str(tmp_path),
+            "--codex-sandbox",
+            "read-only",
             "--max-turns",
             "4",
             "--explore-sessions",
@@ -790,6 +795,7 @@ def test_full_cli_exploration_finalizes_memory_without_starting_gpu_runtime(
 
     assert cli.main() == 0
     assert calls["build_planner"][1]["interactive"] is interactive
+    assert calls["build_planner"][1]["codex_sandbox"] == "read-only"
     saved_tasks = {
         data["task_id"]: data
         for path in tmp_path.glob("**/trajectories/*/task.json")
@@ -1059,6 +1065,72 @@ def test_full_cli_calls_robot_result_finalizer_without_robot_special_case(
     assert daemon.stopped is True
 
 
+def test_prompt_hook_failure_stops_the_started_runtime(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The hook runs after ``init_runtime`` and before the agent-loop cleanup."""
+    cli = _cli_module()
+    from rpent.robots import PromptBundle, RobotSpec, RunConfig
+
+    class FakeDaemon:
+        stopped = False
+
+        def stop(self) -> None:
+            self.stopped = True
+
+    def add_cli_args(parser: Any, use_dashboard: bool) -> None:
+        del use_dashboard
+        parser.add_argument("--task-name", required=True)
+
+    def parse_config(args: Any) -> RunConfig:
+        return RunConfig(
+            recipe_tag=args.task_name,
+            output_dir=Path(args.output_dir),
+            prompt_vars={"memory_dir": args.memory_dir},
+            task_desc={"task_name": args.task_name},
+        )
+
+    def prepare_prompt_vars(*args: Any) -> dict[str, Any]:
+        raise RuntimeError("capability probe failed")
+
+    daemon = FakeDaemon()
+    robot_spec = RobotSpec(
+        name="testrobot",
+        prompts=PromptBundle(
+            system=lambda variables: "system",
+            user=lambda variables: "task",
+        ),
+        add_cli_args=add_cli_args,
+        parse_config=parse_config,
+        init_runtime=lambda *args: ([daemon], {"runtime": "simulated"}),
+        prepare_prompt_vars=prepare_prompt_vars,
+    )
+
+    monkeypatch.setattr(cli, "enumerate_robots", lambda: ("testrobot",))
+    monkeypatch.setattr(cli, "get_robot_spec", lambda name: robot_spec)
+    monkeypatch.setattr(cli, "build_planner", lambda *args, **kwargs: SimpleNamespace())
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "rpent",
+            "--robot",
+            "testrobot",
+            "--task-name",
+            "OpenDrawer",
+            "--memory-profile",
+            "local",
+            "--output-dir",
+            str(tmp_path),
+        ],
+    )
+
+    with pytest.raises(RuntimeError, match="capability probe failed"):
+        cli.main()
+
+    assert daemon.stopped is True
+
+
 @pytest.mark.parametrize("dashboard", [False, True])
 @pytest.mark.parametrize(
     "options, message",
@@ -1093,3 +1165,201 @@ def test_invalid_memory_source_fails_before_startup(
         cli.main()
     assert exc.value.code == 2
     assert message in capsys.readouterr().err
+
+
+def test_shared_mcp_servers_merge_into_run_config(tmp_path: Path) -> None:
+    cli = _cli_module()
+
+    run_config = RunConfig(
+        recipe_tag="run",
+        output_dir=tmp_path,
+        prompt_vars={},
+        task_desc={},
+    )
+    shared = (McpServerSpec(name="lights", url="https://lights.example/mcp"),)
+
+    merged = cli._with_shared_mcp_servers(run_config, shared)
+
+    assert merged.mcp_servers == shared
+    assert run_config.mcp_servers == ()
+
+
+def test_shared_mcp_servers_reject_collision_with_robot_config(tmp_path: Path) -> None:
+    cli = _cli_module()
+
+    run_config = RunConfig(
+        recipe_tag="run",
+        output_dir=tmp_path,
+        prompt_vars={},
+        task_desc={},
+        mcp_servers=(McpServerSpec(name="web", url="https://robot.example/mcp"),),
+    )
+    shared = (McpServerSpec(name="web", url="https://shared.example/mcp"),)
+
+    with pytest.raises(ValueError, match="duplicate MCP server name 'web'"):
+        cli._with_shared_mcp_servers(run_config, shared)
+
+
+def test_cli_loads_mcp_config_and_merges_with_robot_servers(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    cli = _cli_module()
+    shared = tmp_path / "mcp.yaml"
+    shared.write_text(
+        "mcp_servers:\n"
+        "  power:\n"
+        "    url: http://127.0.0.1:8765/mcp\n"
+        "    tools: [read_power_meter]\n"
+    )
+    captured_configs: list[RunConfig] = []
+
+    def add_cli_args(parser, use_dashboard: bool) -> None:
+        del use_dashboard
+        parser.add_argument("--suite", default="s")
+
+    def parse_config(args) -> RunConfig:
+        del args
+        return RunConfig(
+            recipe_tag="run",
+            output_dir=tmp_path / "out",
+            prompt_vars={},
+            task_desc={},
+            mcp_servers=(McpServerSpec(name="dock", url="http://127.0.0.1:8766/mcp"),),
+        )
+
+    def fake_get_toolkit(name: str, **kwargs: Any) -> Any:
+        del name
+        captured_configs.append(kwargs["config"])
+        raise RuntimeError("stop after toolkit capture")
+
+    monkeypatch.setattr(cli, "enumerate_robots", lambda: ("libero",))
+    monkeypatch.setattr(cli, "get_toolkit", fake_get_toolkit)
+    monkeypatch.setattr(
+        cli,
+        "get_robot_spec",
+        lambda name: SimpleNamespace(
+            name=name,
+            add_cli_args=add_cli_args,
+            parse_config=parse_config,
+            init_runtime=lambda *args: ([], {}),
+            prepare_memory=None,
+            prepare_prompt_vars=None,
+            prompts=SimpleNamespace(render=lambda *args, **kwargs: "prompt"),
+            validate_args=None,
+            resolve_dashboard=None,
+            finalize_run=None,
+            supports_exploration=False,
+            supports_human_interactive_exploration=False,
+            is_real_robot=False,
+        ),
+    )
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "rpent",
+            "--robot",
+            "libero",
+            "--planner",
+            "gemini_cli",
+            "--memory-profile",
+            "local",
+            "--mcp-config",
+            str(shared),
+        ],
+    )
+
+    assert cli.main() == 1
+    assert len(captured_configs) == 1
+    assert [spec.name for spec in captured_configs[0].mcp_servers] == ["dock", "power"]
+    assert captured_configs[0].mcp_servers[1].tools == ("read_power_meter",)
+
+
+def test_cli_rejects_mcp_config_with_flash_planner(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    tmp_path: Path,
+) -> None:
+    cli = _cli_module()
+    started = False
+
+    def init_runtime(*args: Any) -> tuple[list[Any], dict[str, Any]]:
+        nonlocal started
+        started = True
+        return [], {}
+
+    monkeypatch.setattr(cli, "enumerate_robots", lambda: ("libero",))
+    monkeypatch.setattr(
+        cli,
+        "get_robot_spec",
+        lambda name: SimpleNamespace(
+            name=name,
+            add_cli_args=lambda parser, use_dashboard: None,
+            parse_config=lambda args: RunConfig(
+                recipe_tag="run",
+                output_dir=tmp_path / "out",
+                prompt_vars={},
+                task_desc={},
+            ),
+            init_runtime=init_runtime,
+            run_flash=object(),
+            validate_args=None,
+            resolve_dashboard=None,
+            supports_exploration=False,
+            supports_human_interactive_exploration=False,
+            is_real_robot=False,
+        ),
+    )
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "rpent",
+            "--robot",
+            "libero",
+            "--planner",
+            "flash",
+            "--mcp-config",
+            str(tmp_path / "mcp.yaml"),
+        ],
+    )
+
+    with pytest.raises(SystemExit) as exc:
+        cli.main()
+
+    assert exc.value.code == 2
+    assert (
+        "--mcp-config is not supported with --planner flash" in capsys.readouterr().err
+    )
+    assert started is False
+
+
+def test_cli_rejects_a_missing_mcp_config(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    tmp_path: Path,
+) -> None:
+    cli = _cli_module()
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "rpent",
+            "--robot",
+            "libero",
+            "--suite",
+            "libero_object",
+            "--task",
+            "0",
+            "--seed",
+            "0",
+            "--mcp-config",
+            str(tmp_path / "missing.yaml"),
+        ],
+    )
+
+    with pytest.raises(SystemExit):
+        cli.main()
+
+    assert "MCP config not found" in capsys.readouterr().err

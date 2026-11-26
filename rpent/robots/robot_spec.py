@@ -39,6 +39,7 @@ from rpent.robots.prompt_bundle import PromptBundle
 
 if TYPE_CHECKING:
     from rpent.utils.daemon import ProcessDaemon
+    from rpent.utils.mcp_servers import McpServerSpec
 
 
 @dataclass(frozen=True)
@@ -50,6 +51,11 @@ class RunConfig:
     prompt_vars: dict[str, Any]
     task_desc: dict[str, Any]
     enable_direct_action: bool = False
+    #: External MCP servers available to this run. The robot contributes the
+    #: ``mcp_servers`` section of its own config; the CLI merges in servers from
+    #: ``--mcp-config``, and ``get_toolkit`` registers them on the robot's
+    #: :class:`~rpent.tools.toolkit.Toolkit`. Empty when no server is declared.
+    mcp_servers: tuple["McpServerSpec", ...] = ()
 
 
 @dataclass(frozen=True)
@@ -64,6 +70,16 @@ class RobotSpec:
         [argparse.Namespace, Path, DashboardEventSink, set[str] | None],
         tuple[list["ProcessDaemon"], dict[str, Any]],
     ]
+    #: Refine prompt variables after ``init_runtime`` when the prompt depends on
+    #: the connected runtime, such as the tools the task actually registers.
+    #: The returned values are merged over ``RunConfig.prompt_vars`` for both
+    #: the user- and system-prompt renders; the interactive CLI keeps its
+    #: earlier user render as the editable default of the first prompt. A robot
+    #: that also reads one of these values in ``get_toolkit`` must derive it
+    #: from the same connected-runtime facts.
+    prepare_prompt_vars: (
+        Callable[[argparse.Namespace, RunConfig, dict[str, Any]], dict[str, Any]] | None
+    ) = None
     #: Resolve Dashboard configuration from session options; None disables it.
     resolve_dashboard: Callable[[argparse.Namespace], DashboardSpec] | None = None
     #: Physical scene restoration requires operator involvement, not simulator reset.

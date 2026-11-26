@@ -23,7 +23,6 @@ import shlex
 import sys
 import threading
 import time
-from dataclasses import asdict
 from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -31,13 +30,21 @@ from typing import TYPE_CHECKING, Any
 from rpent.cli.main import (
     _handoff_message,
     _serialize_messages,
+    _with_shared_mcp_servers,
 )
 from rpent.dashboard.events import RunStartedEvent
 from rpent.evaluation import RunFinalizationContext
 from rpent.memory import MemoryManager
-from rpent.planner.base import build_planner, is_recoverable_agent_error
+from rpent.planner.base import (
+    build_planner,
+    is_recoverable_agent_error,
+)
 from rpent.robots import get_toolkit
-from rpent.session.planner_capture import end_planner_task, start_planner_task
+from rpent.session.planner_capture import (
+    end_planner_task,
+    start_planner_task,
+    task_config_snapshot,
+)
 from rpent.utils.config import get_memory_dir
 from rpent.utils.logging import get_logger, init_output_dir
 
@@ -207,7 +214,10 @@ def _run_dashboard_task(
     if task_args.explore and not robot_spec.supports_exploration:
         raise ValueError(f"--explore is not supported for robot {robot_spec.name!r}")
     task_args.output_dir = str(claimed.output_dir)
-    run_config = robot_spec.parse_config(task_args)
+    run_config = _with_shared_mcp_servers(
+        robot_spec.parse_config(task_args),
+        getattr(task_args, "shared_mcp_servers", ()),
+    )
     from rpent.memory.loading import prepare_run_memory
 
     prepare_run_memory(task_args, robot_spec, run_config)
@@ -238,6 +248,15 @@ def _run_dashboard_task(
                 **shared_runtime_kwargs,
             }
             prompt_vars = {**run_config.prompt_vars, "output_dir": output_dir}
+            # Refine the prompt with the connected task's own capabilities
+            # before any render, so prompt and toolkit describe one tool set.
+            if robot_spec.prepare_prompt_vars is not None:
+                prompt_vars = {
+                    **prompt_vars,
+                    **robot_spec.prepare_prompt_vars(
+                        task_args, run_config, runtime_kwargs
+                    ),
+                }
             session_message = robot_spec.prompts.render("user", variables=prompt_vars)
             sessions = max(
                 1,
@@ -323,10 +342,7 @@ def _run_dashboard_task(
                         task_state = start_planner_task(
                             toolkit.state,
                             instruction=session_message,
-                            config={
-                                "arguments": vars(task_args),
-                                "run": asdict(run_config),
-                            },
+                            config=task_config_snapshot(vars(task_args), run_config),
                         )
                     planner = build_planner(
                         task_args.planner,
@@ -339,6 +355,7 @@ def _run_dashboard_task(
                         max_tokens=args.max_tokens,
                         planner_timeout_s=args.planner_timeout_s,
                         reasoning_effort=args.reasoning_effort,
+                        codex_sandbox=args.codex_sandbox,
                         claude_code_max_budget_usd=args.claude_code_max_budget_usd,
                         dashboard_events=state,
                         no_images=args.no_images,

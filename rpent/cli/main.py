@@ -42,7 +42,7 @@ import shlex
 import sys
 import time
 from collections.abc import Callable
-from dataclasses import asdict
+from dataclasses import replace
 from pathlib import Path
 
 from rpent.cli.tui import (
@@ -56,14 +56,24 @@ from rpent.dashboard.events import (
 from rpent.evaluation import RunFinalizationContext
 from rpent.memory import MemoryManager
 from rpent.planner.base import (
+    CODEX_SANDBOX_CHOICES,
     REASONING_EFFORTS,
     build_planner,
     is_recoverable_agent_error,
 )
 from rpent.planner.check import EXTERNALLY_CONFIGURED_PLANNERS
-from rpent.robots import enumerate_robots, get_robot_spec, get_toolkit
-from rpent.session.planner_capture import end_planner_task, start_planner_task
+from rpent.robots import RunConfig, enumerate_robots, get_robot_spec, get_toolkit
+from rpent.session.planner_capture import (
+    end_planner_task,
+    start_planner_task,
+    task_config_snapshot,
+)
 from rpent.utils.logging import get_logger, init_output_dir
+from rpent.utils.mcp_servers import (
+    McpServerSpec,
+    load_mcp_config,
+    merge_mcp_servers,
+)
 
 logger = get_logger("agent")
 
@@ -189,11 +199,24 @@ def _build_argparser() -> argparse.ArgumentParser:
         "(gemini_cli only), CELL_TIMEOUT_S, or 1200.",
     )
     ap.add_argument(
+        "--codex-sandbox",
+        choices=CODEX_SANDBOX_CHOICES,
+        default="full-access",
+        help="Shell sandbox for the Codex planner. Ignored by other planners.",
+    )
+    ap.add_argument(
         "--claude-code-max-budget-usd",
         type=float,
         default=None,
         help="Budget passed to claude -p --max-budget-usd. "
         "Defaults to MAX_BUDGET_USD env or 10.",
+    )
+
+    ap.add_argument(
+        "--mcp-config",
+        default=None,
+        help="Path to an MCP config YAML file. Its mcp_servers section is "
+        "registered on the robot's toolkit for every run.",
     )
 
     # other config
@@ -312,6 +335,24 @@ def _handoff_message(
     )
 
 
+def _with_shared_mcp_servers(
+    run_config: RunConfig,
+    shared_servers: tuple[McpServerSpec, ...],
+) -> RunConfig:
+    """Merge shared MCP servers into a robot's run config.
+
+    The shared config applies to every robot, so the CLI adds its servers
+    after the robot's own ``parse_config``. Duplicate names are rejected: a
+    robot must not silently shadow a server from the shared config.
+    """
+    if not shared_servers:
+        return run_config
+    return replace(
+        run_config,
+        mcp_servers=merge_mcp_servers(run_config.mcp_servers, shared_servers),
+    )
+
+
 def _start_continuation_session(
     args,
     *,
@@ -335,6 +376,7 @@ def _start_continuation_session(
         max_tokens=args.max_tokens,
         planner_timeout_s=args.planner_timeout_s,
         reasoning_effort=args.reasoning_effort,
+        codex_sandbox=args.codex_sandbox,
         claude_code_max_budget_usd=args.claude_code_max_budget_usd,
         dashboard_events=dashboard_events,
         no_images=args.no_images,
@@ -433,6 +475,11 @@ def main() -> int:
     if args.planner == "flash":
         if args.explore:
             parser.error("Flash Mode is evaluation-only; remove --explore")
+        if args.mcp_config is not None:
+            parser.error(
+                "--mcp-config is not supported with --planner flash; "
+                "Flash Mode replays recorded plans without an LLM planner"
+            )
         if robot_spec.run_flash is None:
             parser.error(f"Flash Mode is not supported for robot {args.robot_name!r}")
     if args.explore and not robot_spec.supports_exploration:
@@ -470,7 +517,8 @@ def main() -> int:
             parse_repo(args.memory_repo)
         if robot_spec.validate_args is not None:
             robot_spec.validate_args(args)
-    except ValueError as exc:
+        args.shared_mcp_servers = load_mcp_config(args.mcp_config)
+    except (OSError, ValueError) as exc:
         parser.error(str(exc))
     if args.dashboard:
         from rpent.cli.dashboard import run_dashboard_session
@@ -478,7 +526,9 @@ def main() -> int:
         return run_dashboard_session(args, robot_spec, parser=parser)
 
     try:
-        run_config = robot_spec.parse_config(args)
+        run_config = _with_shared_mcp_servers(
+            robot_spec.parse_config(args), args.shared_mcp_servers
+        )
     except (OSError, ValueError) as exc:
         parser.error(str(exc))
     recipe_tag = run_config.recipe_tag
@@ -507,6 +557,7 @@ def main() -> int:
         max_tokens=args.max_tokens,
         planner_timeout_s=args.planner_timeout_s,
         reasoning_effort=args.reasoning_effort,
+        codex_sandbox=args.codex_sandbox,
         claude_code_max_budget_usd=args.claude_code_max_budget_usd,
         dashboard_events=dashboard_events,
         no_images=args.no_images,
@@ -514,10 +565,6 @@ def main() -> int:
     )
     prompt_bundle = robot_spec.prompts
     prompt_vars = {**prompt_vars, "output_dir": output_dir}
-    system_prompt = prompt_bundle.render(
-        "system",
-        variables=prompt_vars,
-    )
     user_msg = prompt_bundle.render(
         "user",
         variables=prompt_vars,
@@ -574,6 +621,26 @@ def main() -> int:
         dashboard_events,
         None,
     )
+    try:
+        # Render the system prompt after the runtime so a robot can report the
+        # capabilities of the connected task, not only the requested options.
+        if robot_spec.prepare_prompt_vars is not None:
+            prompt_vars = {
+                **prompt_vars,
+                **robot_spec.prepare_prompt_vars(args, run_config, runtime_kwargs),
+            }
+            # ``prepare_prompt_vars`` may add variables the user prompt reads, so
+            # re-render it once the connected runtime has reported its capabilities.
+            # The interactive reader keeps the earlier render, which is only the
+            # editable default.
+            user_msg = prompt_bundle.render("user", variables=prompt_vars)
+        system_prompt = prompt_bundle.render("system", variables=prompt_vars)
+    except BaseException:
+        # The agent-loop ``finally`` below stops the daemons. A prompt or hook
+        # failure happens before it and must not leak the runtime.
+        for daemon in daemons:
+            daemon.stop()
+        raise
 
     # --- agent loop --------------------------------------------------------
     t0 = time.time()
@@ -668,7 +735,7 @@ def main() -> int:
                     task_state = start_planner_task(
                         toolkit.state,
                         instruction=session_msg,
-                        config={"arguments": vars(args), "run": asdict(run_config)},
+                        config=task_config_snapshot(vars(args), run_config),
                     )
                 result = planner.solve(
                     system_prompt=system_prompt,

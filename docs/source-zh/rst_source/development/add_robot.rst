@@ -111,6 +111,8 @@ RPent 的整体进程划分、服务职责和通信方式见 :doc:`系统说明 
 
 ``resolve_dashboard(args)`` 回调接收解析后的会话参数，可根据 ``--am-backend`` 等选项选择组件。固定布局直接返回静态配置即可，如上例所示。实体环境检查和 Dashboard 启动均调用此回调。
 
+``prepare_prompt_vars`` 是可选钩子：在 ``init_runtime`` 连接任务后细化 Prompt 变量，例如列出服务实际注册的工具。返回的映射会合并到 ``RunConfig.prompt_vars``，供用户 Prompt 与系统 Prompt 渲染；交互式 CLI 的首条消息仍采用合并前的结果作为可编辑默认值。若 ``get_toolkit`` 也需要这些运行时信息，应让它和 Prompt 根据同一份信息生成工具列表，确保 Prompt 列出的工具与 Toolkit 实际注册的工具一致。
+
 下文依次说明这些模块需要实现的内容。``_add_cli_args`` 和 ``_parse_config`` 见第 4 节，runtime 钩子见第 5 节。
 
 .. _add-robot-env-rpc:
@@ -234,6 +236,31 @@ toolkit 模块通常包含四部分：
 
 ``runtime_kwargs`` 由 ``robot_spec.py:get_toolkit`` 转发给 toolkit，再原样传入 primitives 的 ``__init__``。其中通常包含 ``{"env": MyEnvClient(...), "model": VLAClient(...), ...}``。
 
+自定义外部 MCP 注册
+~~~~~~~~~~~~~~~~~~~
+
+默认情况下，RPent 会在 ``get_toolkit`` 返回后自动注册 ``--mcp-config``\ （YAML 文件路径）与 ``RunConfig.mcp_servers`` 中的全部外部 MCP 服务，大多数机器人无需编写额外代码（见 :ref:`external-mcp-servers`\ ）。如果机器人需要限定某个服务的可用工具，或要求某组工具与机器人动作互斥执行（``sync_with_robot=True``），可在 ``get_toolkit`` 返回前调用 ``Toolkit.add_mcp_tools``：
+
+.. code-block:: python
+
+   def get_toolkit(*, runtime_kwargs, dashboard_events, config):
+       toolkit = MyRobotToolkit(
+           runtime_kwargs=runtime_kwargs,
+           dashboard_events=dashboard_events,
+           memory=MemoryManager(
+               root=config.prompt_vars.get("memory_dir") or get_memory_dir("myrobot"),
+           ),
+       )
+       if any(server.name == "dock" for server in config.mcp_servers):
+           toolkit.add_mcp_tools(
+               config.mcp_servers,
+               tools={"dock": ["set_charging_dock", "read_battery"]},
+               sync_with_robot=True,
+           )
+       return toolkit
+
+自动注册流程会跳过已通过 ``add_mcp_tools`` 注册的服务，不会重复挂载。如果传入了未声明的服务名，或指定了被该服务 YAML ``tools`` 列表排除的工具，``add_mcp_tools`` 会抛出 ``ValueError``。设置 ``sync_with_robot=True`` 后，这些工具与机器人动作互斥执行（不会并发运行），执行后会触发 ``get_env_state`` 采集观测，并将远端返回内容保存在观测的 ``tool_result`` 字段中。
+
 建议遵循的约定
 --------------
 
@@ -259,6 +286,7 @@ toolkit 模块通常包含四部分：
 - ``output_dir`` —— 单次运行的临时目录路径。main.py 随后调用 ``init_output_dir`` 创建目录并配置日志。
 - ``prompt_vars`` —— 传给 ``PromptBundle.render`` 的字典，通常包含运行标识和 prompt 引用的其他变量。
 - ``task_desc`` —— 机器人特定的任务标识字典，会原样写入 transcript JSON 记录（LIBERO 使用 ``{"suite": ..., "task": ..., "seed": ...}``）。
+- ``mcp_servers`` —— 可选的机器人自带 MCP 服务元组（可用 ``parse_mcp_servers`` 解析），运行时会与 ``--mcp-config`` 所指定 YAML 文件中的服务配置合并，详见 :ref:`external-mcp-servers`。
 
 .. code-block:: python
 

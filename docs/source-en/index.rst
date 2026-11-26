@@ -88,7 +88,6 @@ Choose an environment: :doc:`LIBERO <rst_source/simulators/libero>`, :doc:`RoboC
    :caption: Guides
 
    Memory and Exploration <rst_source/guides/memory>
-   Action Primitives and Tools <rst_source/guides/configure_primitives>
    Planner Configuration <rst_source/guides/configure_planner>
    Command-Line Reference <rst_source/guides/cli>
    Interactive Usage <rst_source/guides/dashboard>
@@ -101,12 +100,25 @@ Choose an environment: :doc:`LIBERO <rst_source/simulators/libero>`, :doc:`RoboC
    :includehidden:
    :titlesonly:
    :hidden:
+   :caption: Toolkits
+
+   Action Primitives and Tools <rst_source/toolkits/overview>
+   Embodied RGB-D Toolkit <rst_source/toolkits/rgbd>
+   External MCP Tools <rst_source/toolkits/mcp>
+
+.. toctree::
+   :maxdepth: 2
+   :includehidden:
+   :titlesonly:
+   :hidden:
    :caption: Simulators
 
    LIBERO <rst_source/simulators/libero>
    RoboCasa365 <rst_source/simulators/robocasa>
    RoboTwin <rst_source/simulators/robotwin>
    RoboDojo <rst_source/simulators/robodojo>
+   RoboLab <rst_source/simulators/robolab>
+   Embodied First Exam <rst_source/simulators/efe>
 
 .. toctree::
    :maxdepth: 2

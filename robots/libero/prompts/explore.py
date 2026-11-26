@@ -167,9 +167,9 @@ RULE_4 = """Rule 4 — 🔁 MULTI-ATTEMPT. Prefer in-place recovery first (re-lo
    MUST localize via perception."""
 
 
-def _rules() -> str:
+def _rules(geometry: bool) -> str:
     """Evaluation's rules with the single-attempt Rule 4 replaced."""
-    rules = base.RULES
+    rules = base.rules(geometry)
     start = rules.index("Rule 4 — ")
     end = rules.find("\nRule 5 — ", start)
     tail = rules[end:].lstrip("\n") if end != -1 else ""
@@ -428,24 +428,22 @@ WORKFLOW_STEPS = (
 
 def system_prompt(variables: Mapping[str, object] | None = None) -> PromptNode:
     """Assemble the LIBERO exploration system prompt."""
-    enabled = bool((variables or {}).get("enable_direct_action", False))
-    steps = tuple(
-        base.allowed_primitives(enabled) + step if step == STEP_PRIMITIVES else step
-        for step in WORKFLOW_STEPS
-    )
+    variables = variables or {}
+    geometry = bool(variables.get("geometry"))
+    steps = base.workflow_steps(WORKFLOW_STEPS, variables, primitives=STEP_PRIMITIVES)
     return {
         "ROLE AND MODE": ROLE,
         "PROVEN LEVERS & LESSONS — libero_10_task seed-0 sweep solved 9/10 (READ THIS)": (
-            base.PROVEN_LEVERS
+            base.proven_levers(geometry)
         ),
-        "RUNTIME": base.RUNTIME,
+        "RUNTIME": base.runtime(geometry),
         "YOUR GOAL": GOAL,
-        "RULES (NON-NEGOTIABLE)": _rules(),
+        "RULES (NON-NEGOTIABLE)": _rules(geometry),
         "LOCALIZATION — how to get an object's world xyz WITHOUT GT coords": (
-            base.LOCALIZATION
+            base.localization(variables)
         ),
         "FIRST-STEP ALGORITHM — agentview = IDENTITY, wrist = GEOMETRY": (
-            base.PERCEPTION_ALGORITHM
+            base.perception_algorithm(variables)
         ),
         "WORKFLOW": Numbered(steps),
         "KEY HYPERPARAMETERS": base.KEY_HYPERPARAMETERS,

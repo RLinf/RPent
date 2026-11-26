@@ -47,6 +47,10 @@ RPent is built for four kinds of users:
 
 ## What's NEW!
 
+- [2026/11] 🔥 Fixed an issue that caused the API planner to underperform. With DeepSeek V4.1 Flash, the API planner achieved a success rate of **65.6% (164/250)** on RoboTwin C2R. See the [Leaderboard](https://rpent.readthedocs.io/en/latest/rst_source/leaderboard/index.html).
+- [2026/11] 🔥 RPent supports Embodied First Exam (EFE) tasks through Harbor, with Skills or the task's native actions. See the [EFE guide](https://rpent.readthedocs.io/en/latest/rst_source/simulators/efe.html).
+- [2026/11] 🔥 Added an [embodied RGB-D toolkit](https://rpent.readthedocs.io/en/latest/rst_source/toolkits/rgbd.html) for reading 3D coordinates, segmenting objects, and measuring object parts from recorded camera views.
+- [2026/11] 🔥 RPent supports external MCP tools through `--mcp-config`, exposing third-party Streamable HTTP servers across all online planners. See the [external MCP guide](https://rpent.readthedocs.io/en/latest/rst_source/toolkits/mcp.html).
 - [2026/11] 🔥 Added the data flywheel. Supervised fine-tuning of the VLA on successful trajectories collected with the flywheel raised RPent's task success rate on RoboTwin from 48% to 72%, a gain of **24 percentage points**. See the [user guide](https://rpent.readthedocs.io/en/latest/rst_source/guides/flywheel.html).
 - [2026/10] 🔥 Added an optional APXInf VLA endpoint. See the [deployment guide](https://rpent.readthedocs.io/en/latest/rst_source/guides/advanced_deployment.html#apxinf-vla-service-optional).
 - [2026/09] 🔥 Added the interactive RPent Leaderboard for LIBERO, LIBERO-PRO, RoboCasa365, and RoboTwin, with model comparisons and suite-level results. Explore the [Leaderboard](https://rpent.readthedocs.io/en/latest/rst_source/leaderboard/index.html).
@@ -88,6 +92,8 @@ RPent is built for four kinds of users:
           <li><b>WAM</b></li>
           <ul>
             <li>DreamZero</li>
+            <li><a href="https://rpent.readthedocs.io/en/latest/rst_source/simulators/robodojo.html#vpp2-setup">VPP2</a> (RoboDojo) ✅</li>
+            <li><a href="https://rpent.readthedocs.io/en/latest/rst_source/simulators/robodojo.html#awomo05-setup">Awomo05</a> (RoboDojo) ✅</li>
             <li><a href="docs/source-en/rst_source/development/add_action_model.rst">Cosmos Policy</a> (LIBERO / LIBERO-Pro)</li>
             <li><a href="docs/source-en/rst_source/development/add_action_model.rst">Fast-WAM</a> (LIBERO / LIBERO-Pro / RoboTwin)</li>
             <li><a href="docs/source-en/rst_source/development/add_action_model.rst">UniWAM</a> (RoboTwin)</li>
@@ -100,6 +106,8 @@ RPent is built for four kinds of users:
           <li><a href="https://rpent.readthedocs.io/en/latest/rst_source/simulators/robocasa.html">RoboCasa</a> ✅</li>
           <li><a href="https://rpent.readthedocs.io/en/latest/rst_source/simulators/robotwin.html">RoboTwin</a> ✅</li>
           <li><a href="https://rpent.readthedocs.io/en/latest/rst_source/simulators/robodojo.html">RoboDojo</a> ✅</li>
+          <li><a href="https://rpent.readthedocs.io/en/latest/rst_source/simulators/robolab.html">RoboLab</a> ✅</li>
+          <li><a href="https://rpent.readthedocs.io/en/latest/rst_source/simulators/efe.html">EFE</a> ✅</li>
         </ul>
       </td>
       <td>
@@ -125,10 +133,14 @@ pip install -e ".[libero-pro]"  # Recommended default (LIBERO-PRO)
 # Other environment configurations:
 pip install -e ".[robocasa]"    # RoboCasa
 pip install -e ".[robotwin]"    # RoboTwin
+pip install -e ".[robolab]"     # RoboLab policy environment
 pip install -e ".[franka]"      # Franka and dual Franka
 ```
 
 `.[libero-pro]` is the recommended default. See the [installation docs](https://rpent.readthedocs.io/en/latest/rst_source/get_started/quickstart.html) for other environments.
+
+For RoboLab simulator setup, model checkpoints, and a single-task example, see the
+[RoboLab guide](https://rpent.readthedocs.io/en/latest/rst_source/simulators/robolab.html).
 
 For RoboCasa setup, task memory, and the Target50 protocol, see the
 [RoboCasa guide](https://rpent.readthedocs.io/en/latest/rst_source/simulators/robocasa.html).

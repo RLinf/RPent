@@ -28,6 +28,9 @@ classifiers = [
 
 dependencies = [
     # Upgrade together after validating request budgets and failed-request accounting.
+    # The MCP client comes from `mcp` below: pydantic-ai's `mcp` extra pulls
+    # fastmcp, which requires beartype>=0.20 and cannot coexist with the
+    # beartype==0.19.0 that `rpent-openpi` pins.
     "pydantic-ai-slim[anthropic,google,openai,cli]==2.53.0",
     "pydantic-ai-harness==0.53.0",
     # Google GenAI 3.x changes the default API path from v1beta to v1.
@@ -53,6 +56,9 @@ dependencies = [
     "scipy",
     "imageio>=2.0",
     "PyYAML>=6.0",
+    # `--mcp-config` is a core CLI flag and resolves `${oc.env:...}` with
+    # OmegaConf, so this is no longer only a robot/test extra.
+    "omegaconf>=2.3,<3",
 ]
 
 [project.scripts]
@@ -70,9 +76,9 @@ Documentation = "https://rpent.readthedocs.io/en/latest/"
 [project.optional-dependencies]
 test = [
     "coverage",
+    "docutils",
     "pytest",
     "pytest-timeout",
-    "omegaconf",
     "gymnasium",
 ]
 rlinf = [
@@ -161,7 +167,6 @@ yam = [
     # Install the fixed RLinf YAM revision and i2rt SDK from the YAM guide.
     # i2rt 1.1.2 requires click<8.2; huggingface-hub 2.x requires click>=8.4.
     "huggingface_hub>=0.24,<1",
-    "omegaconf>=2.3,<3",
     "mujoco>=3.2,<4",
     "pyrealsense2>=2.55,<3",
     "imageio-ffmpeg",
@@ -185,6 +190,12 @@ robodojo-sim = [
     # incompatible with RoboDojo's NumPy 1 simulator stack.
     "pyarrow>=21.0.0,<26.0.0",
 ]
+robolab = [
+    "rpent[rlinf]",
+    "rpent-openpi @ git+https://github.com/RLinf/openpi.git@rpent",
+    # OpenPI uses NumPy 1.x. PyArrow 26 requires NumPy 2 at import time.
+    "pyarrow<26",
+]
 
 [tool.uv]
 prerelease = "allow"
@@ -198,6 +209,22 @@ prerelease = "allow"
 # Each robot extra pulls a separately pinned VLA runtime whose Torch,
 # Transformers, Tokenizers, or Diffusers versions are mutually incompatible.
 conflicts = [
+    [
+        { extra = "robolab" },
+        { extra = "robotwin" },
+    ],
+    [
+        { extra = "robolab" },
+        { extra = "molmo" },
+    ],
+    [
+        { extra = "robolab" },
+        { extra = "robodojo" },
+    ],
+    [
+        { extra = "robolab" },
+        { extra = "robodojo-sim" },
+    ],
     [
         { extra = "franka" },
         { extra = "libero" },
@@ -272,9 +299,10 @@ include-package-data = true
 where = ["."]
 # robots is a top-level package; without it, non-editable installations
 # leave the CLI unable to import any backend. The globs also cover every
-# per-robot subpackage (robots.yam.*, robots.robodojo.*, ...).
-include = ["rpent*", "robots", "robots.*"]
-exclude = ["tests*", "docs*", "examples*", "docker*", "toolkits*"]
+# per-robot subpackage (robots.yam.*, robots.robodojo.*, ...), as well as the
+# shared RGB-D tools.
+include = ["rpent*", "robots", "robots.*", "toolkits", "toolkits.*"]
+exclude = ["tests*", "docs*", "examples*", "docker*"]
 
 [tool.setuptools.package-data]
 "robots.robodojo" = ["guides/*.md"]

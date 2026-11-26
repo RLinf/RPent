@@ -132,6 +132,7 @@ class Tool(Generic[ParamsT]):
     handler: Callable[ParamsT, ToolResult]
     _input_schema: dict[str, Any]
     readonly: bool = False
+    preserve_result: bool = False
     _unbound_method: bool = False
     action_source: Literal["tool_computed", "direct"] = "tool_computed"
 

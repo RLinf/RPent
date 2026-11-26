@@ -43,9 +43,15 @@
    * - ``--planner-timeout-s``
      - ``—``
      - 优先使用 ``CODEX_TIMEOUT_S`` （Codex）或 ``GEMINI_CLI_TIMEOUT_S`` （Gemini CLI），再依次使用 ``CELL_TIMEOUT_S`` 或 1200 秒；终端交互式 API/Claude 会话不受此限。
+   * - ``--codex-sandbox``
+     - ``full-access``
+     - Codex Shell 沙箱，可选 ``read-only``、``workspace-write`` 或 ``full-access``。其他规划器会忽略此参数。
    * - ``--base-url``
      - ``—``
      - 仅 ``api``：覆盖模型服务地址。``claude_code``、``codex`` 和 ``gemini_cli`` 使用各自已有的后端配置，并拒绝此参数。
+   * - ``--mcp-config``
+     - ``—``
+     - 外部 MCP 配置文件（YAML）路径，其中的 ``mcp_servers`` 会自动注册到当前机器人的 ``toolkit`` 中；支持 ``api``、``claude_code``、``codex`` 和 ``gemini_cli``\ （``flash`` 会拒绝此参数）。参见 :ref:`external-mcp-servers`。
    * - ``--no-images``
      - ``false``
      - 仅 ``api``：不向模型发送图像。
@@ -192,6 +198,8 @@ RPent CLI 保留原有 ``--cuda-device`` 作为本地服务的共享默认值；
 Claude Code 和 Codex 也可复用已有的 CLI 认证。Gemini CLI 使用自身的认证和地址配置。模型选择、地址优先级和本地服务示例见 :doc:`configure_planner`。连接检查使用 ``rpent-check-llm``；记忆管理使用 ``rpent-memory``，操作方法见 :doc:`memory`。
 
 模型与资源路径由各环境读取，例如 LIBERO 的 ``PI05_CHECKPOINT_PATH``、``SAM3_CHECKPOINT_PATH``，RoboCasa365 的 ``ROBOCASA_ASSETS_PATH``，以及 RoboTwin 的 ``ROBOTWIN_ASSETS_PATH``、``LINGBOT_MODEL_PATH``。
+
+使用 ``--mcp-config`` 接入外部 MCP 服务时，环境变量 ``MCP_CALL_TIMEOUT_S``\ （正数，单位为秒，默认 ``60``）用于设置单次工具发现与调用的超时时间；如果 YAML 中已为单个服务配置 ``timeout_s``，则优先以 YAML 为准（见 :ref:`external-mcp-servers`\ ）。
 
 .. _run-output-files:
 
