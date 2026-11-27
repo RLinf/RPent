@@ -52,16 +52,23 @@
 
 参数类型注解和 docstring 生成模型可见的 schema。Toolkit 校验参数，并在执行后通过 ``get_env_state`` 采集状态。``view_env_state``、``back_project`` 等读取工具使用 ``@tool(readonly=True)``。模块级工具可用 ``@tool(exclude=("state",))`` 排除内部资源参数，再通过 ``Tool.with_handler`` 绑定。在线 planner 共用注册后的工具声明。
 
-执行与观测契约
---------------
+工具报错后，动作执行了吗？
+--------------------------
 
-标记为 ``readonly=True`` 的工具可以与其他只读调用并行执行，Toolkit 会跳过调用后的自动状态采集。具有写权限时，这类工具仍能写文件。例如，``write_text_file`` 同时设置了 ``readonly=True`` 和 ``uncertain_on_error=True``。如果写入中途失败，文件可能已经部分改变，因此 Toolkit 会将这次执行的结果标记为不确定。
+工具报错时，先判断动作有没有发生，再决定要不要重试。夹爪可能已经合上，相机却没拍到动作后的画面。这时，工具应告诉调用方“动作可能已经执行”，以免再做一次。动作后的自动观测失败时，Toolkit 会在返回的 ``ToolResult`` 上设置 ``execution_uncertain=True``。如果机器人自己无法确认结果，你的工具也可以返回这个标记。
 
-``uncertain_on_error`` 默认取 ``not readonly``。按此默认值，只读的观测或缓存处理函数抛出异常，本身不会使执行结果变得不确定。动作执行后，如果自动状态采集抛出异常，Toolkit 会将执行结果标记为不确定。
+写文件也有类似的问题。权限检查在写入前拒绝请求，文件还是原样。写到一半出错，文件可能已经变了。``readonly=True`` 允许工具与其他只读调用并行，也会跳过动作后的自动观测。默认情况下，只读工具报错时不会触发这个标记，执行动作的工具报错时会。写文件的工具可以像 ``write_text_file`` 那样再设置 ``uncertain_on_error=True``，让调用方知道文件可能只写了一部分。
 
-原生反馈无法确认执行结果时，返回 ``ToolResult(execution_uncertain=True, data={"error": ...})``。只有 ``Toolkit.execute_tool`` 返回的 ``ToolResult`` 保留此标记。``to_dict()``、工具调用记录、步骤记录、Dashboard 摘要以及发给模型的结果均不包含该字段。参数校验失败、处理函数开始前收到取消请求，或写入权限检查在首次写入前拒绝请求时，标记均为假。结果无法序列化为 JSON 时，无论执行结果是否确定，调用方都应将 ``code="tool_result_serialization_failed"`` 视为结果交付不完整。
+需要判断动作有没有执行时，读取 ``Toolkit.execute_tool`` 返回的结果。模型和轨迹里看不到这个标记。参数有误或工具尚未启动就被取消时，动作还没开始。如果收到 ``tool_result_serialization_failed``，只能确定工具结果没有完整传回。
 
-在工具调用之外采集观测时，使用 ``Toolkit.refresh_observation()``。它独占调度并检查取消状态。只有 ``get_env_state`` 新增步骤记录时才发布该记录。采集抛出异常时，异常会传给调用方，本次刷新不会发布记录。记录中的命令为 ``{"action": "refresh_observation"}``。这个动作没有注册为工具，规划器无法调用它。读取轨迹的程序在校验或回放工具动作时必须跳过它。已暂停或关闭的 Toolkit 会拒绝刷新并保持原状态。如果成功采集到新记录时已收到取消请求，会先发布记录，再报告取消。操作来源应保存在 ``StepRecord.command`` 之外，可回放命令只包含 ``action`` 和工具参数。
+单独查看一次环境
+----------------
+
+两次工具调用之间想看看环境有没有变化，可以调用 ``Toolkit.refresh_observation()``。它会等正在运行的工具结束。工具包暂停或关闭后，刷新也会被拒绝。
+
+只有 ``get_env_state`` 新增了观测，轨迹里才会多一步。采集出错时，调用方会收到异常。如果取消请求到达时已经拍到了新的观测，这一步仍会保留。
+
+回放时跳过 ``{"action": "refresh_observation"}``：它记录的是一次观测，没有机器人动作要重做。对于真正的动作，``StepRecord.command`` 里只放工具名和参数，操作来源另行记录。
 
 .. _add-primitive-model-based:
 

@@ -62,42 +62,43 @@ Use ``@tool(readonly=True)`` for readers such as ``view_env_state`` and
 ``@tool(exclude=("state",))`` and bind them with ``Tool.with_handler``.
 All online planners use the registered declarations.
 
-Execution and Observation Contracts
------------------------------------
+Did the Action Run?
+-------------------
 
-Tools marked ``readonly=True`` can run alongside other readonly calls. Toolkit
-skips automatic state capture after these calls. A readonly tool with write
-permission can still write files. For example, ``write_text_file`` sets both
-``readonly=True`` and ``uncertain_on_error=True``. If a write fails midway,
-the file may be partially updated, so Toolkit marks the execution outcome as
-uncertain.
+Before retrying a failed tool call, check whether the action may already have
+happened. A gripper may close even if the camera fails to capture its new position.
+Toolkit sets ``execution_uncertain=True`` on the returned
+``ToolResult`` if observation fails after an action. Your tool can also set
+this flag when the robot cannot confirm the outcome.
 
-By default, ``uncertain_on_error`` is ``not readonly``. Under this default, an
-exception in a readonly observation or cache handler does not by itself mark
-execution uncertain. If automatic state capture after an action raises an
-exception, Toolkit marks the execution outcome as uncertain.
+Consider a file write. Denying permission before the first write leaves the
+file intact. An error halfway through can leave a partial file. A tool marked
+``readonly=True`` can run alongside other readonly calls and skips automatic
+observation. By default, an exception in an action handler sets the flag. An
+exception in a readonly handler leaves it unset. If the tool writes files, set ``uncertain_on_error=True``, as
+``write_text_file`` does, to report a potentially partial write.
 
-Return ``ToolResult(execution_uncertain=True, data={"error": ...})`` when native
-feedback cannot establish the execution outcome. Read the flag from the
-``ToolResult`` returned by ``Toolkit.execute_tool``.
-``to_dict()``, tool-call records, step records, Dashboard summaries, and the
-model-facing payload all omit it. The flag stays false when argument validation
-fails, cancellation precedes the handler, or the write policy denies access
-before the first write. If a result cannot be serialized to JSON, treat
-``code="tool_result_serialization_failed"`` as incomplete result delivery
-regardless of execution certainty.
+Read the flag on the result of ``Toolkit.execute_tool``. The model and the
+saved trajectory do not receive it. Invalid arguments or cancellation before
+the tool starts mean the action never began. The error
+``tool_result_serialization_failed`` tells you the tool result could not be
+delivered in full.
 
-Use ``Toolkit.refresh_observation()`` to capture an observation outside a tool
-call. It takes an exclusive scheduler slot and checks for cancellation. It
-publishes a step only if ``get_env_state`` appends one. If capture raises, the
-exception propagates without publishing a step. The recorded command is
-``{"action": "refresh_observation"}``. This action has no registered tool, so the
-planner cannot call it. Trajectory consumers must skip it when validating or
-replaying tool actions. Paused or closed toolkits reject the refresh and stay
-in that state. If cancellation arrives during a successful capture, the new
-record is published before cancellation is reported. Store provenance outside
-``StepRecord.command`` so replayable commands contain only ``action`` and the
-tool arguments.
+Observe the Environment Between Calls
+-------------------------------------
+
+Call ``Toolkit.refresh_observation()`` to see what changed between tool
+calls. It waits for active tools to finish. A paused or closed toolkit
+rejects the refresh.
+
+The trajectory gains a step only when ``get_env_state`` adds an observation.
+Capture errors propagate to the caller. If capture succeeds during
+cancellation, the trajectory keeps the new step.
+
+Skip ``{"action": "refresh_observation"}`` when replaying a trajectory. It
+marks an observation with no robot action to repeat. For real actions, put
+only the tool name and arguments in ``StepRecord.command`` and record who
+issued the command separately.
 
 .. _add-primitive-model-based:
 
