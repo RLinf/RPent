@@ -160,6 +160,7 @@ class CodexPlanner(Planner):
             )
             return result
         finally:
+            toolkit.set_tool_budget(None)
             if trace_root is not None:
                 capture_stats = finalize_codex_capture(capture_state, trace_root)
                 if result is not None:
@@ -180,9 +181,7 @@ class CodexPlanner(Planner):
     ) -> PlannerResult:
         """Run one SDK session, optionally accepting queued follow-up input."""
         artifacts = AgentArtifacts("codex_sdk", self._output_path)
-        recorder = _Recorder(
-            max_turns=max_turns, dashboard_events=self._dashboard_events
-        )
+        recorder = _Recorder(dashboard_events=self._dashboard_events)
 
         def create_session(url, control, emit):
             return _CodexSession(
@@ -197,6 +196,7 @@ class CodexPlanner(Planner):
         error = await run_agent(
             prompt=prompt,
             toolkit=toolkit,
+            max_turns=max_turns,
             artifacts=artifacts,
             recorder=recorder,
             events=self._dashboard_events,
@@ -212,7 +212,7 @@ class CodexPlanner(Planner):
         return artifacts.result(
             finish_result=recorder.finish_result,
             final_response=recorder.final_response,
-            stats=recorder.stats(),
+            stats={**recorder.stats(), "turns_used": toolkit.tool_calls_used},
             error=error or recorder.error,
             last_message_path=last_message_path,
         )
@@ -318,26 +318,11 @@ class _CodexSession:
                 await self._codex.close()
 
     async def _consume_turn(self, turn: Any, done: asyncio.Event) -> None:
-        limit_reached = False
         try:
             async for event in turn.stream():
                 self._emit_event(event)
                 method = str(get_field(event, "method", ""))
                 payload = get_field(event, "payload")
-
-                if (
-                    method != "turn/completed"
-                    and not limit_reached
-                    and self._recorder.finish_result is None
-                    and self._recorder.turns >= self._recorder.max_turns
-                ):
-                    limit_reached = True
-                    try:
-                        await turn.interrupt()
-                    except openai_codex.JsonRpcError as exc:
-                        if exc.message != "no active turn to interrupt":
-                            raise
-                        # Keep consuming the stream to get the actual turn status.
 
                 if method != "turn/completed":
                     continue
@@ -351,11 +336,7 @@ class _CodexSession:
                     self.error = self._recorder.error or "Codex turn failed"
                 if self._control is None:
                     return
-                if (
-                    self.error is not None
-                    or self._recorder.finish_result is not None
-                    or self._recorder.turns >= self._recorder.max_turns
-                ):
+                if self.error is not None or self._recorder.finish_result is not None:
                     self._control.end()
                 else:
                     await self._control.complete(self)
@@ -379,7 +360,6 @@ class _CodexSession:
 class _Recorder:
     """Pure adapter: consume Codex SDK events, emit text + accumulate stats."""
 
-    max_turns: int
     dashboard_events: DashboardEventSink
     turns: int = 0
     _seen_usage: set[tuple[int, ...]] = field(default_factory=set)
@@ -404,7 +384,6 @@ class _Recorder:
         totals. Without it, the zeroed ``usage`` values mean "unknown".
         """
         return {
-            "turns_used": self.turns,
             "tool_calls": self.tool_calls,
             "usage_observed": self.usage_observed,
             **self.usage,
@@ -420,7 +399,7 @@ class _Recorder:
             return self._render_item(get_field(payload, "item"))
         if method == "thread/tokenUsage/updated":
             if self._set_usage(get_field(payload, "token_usage")):
-                return f"\n[agent] === turn {self.turns}/{self.max_turns} ===\n"
+                return f"\n[agent] === model response {self.turns} ===\n"
             return ""
         if method == "turn/completed":
             return self._render_turn_completed(get_field(payload, "turn"))

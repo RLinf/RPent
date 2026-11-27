@@ -125,6 +125,7 @@ def test_diagnostic_timeouts_never_inherit_the_run_default() -> None:
         "claude_code": 90,
         "codex": 90,
         "gemini_cli": 90,
+        "opencode": 90,
     }
     for planner, expected in DEFAULT_TIMEOUT_S.items():
         assert LlmCheckRequest(planner=planner).resolved_timeout_s() == expected
@@ -446,7 +447,7 @@ def test_a_provider_error_body_echoing_the_key_is_not_carried_verbatim(
 
 @pytest.mark.parametrize("key_env", ["GOOGLE_API_KEY", "GEMINI_API_KEY"])
 def test_google_key_value_is_redacted(monkeypatch: pytest.MonkeyPatch, key_env) -> None:
-    from rpent.planner.gemini_cli import _load_secret_redactor
+    from rpent.planner.gemini_cli import GeminiCliPlanner
 
     monkeypatch.setenv(key_env, SENTINEL_KEY)
     _patch_model(
@@ -460,7 +461,7 @@ def test_google_key_value_is_redacted(monkeypatch: pytest.MonkeyPatch, key_env) 
     assert result.status == STATUS_AUTH_FAILED
     assert SENTINEL_KEY not in str(result.as_dict())
     assert check_mod.redact_secrets(SENTINEL_KEY) == f"<{key_env}>"
-    assert _load_secret_redactor()(SENTINEL_KEY) == f"<{key_env}>"
+    assert GeminiCliPlanner._load_secret_redactor()(SENTINEL_KEY) == f"<{key_env}>"
 
 
 # ---------------------------------------------------------------------------
@@ -609,39 +610,53 @@ def test_codex_probe_timeout_reports_network_error(
 
 @pytest.mark.parametrize("key_present", [False, True])
 @pytest.mark.parametrize("timeout_s", [None, 120])
-def test_gemini_cli_probe_uses_cli_configuration_and_exact_optional_model(
+@pytest.mark.parametrize("backend", ["gemini_cli", "opencode"])
+def test_acp_probe_uses_harness_configuration_and_exact_optional_model(
     monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
     key_present: bool,
     timeout_s: int | None,
+    backend: str,
 ) -> None:
     import rpent.planner.gemini_cli as gemini_cli
+    from rpent.planner.opencode import OpenCodePlanner
 
+    caplog.set_level("INFO", logger=check_mod.logger.name)
+    monkeypatch.setattr(check_mod.logger, "handlers", [caplog.handler])
     seen: dict[str, Any] = {}
     if key_present:
         monkeypatch.setenv("GEMINI_API_KEY", SENTINEL_KEY)
 
-    def fake_probe(*, prompt: str, model: str | None, timeout_s: int) -> str:
-        seen.update(prompt=prompt, model=model, timeout_s=timeout_s)
+    def fake_probe(self, prompt: str) -> str:
+        seen.update(prompt=prompt, model=self._model, timeout_s=self._timeout_s)
         return "ok"
 
-    monkeypatch.setattr(gemini_cli, "run_probe_turn", fake_probe)
+    planner_class = (
+        gemini_cli.GeminiCliPlanner if backend == "gemini_cli" else OpenCodePlanner
+    )
+    monkeypatch.setattr(planner_class, "probe", fake_probe)
     result = check_llm(
         LlmCheckRequest(
-            planner="gemini_cli", model="gemini-upstream-id", timeout_s=timeout_s
+            planner=backend, model="provider/exact-model", timeout_s=timeout_s
         )
     )
 
     assert result.ok is True
     assert result.reply == "ok"
+    assert f"probe budget: {seen['timeout_s']}s" in caplog.text
     assert result.credential_env is None
     assert result.credential_present is None
     assert result.base_url_env is None
     assert result.base_url is None
     assert seen == {
         "prompt": PROBE_PROMPT,
-        "model": "gemini-upstream-id",
+        "model": "provider/exact-model",
         "timeout_s": timeout_s
-        or (DEFAULT_TIMEOUT_S["gemini_cli"] if key_present else CLI_LOGIN_TIMEOUT_S),
+        or (
+            CLI_LOGIN_TIMEOUT_S
+            if backend == "gemini_cli" and not key_present
+            else DEFAULT_TIMEOUT_S[backend]
+        ),
     }
 
 
@@ -663,12 +678,12 @@ def test_gemini_cli_probe_classifies_backend_errors(
 
     import rpent.planner.gemini_cli as gemini_cli
 
-    def fail(**kwargs: Any) -> str:
+    def fail(self, prompt: str) -> str:
         if message is None:
             raise RequestError.auth_required()
         raise RuntimeError(message)
 
-    monkeypatch.setattr(gemini_cli, "run_probe_turn", fail)
+    monkeypatch.setattr(gemini_cli.GeminiCliPlanner, "probe", fail)
 
     result = check_llm(LlmCheckRequest(planner="gemini_cli"))
 
