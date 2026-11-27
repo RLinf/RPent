@@ -230,7 +230,10 @@ class ApiAgentLoop(Planner):
             logger.info("%s", exc)
         except Exception as exc:
             session.record_failure(exc)
-            logger.exception("Harness planner failed")
+            if session.stop_reason == "response_truncated":
+                logger.warning("%s", session.diagnostics[-1])
+            else:
+                logger.exception("Harness planner failed")
         finally:
             if not run_task.done():
                 run_task.cancel()

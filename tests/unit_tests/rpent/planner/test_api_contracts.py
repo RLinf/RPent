@@ -19,6 +19,7 @@ from __future__ import annotations
 import asyncio
 import copy
 import json
+import logging
 import math
 import queue
 import threading
@@ -617,6 +618,40 @@ def test_other_model_failures_remain_errors(tmp_path, error):
     result, _, _ = solve(tmp_path, FunctionModel(stream_function=stream), max_turns=1)
     assert result.error == f"{type(error).__name__}: {error}"
     assert result.finish_result is None
+
+
+@pytest.mark.parametrize(
+    "error,expected_level",
+    [
+        (
+            UnexpectedModelBehavior(
+                "Model token limit exceeded before any response was generated"
+            ),
+            logging.WARNING,
+        ),
+        (RuntimeError("provider unavailable"), logging.ERROR),
+    ],
+)
+def test_api_failure_log_matches_stop_reason(
+    tmp_path, monkeypatch, caplog, error, expected_level
+):
+    api_logger = logging.getLogger("rpent.api")
+    caplog.set_level(logging.WARNING, logger=api_logger.name)
+    monkeypatch.setattr(api_logger, "handlers", [caplog.handler])
+    monkeypatch.setattr(api_logger, "propagate", False)
+
+    async def stream(messages, info):
+        raise error
+        yield  # pragma: no cover
+
+    result, _, _ = solve(tmp_path, FunctionModel(stream_function=stream))
+    (entry,) = (record for record in caplog.records if record.name == api_logger.name)
+    assert entry.levelno == expected_level
+    if expected_level == logging.WARNING:
+        assert entry.getMessage() == result.error
+        assert entry.exc_info is None
+    else:
+        assert entry.exc_info[1] is error
 
 
 @pytest.mark.parametrize("interactive", [False, True])

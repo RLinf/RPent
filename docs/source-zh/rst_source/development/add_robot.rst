@@ -328,8 +328,6 @@ toolkit 模块通常包含四部分：
 
 endpoint（``--env-endpoint``、``--am-endpoint``，以及 LIBERO 的 ``--sam3-endpoint``）解析和环境专用服务命令，应放在拥有对应服务的钩子中。这些 spawner 应通过 ``rpent.robots.runtime.try_spawn_server`` 和 ``try_wait_server`` 组合，使各环境的状态事件、就绪失败和 owned daemon 清理保持一致；runner 不处理这些环境细节。参考模式见 ``robots/libero/robot_spec.py`` 和 ``robots/robocasa/robot_spec.py``。
 
-.. _保存任务结果:
-
 保存任务结果（可选）
 --------------------
 
