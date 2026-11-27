@@ -69,7 +69,24 @@ class SegmentTool:
         self._lock = threading.Lock()
         self._index = 0
 
-    @tool(readonly=True)
+    @tool(
+        readonly=True,
+        json_schema_extra={
+            "additionalProperties": False,
+            "if": {"required": ["point"], "properties": {"point": {"type": "array"}}},
+            "then": {
+                "required": ["image_shape"],
+                "properties": {
+                    "image_shape": {"type": "array"},
+                    "prompt": {"pattern": r"^\s*$"},
+                },
+            },
+            "else": {
+                "required": ["prompt"],
+                "properties": {"prompt": {"pattern": r"\S"}},
+            },
+        },
+    )
     def segment(
         self,
         camera: Annotated[str, Field(min_length=1, max_length=128)],
@@ -82,17 +99,15 @@ class SegmentTool:
     ) -> ToolResult:
         """Get a candidate mask, overlay, detection score and optional world median from a recorded camera frame.
 
-        Supply text, one positive point [row,col], or both. With both, the
-        top text mask must cover the point. Give the shape of the image where
-        the point was selected. Text alone can omit image_shape. Confirm the
-        intended object before using a candidate's coordinates.
+        Supply exactly one prompt. Use text in prompt or a positive point as
+        [row, col]. For a point, give the image_shape [height, width] of the
+        image used to select it. Confirm the object in the overlay before
+        using the candidate's coordinates.
         """
         try:
             prompt = prompt.strip()
-            if not prompt and point is None:
-                raise ValueError(
-                    "Supply a text prompt, a positive point [row,col], or both."
-                )
+            if bool(prompt) == (point is not None):
+                raise ValueError("Supply exactly one of prompt or point.")
             if point is not None and image_shape is None:
                 raise ValueError(
                     "Give the image_shape of the image where the point was selected."
@@ -100,16 +115,12 @@ class SegmentTool:
             observation = self._observations.get_observation(camera=camera, step=step)
             if observation.camera != camera or (step >= 0 and observation.step != step):
                 raise ValueError("Provider returned a different camera or step.")
-            return self.segment_observation(
-                observation,
-                observation.png_bytes(),
-                tag=self._namespace,
-                prompt=prompt or None,
-                point=point,
-                image_shape=image_shape,
-                min_score=min_score,
-                summarize=True,
-                prefix="segment",
+            if point is not None:
+                selection = ImageSelection(image_shape=image_shape, points_rc=[point])
+                pixels, _ = selection.native(observation)
+                point = list(pixels[0])
+            return self._segment_observation(
+                observation, prompt=prompt or None, point=point, min_score=min_score
             )
         except (ValueError, LookupError, OSError, RuntimeError) as exc:
             return ToolResult(
@@ -123,122 +134,84 @@ class SegmentTool:
                 }
             )
 
-    def segment_observation(
+    def _segment_observation(
         self,
         observation: GeometryObservation,
-        image: bytes,
         *,
-        tag: str,
-        prompt: str | None = None,
-        point: list[int] | None = None,
-        image_shape: list[int] | None = None,
-        min_score: float = 0.2,
-        summarize: bool = False,
-        prefix: str = "geometry_segment",
+        prompt: str | None,
+        point: list[int] | None,
+        min_score: float,
     ) -> ToolResult:
-        """Segment a pinned snapshot and save the mask with its source identity.
-
-        ``prefix`` names the saved record, mask and overlay, keeping the public
-        tool's ``segment_*`` records separate from intermediate geometry masks.
-        """
-        prompt = (prompt or "").strip() or None
-        if prompt is None and point is None:
-            raise ValueError(
-                "Supply a text prompt, a positive point [row,col], or both."
-            )
+        """Segment the selected frame and save the result with its source step."""
         if self._segmenter is None:
-            raise ValueError("region geometry requires an injected segmenter")
-        if point is not None:
-            selection = ImageSelection(
-                image_shape=list(observation.rgb.shape[:2])
-                if image_shape is None
-                else image_shape,
-                points_rc=[point],
-            )
-            pixels, _ = selection.native(observation)
-            point = list(pixels[0])
-        check_text_mask = prompt is not None and point is not None
+            raise ValueError("segment requires an injected segmenter")
         result = self._segmenter.segment(
-            image,
+            observation.png_bytes(),
             text_prompt=prompt,
-            point=None if prompt else point,
+            point=point,
             min_score=min_score,
         )
         mask = np.asarray(result.mask) if result.found else None
-        reason = None
-        if mask is not None:
-            if mask.dtype != np.bool_ or mask.shape != observation.rgb.shape[:2]:
-                raise ValueError("segmentation mask must be boolean and match RGB")
-            if check_text_mask and not mask[tuple(point)]:
-                mask = None
-                reason = "text_mask_misses_positive_point"
+        if mask is not None and (
+            mask.dtype != np.bool_ or mask.shape != observation.rgb.shape[:2]
+        ):
+            raise ValueError("segmentation mask must be boolean and match RGB")
         with self._lock:
             index = self._index
             self._index += 1
+        artifact_id = f"{self._namespace}_{index:03d}"
         step = observation.step
         state = self._state
         data = {
             "found": mask is not None,
             "camera": observation.camera,
             "source_step": step,
+            "step": step,
             "world_frame_id": observation.world_frame_id,
             "mode": "text" if prompt else "point",
             "prompt": prompt,
             "point": point,
+            "image_shape": list(observation.rgb.shape[:2]),
             "min_score": min_score,
             "score": None if result.score is None else float(result.score),
+            "evidence_status": "identity_unchecked",
+            "units": "m",
+            "world_xyz": None,
             "mask_artifact": None,
         }
-        if check_text_mask:
-            data["mode"] = "text_with_point_check"
-        if summarize:
-            data.update(
-                step=step,
-                image_shape=list(observation.rgb.shape[:2]),
-                evidence_status="identity_unchecked",
-                units="m",
-                world_xyz=None,
-            )
         images = []
         if mask is not None:
-            if summarize:
-                if not mask.any():
-                    raise ValueError("Segmenter returned an empty foreground mask.")
-                if point is not None and not mask[tuple(point)]:
-                    raise ValueError(
-                        "Returned mask does not include the positive point."
-                    )
-                valid = mask & observation.valid_mask
-                n_valid = int(valid.sum())
-                data.update(
-                    box=getattr(result, "box", None),
-                    n_valid=n_valid,
-                    definition="visible_mask_coordinate_median",
-                )
-                if n_valid >= 10:
-                    data["world_xyz"] = np.median(
-                        observation.world_xyz[valid], axis=0
-                    ).tolist()
-                else:
-                    data["world_error"] = "too few valid metric samples in mask"
-            mask_name = f"{prefix}_mask_{tag}_{index:03d}.npz"
+            if not mask.any():
+                raise ValueError("Segmenter returned an empty foreground mask.")
+            if point is not None and not mask[tuple(point)]:
+                raise ValueError("Returned mask does not include the positive point.")
+            valid = mask & observation.valid_mask
+            n_valid = int(valid.sum())
+            data.update(
+                box=getattr(result, "box", None),
+                n_valid=n_valid,
+                definition="visible_mask_coordinate_median",
+            )
+            if n_valid >= 10:
+                data["world_xyz"] = np.median(
+                    observation.world_xyz[valid], axis=0
+                ).tolist()
+            else:
+                data["world_error"] = "too few valid metric samples in mask"
+            mask_name = f"segment_mask_{artifact_id}.npz"
             data["mask_artifact"] = state.save(mask_name, mask, step=step)
             if data["mask_artifact"] is None:
                 raise RuntimeError("failed to persist segmentation mask")
-            overlay = observation.rgb.copy()
-            red = np.zeros_like(overlay)
-            red[..., 0] = 255
-            overlay[mask] = (0.55 * overlay[mask] + 0.45 * red[mask]).astype(np.uint8)
-            overlay_name = f"{prefix}_overlay_{tag}_{index:03d}.png"
-            data["overlay_artifact"] = state.save(overlay_name, overlay, step=step)
+            overlay_name = f"segment_overlay_{artifact_id}.png"
+            data["overlay_artifact"] = state.save(
+                overlay_name, observation.mask_overlay(mask), step=step
+            )
             if data["overlay_artifact"] is None:
                 raise RuntimeError("failed to persist segmentation overlay")
             images.append(state.load_bytes(overlay_name, step=step))
         else:
-            data["reason"] = reason or result.reason or "segmenter found no mask"
-            if check_text_mask:
-                data["status"] = "need_observation"
-        name = f"{prefix}_{tag}_{index:03d}.json"
+            data["reason"] = result.reason or "segmenter found no mask"
+        name = f"segment_{artifact_id}.json"
         if state.save(name, data, step=step) is None:
             raise RuntimeError("failed to persist segmentation evidence")
         data["segment_artifact"] = name

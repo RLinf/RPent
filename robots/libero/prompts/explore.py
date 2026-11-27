@@ -442,9 +442,7 @@ def system_prompt(variables: Mapping[str, object] | None = None) -> PromptNode:
         "LOCALIZATION — how to get an object's world xyz WITHOUT GT coords": (
             base.localization(variables)
         ),
-        "FIRST-STEP ALGORITHM — agentview = IDENTITY, wrist = GEOMETRY": (
-            base.perception_algorithm(variables)
-        ),
+        **base.perception_section(geometry),
         "WORKFLOW": Numbered(steps),
         "KEY HYPERPARAMETERS": base.KEY_HYPERPARAMETERS,
         "OUTPUT DISCIPLINE": base.OUTPUT_DISCIPLINE,

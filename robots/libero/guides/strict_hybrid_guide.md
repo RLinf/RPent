@@ -76,13 +76,14 @@ localization sweep):**
   probes it locked onto a look-alike hundreds of pixels away. **NEVER let the
   wrist freely re-identify a non-basket target.**
 
-For manual localization of non-basket objects and surfaces, follow the
-wrist-refinement instructions in the current run's perception algorithm.
+With `geometry` enabled, fit shapes in the recorded agentview frame. Record a
+missing center as unresolved. For manual localization with the default toolset,
+follow the current run's perception algorithm.
+
 1. **Identity (agentview)** — in `agentview_high.png` choose the target by RGB /
    label / shape / global spatial relation; sample 3–8 pixels on it and median
    `back_project` → the **identity anchor** (rough xy ok).
-2. **Wrist view** — For the default approach, move ~15–20 cm above the anchor.
-   With `geometry` enabled, use the wrist image already recorded at the same step.
+2. **Wrist view** — Move ~15–20 cm above the anchor.
 3. **Geometry refine (wrist)** — pick the SAME candidate's pixel in
    `wrist_high.png` and use `back_project` for that wrist view. **Accept
    this corrected xy ONLY if it is within ~3–5 cm of the agentview anchor**; if

@@ -18,10 +18,13 @@ import base64
 import binascii
 import threading
 from typing import Any
+from unittest.mock import Mock
 
 import pytest
 
+from rpent.robots.components.sam3_client import Sam3Client
 from rpent.robots.components.sam3_server import Sam3Facade, Sam3Result
+from rpent.utils.rpc import RpcError, RpcFacade
 
 
 class _StubSam3(Sam3Facade):
@@ -76,6 +79,28 @@ def test_sam3_dispatch_routes_the_registered_method() -> None:
     )
     assert result["found"] is True
     assert result["reason"] == "the cup"
+
+
+@pytest.mark.parametrize("legacy_health", [False, True], ids=["current", "legacy"])
+def test_sam3_checks_candidate_support_without_inference(
+    make_server_and_client, monkeypatch, legacy_health
+):
+    facade = _StubSam3()
+    if legacy_health:
+        monkeypatch.setattr(_StubSam3, "_builtin_dispatch", RpcFacade._builtin_dispatch)
+    candidates = Mock(wraps=facade.segment_candidates)
+    facade._rpc["sam3.segment_candidates"] = candidates
+    with make_server_and_client(facade, "http") as rpc:
+        assert Sam3Client(rpc).supports_segment_candidates()
+    assert candidates.call_count == (1 if legacy_health else 0)
+
+
+def test_sam3_candidate_check_preserves_other_rpc_errors(make_server_and_client):
+    facade = RpcFacade()
+    facade._rpc["sam3.segment_candidates"] = Mock(side_effect=RuntimeError("busy"))
+    with make_server_and_client(facade, "http") as rpc:
+        with pytest.raises(RpcError, match="busy"):
+            Sam3Client(rpc).supports_segment_candidates()
 
 
 @pytest.mark.parametrize(
@@ -143,3 +168,52 @@ def test_sam3_result_to_dict_drops_none_fields() -> None:
         "found": True,
         "score": 0.5,
     }
+
+
+def test_sam3_client_accepts_a_strided_image_buffer() -> None:
+    rpc = Mock()
+    rpc.call.return_value = {"found": False}
+    image = memoryview(b"pxnxg")[::2]
+
+    Sam3Client(rpc).segment(image, text_prompt="cup")
+
+    assert rpc.call.call_args.kwargs["kwargs"]["image_base64"] == _image_b64(b"png")
+
+
+def test_sam3_text_candidates_keep_each_qualified_nonempty_instance():
+    from types import SimpleNamespace
+
+    import numpy as np
+
+    facade = _StubSam3(height=4, width=5)
+    masks = np.zeros((5, 1, 4, 5), dtype=bool)
+    masks[:4, 0, 1, :4] = np.eye(4, dtype=bool)
+    output = {
+        "masks": masks,
+        "scores": np.array([0.2, 0.3, 0.9, 0.1, 0.8]),
+        "boxes": None,
+    }
+    facade._processor = SimpleNamespace(set_text_prompt=lambda **_: output)
+    facade._torch = None
+    client = Sam3Client(
+        SimpleNamespace(
+            call=lambda method, kwargs, **_: facade._dispatch(method, (), kwargs)
+        )
+    )
+    result = client.segment_candidates(b"image-bytes", text_prompt="cup", min_score=0.2)
+    assert [item.score for item in result] == [0.9, 0.3]
+    assert result[0].mask[1, 2] and result[1].mask[1, 1]
+    assert not client.segment_candidates(
+        b"image-bytes", text_prompt="cup", min_score=0.95
+    )
+
+
+def test_sam3_top_result_handles_one_score_and_no_mask():
+    import numpy as np
+
+    score = np.array(0.9)
+    for masks, found in [(np.ones((4, 5)), True), (np.empty((0, 4, 5)), False)]:
+        result = Sam3Facade._select_top(
+            masks=masks, scores=score, boxes=None, min_score=0.2
+        )
+        assert result.found is found

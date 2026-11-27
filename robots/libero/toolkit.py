@@ -112,6 +112,7 @@ class LiberoToolkit(Toolkit):
                     grounder=geometry_grounder,
                     segmenter=sam3,
                     observations=observations,
+                    primary_camera="agentview",
                     check_cancelled=self.raise_if_cancelled,
                 )
                 self.add_tool(self._geometry.geometry)

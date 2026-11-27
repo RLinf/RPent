@@ -221,6 +221,36 @@ def test_sam3_gpu_override_reaches_worker(
         rpc.close()
 
 
+def test_libero_legacy_sam3_supports_segment_but_blocks_geometry_at_startup(
+    make_server_and_client, tmp_path
+):
+    import numpy as np
+
+    from rpent.dashboard.events import NullDashboardEventSink
+    from rpent.utils.rpc import RpcFacade
+
+    legacy = RpcFacade()
+    legacy._rpc["sam3.segment"] = lambda image_base64, **_: {
+        "found": True,
+        "mask_shape": [1, 1],
+        "mask_png_base64": image_base64,
+    }
+    spec = get_robot_spec("libero")
+    parser = _parser("libero", dashboard=True)
+    events = NullDashboardEventSink()
+    with make_server_and_client(legacy, "http") as rpc:
+        endpoint = ["--sam3-endpoint", rpc._base_url]
+        args = parser.parse_args([*endpoint, "--geometry"])
+        with pytest.raises(RuntimeError, match=r"sam3\.segment_candidates.*restart"):
+            spec.init_runtime(args, tmp_path, events, {"sam3"})
+
+        args = parser.parse_args([*endpoint, "--rgbd-tools"])
+        _, clients = spec.init_runtime(args, tmp_path, events, {"sam3"})
+        image = np.ones((1, 1), dtype=np.uint8)
+        result = clients["sam3_client"].segment(image, text_prompt="cup")
+        assert result.found and result.mask.item()
+
+
 @pytest.mark.parametrize(
     "robot_name", ["libero", "robotwin", "robocasa", "robodojo", "dual_franka"]
 )

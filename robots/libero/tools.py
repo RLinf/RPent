@@ -1015,14 +1015,18 @@ def write_recipe_from_states(
                 continue
             if segment.get("error") or segment.get("found") is False:
                 continue
+            prompt = segment.get("prompt")
+            point = segment.get("point")
+            if bool(prompt) == (point is not None):
+                continue
             index = int(
                 segment.get("segment_index", Path(name).stem.rsplit("_", 1)[-1])
             )
             segment_command = {"action": "segment", "camera": segment["camera"]}
-            if segment.get("prompt"):
-                segment_command["prompt"] = segment["prompt"]
-            if segment.get("point") is not None:
-                segment_command["point"] = segment["point"]
+            if prompt:
+                segment_command["prompt"] = prompt
+            else:
+                segment_command["point"] = point
                 if "image_shape" in segment:
                     segment_command["image_shape"] = segment["image_shape"]
             if segment.get("min_score", 0.2) != 0.2:

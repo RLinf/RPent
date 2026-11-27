@@ -67,8 +67,17 @@ FLASH_SUITES = frozenset(
 )
 
 
+def _validate_geometry_images(args: argparse.Namespace) -> None:
+    if getattr(args, "no_images", False) and args.geometry and args.planner == "api":
+        raise ValueError(
+            "--geometry requires the API planner to see the selected object's overlay. "
+            "Remove --no-images and use a model that accepts images, or disable --geometry."
+        )
+
+
 def _resolve_dashboard(args: argparse.Namespace) -> DashboardSpec:
     """Build the Dashboard configuration for the selected action model."""
+    _validate_geometry_images(args)
     kind = "wam" if getattr(args, "am_backend", None) in WAM_BACKENDS else "vla"
     return {
         "task": {
@@ -315,6 +324,7 @@ def _parse_config(args: argparse.Namespace) -> RunConfig:
     optional so the dashboard could fill them; this is where we enforce
     they're set now that any overrides have been applied.
     """
+    _validate_geometry_images(args)
     if not args.suite:
         raise ValueError("--suite is required")
     if args.task is None:
@@ -584,6 +594,23 @@ def _connect_molmo_server(
     return None, make_rpc_client(args.molmo_endpoint)
 
 
+def _sam3_clients(args: argparse.Namespace, rpc: RpcClient) -> dict[str, Any]:
+    from rpent.robots.components.sam3_client import Sam3Client
+
+    client = Sam3Client(rpc)
+    if args.geometry and args.sam3_endpoint is not None:
+        try:
+            if not client.supports_segment_candidates():
+                raise RuntimeError(
+                    "--geometry requires sam3.segment_candidates. Upgrade RPent on "
+                    "the --sam3-endpoint host and restart its SAM3 service."
+                )
+        except Exception:
+            rpc.close()
+            raise
+    return {"sam3_client": client}
+
+
 def _molmo_clients(args: argparse.Namespace, rpc: RpcClient) -> dict[str, Any]:
     from rpent.robots.components.molmo_client import MolmoClient
 
@@ -607,7 +634,6 @@ def _init_runtime(
 ) -> tuple[list[ProcessDaemon], dict[str, Any]]:
     """Initialize every LIBERO component, or only ``components`` when given."""
     from robots.libero.env_client import LiberoEnvClient
-    from rpent.robots.components.sam3_client import Sam3Client
 
     am = select_am(args, "libero")
     wam = am if am.is_wam else None
@@ -635,7 +661,7 @@ def _init_runtime(
             )
         },
         policy_kind: lambda rpc: {"model": _make_model_client(rpc, wam)},
-        "sam3": lambda rpc: {"sam3_client": Sam3Client(rpc)},
+        "sam3": lambda rpc: _sam3_clients(args, rpc),
         "molmo": lambda rpc: _molmo_clients(args, rpc),
     }
     selected = set(starters) if components is None else set(components)

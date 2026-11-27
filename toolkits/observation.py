@@ -17,7 +17,6 @@
 from __future__ import annotations
 
 import io
-from collections.abc import Iterable
 from dataclasses import dataclass, field
 from typing import Annotated, Protocol
 
@@ -130,20 +129,25 @@ class GeometryObservation:
         object.__setattr__(self, "up_direction", up)
         object.__setattr__(self, "source_refs", dict(self.source_refs))
 
-    def optical_depth(self) -> np.ndarray | None:
-        """Return optical-axis depths when supplied or derivable from the pose."""
-        if self.depth_m is not None:
-            return self.depth_m
-        if self.camera_to_world is not None:
-            transform = self.camera_to_world
-            return (self.world_xyz - transform[:3, 3]) @ transform[:3, 2]
-        return None
-
     def png_bytes(self) -> bytes:
         """Encode the original RGB raster for the injected perception models."""
         buffer = io.BytesIO()
         Image.fromarray(self.rgb).save(buffer, format="PNG")
         return buffer.getvalue()
+
+    def mask_overlay(self, mask: np.ndarray, *, outline: bool = False) -> np.ndarray:
+        """Tint the selected pixels on the full RGB frame, optionally outlining the mask."""
+        overlay = self.rgb.copy()
+        overlay[mask] = 0.55 * self.rgb[mask] + 0.45 * np.array([255, 0, 0])
+        if outline:
+            from scipy.ndimage import binary_erosion
+
+            edge = mask & ~binary_erosion(mask)
+            # A contrasting edge keeps the selection visible on red objects.
+            overlay[edge] = np.where(
+                self.rgb[edge].mean(axis=1, keepdims=True) < 128, 255, 0
+            )
+        return overlay
 
 
 class ObservationProvider(Protocol):
@@ -151,16 +155,6 @@ class ObservationProvider(Protocol):
 
     def get_observation(self, *, camera: str, step: int) -> GeometryObservation:
         """Return one aligned snapshot; resolve step=-1 to its recorded source step."""
-        ...
-
-
-class MultiViewObservationProvider(ObservationProvider, Protocol):
-    """Optionally enumerate additional calibrated snapshots; acquisition belongs to the caller."""
-
-    def additional_observations(
-        self, primary: GeometryObservation
-    ) -> Iterable[GeometryObservation]:
-        """Yield other actual cameras in the same metric frame and identify their recorded step."""
         ...
 
 
