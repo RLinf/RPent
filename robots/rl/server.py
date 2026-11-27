@@ -700,11 +700,33 @@ class SimPoolManager:
             return
         waiter.set_result((reader, writer))
 
-    async def _spawn_worker(self, gpu: int | None) -> _WorkerHandle:
-        if self._spawn_sem is not None:
-            async with self._spawn_sem:
+    async def _spawn_worker(
+        self, gpu: int | None, *, max_attempts: int = 3
+    ) -> _WorkerHandle:
+        last_exc: Exception | None = None
+        for attempt in range(1, max_attempts + 1):
+            try:
+                if self._spawn_sem is not None:
+                    async with self._spawn_sem:
+                        return await self._spawn_worker_impl(gpu)
                 return await self._spawn_worker_impl(gpu)
-        return await self._spawn_worker_impl(gpu)
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:
+                last_exc = exc
+                if attempt >= max_attempts or self._shutting_down or self._sleeping:
+                    raise
+                logger.warning(
+                    "SimPoolManager(%s) worker spawn on GPU %s failed (attempt %d/%d): %s; retrying",
+                    self.environment,
+                    gpu,
+                    attempt,
+                    max_attempts,
+                    exc,
+                )
+                await asyncio.sleep(1.0)
+        assert last_exc is not None
+        raise last_exc
 
     async def _spawn_worker_impl(self, gpu: int | None) -> _WorkerHandle:
         wid = self._next_worker_id
@@ -756,7 +778,25 @@ class SimPoolManager:
             log_fh.close()
 
         try:
-            reader, writer = await asyncio.wait_for(waiter, timeout=240.0)
+            deadline = loop.time() + 240.0
+            while not waiter.done():
+                remaining = deadline - loop.time()
+                if remaining <= 0:
+                    raise asyncio.TimeoutError(
+                        f"{self.environment} worker {wid} on GPU {gpu} timed out waiting for ready"
+                    )
+                rc = proc.poll()
+                if rc is not None:
+                    raise RuntimeError(
+                        f"{self.environment} worker {wid} on GPU {gpu} exited early with code {rc}"
+                    )
+                try:
+                    await asyncio.wait_for(
+                        asyncio.shield(waiter), timeout=min(0.5, remaining)
+                    )
+                except asyncio.TimeoutError:
+                    continue
+            reader, writer = waiter.result()
             if self._sleeping or self._shutting_down:
                 writer.close()
                 raise asyncio.CancelledError(
