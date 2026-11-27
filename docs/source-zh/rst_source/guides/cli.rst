@@ -36,7 +36,10 @@
      - 整个任务的 RPent 工具调用上限，追加消息和中断均不重置额度。见 :ref:`planner-limits`。
    * - ``--max-tokens``
      - ``8192``
-     - 仅 ``api``：每次模型回复的 Token 上限。
+     - 仅 ``api``：每次模型回复的 token 上限。
+   * - ``--context-window``
+     - ``—``
+     - 仅 ``api``：指定用于上下文压缩的窗口大小（单位为 token；未设置时按模型元数据解析，无法获取时默认 ``200000``）。
    * - ``--reasoning-effort``
      - ``api``：``high``；``claude_code``、``codex``、``gemini_cli``、``opencode``：``none``
      - 在线规划器的推理强度：``none``、``low``、``medium``、``high`` 或 ``xhigh``，实际支持取决于后端和模型。在我们的 LIBERO Pro Long 评测中，关闭 reasoning 将平均运行时间从约 13.2 分钟缩短至 7.9 分钟（约 40%）。较高强度可能提升任务成功率，但也有可能增大任务完成时间。

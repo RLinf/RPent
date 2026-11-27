@@ -96,6 +96,11 @@ For example, set an Anthropic key, check the connection, and run a task:
 For a custom service, set the endpoint variable above or add ``--base-url`` to
 both the check and task commands. If both are set, ``--base-url`` takes precedence.
 
+For long conversations, ``api`` automatically compacts the context. Use
+``--context-window`` to override the model's context window in tokens for
+compaction (when unset, RPent resolves it from model metadata or falls back
+to ``200000``).
+
 If the model supports only text, add ``--no-images``. The planner must then rely
 on textual state, which may reduce task performance.
 
@@ -392,6 +397,8 @@ Common settings are listed below; see :doc:`cli` for all options:
      - An explicit timeout value in seconds takes precedence. Otherwise, defaults are resolved in priority order; see the code for that order.
    * - ``--max-tokens``
      - ``api`` only: token limit per response, default ``8192``.
+   * - ``--context-window``
+     - ``api`` only: override the model's context window in tokens for compaction (falls back to model metadata or ``200000``).
    * - ``--reasoning-effort``
      - ``none``, ``low``, ``medium``, ``high``, or ``xhigh``, subject to backend and model support. API defaults to ``high``; others to ``none``.
 

@@ -413,6 +413,44 @@ def test_run_cli_rejects_base_url_for_the_backends_that_ignore_it(
     assert "uses its existing backend configuration" in capsys.readouterr().err
 
 
+@pytest.mark.parametrize(
+    ("extra_args", "expected_error"),
+    [
+        (["--planner", "api", "--context-window", "0"], "must be positive"),
+        (
+            ["--planner", "codex", "--context-window", "32768"],
+            "applies to the 'api' planner only",
+        ),
+    ],
+)
+def test_run_cli_validates_context_window(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    extra_args: list[str],
+    expected_error: str,
+) -> None:
+    cli = _cli_module()
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "rpent",
+            "--robot",
+            "libero",
+            "--suite",
+            "libero_object",
+            "--task",
+            "0",
+            *extra_args,
+        ],
+    )
+
+    with pytest.raises(SystemExit):
+        cli.main()
+
+    assert expected_error in capsys.readouterr().err
+
+
 def test_transcript_serialization_strips_nested_images_without_mutating_input() -> None:
     cli = _cli_module()
     messages = [

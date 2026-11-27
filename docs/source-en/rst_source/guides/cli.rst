@@ -37,6 +37,9 @@ These options control the planner, memory, output directory, and Dashboard.
    * - ``--max-tokens``
      - ``8192``
      - ``api`` only: token limit per model response.
+   * - ``--context-window``
+     - ``—``
+     - ``api`` only: override the model's context window in tokens for compaction (falls back to model metadata or ``200000``).
    * - ``--reasoning-effort``
      - ``api``: ``high``; ``claude_code``, ``codex``, ``gemini_cli``, ``opencode``: ``none``
      - Reasoning effort for online planners:

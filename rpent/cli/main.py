@@ -181,6 +181,13 @@ def _build_argparser() -> argparse.ArgumentParser:
     )
     ap.add_argument("--max-tokens", type=int, default=8192)
     ap.add_argument(
+        "--context-window",
+        type=int,
+        default=None,
+        help="Context window override in tokens (api planner only). "
+        "Use when the model registry is missing or inaccurate for your endpoint.",
+    )
+    ap.add_argument(
         "--reasoning-effort",
         choices=REASONING_EFFORTS,
         default="none",
@@ -382,6 +389,7 @@ def _start_continuation_session(
         base_url=args.base_url,
         model=args.model,
         max_tokens=args.max_tokens,
+        context_window=args.context_window,
         planner_timeout_s=args.planner_timeout_s,
         reasoning_effort=args.reasoning_effort,
         codex_sandbox=args.codex_sandbox,
@@ -476,6 +484,14 @@ def main() -> int:
             "--base-url applies to the 'api' planner only; "
             f"{args.planner} uses its existing backend configuration instead"
         )
+    if args.context_window is not None:
+        if args.context_window < 1:
+            parser.error("--context-window must be positive")
+        if args.planner != "api":
+            parser.error(
+                "--context-window applies to the 'api' planner only; "
+                f"{args.planner} uses its own context configuration instead"
+            )
     if args.planner == "flash":
         if args.explore:
             parser.error("Flash Mode is evaluation-only; remove --explore")
@@ -559,6 +575,7 @@ def main() -> int:
         base_url=args.base_url,
         model=args.model,
         max_tokens=args.max_tokens,
+        context_window=args.context_window,
         planner_timeout_s=args.planner_timeout_s,
         reasoning_effort=args.reasoning_effort,
         codex_sandbox=args.codex_sandbox,

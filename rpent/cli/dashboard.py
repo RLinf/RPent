@@ -353,6 +353,7 @@ def _run_dashboard_task(
                         model=task_args.model,
                         memory_dir=run_config.prompt_vars.get("memory_dir"),
                         max_tokens=args.max_tokens,
+                        context_window=args.context_window,
                         planner_timeout_s=args.planner_timeout_s,
                         reasoning_effort=args.reasoning_effort,
                         codex_sandbox=args.codex_sandbox,

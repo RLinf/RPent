@@ -115,6 +115,7 @@ def solve(tmp_path, model, toolkit=None, events=None, **kwargs):
         key: kwargs.pop(key)
         for key in (
             "max_tokens",
+            "context_window",
             "timeout_s",
             "no_images",
             "reasoning_effort",
@@ -683,22 +684,65 @@ def test_agent_error_recovery_decisions():
     assert not is_recoverable_agent_error("RuntimeError: provider unavailable")
 
 
+def metered_model(stream_function):
+    from contextlib import asynccontextmanager
+
+    from pydantic_ai.models.wrapper import WrapperModel
+    from pydantic_ai_harness.compaction import estimate_token_count
+
+    from rpent.planner.api_loop import _estimate_tokens
+
+    class MeteredModel(WrapperModel):
+        @asynccontextmanager
+        async def request_stream(
+            self,
+            messages,
+            model_settings,
+            model_request_parameters,
+            run_context=None,
+        ):
+            async with self.wrapped.request_stream(
+                messages, model_settings, model_request_parameters, run_context
+            ) as stream:
+                stream._usage.input_tokens = max(
+                    1, estimate_token_count(messages, _estimate_tokens)
+                )
+                yield stream
+
+    return MeteredModel(FunctionModel(stream_function=stream_function))
+
+
 def test_harness_compacts_long_history(tmp_path):
+    from pydantic_ai.messages import ModelMessagesTypeAdapter
+
     toolkit = capturing_toolkit(tmp_path)
     lengths = []
     requests = []
+    summary_prompts = []
 
     async def stream(messages, info):
+        if not info.function_tools and not info.output_tools:
+            summary_prompts.append(str(messages[-1].parts[0].content))
+            yield "## Intent\nDo the task.\n\n## Current state\nObserved scene."
+            return
         lengths.append(len(messages))
-        from pydantic_ai.messages import ModelMessagesTypeAdapter
-
         requests.append(ModelMessagesTypeAdapter.dump_python(messages, mode="json"))
-        yield tool("observe") if len(lengths) < 45 else finish()
+        if len(lengths) < 12:
+            yield f"Step {len(lengths)} observation: " + ("detail " * 600)
+            yield tool("observe", index=1)
+        else:
+            yield finish()
 
     result, _, _ = solve(
-        tmp_path, FunctionModel(stream_function=stream), toolkit, max_turns=50
+        tmp_path,
+        metered_model(stream),
+        toolkit,
+        max_turns=25,
+        context_window=12000,
     )
     assert result.error is None
+    assert summary_prompts
+    assert "## Scene & artifacts" in summary_prompts[0]
     assert (
         to_jsonable_python(
             [p.request.data["messages"] for p in toolkit.state.planner_records()],
@@ -706,16 +750,287 @@ def test_harness_compacts_long_history(tmp_path):
         )
         == requests
     )
+    assert all(
+        not p.request.data["model_request_parameters"].get("instruction_parts")
+        for p in toolkit.state.planner_records()
+    )
     assert any(after < before for before, after in zip(lengths, lengths[1:]))
-    assert [part["content"] for part in requests[-1][0]["parts"]] == [
-        API_PLANNER_INSTRUCTIONS,
-        ROBOT_PROMPT,
-        render_environment_context(),
-        "Do the task.",
+    final_sys = [
+        part["content"]
+        for msg in requests[-1]
+        if msg["kind"] == "request"
+        for part in msg["parts"]
+        if part["part_kind"] == "system-prompt"
     ]
+    assert final_sys.count(API_PLANNER_INSTRUCTIONS) == 1
+    assert final_sys.count(ROBOT_PROMPT) == 1
+    assert any(
+        text.startswith("Summary of previous conversation:") for text in final_sys
+    )
+    final_users = [
+        part["content"]
+        for msg in requests[-1]
+        if msg["kind"] == "request"
+        for part in msg["parts"]
+        if part["part_kind"] == "user-prompt"
+    ]
+    assert render_environment_context() in final_users
+    assert "Do the task." in final_users
+    assert any(
+        isinstance(content, list)
+        and any(
+            isinstance(item, dict)
+            and "[History before this point" in item.get("content", "")
+            for item in content
+        )
+        for content in final_users
+    )
     assert result.messages[0] == {"role": "user", "content": "Do the task."}
-    assert len([m for m in result.messages if m["role"] == "assistant"]) == 45
-    assert len([m for m in result.messages if m.get("name") == "observe"]) == 44
+    assert len([m for m in result.messages if m["role"] == "assistant"]) == 12
+    assert len([m for m in result.messages if m.get("name") == "observe"]) == 11
+
+
+def test_compaction_clears_old_tool_results_without_summarizing(tmp_path):
+    events = Events()
+    toolkit = RobotToolkit(events)
+
+    @declare_tool(readonly=True)
+    def read_text_file(path: str) -> ToolResult:
+        return ToolResult(data={"path": path, "content": "r" * 4000})
+
+    toolkit.add_tool(read_text_file)
+    toolkit.register(
+        "observe",
+        lambda: ToolResult(data={"log": "o" * 4000}, images=[b"image"]),
+    )
+    seen = []
+    summary_calls = 0
+
+    async def stream(messages, info):
+        nonlocal summary_calls
+        if not info.function_tools and not info.output_tools:
+            summary_calls += 1
+            yield "unexpected summary"
+            return
+        seen.append(copy.deepcopy(messages))
+        turn = len(seen)
+        if turn in (9, 11):
+            yield tool("read_text_file", {"path": "memory.md"})
+        elif turn < 12:
+            yield tool("observe")
+        else:
+            yield finish()
+
+    result, _, _ = solve(
+        tmp_path,
+        metered_model(stream),
+        toolkit,
+        events,
+        max_turns=15,
+        context_window=25000,
+    )
+    assert result.error is None
+    assert summary_calls == 0
+    final_returns = [
+        part.content
+        for msg in seen[-1]
+        if isinstance(msg, ModelRequest)
+        for part in msg.parts
+        if isinstance(part, ToolReturnPart)
+    ]
+    assert "[superseded file read]" in final_returns
+    assert "[tool result cleared]" in final_returns
+    assert len([m for m in result.messages if m["role"] == "tool"]) == 12
+
+
+def test_compaction_falls_back_to_sliding_window_when_summary_fails(tmp_path):
+    from pydantic_ai.exceptions import ModelAPIError
+
+    lengths = []
+    requests = []
+    summary_attempts = 0
+
+    async def stream(messages, info):
+        nonlocal summary_attempts
+        if not info.function_tools and not info.output_tools:
+            summary_attempts += 1
+            raise ModelAPIError(model_name="test", message="summarizer unavailable")
+            yield  # pragma: no cover
+        lengths.append(len(messages))
+        requests.append(copy.deepcopy(messages))
+        if len(lengths) < 12:
+            yield f"Step {len(lengths)} reasoning: " + ("detail " * 600)
+            yield tool("observe", index=1)
+        else:
+            yield finish()
+
+    result, _, _ = solve(
+        tmp_path,
+        metered_model(stream),
+        max_turns=25,
+        context_window=12000,
+    )
+    assert result.error is None
+    assert result.finish_result == {"_finish": True, **FINISH_ARGS}
+    assert summary_attempts >= 1
+    assert any(after < before for before, after in zip(lengths, lengths[1:]))
+    assert "was dropped by" in repr(requests[-1])
+
+
+def test_multi_run_compaction_does_not_summarize_after_budget_exhausted(
+    tmp_path, monkeypatch
+):
+    import pydantic_ai._cli as cli
+    from pydantic_ai_harness.compaction import estimate_token_count
+
+    from rpent.planner.api_loop import _estimate_tokens
+
+    replies = iter(["Continue the task.", "Try after the budget.", "/exit"])
+
+    async def read_prompt(*args, **kwargs):
+        return next(replies)
+
+    monkeypatch.setattr(cli, "PYDANTIC_AI_HOME", tmp_path / "cli")
+    monkeypatch.setattr(
+        cli,
+        "PromptSession",
+        lambda **kwargs: SimpleNamespace(prompt_async=read_prompt),
+    )
+
+    toolkit = capturing_toolkit(tmp_path / "captures")
+    requests = []
+    summary_calls = 0
+
+    async def stream(messages, info):
+        nonlocal summary_calls
+        if not info.function_tools and not info.output_tools:
+            summary_calls += 1
+            yield "unexpected summary"
+            return
+        requests.append(copy.deepcopy(messages))
+        turn = len(requests)
+        padding = f"Step {turn} reasoning: " + ("detail " * 700)
+        yield padding
+        if turn != 3:
+            yield tool("observe", index=1)
+
+    result, _, _ = solve(
+        tmp_path,
+        metered_model(stream),
+        toolkit=toolkit,
+        max_turns=5,
+        context_window=12000,
+        no_images=True,
+        interactive=True,
+    )
+    assert summary_calls == 0
+    assert result.error is None
+    assert result.finish_result is None
+    assert result.stop_reason == "tool_limit"
+    assert result.stats["turns_used"] == 5
+    assert (
+        len(
+            {
+                record.source_ids["pydantic_ai.run_id"]
+                for record in toolkit.state.planner_records()
+            }
+        )
+        == 2
+    )
+    assert (
+        estimate_token_count(requests[-1], _estimate_tokens)
+        + _estimate_tokens("detail " * 700)
+        > 9600
+    )
+
+
+@pytest.mark.parametrize(
+    ("model_name", "expected_effort"),
+    [("deepseek-v4.1-flash", "none"), ("o3", None)],
+)
+def test_compaction_summary_disables_optional_thinking(
+    tmp_path, model_name, expected_effort
+):
+    import httpx
+    from openai import AsyncOpenAI
+    from pydantic_ai.models.openai import OpenAIChatModel
+    from pydantic_ai.providers.openai import OpenAIProvider
+
+    bodies = []
+    parent_turns = 0
+
+    def sse(delta, finish_reason, prompt_tokens=1500):
+        base = {
+            "id": "c",
+            "created": 0,
+            "model": model_name,
+            "object": "chat.completion.chunk",
+        }
+        chunks = [
+            {
+                **base,
+                "choices": [
+                    {"index": 0, "delta": delta, "finish_reason": finish_reason}
+                ],
+            },
+            {
+                **base,
+                "choices": [],
+                "usage": {
+                    "prompt_tokens": prompt_tokens,
+                    "completion_tokens": 20,
+                    "total_tokens": prompt_tokens + 20,
+                },
+            },
+        ]
+        data = (
+            "".join(f"data: {json.dumps(c)}\n\n" for c in chunks) + "data: [DONE]\n\n"
+        )
+        return httpx.Response(
+            200, content=data.encode(), headers={"Content-Type": "text/event-stream"}
+        )
+
+    def handle(request):
+        nonlocal parent_turns
+        body = json.loads(request.content)
+        bodies.append(body)
+        if "tools" not in body:
+            return sse({"role": "assistant", "content": "Summary."}, "stop")
+        parent_turns += 1
+        name, args = ("observe", {}) if parent_turns < 3 else ("finish", FINISH_ARGS)
+        delta = {
+            "role": "assistant",
+            "content": "detail " * 800 if parent_turns < 3 else None,
+            "tool_calls": [
+                {
+                    "index": 0,
+                    "id": f"c{parent_turns}",
+                    "type": "function",
+                    "function": {"name": name, "arguments": json.dumps(args)},
+                }
+            ],
+        }
+        return sse(delta, "tool_calls", 5500 if parent_turns == 2 else 1500)
+
+    sdk = AsyncOpenAI(
+        api_key="offline-only",
+        base_url="https://example.invalid/v1",
+        http_client=httpx.AsyncClient(transport=httpx.MockTransport(handle)),
+    )
+    result, _, _ = solve(
+        tmp_path,
+        OpenAIChatModel(model_name, provider=OpenAIProvider(openai_client=sdk)),
+        max_tokens=8192,
+        context_window=6000,
+        reasoning_effort="high",
+        no_images=True,
+        max_turns=6,
+    )
+    assert result.error is None
+    (summary,) = [b for b in bodies if "tools" not in b]
+    assert summary.get("reasoning_effort") == expected_effort
+    assert summary.get("max_tokens", summary.get("max_completion_tokens")) == 4096
+    assert "parallel_tool_calls" not in summary
 
 
 def test_dashboard_steering_enters_next_request_in_same_native_run(tmp_path):
@@ -1129,12 +1444,14 @@ def test_factory_passes_interactive_mode(tmp_path, monkeypatch):
         recipe_tag="test",
         robot_name="test",
         model="test:test",
+        context_window=32768,
         dashboard_events=Events(),
         interactive=True,
     )
     assert isinstance(planner, ApiAgentLoop)
     assert isinstance(planner, Planner)
     assert planner.interactive is True
+    assert planner.context_window == 32768
 
 
 @pytest.mark.parametrize("no_images", [False, True])

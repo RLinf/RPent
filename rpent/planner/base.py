@@ -269,6 +269,7 @@ def build_planner(
     model: str | None = None,
     memory_dir: str | Path | None = None,
     max_tokens: int = 8192,
+    context_window: int | None = None,
     planner_timeout_s: int | None = None,
     reasoning_effort: str = "none",
     codex_sandbox: str = "full-access",
@@ -292,6 +293,7 @@ def build_planner(
         return ApiAgentLoop(
             model=api_model,
             max_tokens=max_tokens,
+            context_window=context_window,
             reasoning_effort=reasoning_effort,
             dashboard_events=dashboard_events,
             no_images=no_images,
