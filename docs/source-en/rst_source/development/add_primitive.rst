@@ -73,6 +73,31 @@ returned native action chunk through the environment, and returns a
 ``ToolResult``. Register it with the same ``@tool`` and ``iter_tools``
 mechanism used above.
 
+Check Whether a Failed Action Ran
+---------------------------------
+
+A gripper may have closed even if the camera missed the next frame. By default,
+Toolkit sets ``execution_uncertain=True`` on the returned ``ToolResult`` if the
+action handler raises or if ``get_env_state`` raises after the action.
+
+- If your backend returns without confirming whether an action ran, return
+  ``ToolResult(data={"error": "No gripper acknowledgement"}, execution_uncertain=True)``.
+  The caller can then check the gripper before retrying.
+- If a readonly tool writes to a file, a failed write can leave the file
+  partially updated. Use ``@tool(readonly=True, uncertain_on_error=True)``
+  for tools like ``write_text_file``.
+
+Observe the Environment Between Calls
+-------------------------------------
+
+Call ``Toolkit.refresh_observation()`` to check the gripper's position before
+issuing another command. The refresh waits for any running tools to finish
+and completes before the next tool starts. It uses no planner tool calls.
+
+When exporting or replaying actions, skip ``{"action": "refresh_observation"}``.
+This step contains an observation. For a replayable action, put the tool name
+and arguments in ``StepRecord.command``. Record who issued it separately.
+
 Single-threaded Serve (EGL-rendering Backends)
 ----------------------------------------------
 

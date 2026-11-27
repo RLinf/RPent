@@ -455,9 +455,25 @@ def test_generation_rejects_missing_or_changed_calibration_before_grounding(
         )
 
 
-@pytest.mark.parametrize("second_reset", [False, True])
+@pytest.mark.parametrize(
+    "extra_step,error,message",
+    [
+        (None, None, None),
+        (
+            ("request_scene_reset", {"scene_reset_confirmed": True, "robot_reset": {}}),
+            ValueError,
+            "multiple attempts",
+        ),
+        (
+            ("refresh_observation", {"state_capture_error": "missing observation"}),
+            RuntimeError,
+            "state_capture_error",
+        ),
+        (("unknown_action", {}), ValueError, "unsupported source action"),
+    ],
+)
 def test_generation_filters_workflow_records_but_rejects_multiple_attempts(
-    scene, tmp_path, monkeypatch, second_reset
+    scene, tmp_path, monkeypatch, extra_step, error, message
 ):
     from robots.franka.flash.generate import generate
 
@@ -467,11 +483,12 @@ def test_generation_filters_workflow_records_but_rejects_multiple_attempts(
     actions = [
         ("request_scene_reset", reset),
         ("open_gripper", {"ok": True}),
+        ("refresh_observation", {}),
         ("observe_for_verdict", {}),
         ("request_operator_verdict", {"status": "success"}),
     ]
-    if second_reset:
-        actions.append(("request_scene_reset", reset))
+    if extra_step is not None:
+        actions.append(extra_step)
     state = scene.state.get().state
     steps = [{"step_idx": 0, "state": state}]
     for index, (action, result) in enumerate(actions, 1):
@@ -489,8 +506,8 @@ def test_generation_filters_workflow_records_but_rejects_multiple_attempts(
         "molmo": scene.grounder,
         "human_verdict": "success",
     }
-    if second_reset:
-        with pytest.raises(ValueError, match="multiple attempts"):
+    if error:
+        with pytest.raises(error, match=message):
             generate(tmp_path, {}, **kwargs)
     else:
         card = generate(tmp_path, {}, **kwargs)

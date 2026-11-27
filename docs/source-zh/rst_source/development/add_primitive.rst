@@ -59,6 +59,21 @@
 
 VLA/WAM 的服务、客户端、adapter 与会话生命周期见 :doc:`add_action_model`。平台工具调用模型客户端，通过环境执行返回的原生动作块，再返回 ``ToolResult``。工具声明与注册仍使用上文的 ``@tool`` 和 ``iter_tools``。
 
+判断报错的工具是否执行了动作
+----------------------------
+
+夹爪可能已经合上了，相机却没拍到动作后的画面。默认情况下，动作工具抛出异常，或动作结束后 ``get_env_state`` 采集观测时抛出异常，Toolkit 都会在返回的 ``ToolResult`` 上设置 ``execution_uncertain=True``。
+
+- 如果后端没有抛出异常，却也没能确认夹爪是否执行了指令，可以返回 ``ToolResult(data={"error": "No gripper acknowledgement"}, execution_uncertain=True)``。调用方可以先查看夹爪的位置，再决定是否重试。
+- 有些工具只写文件，不移动机器人。写入中途失败，文件可能已经改了一部分。这类工具可以参照 ``write_text_file``，用 ``@tool(readonly=True, uncertain_on_error=True)`` 声明。
+
+在两次调用之间查看环境
+----------------------
+
+要在下一条指令前确认夹爪的位置，可以调用 ``Toolkit.refresh_observation()``。刷新会等正在执行的工具结束，刷新期间也不会执行其他工具。这次观测不占规划器的工具调用次数。
+
+导出或回放动作时，跳过 ``{"action": "refresh_observation"}``，这一步只记录了观测。对于要回放的动作，``StepRecord.command`` 里只放工具名和参数。动作由谁发起，另行记录。
+
 单线程 serve（EGL 渲染后端）
 ----------------------------
 
