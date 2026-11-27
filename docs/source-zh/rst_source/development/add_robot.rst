@@ -331,11 +331,11 @@ endpoint（``--env-endpoint``、``--am-endpoint``，以及 LIBERO 的 ``--sam3-e
 保存任务结果（可选）
 --------------------
 
-如果评测需要结果文件，可用 ``RobotSpec.finalize_run`` 注册回调，在回调中指定文件名和字段。CLI 和 Dashboard 在关闭工具包前读取 ``toolkit.solved()``，清理结束后将 ``RunFinalizationContext`` 传给回调。
+如果评测需要为每次运行保存一份结果文件，可以用 ``RobotSpec.finalize_run`` 注册回调。CLI 和 Dashboard 的 runner 会在关闭 toolkit 前读取环境的成败判定。清理结束后，runner 把环境判定和停止信息一起放进 ``RunFinalizationContext``，交给回调。
 
-环境的成功判定记录在 ``environment_success`` 中。规划器可以用 ``stop_reason`` 说明停止原因，用 ``stop_info`` 补充详情。运行器用 ``cancelled_reason`` 记录取消原因，也负责报告清理错误。清理失败时，保留规划器的 ``stop_reason``。如果结果文件区分停止类别，就和轨迹记录一样，把清理失败归入 ``error`` 类。
+你可以按评测需要选择写入哪些字段。环境判定读 ``context.environment_success``，规划器的停止原因读 ``context.stop_reason``。如果任务被取消，runner 记录的原因在 ``context.cancelled_reason`` 中。清理失败时，可从 ``context.agent_error`` 读取错误信息，``context.stop_info`` 中的类别会标为 ``error``。如果结果文件需要这个类别，就把它和规划器原先的停止原因分开保存。
 
-在 :doc:`LIBERO <../simulators/libero>` 的结果文件中，还可以看到 RPent 是否接受了 ``finish`` 请求，以及操作员的判断。下面的示例用 ``write_json_atomic`` 保存任务信息和环境判定。
+下面的回调将任务、环境判定和停止原因写入 ``result.json``。如果还需要记录 ``finish`` 请求是否获准、操作员如何判定，可以参考 :doc:`LIBERO <../simulators/libero>`。
 
 .. code-block:: python
 
@@ -348,6 +348,8 @@ endpoint（``--env-endpoint``、``--am-endpoint``，以及 LIBERO 的 ``--sam3-e
                "robot": context.robot_name,
                "task": dict(context.task_desc),
                "success": context.environment_success,
+               "stop_reason": context.stop_reason,
+               "cancelled_reason": context.cancelled_reason,
            },
        )
 

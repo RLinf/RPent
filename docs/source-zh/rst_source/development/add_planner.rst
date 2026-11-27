@@ -36,6 +36,8 @@
                messages=messages,
                stats=stats,
                error=error,
+               stop_reason=stop_reason,
+               stop_info=stop_info,
            )
 
 任何规划器都必须：
@@ -46,14 +48,14 @@
 4. 识别 ``ToolResult.data.get("_finish")``，并按 ``max_turns`` 等限制终止循环。
 5. 用 ``PlannerResult`` 返回结束状态、消息、用量统计和错误信息。
 
-规划器用 ``stop_reason`` 说明为什么停下。只返回 ``cancelled`` 或 ``error`` 时，探索就此结束。任务是否成功由环境判定。
+规划器用 ``stop_reason`` 说明为什么停下，任务是否成功由环境判定。一次 ``--explore`` 探索可以分成多个会话，RPent 会根据上一个会话的结果决定是否开启新会话。
 
-如果取消或报错后还要继续探索，RPent 会检查规划器在 ``stop_info`` 中给出的四个值。每一项都要能回答“是”，才会允许下一轮。
+如果上一个会话被取消或出错，只有规划器在 ``stop_info`` 中把以下四项都设为 ``True``，探索才能继续。
 
-- 每个动作的结果是否都已查明（``execution_certain``）。
-- 工具结果是否都已送达（``result_delivery_complete``）。
-- 上一轮的清理工作是否已完成（``cleanup_complete``）。
-- 规划器是否允许新开会话（``allow_new_session``）。
+- 每个动作的结果都已确认（``execution_certain``）。
+- 所有工具结果都已送达（``result_delivery_complete``）。
+- 上一个会话已完成清理（``cleanup_complete``）。
+- 规划器允许开启新会话（``allow_new_session``）。
 
 由于 RPent 的工具定义和提示词渲染流程保持不变，新增规划器无需修改工具或环境服务。接口参见 :doc:`architecture`；添加工具见 :doc:`add_primitive`。
 

@@ -196,16 +196,14 @@ Fast-WAM 使用 ``--am-backend fast-wam`` 及其 worker 地址。LIBERO-Pro 需�
 查看结果
 ------------
 
-运行结束后，打开输出目录中的 ``result.json``，就能看到任务是否成功，以及这次运行是否计入成功率。
+运行结束后，打开输出目录里的 ``result.json``，可以看到任务是否成功，以及这次运行是否计入成功率。
 
-- ``environment_success`` 记录 LIBERO 的判定。在有效运行中，``true`` 表示成功，``false`` 表示失败。用 ``view_env_state(step=-1)`` 可查看最后一次观测中的原生信号 ``terminated``。
-- ``valid`` 为 ``true`` 的运行才计入成功率。超时、用尽预算或没有调用 ``finish`` 的运行仍可能计入。模型服务报错、任务取消、操作员中止或环境未给出成败判定时，``valid`` 为 ``false``。如果规划器报告动作结果、结果送达或清理状态仍有一项待确认，这次运行也不计入。
-- ``termination_reason`` 记录具体停止原因，``termination_category`` 记录类别。API 模型达到输出上限且未给出可用回复时，原因是 ``response_truncated``，类别是 ``budget``。Gemini 报告 ``max_tokens`` 时，两个字段都记为 ``budget``。
-- ``finish_accepted`` 记录 RPent 是否接受了规划器的 ``finish`` 请求。``operator_verdict`` 记录操作员的判断。
+- 看任务成败，读 ``environment_success``。在有效运行中，``true`` 表示 LIBERO 判定成功，``false`` 表示失败。运行期间要核对最近一次观测，可以用 ``view_env_state(step=-1)`` 查看 ``terminated``。
+- 算成功率，只统计 ``valid`` 为 ``true`` 的运行。超时或用尽预算的运行仍可能计入。如果运行中断，动作结果或会话状态仍无法确认，``valid`` 就是 ``false``。
+- ``termination_category`` 记录停止类别，``termination_reason`` 说明具体原因。
+- ``finish_accepted`` 记录 RPent 是否接受了规划器的 ``finish`` 请求。如果操作员也给出了判断，结果记在 ``operator_verdict`` 中。
 
-例如，10 次运行中有 8 次有效，其中 6 次成功，成功率就是 6/8 = 75%。
-
-如果启动失败，可能没有结果文件。写入失败时，CLI 返回非零退出码，Dashboard 将任务标记为出错。
+例如，10 次运行中有 8 次有效，其中 6 次被 LIBERO 判定为成功，成功率就是 6/8 = 75%。
 
 输出目录中的 ``episode.mp4``、``transcript_*.json`` 和 ``run.log`` 分别保存录像、对话和运行日志。各步观测文件的位置见\ :ref:`run-output-files`。运行期间可在终端或 :doc:`Dashboard <../guides/dashboard>` 查看进展。
 

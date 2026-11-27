@@ -217,31 +217,23 @@ that call only. Chunk budgets do not specify where to stop inside a chunk.
 View Results
 ------------
 
-After a run, open ``result.json`` in the output directory to see whether the
-task succeeded and whether the run counts toward the success rate.
+Open ``result.json`` in the run's output directory to see whether LIBERO marked
+the task as successful and whether the run counts toward the success rate.
 
-- ``environment_success`` records LIBERO's verdict. On a valid run,
-  ``true`` means success and ``false`` means failure. To inspect the native
-  signal, check ``terminated`` in ``view_env_state(step=-1)``.
-- ``valid`` is ``true`` for runs that count in the success rate. A timeout,
-  an exhausted budget, or a run ending without ``finish`` can still count.
-  A provider error, cancellation, operator abort, or missing environment
-  verdict sets ``valid`` to ``false``. A run also drops out if the planner
-  reports that the outcome of an action, result delivery, or cleanup is
-  still unconfirmed.
-- ``termination_reason`` gives the specific reason for stopping and
-  ``termination_category`` groups related reasons. If the API reaches its
-  output limit without a usable reply, the reason is ``response_truncated``
-  and the category is ``budget``. Gemini's ``max_tokens`` maps to ``budget``
-  in both fields.
-- ``finish_accepted`` records whether RPent accepted the planner's
-  ``finish`` request. ``operator_verdict`` records the operator's judgment.
+- ``environment_success`` gives LIBERO's verdict. On a valid run, ``true``
+  means success and ``false`` means failure. During a run, you can also check
+  ``terminated`` in the latest observation with ``view_env_state(step=-1)``.
+- Count only runs with ``valid`` set to ``true``. A run that timed out or
+  exhausted its budget can still count. A run interrupted before the action
+  outcome or session state could be confirmed has ``valid`` set to ``false``.
+- To find out why a run ended, read ``termination_category`` for the type of
+  stop and ``termination_reason`` for the specific reason.
+- ``finish_accepted`` tells you whether RPent accepted the planner's
+  ``finish`` request. ``operator_verdict`` records the operator's decision,
+  if there was one.
 
-For example, if 8 of 10 runs are valid and 6 of those succeed, the success
-rate is 6/8 = 75%.
-
-A startup failure can leave the result file missing. If writing fails, the
-CLI exits with a nonzero status and the Dashboard reports a task error.
+For example, if 8 of 10 runs are valid and LIBERO marks 6 of those as
+successful, the success rate is 6/8 = 75%.
 
 Open ``episode.mp4``, ``transcript_*.json``, or ``run.log`` in the output
 directory to review a run. For step observations, see :ref:`run-output-files`.

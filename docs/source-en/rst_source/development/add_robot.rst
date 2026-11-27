@@ -480,23 +480,24 @@ robots. The runners do not handle these environment details. See
 ``robots/libero/robot_spec.py`` and ``robots/robocasa/robot_spec.py`` for the
 reference pattern.
 
-Optional Run-Result Finalizer
------------------------------
+Save a Run Result (Optional)
+----------------------------
 
-If your benchmark needs a result file, register a callback with
-``RobotSpec.finalize_run``. The callback chooses the filename and fields.
-The CLI and Dashboard read ``toolkit.solved()`` before closing the toolkit.
-After cleanup they pass ``RunFinalizationContext`` to the callback.
+If your benchmark needs a result file for each run, register a callback with
+``RobotSpec.finalize_run``. The CLI and Dashboard runners call it after
+cleanup. Its ``RunFinalizationContext`` contains the environment verdict
+captured before the toolkit closed and the reasons the run stopped.
 
-Use ``environment_success`` for the environment's verdict. The planner can
-supply a ``stop_reason`` and details in ``stop_info``. The runner records
-cancellations in ``cancelled_reason`` and reports cleanup errors. If cleanup
-fails, preserve the planner's ``stop_reason``. If your result file classifies
-stops, use the ``error`` category for cleanup failures, as the trajectory does.
+Choose which fields to write. Read the environment verdict from
+``context.environment_success``, the planner's reason from ``context.stop_reason``,
+and the runner's cancellation reason, if any, from ``context.cancelled_reason``.
+For cleanup failures, ``context.agent_error`` carries the diagnostic and
+``context.stop_info`` gives the ``error`` category. If your file includes that
+category, keep it alongside the planner's original stop reason.
 
-See :doc:`../simulators/libero` for a result file that also records whether
-RPent accepted ``finish`` and what the operator decided. This example uses
-``write_json_atomic`` to save the task and the environment's verdict.
+This callback writes the task, its outcome and the reasons it stopped to
+``result.json``. For a benchmark that also records accepted ``finish`` requests
+and operator decisions, see :doc:`../simulators/libero`.
 
 .. code-block:: python
 
@@ -509,6 +510,8 @@ RPent accepted ``finish`` and what the operator decided. This example uses
                "robot": context.robot_name,
                "task": dict(context.task_desc),
                "success": context.environment_success,
+               "stop_reason": context.stop_reason,
+               "cancelled_reason": context.cancelled_reason,
            },
        )
 
