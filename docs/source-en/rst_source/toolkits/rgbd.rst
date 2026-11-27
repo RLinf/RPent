@@ -138,3 +138,37 @@ the tools on the robot's toolkit.
    you reuse the same geometry tool instance across episodes and step numbers
    restart, call ``geometry.reset_cache()`` at the start of each new episode to
    clear the cache.
+
+Read a Label or Display
+-----------------------
+
+Install Tesseract and its English language data on the host running the
+toolkit. Make sure ``tesseract`` is on ``PATH`` and
+``tesseract --list-langs`` includes ``eng``. Add ``--rgbd-tools`` when
+you run LIBERO to enable ``read_text_ocr``.
+
+Select a frame with its recorded ``camera`` and ``step``. To read part of
+it, pass a ``region`` with the full preview's ``image_shape`` [height, width]
+and ``box_rc`` [top, left, bottom, right] in preview pixels. Top and left
+are included. Bottom and right are excluded. Omit ``region`` to read the
+full frame. Set ``layout`` to ``line`` for a single row or ``sparse`` for
+scattered labels. The default ``block`` expects a compact block of text.
+
+.. code-block:: json
+
+   {"camera": "agentview", "step": 0, "layout": "line",
+    "region": {"image_shape": [1024, 1024], "box_rc": [96, 128, 240, 544]}}
+
+The tool returns the transcription in ``text``. Each entry in ``words``
+has a box in the original full frame and a confidence score from 0 to 1.
+``min_confidence`` defaults to 0.5. A ``no_text`` status means the tool
+kept no recognized words. If you expected text, check the selected region.
+
+If the image is too large to process, narrow the region or reduce
+``upscale``. If ``truncated`` is true, use a tighter region to read the rest.
+
+Use this prompt to guide the planner.
+
+   Use ``read_text_ocr`` to read the label or display. Select a tight box,
+   then compare the returned text and word boxes with the recorded image
+   before relying on a reading.

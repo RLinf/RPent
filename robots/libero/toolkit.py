@@ -89,12 +89,18 @@ class LiberoToolkit(Toolkit):
         if generic_tools:
             from robots.libero.observations import LiberoGeometryObservations
             from toolkits.back_project import back_project
+            from toolkits.read_text_ocr import read_text_ocr
             from toolkits.segment import SegmentTool
 
             observations = LiberoGeometryObservations(state)
             self.add_tool(
                 back_project.with_handler(
                     partial(back_project, observations=observations)
+                )
+            )
+            self.add_tool(
+                read_text_ocr.with_handler(
+                    partial(read_text_ocr, observations=observations)
                 )
             )
             self.add_tool(
