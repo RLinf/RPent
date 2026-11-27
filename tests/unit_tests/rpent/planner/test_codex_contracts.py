@@ -30,7 +30,7 @@ import rpent.planner.codex as codex_module
 import rpent.planner.utils.agent_session as interactive_module
 from rpent.dashboard.events import TranscriptEvent, UsageEvent
 from rpent.dashboard.state import DashboardState
-from rpent.planner.base import is_recoverable_planner_result
+from rpent.planner.base import exploration_handoff
 from rpent.planner.codex import (
     PROVIDER_ENV_KEY,
     PROVIDER_ID,
@@ -312,7 +312,7 @@ def test_exit_closes_session_before_trace_import(
             "RuntimeError: backend failed" if outcome == "error" else "TimeoutError: "
         )
         assert result.stop_reason == "planner_error"
-        assert not is_recoverable_planner_result(result)
+        assert exploration_handoff(result) == "stop"
         assert result.stats["codex_trace"]["bundles"] == 0
     importer.assert_called_once()
     assert cleanup == [(1, 1, True, "running")]
@@ -1018,7 +1018,7 @@ def test_no_active_rpc_without_a_terminal_fails_task_replacement(
     assert result.stop_reason == "planner_error"
     assert "Codex did not finish the interrupted turn" in result.error
     assert result.stop_info["cleanup_complete"] is False
-    assert not is_recoverable_planner_result(result)
+    assert exploration_handoff(result) == "stop"
     interrupt.assert_awaited_once()
     assert len(FakeCodex.instances[0].thread.turn_prompts) == 1
     assert FakeCodex.instances[0].closed and FakeMcpServer.instances[0].stopped
@@ -1306,7 +1306,7 @@ def test_timeout_interrupts_and_drains_turn_before_closing(
     assert (result.stop_info or {}).get("cleanup_complete") is (
         False if sdk_close_fails else None
     )
-    assert is_recoverable_planner_result(result) is (not sdk_close_fails)
+    assert exploration_handoff(result) == ("stop" if sdk_close_fails else "recover")
     assert events == (
         ["close", "import"]
         if initializing
@@ -1327,7 +1327,7 @@ def test_provider_failures_are_not_planner_deadlines(tmp_path, monkeypatch, fail
         system_prompt="", user_message="task", toolkit=FakeToolkit(), max_turns=1
     )
     assert result.stop_reason == "planner_error"
-    assert not is_recoverable_planner_result(result)
+    assert exploration_handoff(result) == "stop"
     assert result.stop_info.get("cleanup_complete") is None
     assert result.error == f"{type(failure).__name__}: {failure}"
     assert FakeCodex.instances[0].closed
@@ -1367,7 +1367,7 @@ def test_deadline_cleanup_failure_preserves_both_causes(tmp_path, monkeypatch, s
         system_prompt="", user_message="task", toolkit=toolkit, max_turns=1
     )
     assert result.stop_reason == "planner_error"
-    assert not is_recoverable_planner_result(result)
+    assert exploration_handoff(result) == "stop"
     assert "Codex SDK timed out after 0.01s" in result.error
     assert "cleanup failed: drain failed" in result.error
     assert result.stop_info["cleanup_complete"] is False
@@ -1403,7 +1403,7 @@ def test_provider_error_before_deadline_is_not_lost(tmp_path, monkeypatch):
         system_prompt="", user_message="task", toolkit=FakeToolkit(), max_turns=2
     )
     assert result.stop_reason == "planner_error"
-    assert not is_recoverable_planner_result(result)
+    assert exploration_handoff(result) == "stop"
     assert result.stats["interruption_diagnostics"] == ["interrupted model"]
     assert "TRANSPORT" in result.error
     assert "Codex SDK timed out after 0.05s" in result.error
@@ -1455,7 +1455,7 @@ def test_deadline_preserves_each_provider_stream_and_cleanup_error_once(
     }
     assert result.stop_reason == "planner_error"
     assert result.stop_info["cleanup_complete"] is False
-    assert not is_recoverable_planner_result(result)
+    assert exploration_handoff(result) == "stop"
     assert FakeCodex.instances[0].closed and FakeMcpServer.instances[0].stopped
 
 

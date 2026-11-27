@@ -18,7 +18,7 @@ import pytest
 
 from rpent.planner.base import (
     PlannerResult,
-    is_recoverable_planner_result,
+    exploration_handoff,
     normalize_stop_info,
 )
 
@@ -76,7 +76,7 @@ def test_legacy_hints_are_used_only_without_a_reason(error, accepted, expected):
 
 def test_budget_category_alone_does_not_authorize_a_fresh_session():
     result = PlannerResult(stop_info=normalize_stop_info(None, reason="budget"))
-    assert not is_recoverable_planner_result(result)
+    assert exploration_handoff(result) == "stop"
 
 
 _RECOVERY_EVIDENCE = (
@@ -89,13 +89,15 @@ _RECOVERY_EVIDENCE = (
 
 @pytest.mark.parametrize("field", _RECOVERY_EVIDENCE)
 @pytest.mark.parametrize(
-    "value,allowed",
-    [(False, False), (True, True), (None, False), (1, False), ("true", False)],
+    "value,expected",
+    [(False, "stop"), (True, "recover"), (None, "stop"), (1, "stop"), ("true", "stop")],
 )
-def test_recovery_requires_explicit_true_for_all_safety_evidence(field, value, allowed):
+def test_recovery_requires_explicit_true_for_all_safety_evidence(
+    field, value, expected
+):
     evidence = dict.fromkeys(_RECOVERY_EVIDENCE, True)
     evidence[field] = value
-    assert is_recoverable_planner_result(PlannerResult(stop_info=evidence)) is allowed
+    assert exploration_handoff(PlannerResult(stop_info=evidence)) == expected
 
 
 @pytest.mark.parametrize("field", _RECOVERY_EVIDENCE)
@@ -103,17 +105,17 @@ def test_missing_safety_evidence_blocks_recovery_even_with_legacy_timeout(field)
     evidence = dict.fromkeys(_RECOVERY_EVIDENCE, True)
     del evidence[field]
     result = PlannerResult(error="timed out", stop_info=evidence)
-    assert not is_recoverable_planner_result(result)
+    assert exploration_handoff(result) == "stop"
 
 
 @pytest.mark.parametrize(
-    "error,allowed",
+    "error,expected",
     [
-        ("timed out", True),
-        ("planner response truncated", True),
-        ("failed", False),
-        (None, False),
+        ("timed out", "recover"),
+        ("planner response truncated", "recover"),
+        ("failed", "stop"),
+        (None, "next"),
     ],
 )
-def test_planners_without_stop_info_retain_legacy_recovery(error, allowed):
-    assert is_recoverable_planner_result(PlannerResult(error=error)) is allowed
+def test_planners_without_stop_info_retain_legacy_handoff(error, expected):
+    assert exploration_handoff(PlannerResult(error=error)) == expected

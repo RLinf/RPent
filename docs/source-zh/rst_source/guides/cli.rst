@@ -206,9 +206,9 @@ RPent CLI 保留原有 ``--cuda-device`` 作为本地服务的共享默认值；
 输出文件
 ------------
 
-以 LIBERO 为例，运行结果 ``result.json`` 就在 ``--output-dir`` 指定的目录里。省略这个参数，LIBERO 默认写入仓库下的 ``logs/<timestamp>_<suite>_t<task>_s<seed>/``。其他环境的默认路径见各环境指南。
+用 ``--output-dir`` 指定本次运行的输出目录。各环境有各自的默认目录，例如 LIBERO 默认写入仓库根目录下的 ``logs/<timestamp>_<suite>_t<task>_s<seed>/``。
 
-下表列出 LIBERO 常见的文件。实际生成哪些文件取决于环境、录像设置和运行结果。
+下表列出多个环境的输出文件。实际生成哪些文件取决于环境、录制设置和运行结果。
 
 .. list-table::
    :header-rows: 1
@@ -216,7 +216,7 @@ RPent CLI 保留原有 ``--cuda-device`` 作为本地服务的共享默认值；
    * - 文件或路径
      - 用途
    * - ``result.json``
-     - 查看 LIBERO 是否判定成功、规划器为什么停止、这次尝试能否计入评测，以及操作员的判断。详见 :doc:`../simulators/libero`。
+     - 环境记录的运行结果。成功判定和评测有效性字段的示例见 :doc:`LIBERO <../simulators/libero>`。
    * - ``transcript_*.json``
      - 规划器对话、工具调用及结束信息。
    * - ``trajectories/<task_id>/``

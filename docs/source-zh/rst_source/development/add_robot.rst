@@ -328,16 +328,16 @@ toolkit 模块通常包含四部分：
 
 endpoint（``--env-endpoint``、``--am-endpoint``，以及 LIBERO 的 ``--sam3-endpoint``）解析和环境专用服务命令，应放在拥有对应服务的钩子中。这些 spawner 应通过 ``rpent.robots.runtime.try_spawn_server`` 和 ``try_wait_server`` 组合，使各环境的状态事件、就绪失败和 owned daemon 清理保持一致；runner 不处理这些环境细节。参考模式见 ``robots/libero/robot_spec.py`` 和 ``robots/robocasa/robot_spec.py``。
 
-保存任务结果
-------------
+.. _保存任务结果:
 
-如果评测需要为每次运行保存一份结果文件，可以用 ``RobotSpec.finalize_run`` 注册写文件的函数。文件叫什么、保存哪些字段，由这个函数决定。终端和 Dashboard 都会在关闭工具包前读取 ``toolkit.solved()``，清理结束后再把 ``RunFinalizationContext`` 交给这个函数。
+保存任务结果（可选）
+--------------------
 
-环境通过 ``environment_success`` 给出任务是否成功的判定。规划器可以用 ``stop_reason`` 说明为什么停止，用 ``stop_info`` 补充详情。如果用户在 Dashboard 切换任务，运行器会把取消原因记在 ``cancelled_reason`` 中。运行器也负责报告清理错误。如果清理失败，仍应保留规划器原先的停止原因。如果结果文件像轨迹一样区分停止类别，就把清理失败的运行归为错误。
+如果评测需要结果文件，可用 ``RobotSpec.finalize_run`` 注册回调，在回调中指定文件名和字段。CLI 和 Dashboard 在关闭工具包前读取 ``toolkit.solved()``，清理结束后将 ``RunFinalizationContext`` 传给回调。
 
-:doc:`../simulators/libero` 的结果文件还单独记录了是否接受 ``finish`` 以及操作员的判断。
+环境的成功判定记录在 ``environment_success`` 中。规划器可以用 ``stop_reason`` 说明停止原因，用 ``stop_info`` 补充详情。运行器用 ``cancelled_reason`` 记录取消原因，也负责报告清理错误。清理失败时，保留规划器的 ``stop_reason``。如果结果文件区分停止类别，就和轨迹记录一样，把清理失败归入 ``error`` 类。
 
-下面的例子用 ``write_json_atomic`` 把任务信息和环境判定写入 JSON 文件。
+在 :doc:`LIBERO <../simulators/libero>` 的结果文件中，还可以看到 RPent 是否接受了 ``finish`` 请求，以及操作员的判断。下面的示例用 ``write_json_atomic`` 保存任务信息和环境判定。
 
 .. code-block:: python
 

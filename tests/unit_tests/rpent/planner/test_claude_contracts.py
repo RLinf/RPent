@@ -30,7 +30,7 @@ from mcp.shared.memory import create_connected_server_and_client_session
 
 from rpent.dashboard.events import TranscriptEvent, UsageEvent
 from rpent.memory import MemoryManager
-from rpent.planner.base import is_recoverable_planner_result
+from rpent.planner.base import exploration_handoff
 from rpent.planner.claude_code import (
     ClaudeCodePlanner,
     _build_rpent_server,
@@ -398,7 +398,7 @@ def test_fake_sdk_failure_and_timeout_are_returned(
     assert failure.error == "RuntimeError: sdk unavailable"
     assert timeout.error == "Claude Agent SDK timed out after 0.01s"
     assert timeout.stop_reason == "timeout"
-    assert is_recoverable_planner_result(timeout)
+    assert exploration_handoff(timeout) == "recover"
     assert failure.stop_reason == "planner_error"
     assert slow_stream_closed is True
 
@@ -455,7 +455,7 @@ def test_provider_failures_are_not_planner_deadlines(tmp_path, monkeypatch, fail
     )
     assert result.stop_reason == "planner_error"
     assert result.stop_info.get("cleanup_complete") is None
-    assert not is_recoverable_planner_result(result)
+    assert exploration_handoff(result) == "stop"
     assert result.error == f"{type(failure).__name__}: {failure}"
 
 
@@ -476,7 +476,7 @@ def test_sdk_exit_failure_records_incomplete_cleanup(
     )
     assert result.stop_reason == "planner_error"
     assert result.stop_info["cleanup_complete"] is False
-    assert not is_recoverable_planner_result(result)
+    assert exploration_handoff(result) == "stop"
     assert "SDK cleanup failed: close failed" in result.error
     assert ("RuntimeError: provider unavailable" in result.error) is provider_error
 
@@ -505,7 +505,7 @@ def test_deadline_cleanup_failure_preserves_both_causes(tmp_path, monkeypatch, s
         system_prompt="", user_message="task", toolkit=toolkit, max_turns=1
     )
     assert result.stop_reason == "planner_error"
-    assert not is_recoverable_planner_result(result)
+    assert exploration_handoff(result) == "stop"
     assert "Claude Agent SDK timed out after 0.01s" in result.error
     assert "cleanup failed: drain failed" in result.error
     assert result.stop_info["cleanup_complete"] is False
@@ -1082,7 +1082,7 @@ def test_sdk_result_preserves_provider_status_and_redacted_cause(tmp_path, monke
     assert result.stop_reason == "planner_error"
     assert "API error (HTTP 429): rate limit for " in result.error
     assert "secret-provider-key" not in result.error
-    assert not is_recoverable_planner_result(result)
+    assert exploration_handoff(result) == "stop"
 
 
 @pytest.mark.parametrize("stage", ["connect", "query", None])

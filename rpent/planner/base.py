@@ -174,7 +174,7 @@ def is_recoverable_agent_error(agent_error: str | None) -> bool:
 
 
 def exploration_handoff(result: PlannerResult) -> Literal["next", "recover", "stop"]:
-    """Decide whether exploration can start another session after this result."""
+    """Return next for a normal handoff, recover for an allowed retry, or stop."""
     stop_info = getattr(result, "stop_info", None)
     if stop_info is None:
         stop_info = result.stats.get("stop_info")
@@ -199,11 +199,6 @@ def exploration_handoff(result: PlannerResult) -> Literal["next", "recover", "st
     if result.error:
         return "recover" if is_recoverable_agent_error(result.error) else "stop"
     return "next"
-
-
-def is_recoverable_planner_result(result: PlannerResult) -> bool:
-    """Whether exploration can recover from this planner interruption."""
-    return exploration_handoff(result) == "recover"
 
 
 class Planner(ABC):

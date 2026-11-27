@@ -46,7 +46,7 @@ from pydantic_core import to_jsonable_python
 from rpent.dashboard.events import RunStartedEvent, TranscriptEvent, UsageEvent
 from rpent.dashboard.state import DashboardState
 from rpent.planner.api_loop import ApiAgentLoop
-from rpent.planner.base import is_recoverable_planner_result
+from rpent.planner.base import exploration_handoff
 from rpent.prompt.api import API_PLANNER_INSTRUCTIONS, render_environment_context
 from rpent.session import EnvState, Payload
 from rpent.tools import Toolkit, ToolResult, common
@@ -664,7 +664,7 @@ def test_token_limit_truncation_is_marked_for_recovery(
     assert result.error is not None
     assert result.stop_reason == "response_truncated"
     assert result.error.startswith("planner response truncated (length): ")
-    assert is_recoverable_planner_result(result)
+    assert exploration_handoff(result) == "recover"
     assert (
         "Model token limit (8192) exceeded before any response was generated"
         in result.error
@@ -995,7 +995,7 @@ def test_timeout_drains_physical_work_and_records_partial_history(
     )
     assert "timed out" in result.error
     assert result.stop_reason == "timeout"
-    assert is_recoverable_planner_result(result)
+    assert exploration_handoff(result) == "recover"
     call = toolkit.state.planner_records()[0].tool_calls[0]
     assert call.status == "cancelled" and call.ended_at is not None
     assert call.raw_result.data["data"]["code"] == "tool_cancelled"
@@ -1017,7 +1017,7 @@ def test_provider_failures_are_not_planner_deadlines(tmp_path, failure):
 
     result, _, _ = solve(tmp_path, FunctionModel(stream_function=stream), timeout_s=10)
     assert result.stop_reason == "planner_error"
-    assert not is_recoverable_planner_result(result)
+    assert exploration_handoff(result) == "stop"
     assert str(failure) in result.error
     assert "planner timed out" not in result.error
 
@@ -1038,7 +1038,7 @@ def test_deadline_cleanup_failure_preserves_both_causes(tmp_path, monkeypatch):
         tmp_path, FunctionModel(stream_function=stream), toolkit, timeout_s=0.05
     )
     assert result.stop_reason == "planner_error"
-    assert not is_recoverable_planner_result(result)
+    assert exploration_handoff(result) == "stop"
     assert "planner timed out after 0.05s" in result.error
     assert "toolkit cleanup failed" in result.error
 
@@ -1093,7 +1093,7 @@ def test_dashboard_shutdown_joins_consumer_and_reports_failures(
     assert ("toolkit drain failed" in result.error) is drain_fails
     assert result.stop_reason == "planner_error"
     assert result.stop_info["cleanup_complete"] is False
-    assert not is_recoverable_planner_result(result)
+    assert exploration_handoff(result) == "stop"
 
 
 def test_provider_failure_during_deadline_keeps_timeout_diagnostic(tmp_path):
@@ -1108,7 +1108,7 @@ def test_provider_failure_during_deadline_keeps_timeout_diagnostic(tmp_path):
     assert result.stop_reason == "planner_error"
     assert "planner timed out after 0.1s" in result.error
     assert result.error.count("provider shutdown failed") == 1
-    assert not is_recoverable_planner_result(result)
+    assert exploration_handoff(result) == "stop"
 
 
 def test_native_terminal_preserves_completed_actions_after_model_failure(
@@ -1816,7 +1816,7 @@ def test_interrupted_tool_arguments_are_retained_without_execution(tmp_path):
         tmp_path, FunctionModel(stream_function=stream), toolkit, timeout_s=0.1
     )
     assert result.stop_reason == "timeout"
-    assert is_recoverable_planner_result(result)
+    assert exploration_handoff(result) == "recover"
     (record,) = toolkit.state.planner_records()
     assert record.status == "cancelled"
     (call,) = record.tool_calls

@@ -480,25 +480,23 @@ robots. The runners do not handle these environment details. See
 ``robots/libero/robot_spec.py`` and ``robots/robocasa/robot_spec.py`` for the
 reference pattern.
 
-Optional Run-result Finalizer
+Optional Run-Result Finalizer
 -----------------------------
 
-If your benchmark needs a result file for each run, register a writer with
-``RobotSpec.finalize_run``. The writer chooses the filename and fields.
-The terminal and Dashboard runners read ``toolkit.solved()`` before closing
-the toolkit and pass ``RunFinalizationContext`` to the writer after cleanup.
+If your benchmark needs a result file, register a callback with
+``RobotSpec.finalize_run``. The callback chooses the filename and fields.
+The CLI and Dashboard read ``toolkit.solved()`` before closing the toolkit.
+After cleanup they pass ``RunFinalizationContext`` to the callback.
 
-Use ``environment_success`` for the environment's verdict. The planner supplies
-the optional ``stop_reason`` and ``stop_info``. The runner records cancellation
-in ``cancelled_reason`` (for example, if a Dashboard user replaces the task)
-and reports cleanup errors. Preserve the planner's reason if cleanup fails,
-and use the same error category as the trajectory if you publish one.
+Use ``environment_success`` for the environment's verdict. The planner can
+supply a ``stop_reason`` and details in ``stop_info``. The runner records
+cancellations in ``cancelled_reason`` and reports cleanup errors. If cleanup
+fails, preserve the planner's ``stop_reason``. If your result file classifies
+stops, use the ``error`` category for cleanup failures, as the trajectory does.
 
 See :doc:`../simulators/libero` for a result file that also records whether
-``finish`` was accepted and what the operator decided.
-
-This example uses ``write_json_atomic`` to save a JSON file with the task and
-the environment's verdict.
+RPent accepted ``finish`` and what the operator decided. This example uses
+``write_json_atomic`` to save the task and the environment's verdict.
 
 .. code-block:: python
 

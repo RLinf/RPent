@@ -217,36 +217,35 @@ that call only. Chunk budgets do not specify where to stop inside a chunk.
 View Results
 ------------
 
-Open ``result.json`` in the output directory and read ``environment_success``
-to see whether LIBERO considers the task solved. You can also check
-``terminated`` in the final observation with ``view_env_state(step=-1)``.
-The file records whether the planner's ``finish`` request was accepted in
-``finish_accepted`` and the operator's verdict in ``operator_verdict``.
+After a run, open ``result.json`` in the output directory to see whether the
+task succeeded and whether the run counts toward the success rate.
 
-To find out why the run stopped, check ``termination_reason`` for the specific
-reason and ``termination_category`` for its category. When an API model reaches
-its output limit before producing a usable reply, the reason is ``response_truncated`` and the category is
-``budget``. When Gemini reports ``max_tokens``, RPent records ``budget`` in
-both fields.
+- ``environment_success`` records LIBERO's verdict. On a valid run,
+  ``true`` means success and ``false`` means failure. To inspect the native
+  signal, check ``terminated`` in ``view_env_state(step=-1)``.
+- ``valid`` is ``true`` for runs that count in the success rate. A timeout,
+  an exhausted budget, or a run ending without ``finish`` can still count.
+  A provider error, cancellation, operator abort, or missing environment
+  verdict sets ``valid`` to ``false``. A run also drops out if the planner
+  reports that the outcome of an action, result delivery, or cleanup is
+  still unconfirmed.
+- ``termination_reason`` gives the specific reason for stopping and
+  ``termination_category`` groups related reasons. If the API reaches its
+  output limit without a usable reply, the reason is ``response_truncated``
+  and the category is ``budget``. Gemini's ``max_tokens`` maps to ``budget``
+  in both fields.
+- ``finish_accepted`` records whether RPent accepted the planner's
+  ``finish`` request. ``operator_verdict`` records the operator's judgment.
 
-To calculate the success rate, count only runs where ``valid`` is true. Among
-those runs, ``environment_success`` is true for a success and false for a
-failure. For example, if 8 out of 10 runs are valid and 6 of those succeeded,
-the success rate is 6/8, or 75%.
+For example, if 8 of 10 runs are valid and 6 of those succeed, the success
+rate is 6/8 = 75%.
 
-A run can count even if it times out, uses up its budget, or ends without a
-``finish`` call. Check ``valid`` in the file. A provider error, cancellation,
-or operator abort excludes the run. A run is also excluded if the planner
-reports that it cannot confirm the action outcomes or cleanup.
+A startup failure can leave the result file missing. If writing fails, the
+CLI exits with a nonzero status and the Dashboard reports a task error.
 
-CLI and Dashboard runs write ``result.json`` at the end. If startup fails,
-there may be no file. If writing fails, the CLI exits with a nonzero status
-and the Dashboard reports a task error.
-
-The terminal shows startup, the planner conversation, and tool calls. To
-review a run, open ``episode.mp4``, ``transcript_*.json``, or ``run.log`` in
-the output directory. See :ref:`run-output-files` for paths and step
-observations, or :doc:`../guides/dashboard` to follow a run live.
+Open ``episode.mp4``, ``transcript_*.json``, or ``run.log`` in the output
+directory to review a run. For step observations, see :ref:`run-output-files`.
+Follow a run live in the terminal or :doc:`../guides/dashboard`.
 
 .. _libero-exploration:
 

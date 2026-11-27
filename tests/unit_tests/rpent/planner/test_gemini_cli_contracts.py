@@ -27,7 +27,7 @@ import pytest
 import rpent.planner.utils.agent_session as session_module
 from rpent.dashboard.events import NullDashboardEventSink, TranscriptEvent, UsageEvent
 from rpent.memory import MemoryManager
-from rpent.planner.base import is_recoverable_planner_result
+from rpent.planner.base import exploration_handoff
 from rpent.planner.gemini_cli import GeminiCliPlanner
 from rpent.planner.opencode import OpenCodePlanner
 from rpent.planner.utils.acp import AcpRecorder, AcpSession
@@ -384,7 +384,7 @@ def test_provider_failures_are_not_planner_deadlines(
         system_prompt="", user_message="task", toolkit=toolkit, max_turns=1
     )
     assert result.stop_reason == "planner_error"
-    assert not is_recoverable_planner_result(result)
+    assert exploration_handoff(result) == "stop"
     assert result.error == f"{type(failure).__name__}: {failure}"
     assert result.stop_info.get("cleanup_complete") is None
     acp_backend["server_factory"].return_value.stop.assert_called_once()
@@ -398,7 +398,7 @@ def test_deadline_cleanup_failure_preserves_both_causes(tmp_path, acp_backend, t
         system_prompt="", user_message="task", toolkit=toolkit, max_turns=1
     )
     assert result.stop_reason == "planner_error"
-    assert not is_recoverable_planner_result(result)
+    assert exploration_handoff(result) == "stop"
     assert "Gemini CLI timed out after 0.05s" in result.error
     assert "Toolkit cleanup failed: drain failed" in result.error
     assert result.stop_info["cleanup_complete"] is False
@@ -473,7 +473,7 @@ def test_deadline_interrupt_failure_is_reported_after_transport_close(
         system_prompt="", user_message="task", toolkit=toolkit, max_turns=1
     )
     assert result.stop_reason == "planner_error"
-    assert not is_recoverable_planner_result(result)
+    assert exploration_handoff(result) == "stop"
     assert "Gemini CLI timed out after 0.05s" in result.error
     assert (
         "cancel request rejected"
@@ -550,7 +550,7 @@ def test_session_result_artifacts_and_cleanup(
     if outcome == "timeout":
         assert result.error == "Gemini CLI timed out after 0.05s"
         assert result.stop_reason == "timeout"
-        assert is_recoverable_planner_result(result)
+        assert exploration_handoff(result) == "recover"
     elif outcome in {"startup_error", "prompt_error"}:
         assert result.error == "RuntimeError: gemini unavailable: <GEMINI_API_KEY>"
     else:
