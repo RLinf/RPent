@@ -844,6 +844,209 @@ def test_compaction_falls_back_to_sliding_window_when_summary_fails(tmp_path):
     assert "was dropped by" in repr(requests[-1])
 
 
+@pytest.mark.parametrize("mode", ["dashboard", "terminal"])
+def test_multi_run_compaction_falls_back_on_final_remaining_turn(
+    tmp_path, monkeypatch, mode
+):
+    if mode == "terminal":
+        import pydantic_ai._cli as cli
+
+        replies = iter(["Continue the task.", "/exit"])
+
+        async def read_prompt(*args, **kwargs):
+            return next(replies)
+
+        monkeypatch.setattr(cli, "PYDANTIC_AI_HOME", tmp_path / "cli")
+        monkeypatch.setattr(
+            cli,
+            "PromptSession",
+            lambda **kwargs: SimpleNamespace(prompt_async=read_prompt),
+        )
+
+    state = dashboard(tmp_path) if mode == "dashboard" else None
+    toolkit = capturing_toolkit(tmp_path / "captures", state)
+    requests = []
+    summary_calls = 0
+
+    async def stream(messages, info):
+        nonlocal summary_calls
+        if not info.function_tools and not info.output_tools:
+            summary_calls += 1
+            yield "unexpected summary"
+            return
+        requests.append(copy.deepcopy(messages))
+        turn = len(requests)
+        padding = f"Step {turn} reasoning: " + ("detail " * 880)
+        if turn in (1, 2, 4, 5):
+            yield padding
+            yield tool("observe", index=1)
+        elif turn == 3:
+            if state is not None:
+                state.submit_input("Continue the task.")
+            yield padding
+        elif mode == "terminal":
+            yield "Done."
+        else:
+            yield finish()
+
+    result, _, _ = solve(
+        tmp_path,
+        metered_model(stream),
+        toolkit=toolkit,
+        events=state,
+        max_turns=6,
+        context_window=12000,
+        no_images=True,
+        interactive=mode == "terminal",
+        dashboard_interaction=state,
+    )
+    assert summary_calls == 0
+    assert result.error is None
+    if mode == "dashboard":
+        assert result.finish_result == {"_finish": True, **FINISH_ARGS}
+    else:
+        assert result.stop_reason == "model_output"
+    assert result.stats["turns_used"] == 6
+    assert (
+        len(
+            {
+                record.source_ids["pydantic_ai.run_id"]
+                for record in toolkit.state.planner_records()
+            }
+        )
+        == 2
+    )
+    assert "was dropped by" in repr(requests[-1])
+
+
+@pytest.mark.parametrize("mode", ["dashboard", "terminal"])
+def test_multi_run_compaction_does_not_summarize_after_budget_exhausted(
+    tmp_path, monkeypatch, mode
+):
+    from pydantic_ai_harness.compaction import estimate_token_count
+
+    from rpent.planner.api_loop import _estimate_tokens
+
+    if mode == "terminal":
+        import pydantic_ai._cli as cli
+
+        replies = iter(["Continue the task.", "Try after the budget.", "/exit"])
+
+        async def read_prompt(*args, **kwargs):
+            return next(replies)
+
+        monkeypatch.setattr(cli, "PYDANTIC_AI_HOME", tmp_path / "cli")
+        monkeypatch.setattr(
+            cli,
+            "PromptSession",
+            lambda **kwargs: SimpleNamespace(prompt_async=read_prompt),
+        )
+
+    state = dashboard(tmp_path) if mode == "dashboard" else None
+    toolkit = capturing_toolkit(tmp_path / "captures", state)
+    requests = []
+    summary_calls = 0
+
+    async def stream(messages, info):
+        nonlocal summary_calls
+        if not info.function_tools and not info.output_tools:
+            summary_calls += 1
+            yield "unexpected summary"
+            return
+        requests.append(copy.deepcopy(messages))
+        turn = len(requests)
+        padding = f"Step {turn} reasoning: " + ("detail " * 700)
+        if turn == 3:
+            if state is not None:
+                state.submit_input("Continue the task.")
+            yield padding
+        else:
+            yield padding
+            yield tool("observe", index=1)
+
+    result, _, _ = solve(
+        tmp_path,
+        metered_model(stream),
+        toolkit=toolkit,
+        events=state,
+        max_turns=6,
+        context_window=12000,
+        no_images=True,
+        interactive=mode == "terminal",
+        dashboard_interaction=state,
+    )
+    assert summary_calls == 0
+    assert result.error is None
+    assert result.finish_result is None
+    assert result.stop_reason == "request_limit"
+    assert result.stats["turns_used"] == 6
+    assert (
+        len(
+            {
+                record.source_ids["pydantic_ai.run_id"]
+                for record in toolkit.state.planner_records()
+            }
+        )
+        == 2
+    )
+    # Confirm history exceeded the 80% compaction target (9600 tokens) after turn 6.
+    assert (
+        estimate_token_count(requests[-1], _estimate_tokens)
+        + _estimate_tokens("detail " * 700)
+        > 9600
+    )
+
+
+def test_multi_run_compaction_caps_summary_retries_within_remaining_budget(tmp_path):
+    state = dashboard(tmp_path)
+    toolkit = capturing_toolkit(tmp_path / "captures", state)
+    requests = []
+    summary_attempts = 0
+
+    async def stream(messages, info):
+        nonlocal summary_attempts
+        if not info.function_tools and not info.output_tools:
+            summary_attempts += 1
+            yield {0: DeltaToolCall(name="nonexistent", json_args="{}")}
+            return
+        requests.append(copy.deepcopy(messages))
+        turn = len(requests)
+        padding = f"Step {turn} reasoning: " + ("detail " * 880)
+        if turn in (1, 2, 4, 5):
+            yield padding
+            yield tool("observe", index=1)
+        elif turn == 3:
+            state.submit_input("Continue the task.")
+            yield padding
+        else:
+            yield finish()
+
+    result, _, _ = solve(
+        tmp_path,
+        metered_model(stream),
+        toolkit=toolkit,
+        events=state,
+        max_turns=7,
+        context_window=12000,
+        no_images=True,
+        dashboard_interaction=state,
+    )
+    assert summary_attempts == 1
+    assert result.error is None
+    assert result.finish_result == {"_finish": True, **FINISH_ARGS}
+    assert result.stats["turns_used"] == 7
+    assert (
+        len(
+            {
+                record.source_ids["pydantic_ai.run_id"]
+                for record in toolkit.state.planner_records()
+            }
+        )
+        == 2
+    )
+    assert "was dropped by" in repr(requests[-1])
+
+
 def test_dashboard_steering_enters_next_request_in_same_native_run(tmp_path):
     state = dashboard(tmp_path)
     sent = []

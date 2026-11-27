@@ -39,7 +39,7 @@
      - 仅 ``api``：每次模型回复的 Token 上限。
    * - ``--context-window``
      - ``—``
-     - 仅 ``api``：手动指定用于上下文压缩的窗口大小（单位为 token；未设置时按模型元数据解析，默认 ``200000``）。
+     - 仅 ``api``：指定用于上下文压缩的窗口大小（单位为 token；未设置时按模型元数据解析，无法获取时默认 ``200000``）。
    * - ``--reasoning-effort``
      - ``api``：``high``；``claude_code``、``codex``、``gemini_cli``：``none``
      - ``api``、``claude_code`` 与 ``codex`` 的推理强度：``none``、``low``、``medium``、``high`` 或 ``xhigh``。在我们的 LIBERO Pro Long 评测中，关闭 reasoning 将平均运行时间从约 13.2 分钟缩短至 7.9 分钟（约 40%）。较高强度可能提升任务成功率；实际支持的档位取决于所选模型。``gemini_cli`` 仅接受 ``none``。

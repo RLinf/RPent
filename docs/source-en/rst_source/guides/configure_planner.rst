@@ -86,9 +86,9 @@ needed):
 Relevant ``api`` planner knobs:
 
 - ``--max-tokens`` — cap each LLM reply (default ``8192``).
-- ``--context-window`` — override the model's context window in tokens.
-  When unset, RPent resolves it from model metadata and defaults to
-  ``200000``.
+- ``--context-window`` — override the model's context window in tokens
+  for compaction. When unset, RPent resolves it from model metadata or
+  falls back to ``200000``.
 - ``--no-images`` — never send image bytes; this is required for
   text-only models. The agent then reasons from textual state alone,
   so task performance may not be satisfactory.

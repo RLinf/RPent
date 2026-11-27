@@ -23,9 +23,9 @@ import asyncio
 import json
 import re
 import threading
-from collections.abc import AsyncIterator, Sequence
+from collections.abc import AsyncIterator, Callable, Sequence
 from contextlib import asynccontextmanager, nullcontext
-from dataclasses import replace
+from dataclasses import dataclass, field, replace
 from functools import partial
 from typing import Any
 from uuid import uuid4
@@ -221,10 +221,13 @@ class ApiAgentLoop(Planner):
                 self.model, self.max_tokens, self.reasoning_effort
             ),
             capabilities=[
+                # Enforce the conversation request budget before compaction can summarize.
+                session,
                 _build_compaction(
                     self.model,
                     max_tokens=self.max_tokens,
                     context_window=self.context_window,
+                    remaining_limits=session.remaining_limits,
                 ),
                 ReportContextUsage(
                     context_window=self.context_window,
@@ -233,7 +236,6 @@ class ApiAgentLoop(Planner):
                 Thinking(
                     False if self.reasoning_effort == "none" else self.reasoning_effort
                 ),
-                session,
             ],
         )
         if interaction is not None:
@@ -329,13 +331,18 @@ def _read_file_key(call: ToolCallPart) -> str | None:
     return str(path) if path else None
 
 
+@dataclass
 class _SummarizingCompaction(SummarizingCompaction):
-    """Avoid repeating leading system prompts already copied into the summary."""
+    """Apply cumulative request limits and deduplicate leading system prompts."""
+
+    remaining_limits: Callable[[], UsageLimits] = field(kw_only=True)
 
     async def compact(
         self, messages: list[ModelMessage], ctx: RunContext
     ) -> list[ModelMessage]:
-        result = await super().compact(messages, ctx)
+        result = await super().compact(
+            messages, replace(ctx, usage_limits=self.remaining_limits())
+        )
         if len(result) <= 1 or not isinstance(result[0], ModelRequest):
             return result
         leading = {
@@ -364,7 +371,11 @@ class _SummarizingCompaction(SummarizingCompaction):
 
 
 def _build_compaction(
-    model: Model, *, max_tokens: int, context_window: int | None = None
+    model: Model,
+    *,
+    max_tokens: int,
+    context_window: int | None = None,
+    remaining_limits: Callable[[], UsageLimits],
 ) -> TieredCompaction:
     """Assemble tiered compaction: zero-LLM cleanup first, then incremental summary."""
     effective_window = (
@@ -416,6 +427,7 @@ def _build_compaction(
                         tool_return_max_chars=1500,
                         event_stream_handler=drain_summary_events,
                         tokenizer=_estimate_tokens,
+                        remaining_limits=remaining_limits,
                     ),
                     SlidingWindowCompaction(
                         max_messages=1,
@@ -744,6 +756,13 @@ class _Session(AbstractCapability):
                 self.toolkit.capture.settle(
                     ctx.run_id, "SDK run ended before dispatch."
                 )
+
+    def remaining_limits(self) -> UsageLimits:
+        """Return request limits for the current run after prior conversation runs."""
+        return replace(
+            self.limits,
+            request_limit=max(0, self.limits.request_limit - self.usage.requests),
+        )
 
     async def before_model_request(
         self, ctx: RunContext, request_context: ModelRequestContext
