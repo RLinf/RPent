@@ -413,6 +413,8 @@ def test_generic_tools_and_geometry_are_opt_in(
         assert ('"feature":"upper_inner_ring"' in prompt) is geometry
         assert ("insufficient_evidence" in prompt) is geometry
         assert ("highlighted object matches the full query" in prompt) is geometry
+        assert ("bare table next to it" in prompt) is not geometry
+        assert ("measure the actual support surface" in prompt) is geometry
         assert ("nudge and re-observe" in prompt) is not geometry
         assert (
             "two-camera relation protocol for disambiguating identical objects"

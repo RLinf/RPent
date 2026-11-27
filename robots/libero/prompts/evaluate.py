@@ -466,14 +466,16 @@ Retry a missing center only if a later agentview frame shows new evidence."""
 def surface_sampling(geometry: bool) -> str:
     """Describe how to use manual samples for the selected localization mode."""
     samples = (
-        "Record the contact pixel and its measured xyz together."
+        """For surface contact, record the pixel and keep all three measured coordinates.
+If a primitive takes a height relative to a support, measure the actual support surface
+at a visible point, such as the exposed box top beside a bowl. Apply the offset to that height."""
         if geometry
-        else "Sample several pixels firmly on the object and take the median world xy. Thin edges\n"
+        else "For a grasp/place target use its x,y. For z use the object's resting height\n"
+        "(sample the bare table next to it, or use table z ~0.9 kitchen / ~0.42 table-top).\n"
+        "Sample several pixels firmly on the object and take the median world xy. Thin edges\n"
         "or holes can return background depth metres from the target."
     )
     return f"""When sampling pixels manually, each valid point lies on a visible surface.
-For a grasp/place target use its x,y. For z use the object's resting height
-(sample the bare table next to it, or use table z ~0.9 kitchen / ~0.42 table-top).
 {samples}
 
 ALWAYS apply the manipulation offsets from memory to the PERCEIVED position

@@ -41,6 +41,7 @@ from toolkits.geometry.geometry import (
 )
 from toolkits.geometry.measured_rectangle import PLANE_TOLERANCE_M, observed_face
 from toolkits.geometry.rgbd_parts import (
+    _plane,
     _refit_plane,
     face_candidates,
     object_points,
@@ -71,16 +72,30 @@ CENTER_DEFINITIONS = {
 }
 
 
-def _circle_on_plane(points, origin, normal, options):
+def _circle_on_plane(points, origin, normal, options, *, inward_half_steps=None):
     """Fit observed boundary samples in the selected plane, with its upward normal."""
     if len(points) > options.max_points:
-        points = points[np.linspace(0, len(points) - 1, options.max_points, dtype=int)]
+        indices = np.linspace(0, len(points) - 1, options.max_points, dtype=int)
+        points = points[indices]
+        if inward_half_steps is not None:
+            inward_half_steps = inward_half_steps[indices]
     offsets = (points - origin) @ normal
-    fit = fit_circle(points - np.outer(offsets, normal), options)
+    fit = fit_circle(
+        points - np.outer(offsets, normal), options, inward_half_steps=inward_half_steps
+    )
     if fit.parameters:
         fit.parameters["normal"] = normal.tolist()
         fit.quality["radius"] = fit.parameters["radius"]
     return fit
+
+
+def _boundary_steps(face, adjacent):
+    """Yield the raster step from each face pixel to a selected neighbor."""
+    row, col = np.nonzero(face & binary_dilation(adjacent))
+    padded = np.pad(adjacent, 1)
+    for dr, dc in ((0, 1), (0, -1), (1, 0), (-1, 0)):
+        keep = padded[row + dr + 1, col + dc + 1]
+        yield row[keep], col[keep], dr, dc
 
 
 def _outer_edge_steps(on_plane, valid, mask, height, camera_height, band):
@@ -90,12 +105,8 @@ def _outer_edge_steps(on_plane, valid, mask, height, camera_height, band):
         binary_dilation(on_plane) & ~mask & valid & (abs(height) <= band)
     )
     exterior = valid & ~binary_fill_holes(on_plane)
-    row, col = np.nonzero(on_plane & binary_dilation(exterior))
-    for dr, dc in ((0, 1), (0, -1), (1, 0), (-1, 0)):
-        neighbor = (
-            np.clip(row + dr, 0, mask.shape[0] - 1),
-            np.clip(col + dc, 0, mask.shape[1] - 1),
-        )
+    for row, col, dr, dc in _boundary_steps(on_plane, exterior):
+        neighbor = (row + dr, col + dc)
         # Inside the object either height transition defines an edge. Across
         # the silhouette only a farther background sample establishes an edge.
         physical = np.where(
@@ -103,8 +114,7 @@ def _outer_edge_steps(on_plane, valid, mask, height, camera_height, band):
             abs(height[neighbor]) > band,
             np.sign(camera_height) * (height[row, col] - height[neighbor]) > band,
         )
-        keep = exterior[neighbor] & physical
-        yield row[keep], col[keep], dr, dc
+        yield row[physical], col[physical], dr, dc
 
 
 def _visible_outer_edge(on_plane, valid, mask, height, camera_height, band):
@@ -242,22 +252,115 @@ def _follows_circumference(offsets, normal, radius, width, options):
     return np.count_nonzero(sectors >= 2) * 30 >= options.min_circle_coverage_deg
 
 
-def _ring_center(world, valid, mask, up, camera, feature, options, cancel):
-    outer = feature == "upper_outer_ring"
-    if outer:
-        silhouette = outer_boundary(mask, valid)
-        points = world[silhouette]
-    else:
-        # The thin lip and the visible cup bottom can share a single object mask.
-        # Seed from their measured heights before depth cleanup erodes the lip.
-        points = world[mask & valid]
-    seed = rim(points, up, outer=outer) if len(points) >= 7 else None
-    if outer:
-        higher = _raised_outer_rim(
-            world, valid, mask, up, camera, seed, options, cancel
+def _openings_on_plane(world, valid, mask, plane, camera, options, cancel):
+    origin, normal = plane
+    height = (world - origin) @ normal
+    band = options.distance_threshold_m
+    lip = mask & valid & (abs(height) <= band)
+    lower = valid & (height < -band)
+    clipped = mask[0].any() or mask[-1].any() or mask[:, 0].any() or mask[:, -1].any()
+    # Keep openings separate even when their floors share the same height.
+    enclosed = binary_fill_holes(lip) & ~lip
+    void = ~lip if clipped else binary_fill_holes(mask) & ~lip
+    regions, _ = label(void)
+    boxes = find_objects(regions)
+    adjacent = lower & binary_dilation(lip)
+    for index in np.unique(regions[void & adjacent]):
+        cancel()
+        # Include a second lip pixel to measure the pitch across the boundary.
+        box = tuple(slice(max(0, s.start - 2), s.stop + 2) for s in boxes[index - 1])
+        region = regions[box] == index
+        steps = _boundary_steps(lip[box], region & lower[box])
+        boundary, pixels = _edge_samples(world[box], lip[box], steps)
+        if len(boundary) < options.min_points:
+            continue
+        inward_half_steps = boundary - world[box][tuple(pixels.T)]
+        fit = _circle_on_plane(
+            boundary, origin, normal, options, inward_half_steps=inward_half_steps
         )
-        if higher is not None:
-            return higher
+        if not fit.parameters:
+            continue
+        if not (enclosed[box] & region).any():
+            # The mean pixel of a visible circular arc lies inside its projected
+            # outline. A clipped exterior wall is on the other side of that arc.
+            middle = np.rint(pixels.mean(axis=0)).astype(int)
+            if not region[tuple(middle)]:
+                continue
+            radius = fit.parameters["radius"]
+            radial = ray_plane_radius(
+                world[box][region & lower[box]],
+                camera,
+                np.asarray(fit.parameters["center"]),
+                normal,
+            )
+            if not (radial < radius).any():
+                continue
+        if fit.quality["angular_coverage_deg"] < 235:
+            fit.warn("partial_circular_arc")
+        yield fit
+
+
+def _inner_ring_center(world, valid, mask, up, camera, options, cancel):
+    band = options.distance_threshold_m
+    elevation = world @ up
+    neighbor = minimum_filter(
+        np.where(valid, elevation, np.inf),
+        footprint=generate_binary_structure(2, 1),
+        mode="constant",
+        cval=np.inf,
+    )
+    # Only boundary samples seed a lip plane. A large visible floor can
+    # otherwise outnumber a one-pixel lip in every angular sector.
+    edges = outer_boundary(mask, valid) | (mask & valid & (elevation > neighbor + band))
+    contours, _ = label(edges, structure=np.ones((3, 3)))
+    boxes = find_objects(contours)
+    sizes = np.bincount(contours.ravel())[1:]
+    planes = []
+    fits = []
+    for index in np.flatnonzero(sizes >= 6):
+        cancel()
+        box = boxes[index]
+        points = world[box][contours[box] == index + 1]
+        if any(
+            np.all(abs((points - origin) @ normal) <= band / 2)
+            for origin, normal in planes
+        ):
+            continue
+        # At an oblique view a contour also samples the wall below the lip.
+        # Use its upper arc to estimate the plane before tracing the opening.
+        levels = points @ up
+        keep = min(len(points), max(options.min_points // 2, len(points) // 4))
+        top = np.partition(levels, -keep)[-keep]
+        plane = _plane(points[levels >= top], up, band / 2)
+        if plane is None or (camera - plane[0]) @ plane[1] <= 0:
+            continue
+        planes.append(plane)
+        fits.extend(
+            _openings_on_plane(world, valid, mask, plane, camera, options, cancel)
+        )
+    accepted = sorted(
+        (f for f in fits if f.accepted),
+        key=lambda f: np.dot(f.parameters["center"], up),
+        reverse=True,
+    )
+    if not accepted:
+        return fits[0] if fits else ShapeFit(reason="inner_ring_not_observed")
+    top = np.asarray(accepted[0].parameters["center"])
+    for other in accepted[1:]:
+        offset = top - other.parameters["center"]
+        if offset @ up <= band and np.linalg.norm(offset) > band:
+            return ShapeFit(reason="ambiguous_inner_rings")
+    return accepted[0]
+
+
+def _ring_center(world, valid, mask, up, camera, feature, options, cancel):
+    if feature == "upper_inner_ring":
+        return _inner_ring_center(world, valid, mask, up, camera, options, cancel)
+    points = world[outer_boundary(mask, valid)]
+    seed = rim(points, up, outer=True) if len(points) >= 7 else None
+    higher = _raised_outer_rim(world, valid, mask, up, camera, seed, options, cancel)
+    if higher is not None:
+        return higher
     if seed is None:
         return ShapeFit(reason="circular_boundary_not_resolved")
     origin, normal, radius = seed
@@ -270,34 +373,22 @@ def _ring_center(world, valid, mask, up, camera, feature, options, cancel):
         # From below, an upper outer rim is visible only if a measured wall
         # extends down from its circumference. A flat underside has no wall.
         wall = delta[mask & valid & (height < -2 * band)]
-        if not outer or not _follows_circumference(wall, normal, radius, band, options):
+        if not _follows_circumference(wall, normal, radius, band, options):
             return ShapeFit(reason="upper_ring_not_observed")
-    if outer:
-        # Higher material competes with the rim only if it follows its circumference.
-        high = delta[mask & valid & (height > band)]
-        if _follows_circumference(high, normal, radius, 2 * band, options):
-            return ShapeFit(reason="upper_ring_not_observed")
-        edge = _visible_outer_edge(on_plane, valid, mask, height, view, band)
-    else:
-        # An inner edge borders a measured drop inside the opening. Missing
-        # depth inside a flat disk supplies no evidence of a hole.
-        lower = valid & binary_dilation(on_plane) & (height < -band)
-        if not any(edge.any() for edge in (mask[0], mask[-1], mask[:, 0], mask[:, -1])):
-            lower &= binary_fill_holes(mask)
-        inside = np.zeros_like(mask)
-        inside[lower] = ray_plane_radius(world[lower], camera, origin, normal) < radius
-        edge = on_plane & binary_dilation(inside)
-        if not edge.any():
-            return ShapeFit(reason="inner_ring_not_observed")
+    # Higher material competes with the rim only if it follows its circumference.
+    high = delta[mask & valid & (height > band)]
+    if _follows_circumference(high, normal, radius, 2 * band, options):
+        return ShapeFit(reason="upper_ring_not_observed")
+    edge = _visible_outer_edge(on_plane, valid, mask, height, view, band)
     fit = _circle_on_plane(world[edge], origin, normal, options)
     if fit.parameters and fit.quality["angular_coverage_deg"] < 235:
         fit.warn("partial_circular_arc")
     return fit
 
 
-def _disk_edge_samples(world, on_face, steps):
+def _edge_samples(world, on_face, steps):
     """Place a measured transition half a surface pixel beyond the last face sample."""
-    samples = []
+    samples, pixels = [], []
     for row, col, dr, dc in steps:
         previous = (
             np.clip(row - dr, 0, on_face.shape[0] - 1),
@@ -306,7 +397,27 @@ def _disk_edge_samples(world, on_face, steps):
         last = world[row, col]
         pitch = np.where(on_face[previous][:, None], last - world[previous], 0.0)
         samples.append(last + 0.5 * pitch)
-    return np.concatenate(samples)
+        pixels.append(np.column_stack((row, col)))
+    return np.concatenate(samples), np.concatenate(pixels)
+
+
+def _conflicting_disk_edge(boundary, pixels, shape, center, normal, radius, tolerance):
+    """Check for a continuous measured edge outside the circle's fit tolerance."""
+    xy = (boundary - center) @ np.column_stack(_basis(normal))
+    off_circle = abs(np.linalg.norm(xy, axis=1) - radius) > tolerance
+    if not off_circle.any():
+        return False
+    row, col = pixels[off_circle].T
+    edge = np.zeros(shape, dtype=bool)
+    edge[row, col] = True
+    runs, _ = label(edge, structure=np.ones((3, 3)))
+    sizes = np.bincount(runs[edge])
+    run_ids = runs[row, col]
+    offsets = xy[off_circle]
+    return any(
+        np.linalg.norm(np.ptp(offsets[run_ids == index], axis=0)) > 2 * tolerance
+        for index in np.flatnonzero(sizes >= 3)
+    )
 
 
 def _disk_center(world, valid, mask, on_face, face, camera, options):
@@ -317,13 +428,23 @@ def _disk_center(world, valid, mask, on_face, face, camera, options):
     # The cleaned cloud selects the plane. Its eroded perimeter would shrink
     # the radius, so measure the boundary on the original depth raster.
     steps = _outer_edge_steps(on_face, valid, mask, height, camera_height, band)
-    boundary = _disk_edge_samples(world, on_face, steps)
+    boundary, pixels = _edge_samples(world, on_face, steps)
     if not len(boundary):
         return ShapeFit(reason="disk_perimeter_not_observed")
     fit = _circle_on_plane(boundary, origin, normal, options)
     if fit.parameters:
         radius = fit.parameters["radius"]
         center = np.asarray(fit.parameters["center"])
+        if fit.accepted and _conflicting_disk_edge(
+            boundary,
+            pixels,
+            mask.shape,
+            center,
+            normal,
+            radius,
+            max(band, options.max_relative_residual * radius),
+        ):
+            fit.warn("noncircular_measured_edge")
         offset = support - center
         radial_sq = np.einsum("ij,ij->i", offset, offset) - (offset @ normal) ** 2
         central = int((radial_sq < (0.5 * radius) ** 2).sum())

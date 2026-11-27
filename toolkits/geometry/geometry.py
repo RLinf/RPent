@@ -128,14 +128,27 @@ def _circle_residual(
     return np.hypot(height, radial - radius)
 
 
-def fit_circle(points: np.ndarray, options: FitOptions | None = None) -> ShapeFit:
-    """Fit a circular boundary and flag unsupported coverage or model quality."""
+def fit_circle(
+    points: np.ndarray,
+    options: FitOptions | None = None,
+    *,
+    inward_half_steps: np.ndarray | None = None,
+) -> ShapeFit:
+    """Fit a circular boundary, optionally bracketed by inward pixel transitions."""
     from scipy.optimize import least_squares
 
     options = options or FitOptions()
     points = _points(points)
+    if inward_half_steps is not None:
+        inward_half_steps = _points(inward_half_steps)
+        if inward_half_steps.shape != points.shape:
+            raise ValueError("each circle sample needs one inward half-step")
     result = ShapeFit()
-    if len(points) < 3 or not np.isfinite(points).all():
+    if (
+        len(points) < 3
+        or not np.isfinite(points).all()
+        or (inward_half_steps is not None and not np.isfinite(inward_half_steps).all())
+    ):
         result.reason = "insufficient_finite_points"
         return result
     rng = np.random.default_rng(0)
@@ -211,6 +224,16 @@ def fit_circle(points: np.ndarray, options: FitOptions | None = None) -> ShapeFi
         radius, options.distance_threshold_m
     )
     result.quality["relative_surface_residual_p95"] = relative_residual
+    if inward_half_steps is not None:
+        # The boundary lies between the last exterior ray and the first
+        # interior ray. A midpoint can miss a small circle by half a pixel.
+        step = inward_half_steps[best] @ basis
+        inside = np.linalg.norm(xy + step, axis=1)
+        outside = np.linalg.norm(xy - step, axis=1)
+        miss = np.maximum(0.0, np.maximum(inside - radius, radius - outside))
+        residual = np.hypot(miss, (points[best] - center) @ normal)
+        relative_residual = float(np.quantile(residual, 0.95)) / radius
+        result.quality["relative_pixel_interval_residual_p95"] = relative_residual
     at_extent_limit = bool(
         np.any(fit.active_mask) or radius >= radius_limit * (1 - 1e-5)
     )

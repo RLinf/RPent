@@ -693,6 +693,28 @@ def test_inner_rim_can_cross_the_image_border(tmp_path):
     assert saved["quality"]["angular_coverage_deg"] > 300
 
 
+@pytest.mark.parametrize("opening", ["thin_lip", "offset", "two_openings", "solid"])
+def test_inner_ring_uses_the_openings_own_depth_boundary(opening):
+    pitch, half = (0.0005, 205) if opening == "thin_lip" else (0.001, 105)
+    rows, cols = np.indices((2 * half + 1, 2 * half + 1))
+    x, y = (cols - half) * pitch, (half - rows) * pitch
+    lid = np.hypot(x, y) <= 0.100
+    center_x, radius = (0.0, 0.0995) if opening == "thin_lip" else (0.080, 0.006)
+    floor = (np.hypot(x - center_x, y) < radius) & (opening != "solid")
+    if opening == "two_openings":
+        floor |= np.hypot(x + center_x, y) < radius
+    z = np.select([floor, lid], [0.030, 0.050], default=0.010)
+    fit = _fit_face_center(lid, x, y, z, "ring_center", "upper_inner_ring")
+    assert fit.accepted == (opening in {"thin_lip", "offset"}), fit.reason
+    if opening == "two_openings":
+        assert fit.reason == "ambiguous_inner_rings"
+    if fit.accepted:
+        np.testing.assert_allclose(
+            fit.parameters["center"], [center_x, 0, 0.05], atol=0.0006
+        )
+        assert fit.parameters["radius"] == pytest.approx(radius, abs=0.0006)
+
+
 @pytest.mark.parametrize(
     ("raised", "top_z"),
     [
@@ -788,6 +810,23 @@ def test_disk_center_uses_the_observed_face_and_its_own_edges(scene):
     else:
         assert fit.accepted
         np.testing.assert_allclose(fit.parameters["center"], expected, atol=0.001)
+
+
+@pytest.mark.parametrize("occluded", [False, True])
+def test_disk_distinguishes_a_measured_chord_from_an_occluding_edge(occluded):
+    rows, cols = np.indices((211, 211))
+    x, y = (cols - 105) * 0.001, (105 - rows) * 0.001
+    cut = x > 0.050
+    face = (np.hypot(x, y) <= 0.100) & ~cut
+    z = np.where(face, 0.050, 0.010)
+    if occluded:
+        z[cut] = 0.090
+    fit = _fit_face_center(face, x, y, z, "disk_center", "upper_face")
+    assert fit.accepted == occluded, fit.reason
+    if occluded:
+        np.testing.assert_allclose(fit.parameters["center"], [0, 0, 0.05], atol=0.001)
+    else:
+        assert fit.reason == "noncircular_measured_edge"
 
 
 @pytest.mark.parametrize(
@@ -1371,6 +1410,8 @@ def test_fitter_selects_the_upper_face_even_when_the_lower_face_is_larger(quanti
         "cutout",
         "asymmetric_cutout",
         "floating",
+        "fine_contact",
+        "small_clearance",
         "short_arc",
         "no_support",
     ],
@@ -1378,12 +1419,13 @@ def test_fitter_selects_the_upper_face_even_when_the_lower_face_is_larger(quanti
 def test_cylindrical_base_uses_the_sidewall_and_its_support(tmp_path, view):
     # Orthographic oblique rays see a handled cylindrical body on a raised tray.
     # Its underside is hidden. Everything outside the tray is a lower floor.
-    rows, cols = np.indices((160, 180))
+    scale = 5 if view in ("fine_contact", "small_clearance") else 1
+    rows, cols = np.indices((160 * scale, 180 * scale))
     down = np.array([0, -0.5, -np.sqrt(0.75)])
     forward = np.array([0, np.sqrt(0.75), -0.5])
     pos = np.array([0, -0.4, 0.065 + 0.4 / np.sqrt(3)])
-    x = (cols - 88) * 0.001
-    origin = pos + (rows - 80)[:, :, None] * 0.001 * down
+    x = (cols / scale - 88) * 0.001
+    origin = pos + (rows / scale - 80)[:, :, None] * 0.001 * down
     origin[:, :, 0] = x
 
     def at_height(z):
@@ -1400,7 +1442,7 @@ def test_cylindrical_base_uses_the_sidewall_and_its_support(tmp_path, view):
         tray &= tray_radius >= inner_radius
     world = np.where(tray[:, :, None], plane, at_height(0.0))
     radius = 0.03
-    gap = 0.025 if view == "floating" else 0.0
+    gap = {"floating": 0.025, "small_clearance": 0.005}.get(view, 0.0)
     base_z = 0.02 + gap
     front_y = -np.sqrt(np.maximum(0, radius**2 - x**2))
     wall = origin + ((front_y - origin[:, :, 1]) / forward[1])[:, :, None] * forward
@@ -1454,7 +1496,7 @@ def test_cylindrical_base_uses_the_sidewall_and_its_support(tmp_path, view):
         feature="supported_round_base",
     ).data
     field = result["geometry"]["base_center"]
-    if view in ("supported", "narrow_tray_edge"):
+    if view in ("supported", "narrow_tray_edge", "fine_contact"):
         assert result["status"] == "usable", field
         np.testing.assert_allclose(field["value"], rotate @ [0, 0, 0.02], atol=0.002)
         assert field["evidence_status"] == "inferred"
@@ -1464,7 +1506,7 @@ def test_cylindrical_base_uses_the_sidewall_and_its_support(tmp_path, view):
         assert "radius_m" not in raw
     else:
         assert result["status"] == "insufficient_evidence" and "value" not in field
-        if view in ("cutout", "asymmetric_cutout"):
+        if view in ("cutout", "asymmetric_cutout", "small_clearance"):
             assert field["reason"] == "base_support_gap_observed"
 
 

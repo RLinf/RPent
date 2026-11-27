@@ -18,7 +18,13 @@
 from __future__ import annotations
 
 import numpy as np
-from scipy.ndimage import binary_dilation, distance_transform_edt, find_objects
+from scipy.ndimage import (
+    binary_dilation,
+    distance_transform_edt,
+    find_objects,
+    generate_binary_structure,
+    maximum_filter,
+)
 
 from toolkits.geometry.geometry import (
     FitOptions,
@@ -60,7 +66,17 @@ def _support_plane(obs, mask, cloud, tol):
         return None
     origin, normal, support = plane
     below = neighbors[(neighbors - origin) @ normal < -2 * tol]
-    return origin, normal, support, below
+    height = (world - origin) @ normal
+    surface = valid & ~region & (abs(height) <= tol / 2)
+    edge = near_foot & binary_dilation(surface)
+    # The physical edge can fall between pixels. Allow one local sidewall
+    # height increment before treating clearance above the plane as resolved.
+    higher = maximum_filter(
+        np.where(region & valid, height, -np.inf),
+        footprint=generate_binary_structure(2, 1),
+    )
+    clearance = height[edge] - (higher[edge] - height[edge])
+    return origin, normal, support, below, world[edge], clearance
 
 
 def _measured_plane(neighbors, up, tol):
@@ -121,7 +137,7 @@ def _cylindrical_base(obs, mask, cloud, options):
     plane = _support_plane(obs, mask, cloud, tol)
     if plane is None:
         return ShapeFit(reason="base_support_plane_not_observed")
-    origin, normal, support, below = plane
+    origin, normal, support, below, edge, clearance = plane
     basis = np.column_stack((*_basis(normal), normal))
     local = (cloud - origin) @ basis
     low, height = np.quantile(local[:, 2], [0.01, 0.99])
@@ -168,6 +184,16 @@ def _cylindrical_base(obs, mask, cloud, options):
         base_world = origin + basis[:, :2] @ base
         visible_sectors = np.unique(_azimuth_sectors(bottom[near_wall, :2] - base))
         half_visible = (len(visible_sectors) + 1) // 2
+        edge_xy = (edge - base_world) @ basis[:, :2]
+        foot = abs(np.linalg.norm(edge_xy, axis=1) - radius) <= max(
+            2 * tol, 0.2 * radius
+        )
+        lowest = np.full(12, np.inf)
+        np.minimum.at(lowest, _azimuth_sectors(edge_xy[foot]), clearance[foot])
+        observed = lowest[visible_sectors]
+        observed = observed[np.isfinite(observed)]
+        if len(observed) >= max(2, half_visible) and np.all(observed > tol):
+            return ShapeFit(reason="base_support_gap_observed")
         close = support_radius <= radius + tol
         contact_counts = np.bincount(_azimuth_sectors(contact[close]), minlength=12)[
             visible_sectors
