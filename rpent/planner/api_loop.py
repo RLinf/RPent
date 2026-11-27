@@ -23,9 +23,9 @@ import asyncio
 import json
 import re
 import threading
-from collections.abc import AsyncIterator, Callable, Sequence
+from collections.abc import AsyncIterator, Sequence
 from contextlib import asynccontextmanager, nullcontext
-from dataclasses import dataclass, field, replace
+from dataclasses import replace
 from functools import partial
 from typing import Any
 from uuid import uuid4
@@ -106,15 +106,11 @@ from rpent.prompt.api import (
 )
 from rpent.session.env_capture import current_tool_call
 from rpent.session.planner_capture import CapturingModel, sdk_payload
-from rpent.tools.toolkit import Toolkit, ToolResult
+from rpent.tools.toolkit import Toolkit, ToolLimitExceeded, ToolResult
 from rpent.utils.logging import get_logger
 from rpent.utils.templates import substitute
 
 logger = get_logger("api")
-
-
-class _RequestBudgetExhausted(Exception):
-    """The conversation has used its configured model-request budget."""
 
 
 def _is_response_truncation(exc: UnexpectedModelBehavior) -> bool:
@@ -170,15 +166,18 @@ class ApiAgentLoop(Planner):
             raise ValueError("api does not use RPent's terminal input queue")
         if self.interactive and dashboard_interaction is not None:
             raise ValueError("clai and Dashboard cannot run together")
-        return asyncio.run(
-            self._solve(
-                system_prompt,
-                user_message,
-                toolkit,
-                max_turns,
-                dashboard_interaction,
+        try:
+            return asyncio.run(
+                self._solve(
+                    system_prompt,
+                    user_message,
+                    toolkit,
+                    max_turns,
+                    dashboard_interaction,
+                )
             )
-        )
+        finally:
+            toolkit.set_tool_budget(None)
 
     async def _solve(
         self,
@@ -188,6 +187,7 @@ class ApiAgentLoop(Planner):
         max_turns: int,
         interaction: DashboardInteractionPort | None,
     ) -> PlannerResult:
+        toolkit.set_tool_budget(max_turns)
         conversation_id = uuid4().hex
         try:
             state = toolkit.state
@@ -204,9 +204,7 @@ class ApiAgentLoop(Planner):
             no_images=self.no_images,
             capture=capture,
         )
-        session = _Session(
-            adapter, conversation_id, max_turns, interactive=self.interactive
-        )
+        session = _Session(adapter, conversation_id, interactive=self.interactive)
         agent = Agent(
             capture if capture is not None else self.model,
             name="rpent_api",
@@ -215,19 +213,18 @@ class ApiAgentLoop(Planner):
             toolsets=[adapter],
             # Accepted finish skips sibling tool calls in the same response.
             end_strategy="early",
-            # Finish refusals may span attempts; the request budget still applies.
+            # Finish refusals consume tool budget too.
             retries={"output": max_turns},
             model_settings=_build_model_settings(
                 self.model, self.max_tokens, self.reasoning_effort
             ),
             capabilities=[
-                # Enforce the conversation request budget before compaction can summarize.
+                # Enforce the tool-call budget before compaction can summarize.
                 session,
                 _build_compaction(
                     self.model,
                     max_tokens=self.max_tokens,
                     context_window=self.context_window,
-                    remaining_limits=session.remaining_limits,
                 ),
                 ReportContextUsage(
                     context_window=self.context_window,
@@ -256,8 +253,8 @@ class ApiAgentLoop(Planner):
         except asyncio.TimeoutError:
             session.stop_reason = "timeout"
             session.error = f"planner timed out after {self.timeout_s:g}s"
-        except _RequestBudgetExhausted as exc:
-            session.stop_reason = "request_limit"
+        except ToolLimitExceeded as exc:
+            session.stop_reason = "tool_limit"
             session.error = None
             logger.info("%s", exc)
         except Exception as exc:
@@ -279,7 +276,7 @@ class ApiAgentLoop(Planner):
                 "total_input_tokens": session.usage.input_tokens,
                 "total_output_tokens": session.usage.output_tokens,
                 "total_cached_input_tokens": session.usage.cache_read_tokens,
-                "turns_used": session.usage.requests,
+                "turns_used": toolkit.tool_calls_used,
                 "tool_calls": adapter.tool_calls,
             },
             error=session.error,
@@ -346,18 +343,13 @@ def _read_file_key(call: ToolCallPart) -> str | None:
     return str(path) if path else None
 
 
-@dataclass
 class _SummarizingCompaction(SummarizingCompaction):
-    """Apply cumulative request limits and deduplicate leading system prompts."""
-
-    remaining_limits: Callable[[], UsageLimits] = field(kw_only=True)
+    """Avoid repeating leading system prompts already copied into the summary."""
 
     async def compact(
         self, messages: list[ModelMessage], ctx: RunContext
     ) -> list[ModelMessage]:
-        result = await super().compact(
-            messages, replace(ctx, usage_limits=self.remaining_limits())
-        )
+        result = await super().compact(messages, ctx)
         if len(result) <= 1 or not isinstance(result[0], ModelRequest):
             return result
         leading = {
@@ -390,7 +382,6 @@ def _build_compaction(
     *,
     max_tokens: int,
     context_window: int | None = None,
-    remaining_limits: Callable[[], UsageLimits],
 ) -> TieredCompaction:
     """Assemble tiered compaction: zero-LLM cleanup first, then incremental summary."""
     effective_window = (
@@ -442,7 +433,6 @@ def _build_compaction(
                         tool_return_max_chars=1500,
                         event_stream_handler=drain_summary_events,
                         tokenizer=_estimate_tokens,
-                        remaining_limits=remaining_limits,
                     ),
                     SlidingWindowCompaction(
                         max_messages=1,
@@ -587,36 +577,37 @@ class _HarnessToolkit(FunctionToolset):
     def _read_image(self, name: str, step: int) -> ToolReturn:
         """Resolve an image in the step store, returning artifact errors to the model."""
         capture = current_tool_call.get()
-        if capture is not None:
-            capture.start()
         try:
-            state = self.toolkit.state
-            record = state.get(step)
-            path = state.artifact_path(name, step=record.step_idx)
-            if name not in record.artifacts or not path.is_file():
-                raise FileNotFoundError(
-                    f"image artifact {name!r} is not available at step {step}"
-                )
-            if path.suffix.lower() not in {".png", ".jpg", ".jpeg"}:
-                raise ValueError(f"artifact {name!r} is not an image")
-            metadata = {"artifact": name, "step": record.step_idx}
-            if self.no_images:
-                result = ToolReturn(
-                    return_value={
-                        **metadata,
-                        "notice": "Image omitted: --no-images is enabled.",
-                    }
-                )
-            else:
-                image = BinaryContent(
-                    data=state.load_bytes(name, step=record.step_idx),
-                    media_type=(
-                        "image/jpeg"
-                        if path.suffix.lower() in {".jpg", ".jpeg"}
-                        else "image/png"
-                    ),
-                )
-                result = ToolReturn(return_value=metadata, content=[image])
+            with self.toolkit.tool_operation(readonly=True):
+                if capture is not None:
+                    capture.start()
+                state = self.toolkit.state
+                record = state.get(step)
+                path = state.artifact_path(name, step=record.step_idx)
+                if name not in record.artifacts or not path.is_file():
+                    raise FileNotFoundError(
+                        f"image artifact {name!r} is not available at step {step}"
+                    )
+                if path.suffix.lower() not in {".png", ".jpg", ".jpeg"}:
+                    raise ValueError(f"artifact {name!r} is not an image")
+                metadata = {"artifact": name, "step": record.step_idx}
+                if self.no_images:
+                    result = ToolReturn(
+                        return_value={
+                            **metadata,
+                            "notice": "Image omitted: --no-images is enabled.",
+                        }
+                    )
+                else:
+                    image = BinaryContent(
+                        data=state.load_bytes(name, step=record.step_idx),
+                        media_type=(
+                            "image/jpeg"
+                            if path.suffix.lower() in {".jpg", ".jpeg"}
+                            else "image/png"
+                        ),
+                    )
+                    result = ToolReturn(return_value=metadata, content=[image])
         except Exception as exc:
             result = ToolReturn(return_value={"error": str(exc)})
         if capture is not None:
@@ -709,13 +700,12 @@ class _Session(AbstractCapability):
         self,
         toolkit: _HarnessToolkit,
         conversation_id: str,
-        max_turns: int,
         *,
         interactive: bool = False,
     ) -> None:
         self.toolkit = toolkit
         self.conversation_id = conversation_id
-        self.limits = UsageLimits(request_limit=max_turns)
+        self.limits = UsageLimits(request_limit=None)
         self.usage = RunUsage()
         self.interactive = interactive
         self.error: str | None = None
@@ -744,9 +734,9 @@ class _Session(AbstractCapability):
                 "finish" if self.toolkit.finish_result is not None else "model_output"
             )
             return result
-        except _RequestBudgetExhausted:
+        except ToolLimitExceeded:
             # The native CLI catches run exceptions before _solve can see them.
-            self.stop_reason = "request_limit"
+            self.stop_reason = "tool_limit"
             self.error = None
             raise
         except RunCancelled:
@@ -772,24 +762,14 @@ class _Session(AbstractCapability):
                     ctx.run_id, "SDK run ended before dispatch."
                 )
 
-    def remaining_limits(self) -> UsageLimits:
-        """Return request limits for the current run after prior conversation runs."""
-        return replace(
-            self.limits,
-            request_limit=max(0, self.limits.request_limit - self.usage.requests),
-        )
-
     async def before_model_request(
         self, ctx: RunContext, request_context: ModelRequestContext
     ) -> ModelRequestContext:
-        try:
-            self.limits.check_before_request(self.usage + ctx.usage)
-        except UsageLimitExceeded:
-            # This limit only caps requests. Preserve other SDK/provider failures.
-            message = f"Request budget of {self.limits.request_limit} reached."
+        if self.toolkit.toolkit.tool_limit_reached:
+            message = "RPent tool-call budget exhausted."
             if self.interactive:
                 message += " Use /exit to close the session."
-            raise _RequestBudgetExhausted(message) from None
+            raise ToolLimitExceeded(message)
         if self.toolkit.capture is not None:
             self.toolkit.capture.before_request(ctx)
         return request_context
@@ -996,7 +976,8 @@ class _Session(AbstractCapability):
                 self.enqueued.clear()
             if self.toolkit.finish_result is not None or self.control is None:
                 return
-            if self.usage.requests >= self.limits.request_limit:
+            if self.toolkit.toolkit.tool_limit_reached:
+                self.stop_reason = "tool_limit"
                 return
             for _ in range(self.completions):
                 # run_done already released interrupt(); wait for its input

@@ -25,7 +25,8 @@ import json
 import threading
 import time
 import traceback
-from collections.abc import Callable, Iterable, Mapping, Sequence
+from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
+from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass, field, replace
 from typing import TYPE_CHECKING, Any
@@ -99,6 +100,8 @@ class _Scheduler:
         self.active: set[_ToolOperation] = set()
         self.paused = False
         self.closed = False
+        self.limit: int | None = None
+        self.calls = 0
 
     def acquire(self, *, readonly: bool) -> _ToolOperation:
         with self.condition:
@@ -113,6 +116,8 @@ class _Scheduler:
                 while True:
                     if call.cancel_event.is_set():
                         raise ToolCancelled("tool operation interrupted")
+                    if self.limit is not None and self.calls >= self.limit:
+                        raise ToolLimitExceeded("RPent tool-call budget exhausted.")
                     exclusive = next(
                         (item for item in self.pending if not item.readonly), None
                     )
@@ -123,6 +128,7 @@ class _Scheduler:
                     ) or (not readonly and not self.active and call is exclusive):
                         self.pending.remove(call)
                         self.active.add(call)
+                        self.calls += 1
                         return call
                     self.condition.wait()
             except BaseException:
@@ -166,6 +172,10 @@ class _Scheduler:
 
 class ToolCancelled(Exception):
     """Raised when an environment reaches a safe cancellation boundary."""
+
+
+class ToolLimitExceeded(Exception):
+    """The task has exhausted its RPent tool-call budget."""
 
 
 class Toolkit:
@@ -305,6 +315,51 @@ class Toolkit:
             for tool in self._tools.values()
         )
 
+    def set_tool_budget(self, limit: int | None) -> None:
+        """Start a task's budget, or clear its limit with None after cleanup."""
+        if limit is not None and limit < 1:
+            raise ValueError("max_turns must be positive")
+        with self._scheduler.condition:
+            if self._scheduler.active or self._scheduler.pending:
+                raise RuntimeError("Wait for tool cleanup before starting a task.")
+            self._scheduler.limit = limit
+            if limit is not None:
+                self._scheduler.calls = 0
+                self._scheduler.resume()
+
+    @property
+    def tool_calls_used(self) -> int:
+        """Return admitted calls, including calls whose execution failed."""
+        with self._scheduler.condition:
+            return self._scheduler.calls
+
+    @property
+    def tool_limit_reached(self) -> bool:
+        """Whether this task can no longer admit tool calls."""
+        with self._scheduler.condition:
+            return (
+                self._scheduler.limit is not None
+                and self._scheduler.calls >= self._scheduler.limit
+            )
+
+    def wait_for_calls(self) -> None:
+        """Drain admitted operations without cancelling them."""
+        with self._scheduler.condition:
+            self._scheduler.condition.wait_for(
+                lambda: not self._scheduler.active and not self._scheduler.pending
+            )
+
+    @contextmanager
+    def tool_operation(self, *, readonly: bool) -> Iterator[None]:
+        """Schedule an adapter-owned tool under the same budget and cancellation."""
+        operation = self._scheduler.acquire(readonly=readonly)
+        token = _current_operation.set(operation)
+        try:
+            yield
+        finally:
+            _current_operation.reset(token)
+            self._scheduler.release(operation)
+
     def execute_tool(self, name: str, input_dict: dict[str, Any]) -> ToolResult:
         """Validate one call, execute it, and capture state for advancing tools."""
         tool = self._tools.get(name)
@@ -333,6 +388,8 @@ class Toolkit:
 
         try:
             operation = self._scheduler.acquire(readonly=tool.readonly)
+        except ToolLimitExceeded as exc:
+            return ToolResult(data={"error": str(exc), "code": "tool_limit"})
         except ToolCancelled as exc:
             return ToolResult(
                 data={"error": str(exc), "code": "tool_cancelled", "interrupted": True}

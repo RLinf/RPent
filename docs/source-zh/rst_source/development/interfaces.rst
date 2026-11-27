@@ -52,7 +52,7 @@
 Planner
 -------
 
-多数用户使用内置的 ``api``、``claude_code``、``codex`` 或 ``gemini_cli``，见 :doc:`../guides/configure_planner`。自定义 planner 才需实现
+多数用户使用内置的 ``api``、``claude_code``、``codex``、``gemini_cli`` 或 ``opencode``，见 :doc:`../guides/configure_planner`。自定义 planner 才需实现
 ``rpent.planner.base.Planner``：
 
 .. code-block:: python
@@ -68,7 +68,7 @@ Planner
        dashboard_interaction=None,
    ) -> PlannerResult: ...
 
-规划器通过 ``toolkit.list_tools()`` 获取工具定义并传给模型，通过 ``toolkit.execute_tool(name, input_dict)`` 执行模型发出的工具调用，再将工具返回结果传给模型。调用 ``finish`` 或达到轮数上限时，返回 ``PlannerResult``。
+规划器通过 ``toolkit.list_tools()`` 获取工具定义并传给模型，通过 ``toolkit.execute_tool(name, input_dict)`` 执行模型发出的工具调用，再将工具返回结果传给模型。调用 ``finish`` 或用完任务的工具调用额度后，返回 ``PlannerResult``。
 
 工具集
 ------

@@ -549,14 +549,25 @@ def test_finish_skips_sibling_actions_using_native_end_strategy(tmp_path):
 
 
 @pytest.mark.parametrize("mode", ["normal", "terminal", "dashboard"])
-def test_request_budget_stops_normally_without_claiming_success(tmp_path, mode):
+@pytest.mark.parametrize("batch_size", [1, 3])
+def test_tool_budget_stops_normally_without_claiming_success(
+    tmp_path, mode, batch_size
+):
     async def stream(messages, info):
-        yield tool("observe")
+        yield {
+            i: DeltaToolCall(name="observe", json_args="{}") for i in range(batch_size)
+        }
 
     state = dashboard(tmp_path) if mode == "dashboard" else None
+    executed = []
+    toolkit = RobotToolkit(state or Events())
+    toolkit.register(
+        "observe", lambda: executed.append("observe") or {"observed": True}
+    )
     result, toolkit, _ = solve(
         tmp_path,
         FunctionModel(stream_function=stream),
+        toolkit,
         events=state,
         max_turns=2,
         interactive=mode == "terminal",
@@ -564,9 +575,31 @@ def test_request_budget_stops_normally_without_claiming_success(tmp_path, mode):
     )
     assert result.error is None
     assert result.finish_result is None
+    assert result.stop_reason == "tool_limit"
     assert result.stats["turns_used"] == 2
-    assert len(toolkit.calls) == 2
-    assert len([m for m in result.messages if m["role"] == "tool"]) == 2
+    assert len(executed) == 2
+    assert len(toolkit.calls) == max(2, batch_size)
+    assert len([m for m in result.messages if m["role"] == "tool"]) == max(
+        2, batch_size
+    )
+
+
+def test_read_image_consumes_shared_tool_budget(tmp_path, image_state):
+    toolkit = RobotToolkit(Events(), state=image_state)
+    requests = []
+
+    async def stream(messages, info):
+        requests.append(messages)
+        yield tool("read_image", {"name": "camera.png"})
+
+    result, _, _ = solve(
+        tmp_path, FunctionModel(stream_function=stream), toolkit, max_turns=1
+    )
+    assert result.error is None
+    assert result.stop_reason == "tool_limit"
+    assert result.stats["turns_used"] == 1
+    assert len(requests) == 1
+    assert result.messages[-1]["name"] == "read_image"
 
 
 @pytest.mark.parametrize(
@@ -844,56 +877,6 @@ def test_compaction_falls_back_to_sliding_window_when_summary_fails(tmp_path):
     assert "was dropped by" in repr(requests[-1])
 
 
-def test_multi_run_compaction_falls_back_on_final_remaining_turn(tmp_path):
-    state = dashboard(tmp_path)
-    toolkit = capturing_toolkit(tmp_path / "captures", state)
-    requests = []
-    summary_calls = 0
-
-    async def stream(messages, info):
-        nonlocal summary_calls
-        if not info.function_tools and not info.output_tools:
-            summary_calls += 1
-            yield "unexpected summary"
-            return
-        requests.append(copy.deepcopy(messages))
-        turn = len(requests)
-        padding = f"Step {turn} reasoning: " + ("detail " * 880)
-        if turn in (1, 2, 4, 5):
-            yield padding
-            yield tool("observe", index=1)
-        elif turn == 3:
-            state.submit_input("Continue the task.")
-            yield padding
-        else:
-            yield finish()
-
-    result, _, _ = solve(
-        tmp_path,
-        metered_model(stream),
-        toolkit=toolkit,
-        events=state,
-        max_turns=6,
-        context_window=12000,
-        no_images=True,
-        dashboard_interaction=state,
-    )
-    assert summary_calls == 0
-    assert result.error is None
-    assert result.finish_result == {"_finish": True, **FINISH_ARGS}
-    assert result.stats["turns_used"] == 6
-    assert (
-        len(
-            {
-                record.source_ids["pydantic_ai.run_id"]
-                for record in toolkit.state.planner_records()
-            }
-        )
-        == 2
-    )
-    assert "was dropped by" in repr(requests[-1])
-
-
 def test_multi_run_compaction_does_not_summarize_after_budget_exhausted(
     tmp_path, monkeypatch
 ):
@@ -935,7 +918,7 @@ def test_multi_run_compaction_does_not_summarize_after_budget_exhausted(
         tmp_path,
         metered_model(stream),
         toolkit=toolkit,
-        max_turns=6,
+        max_turns=5,
         context_window=12000,
         no_images=True,
         interactive=True,
@@ -943,8 +926,8 @@ def test_multi_run_compaction_does_not_summarize_after_budget_exhausted(
     assert summary_calls == 0
     assert result.error is None
     assert result.finish_result is None
-    assert result.stop_reason == "request_limit"
-    assert result.stats["turns_used"] == 6
+    assert result.stop_reason == "tool_limit"
+    assert result.stats["turns_used"] == 5
     assert (
         len(
             {
@@ -1408,8 +1391,9 @@ def test_native_terminal_followups_share_budget_and_clear_recovered_error(
     result, toolkit, _ = solve(
         tmp_path, FunctionModel(stream_function=stream), interactive=True, max_turns=3
     )
-    assert len(requests) == result.stats["turns_used"] == 3
-    assert toolkit.calls == [("observe", {})]
+    assert len(requests) == 5  # Text and provider failures do not consume tool budget.
+    assert result.stats["turns_used"] == 3
+    assert toolkit.calls == [("observe", {})] * 3
     assert result.error is None
     assert result.finish_result is None
     assert any(m.get("name") == "observe" for m in result.messages)

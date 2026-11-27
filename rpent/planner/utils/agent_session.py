@@ -162,6 +162,7 @@ async def run_agent(
     *,
     prompt: str,
     toolkit: Toolkit,
+    max_turns: int,
     artifacts: AgentArtifacts,
     recorder: Any,
     events: DashboardEventSink,
@@ -181,6 +182,7 @@ async def run_agent(
     Its session implements run, submit, interrupt, close, and an error field.
     Toolkit cancellation always precedes backend interruption and shutdown.
     """
+    toolkit.set_tool_budget(max_turns)
     terminal = TerminalInteraction(input_queue) if input_queue is not None else None
     port = terminal if terminal is not None else interaction
     error: str | None = None
@@ -190,6 +192,7 @@ async def run_agent(
     finish_waiter = None
     finished = asyncio.Event()
     loop = asyncio.get_running_loop()
+    deadline = loop.time() + timeout_s
     with (
         artifacts.output_path.open("w") as output,
         artifacts.raw_stream_path.open("w") as raw,
@@ -235,14 +238,19 @@ async def run_agent(
                 if control is not None:
                     control.end()
 
-        def observe_tool(name, args, result):
-            loop.call_soon_threadsafe(emit_event, tool_event(name, args, result))
+        def record_tool(name, args, result):
+            if tool_event is not None:
+                emit_event(tool_event(name, args, result))
+            if name == "finish" and not result.is_error and result.data.get("_finish"):
+                recorder.finish_result = dict(result.data)
+            if toolkit.tool_limit_reached and artifacts.stop_reason is None:
+                artifacts.stop_reason = "tool_limit"
+                finished.set()
 
-        server = (
-            HttpMcpServer(toolkit, on_tool_result=observe_tool)
-            if tool_event is not None
-            else HttpMcpServer(toolkit)
-        )
+        def observe_tool(name, args, result):
+            loop.call_soon_threadsafe(record_tool, name, args, result)
+
+        server = HttpMcpServer(toolkit, on_tool_result=observe_tool)
         try:
             url = await asyncio.to_thread(server.start)
             session = create_session(url, control, emit_event)
@@ -259,6 +267,11 @@ async def run_agent(
                 raise asyncio.TimeoutError
             if session_task in done:
                 await session_task
+            if artifacts.stop_reason == "tool_limit":
+                await asyncio.wait_for(
+                    asyncio.to_thread(toolkit.wait_for_calls),
+                    timeout=max(0, deadline - loop.time()),
+                )
             error = session.error
         except asyncio.TimeoutError:
             error = f"{label} timed out after {timeout_s}s"
