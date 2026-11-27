@@ -53,16 +53,57 @@ ACP CLI 适配器
 
 如果 CLI 已支持 ACP，可以复用 ``rpent/planner/utils/acp.py`` 中的 ``AcpPlanner``。继承后设置 ``backend`` 和显示名称 ``label``。在 ``_create_session`` 中准备启动命令、环境和工具策略，并返回 ``AcpSession``。
 
-完整示例见 ``rpent/planner/gemini_cli.py`` 和 ``rpent/planner/opencode.py``；两者均通过 ACP 管理会话，通过 HTTP MCP 调用 RPent 工具。
+以下为接口示意，假设 CLI 支持 HTTP MCP 和 ACP 模型、推理强度选择器。使用前需替换占位命令 ``my-cli``，并补齐 CLI 特有的工具权限和轮数配置。
+
+.. code-block:: python
+
+   # rpent/planner/my_cli.py
+   from rpent.planner.utils.acp import AcpPlanner, AcpSession
+   from rpent.planner.utils.agent_runtime import agent_environment
+
+   class MyCliPlanner(AcpPlanner):
+       backend = "my_cli"
+       label = "My CLI"
+
+       def _create_session(
+           self,
+           root,
+           control,
+           emit,
+           stderr_path,
+           *,
+           mcp_url,
+           tool_names,
+           redact,
+       ):
+           env = agent_environment()
+           # 在 root 或 env 中写入 CLI 配置：仅开放 tool_names 中的
+           # RPent 工具，并关闭 CLI 原生的模型轮数限制。
+           ...
+           return AcpSession(
+               command=["my-cli", "acp"],
+               cwd=root,
+               env=env,
+               mcp_url=mcp_url,
+               model=self._model,
+               reasoning_effort=self._reasoning_effort,
+               control=control,
+               emit_event=emit,
+               stderr_path=stderr_path,
+               redact=redact,
+           )
+
+完整示例见 ``rpent/planner/gemini_cli.py``，通过 ACP 管理会话，通过 HTTP MCP 调用 RPent 工具。
 
 ``AcpPlanner`` 负责会话管理、事件记录、连接探测、消息排队、中断及进程清理。适配器需按 CLI 的要求处理以下配置：
 
-- MCP 接入：通过 ``AcpSession`` 的 ``mcp_url`` 传入地址，如 OpenCode；或写入工作区配置，如 Gemini CLI。
+- MCP 接入：将地址传给 ``AcpSession(mcp_url=...)``，由共享驱动通过 ACP 注册 HTTP MCP 服务。
+- 工具权限：使用 CLI 自身的配置，只开放已注册的 RPent 工具。
 - 模型选择：使用 CLI 的 ACP 模型选择器时，才向 ``AcpSession`` 传入模型 ID。
 - 认证：沿用 CLI 的认证配置。
 - 推理强度：CLI 提供 ACP ``thought_level`` 选项时，将 ``reasoning_effort`` 传给 ``AcpSession``；否则使用 CLI 自身的配置项。
 
-共享驱动按 RPent 工具调用次数执行 ``max_turns`` 限制，整个任务共用额度。关闭 CLI 原生的模型轮数限制，避免任务提前结束。
+共享驱动按 RPent 工具调用次数执行 ``max_turns`` 限制，整个任务共用额度。
 
 接入与验证
 ---------------

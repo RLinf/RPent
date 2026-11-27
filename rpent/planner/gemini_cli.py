@@ -56,7 +56,6 @@ class GeminiCliPlanner(AcpPlanner):
     ) -> AcpSession:
         _write_settings(
             root,
-            mcp_url=mcp_url,
             tool_names=tool_names,
             reasoning_effort=self._reasoning_effort,
         )
@@ -78,6 +77,7 @@ class GeminiCliPlanner(AcpPlanner):
         return AcpSession(
             command=command,
             cwd=root,
+            mcp_url=mcp_url,
             model=None,
             env={
                 **agent_environment(),
@@ -131,7 +131,6 @@ class GeminiCliPlanner(AcpPlanner):
 def _write_settings(
     root: Path,
     *,
-    mcp_url: str | None,
     tool_names: Iterable[str] = (),
     reasoning_effort: str = "none",
 ) -> Path:
@@ -168,13 +167,6 @@ def _write_settings(
                     },
                 }
             ],
-        }
-    if mcp_url:
-        settings["mcpServers"] = {
-            "rpent": {
-                "httpUrl": mcp_url,
-                "trust": True,
-            }
         }
     settings_dir = root / ".gemini"
     settings_dir.mkdir(parents=True, exist_ok=True)

@@ -218,7 +218,10 @@ def acp_backend(monkeypatch):
                 if "startup_error" in seen:
                     raise seen["startup_error"]
                 return acp.schema.InitializeResponse(
-                    protocol_version=acp.PROTOCOL_VERSION
+                    protocol_version=acp.PROTOCOL_VERSION,
+                    agent_capabilities=acp.schema.AgentCapabilities(
+                        mcp_capabilities=acp.schema.McpCapabilities(http=True)
+                    ),
                 )
 
             async def authenticate(self, **kwargs):
@@ -229,6 +232,18 @@ def acp_backend(monkeypatch):
                 assert session_cwd.is_absolute()
                 assert session_cwd == cwd
                 assert (session_cwd / ".gemini" / "settings.json").is_file()
+                assert kwargs["mcp_servers"] == (
+                    [
+                        acp.schema.HttpMcpServer(
+                            type="http",
+                            name="rpent",
+                            url=server_factory.return_value.start.return_value,
+                            headers=[],
+                        )
+                    ]
+                    if server_factory.called
+                    else []
+                )
                 seen["events"].append("new_session")
                 return acp.schema.NewSessionResponse(session_id="same-session")
 
@@ -335,9 +350,7 @@ def test_session_result_artifacts_and_cleanup(
     assert settings["skills"]["enabled"] is False
     assert settings["hooksConfig"]["enabled"] is False
     assert settings["context"]["includeDirectoryTree"] is False
-    assert settings["mcpServers"] == {
-        "rpent": {"httpUrl": server.start.return_value, "trust": True}
-    }
+    assert "mcpServers" not in settings
     assert "GEMINI_API_KEY" not in json.dumps(settings)
     assert acp_backend["events"][-1] == "close"
     assert not acp_backend["cwd"].exists()
