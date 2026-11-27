@@ -520,9 +520,10 @@ class Toolkit:
     def refresh_observation(self) -> ToolResult:
         """Capture and publish a fresh observation without executing an action.
 
-        Capture is exclusive because it appends a state record. Paused or closed
-        toolkits reject it; only the caller owning cancellation may resume calls.
-        A completed record is published even if cancellation arrived during capture.
+        Capture runs exclusively. A paused or closed toolkit raises ToolCancelled.
+        If the refresh is cancelled during capture, a completed step is published
+        before ToolCancelled reaches the caller. Only the caller owning
+        cancellation may resume calls.
 
         Returns:
             The fresh native observation, including its images.

@@ -62,20 +62,17 @@ VLA/WAM 的服务、客户端、adapter 与会话生命周期见 :doc:`add_actio
 判断报错的工具是否执行了动作
 ----------------------------
 
-夹爪可能已经合上了，相机却没拍到动作后的画面。遇到这种情况，Toolkit 会在 ``execute_tool`` 返回的 ``ToolResult`` 上设置 ``execution_uncertain=True``。调用方可以用它判断是否需要再观察一次。机器人本身无法确认动作结果时，工具也可以主动返回这个标记。模型和轨迹里看不到它。
+夹爪可能已经合上了，相机却没拍到动作后的画面。默认情况下，动作工具抛出异常，或动作结束后 ``get_env_state`` 采集观测时抛出异常，Toolkit 都会在返回的 ``ToolResult`` 上设置 ``execution_uncertain=True``。
 
-默认情况下，动作工具开始执行后抛出异常，这个标记为真。只读工具报错时，标记为假。``write_text_file`` 写文件时不会移动机器人，所以它用 ``readonly=True`` 跳过自动观测，也可以和其他只读调用并行。它用 ``@tool(readonly=True, uncertain_on_error=True)`` 声明写到一半失败时，文件可能已经改变。
-
-写入前被拒绝、参数有误，或调用在工具启动前被取消时，动作或写入还没开始，``execution_uncertain`` 为假。如果返回的 ``ToolResult.data["code"]`` 是 ``tool_result_serialization_failed``，说明结果没能完整传回。这个错误码本身无法说明动作有没有发生。
+- 如果后端没有抛出异常，却也没能确认夹爪是否执行了指令，可以返回 ``ToolResult(data={"error": "No gripper acknowledgement"}, execution_uncertain=True)``。调用方可以先查看夹爪的位置，再决定是否重试。
+- 有些工具只写文件，不移动机器人。写入中途失败，文件可能已经改了一部分。这类工具可以参照 ``write_text_file``，用 ``@tool(readonly=True, uncertain_on_error=True)`` 声明。
 
 在两次调用之间查看环境
 ----------------------
 
-如果上一次没拍到夹爪的动作，可以用 ``Toolkit.refresh_observation()`` 查看夹爪现在的位置，再决定是否重试。刷新会等正在运行的工具结束，也不占规划器的工具调用次数。Toolkit 已暂停或关闭时，刷新会抛出 ``ToolCancelled``。
+要在下一条指令前确认夹爪的位置，可以调用 ``Toolkit.refresh_observation()``。刷新会等正在执行的工具结束，刷新期间也不会执行其他工具。这次观测不占规划器的工具调用次数。
 
-只有 ``get_env_state`` 新增了观测，轨迹里才会多一步。采集出错时，调用方会收到异常。如果新观测已经记下，随后收到取消请求，这一步仍会发布，再抛出 ``ToolCancelled``。
-
-回放时跳过 ``{"action": "refresh_observation"}``。这一步只记录观测，没有机器人动作需要重做。动作的 ``StepRecord.command`` 只存工具名和参数，操作来源另行记录。
+导出或回放动作时，跳过 ``{"action": "refresh_observation"}``，这一步只记录了观测。对于要回放的动作，``StepRecord.command`` 里只放工具名和参数。动作由谁发起，另行记录。
 
 单线程 serve（EGL 渲染后端）
 ----------------------------

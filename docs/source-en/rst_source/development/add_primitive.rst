@@ -76,41 +76,27 @@ mechanism used above.
 Check Whether a Failed Action Ran
 ---------------------------------
 
-A gripper can close even if the camera misses the next frame. When observation
-fails after an action, Toolkit sets ``execution_uncertain=True`` on the
-``ToolResult`` returned by ``execute_tool``. The caller can then check the
-gripper's position before retrying. A tool can also set this flag if the robot
-cannot confirm the outcome. Only the caller sees the flag. It stays out of the
-model input and the saved trajectory.
+A gripper may have closed even if the camera missed the next frame. By default,
+Toolkit sets ``execution_uncertain=True`` on the returned ``ToolResult`` if the
+action handler raises or if ``get_env_state`` raises after the action.
 
-By default, an exception in an action handler sets the flag. An exception in a
-readonly handler leaves it false. Writing a file does not move the robot, so
-``write_text_file`` uses ``readonly=True`` to skip observation and run alongside
-other readonly calls. Its decorator, ``@tool(readonly=True, uncertain_on_error=True)``,
-tells the caller that a write that fails halfway can leave a partial file.
-
-If write permission is denied before the first write, the arguments are invalid,
-or the call is cancelled before the tool starts, ``execution_uncertain`` stays
-false. Separately, ``tool_result_serialization_failed`` in ``ToolResult.data["code"]``
-means the result could not be delivered in full. That code alone cannot tell you
-whether the action ran.
+- If your backend returns without confirming whether an action ran, return
+  ``ToolResult(data={"error": "No gripper acknowledgement"}, execution_uncertain=True)``.
+  The caller can then check the gripper before retrying.
+- If a readonly tool writes to a file, a failed write can leave the file
+  partially updated. Use ``@tool(readonly=True, uncertain_on_error=True)``
+  for tools like ``write_text_file``.
 
 Observe the Environment Between Calls
 -------------------------------------
 
-If the camera missed the gripper's movement, call ``Toolkit.refresh_observation()``
-to check its position before retrying. A refresh waits for active tools to finish
-and does not count toward the planner's tool-call budget. If Toolkit is paused
-or closed, the method raises ``ToolCancelled``.
+Call ``Toolkit.refresh_observation()`` to check the gripper's position before
+issuing another command. The refresh waits for any running tools to finish
+and completes before the next tool starts. It uses no planner tool calls.
 
-The trajectory gains a step only when ``get_env_state`` adds an observation.
-Capture errors propagate to the caller. If cancellation arrives after a new
-observation has been recorded, Toolkit publishes the step before raising
-``ToolCancelled``.
-
-Skip ``{"action": "refresh_observation"}`` during replay. It records an
-observation with no robot action to repeat. For actions, keep the tool name and
-arguments in ``StepRecord.command`` and record who issued the command separately.
+When exporting or replaying actions, skip ``{"action": "refresh_observation"}``.
+This step contains an observation. For a replayable action, put the tool name
+and arguments in ``StepRecord.command``. Record who issued it separately.
 
 Single-threaded Serve (EGL-rendering Backends)
 ----------------------------------------------
