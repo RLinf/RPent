@@ -56,24 +56,22 @@ Any planner must:
    statistics, and optional ``error`` and ``stop_reason`` fields.
 
 Planners may supply ``stop_info`` with their raw ``reason`` and a common
-``category``: ``finish``, ``budget``, ``timeout``, ``cancelled``, ``error``, or
+``category``: ``finish``, ``completed``, ``budget``, ``timeout``, ``cancelled``, ``error``, or
 ``unknown``. ``normalize_stop_info`` preserves backend reasons and fills the
-category for common reasons; unknown reasons remain unknown. For result artifacts,
-prefer ``stop_info.reason``, then ``stop_reason``, then the legacy reason in
-``stats``. Keep execution
-certainty, result delivery, cleanup, and permission to start a new session as
-separate evidence. Starting a new session requires ``execution_certain``,
-``result_delivery_complete``, ``cleanup_complete``, and ``allow_new_session``
-to all be explicitly ``True``; missing evidence or a category alone does not
-authorize continuation. Existing planners may omit ``stop_info`` and retain
-their current recovery behavior.
+category for common reasons; unknown reasons remain unknown. Result artifacts
+and trajectory capture prefer ``stop_info.reason``, then ``stop_reason``, then
+the legacy reason in ``stats``. Runner exceptions and cleanup failures take
+precedence over a backend's reported completion; retain the original evidence.
+Use ``timeout`` for the configured planner deadline, not provider request errors.
+Claude records an error-marked interruption as an expected cancellation only
+when the SDK identifies the interrupted request and confirms cancellation.
 
-``get_planner_capabilities(name)`` exposes static runner requirements without
-importing an optional SDK. ``PlannerCapabilities`` defaults all flags to false:
-``requires_memory_copy`` for exploration, ``refresh_manual_observations`` before
-resuming after manual actions, and ``withdraw_queued`` for queued message
-withdrawal. When adding a backend, register its requirements and wire the relevant
-entry points to enforce these flags; a declaration alone does not enable behavior.
+Keep execution certainty, result delivery, cleanup, and permission to start a
+new session as separate evidence. Starting a new session requires
+``execution_certain``, ``result_delivery_complete``, ``cleanup_complete``, and
+``allow_new_session`` to all be explicitly ``True``; missing evidence or a
+category alone does not authorize continuation. Existing planners may omit
+``stop_info`` and retain their current recovery behavior.
 
 Because the RPent tool schemas and prompt-rendering path stay the same,
 adding a planner does not require changes to tools or environment

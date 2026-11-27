@@ -60,6 +60,7 @@ from rpent.utils.config import get_repo_root
 
 PROVIDER_ID = "rpent_proxy"
 PROVIDER_ENV_KEY = "RPENT_CODEX_PROVIDER_KEY"
+_INTERRUPT_TIMEOUT_S = 15
 
 # Sandbox applied to model-generated shell commands. ``full-access`` lets the
 # planner reach the same services as its tools; ``read-only`` blocks shell
@@ -193,7 +194,7 @@ class CodexPlanner(Planner):
                 control=control,
             )
 
-        error = await run_agent(
+        error, stop_reason, cleanup_complete = await run_agent(
             prompt=prompt,
             toolkit=toolkit,
             max_turns=max_turns,
@@ -213,7 +214,9 @@ class CodexPlanner(Planner):
             finish_result=recorder.finish_result,
             final_response=recorder.final_response,
             stats={**recorder.stats(), "turns_used": toolkit.tool_calls_used},
-            error=error or recorder.error,
+            stop_reason=stop_reason,
+            error=error,
+            cleanup_complete=cleanup_complete,
             last_message_path=last_message_path,
         )
 
@@ -255,7 +258,18 @@ class _CodexSession:
         self._turn_done: asyncio.Event | None = None
         self._turn_task: asyncio.Task[Any] | None = None
         self._closing = False
-        self.error: str | None = None
+        self.diagnostics: list[str] = []
+        self.cleanup_complete: bool | None = None
+        self.stop_reason: str | None = None
+        self._interrupt_response: asyncio.Future[Exception | None] | None = None
+
+    @property
+    def error(self) -> str | None:
+        return "; ".join(self.diagnostics) or None
+
+    def _record_error(self, message: str) -> None:
+        if message and message not in self.diagnostics:
+            self.diagnostics.append(message)
 
     async def run(self, prompt: str) -> None:
         self._codex = openai_codex.AsyncCodex(self._config)
@@ -277,6 +291,8 @@ class _CodexSession:
         if self._turn is not None:
             raise RuntimeError("Cannot submit while a Codex turn is active")
         self._turn = await self._thread.turn(text, **self._turn_options)
+        self._interrupt_response = None
+        self.stop_reason = None
         self._turn_done = asyncio.Event()
         self._turn_task = asyncio.create_task(
             self._consume_turn(self._turn, self._turn_done)
@@ -288,13 +304,40 @@ class _CodexSession:
         done = self._turn_done
         if turn is None or done is None:
             return 0
-        await turn.interrupt()
+        await self._request_interrupt(turn)
         try:
-            await asyncio.wait_for(done.wait(), timeout=15)
+            await asyncio.wait_for(done.wait(), timeout=_INTERRUPT_TIMEOUT_S)
         except asyncio.TimeoutError:
             raise RuntimeError("Codex did not finish the interrupted turn") from None
         # ``_consume_turn`` reports the matching completed turn boundary.
         return 0
+
+    async def _request_interrupt(self, turn: Any) -> None:
+        response = self._interrupt_response
+        if response is None:
+            # The caller owns the RPC. Other waiters share only its outcome.
+            response = self._interrupt_response = (
+                asyncio.get_running_loop().create_future()
+            )
+            try:
+                await asyncio.wait_for(turn.interrupt(), timeout=_INTERRUPT_TIMEOUT_S)
+            except asyncio.CancelledError:
+                response.set_result(RuntimeError("Codex interrupt request cancelled"))
+                if self._interrupt_response is response:
+                    self._interrupt_response = None
+                raise
+            except Exception as exc:
+                response.set_result(exc)
+            else:
+                response.set_result(None)
+        error = await asyncio.shield(response)
+        if error is not None and not (
+            isinstance(error, openai_codex.JsonRpcError)
+            and error.message == "no active turn to interrupt"
+        ):
+            if self._interrupt_response is response:
+                self._interrupt_response = None
+            raise error
 
     async def close(self) -> None:
         if self._closing:
@@ -303,37 +346,64 @@ class _CodexSession:
         turn = self._turn
         done = self._turn_done
         if turn is not None and done is not None:
-            with contextlib.suppress(Exception):
-                await turn.interrupt()
             try:
-                await asyncio.wait_for(done.wait(), timeout=15)
+                await self._request_interrupt(turn)
+            except Exception as exc:
+                self.cleanup_complete = False
+                self._record_error(
+                    f"Codex interrupt failed: {str(exc) or type(exc).__name__}"
+                )
+            try:
+                await asyncio.wait_for(done.wait(), timeout=_INTERRUPT_TIMEOUT_S)
             except asyncio.TimeoutError:
                 if self._turn_task is not None:
                     self._turn_task.cancel()
+                self.cleanup_complete = False
+                self._record_error("Codex did not finish the interrupted turn")
+        elif self._interrupt_response is not None:
+            # A natural terminal can precede the caller's bounded RPC response.
+            await asyncio.shield(self._interrupt_response)
         if self._turn_task is not None:
             with contextlib.suppress(asyncio.CancelledError, Exception):
                 await self._turn_task
         if self._codex is not None:
-            with contextlib.suppress(Exception):
-                await self._codex.close()
+            await self._codex.close()
 
     async def _consume_turn(self, turn: Any, done: asyncio.Event) -> None:
         try:
             async for event in turn.stream():
                 self._emit_event(event)
+                if self._recorder.error:
+                    self._record_error(self._recorder.error)
                 method = str(get_field(event, "method", ""))
                 payload = get_field(event, "payload")
 
                 if method != "turn/completed":
                     continue
-                status = _status(get_field(payload, "turn"))
+                terminal = get_field(payload, "turn")
+                status = _status(terminal)
+                detail = get_field(terminal, "error")
+                expected_interrupt = False
+                response = self._interrupt_response
+                if status == "interrupted" and response is not None:
+                    # The terminal notification can arrive before the RPC response.
+                    # Only an acknowledged local request explains this interruption.
+                    error = await asyncio.shield(response)
+                    expected_interrupt = error is None
+                if detail:
+                    message = str(get_field(detail, "message", detail))
+                    if expected_interrupt:
+                        self._recorder.interruption_diagnostics.append(message)
+                    else:
+                        self._record_error(message)
+                if status == "failed" and not self.diagnostics:
+                    self._record_error("Codex turn failed")
+                self.stop_reason = status or None
                 self._turn = None
                 self._turn_done = None
                 done.set()
                 if self._closing:
                     return
-                if status == "failed":
-                    self.error = self._recorder.error or "Codex turn failed"
                 if self._control is None:
                     return
                 if self.error is not None or self._recorder.finish_result is not None:
@@ -346,7 +416,7 @@ class _CodexSession:
             self._turn = None
             self._turn_done = None
             done.set()
-            self.error = f"{type(exc).__name__}: {exc}"
+            self._record_error(f"{type(exc).__name__}: {exc}")
             if not self._closing and self._control is not None:
                 self._control.end()
 
@@ -376,6 +446,7 @@ class _Recorder:
     final_response: str | None = None
     finish_result: dict[str, Any] | None = None
     error: str | None = None
+    interruption_diagnostics: list[str] = field(default_factory=list)
 
     def stats(self) -> dict[str, object]:
         """Return counters with the zeroed ``usage`` distinguishable from None.
@@ -383,11 +454,14 @@ class _Recorder:
         ``usage_observed`` tells consumers whether the SDK reported any token
         totals. Without it, the zeroed ``usage`` values mean "unknown".
         """
-        return {
+        stats: dict[str, object] = {
             "tool_calls": self.tool_calls,
             "usage_observed": self.usage_observed,
             **self.usage,
         }
+        if self.interruption_diagnostics:
+            stats["interruption_diagnostics"] = self.interruption_diagnostics
+        return stats
 
     def observe(self, event: Any) -> str:
         method = str(get_field(event, "method", ""))
@@ -467,7 +541,11 @@ class _Recorder:
             )
             self.dashboard_events.emit(
                 TranscriptEvent(
-                    {"type": "tool_result", "tool": name, "result": payload}
+                    {
+                        "type": "tool_result",
+                        "tool": name,
+                        "result": payload,
+                    }
                 )
             )
             return f"[tool<-] {name}: {json.dumps(payload, ensure_ascii=False)}\n"
@@ -479,8 +557,6 @@ class _Recorder:
             get_field(get_field(turn, "status"), "value", get_field(turn, "status", ""))
         )
         duration_ms = get_field(turn, "duration_ms")
-        if error := get_field(turn, "error"):
-            self.error = str(get_field(error, "message", str(error)))
 
         parts = ["[codex-result]", status]
         if duration_ms is not None:

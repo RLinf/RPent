@@ -483,7 +483,12 @@ def test_dashboard_checks_each_task_before_starting_its_env(
 
     if missing == "global":
         path.unlink()  # Also catch a file removed after shared startup.
-    state = SimpleNamespace(task_replacement_requested=False)
+    state = SimpleNamespace(
+        task_replacement_requested=False,
+        task_finalization_cancelled=False,
+        session_state="task_starting",
+        operator_verdict=None,
+    )
     claimed = ClaimedTask(
         number=1,
         request={"task_name": "OpenDrawer", "split": "target", "seed": 1},

@@ -23,6 +23,7 @@ import shlex
 import sys
 import threading
 import time
+from collections.abc import Mapping
 from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -35,7 +36,12 @@ from rpent.cli.main import (
 from rpent.dashboard.events import RunStartedEvent
 from rpent.evaluation import RunFinalizationContext
 from rpent.memory import MemoryManager
-from rpent.planner.base import build_planner, is_recoverable_planner_result
+from rpent.planner.base import (
+    PlannerResult,
+    build_planner,
+    is_recoverable_planner_result,
+)
+from rpent.planner.stop import resolve_stop_info
 from rpent.robots import get_toolkit
 from rpent.session.planner_capture import (
     end_planner_task,
@@ -188,7 +194,7 @@ def run_dashboard_session(
             threading.Event().wait()
     except KeyboardInterrupt:
         state.request_shutdown()
-    return 0
+    return int(state.session_state == "fatal")
 
 
 def _run_dashboard_task(
@@ -234,6 +240,26 @@ def _run_dashboard_task(
     memory_manager = None
     environment_success = None
     environment_metrics: dict = {}
+    task_state, result = None, None
+    task_exception: BaseException | None = None
+    cancelled_reason: str | None = None
+
+    def record_failure(exc: Exception, *, cleanup: bool = False) -> None:
+        nonlocal agent_error, stop_info, task_exception
+        diagnostic = f"{type(exc).__name__}: {exc}"
+        if not agent_error:
+            agent_error = diagnostic
+        elif diagnostic not in agent_error:
+            agent_error += f"; {diagnostic}"
+        task_exception = task_exception or exc
+        boundary = stop_info if stop_info is not None else stats.get("stop_info")
+        stop_info = {
+            **(boundary if isinstance(boundary, Mapping) else {}),
+            "category": "error",
+        }
+        if cleanup:
+            stop_info["cleanup_complete"] = False
+
     try:
         task_daemons, task_runtime_kwargs = robot_spec.init_runtime(
             task_args,
@@ -271,6 +297,15 @@ def _run_dashboard_task(
                     or state.task_finalization_cancelled
                 ):
                     break
+                end_planner_task(
+                    task_state,
+                    result,
+                    finish_result=finish_result,
+                    environment_success=environment_success,
+                    exception=None,
+                )
+                task_state, result = None, None
+                agent_error = None
                 environment_success, environment_metrics = None, {}
                 stop_info, stop_reason = None, None
                 stats = {
@@ -390,33 +425,29 @@ def _run_dashboard_task(
                                 toolkit.write_recipe(recipe_tag) or recipe_path
                             )
                 finally:
+                    active_exception = sys.exc_info()[1]
+                    if isinstance(active_exception, Exception):
+                        record_failure(active_exception)
                     try:
                         state.unbind_toolkit(toolkit)
+                    except Exception as exc:
+                        record_failure(exc, cleanup=True)
+                    else:
                         if robot_spec.finalize_run is not None:
-                            toolkit.cancel_active_and_wait()
-                            environment_success = bool(toolkit.solved())
-                            solved = environment_success
-                            environment_metrics = toolkit.evaluation_metrics(
-                                success=environment_success
-                            )
-                    finally:
-                        try:
-                            toolkit.close()
-                        finally:
-                            end_planner_task(
-                                task_state,
-                                result,
-                                finish_result=finish_result,
-                                environment_success=environment_success,
-                                exception=sys.exc_info()[1],
-                                cancelled_reason=(
-                                    "task_replaced"
-                                    if state.task_replacement_requested
-                                    else "operator"
-                                    if state.task_finalization_cancelled
-                                    else None
-                                ),
-                            )
+                            try:
+                                environment_success = bool(toolkit.solved())
+                                solved = environment_success
+                                environment_metrics = toolkit.evaluation_metrics(
+                                    success=environment_success
+                                )
+                            except Exception as exc:
+                                record_failure(exc)
+                    try:
+                        toolkit.close()
+                    except Exception as exc:
+                        record_failure(exc, cleanup=True)
+                if task_exception is not None:
+                    break
                 if (
                     solved
                     or state.task_replacement_requested
@@ -440,15 +471,14 @@ def _run_dashboard_task(
                     break
     except KeyboardInterrupt:
         state.request_shutdown()
-        agent_error = "Dashboard interrupted by operator."
+        logger.info("Dashboard interrupted by operator.")
     except Exception as exc:
         logger.error("EXCEPTION in Dashboard TaskRun %04d: %s", claimed.number, exc)
-        agent_error = str(exc)
+        record_failure(exc)
     finally:
         if human_interactive_run and state.operator is not None:
             state.operator.close()
             state.operator = None
-        cleanup_errors: list[str] = []
         if recipe_path:
             logger.info("recipe: %s", recipe_path)
         else:
@@ -457,13 +487,7 @@ def _run_dashboard_task(
             try:
                 daemon.stop()
             except Exception as exc:
-                cleanup_errors.append(f"robot cleanup failed: {exc}")
-        if cleanup_errors:
-            cleanup_error = "; ".join(cleanup_errors)
-            if agent_error is None:
-                agent_error = cleanup_error
-            else:
-                logger.warning("%s", cleanup_error)
+                record_failure(exc, cleanup=True)
 
         transcript_path = output_dir / f"transcript_{run_config.recipe_tag}.json"
         record = {
@@ -483,6 +507,33 @@ def _run_dashboard_task(
                 "failed to write TaskRun transcript %s: %s", transcript_path, exc
             )
         init_output_dir(session_root, verbose=args.verbose)
+
+    if state.session_state == "fatal":
+        record_failure(
+            RuntimeError(state.snapshot()["error"] or "Dashboard Session failed")
+        )
+    elif state.operator_verdict == "abort":
+        cancelled_reason = "operator"
+    elif state.operator_verdict not in ("success", "failure"):
+        if state.task_replacement_requested:
+            cancelled_reason = "task_replaced"
+        elif state.task_finalization_cancelled:
+            cancelled_reason = "operator"
+    capture_result = (
+        PlannerResult(
+            error=agent_error, stop_info=stop_info, stop_reason=stop_reason, stats=stats
+        )
+        if result is not None or agent_error is not None
+        else None
+    )
+    end_planner_task(
+        task_state,
+        capture_result,
+        finish_result=finish_result,
+        environment_success=environment_success,
+        exception=task_exception,
+        cancelled_reason=cancelled_reason,
+    )
 
     if (
         getattr(task_args, "explore", False)
@@ -504,6 +555,21 @@ def _run_dashboard_task(
             logger.warning("%s", warning)
             state.report_task_warning(warning)
 
+    task_error = agent_error
+    if agent_error and (
+        cancelled_reason or (finish_result or {}).get("operator_finished")
+    ):
+        boundary = stop_info if stop_info is not None else stats.get("stop_info")
+        outcome = resolve_stop_info(
+            boundary if isinstance(boundary, Mapping) else None,
+            reason=stop_reason or stats.get("stop_reason"),
+            error=agent_error,
+            finish_result=finish_result,
+            cancelled_reason=cancelled_reason,
+        )
+        if outcome["category"] in ("cancelled", "finish"):
+            task_error = None
+
     if robot_spec.finalize_run is not None:
         try:
             robot_spec.finalize_run(
@@ -515,8 +581,8 @@ def _run_dashboard_task(
                     environment_metrics=environment_metrics,
                     agent_error=agent_error,
                     elapsed_s=time.time() - started,
-                    planner=args.planner,
-                    model=args.model,
+                    planner=task_args.planner,
+                    model=task_args.model,
                     reasoning_effort=args.reasoning_effort,
                     max_turns=args.max_turns,
                     planner_timeout_s=args.planner_timeout_s,
@@ -526,14 +592,17 @@ def _run_dashboard_task(
                     stats=dict(stats),
                     stop_info=stop_info,
                     stop_reason=stop_reason,
+                    cancelled_reason=cancelled_reason,
                 )
             )
         except Exception as exc:
             finalization_error = (
                 f"result finalization failed: {type(exc).__name__}: {exc}"
             )
-            if agent_error:
-                logger.warning("%s", finalization_error)
-            else:
-                agent_error = finalization_error
-    return agent_error
+            logger.warning("%s", finalization_error)
+            task_error = (
+                f"{agent_error}; {finalization_error}"
+                if agent_error
+                else finalization_error
+            )
+    return task_error

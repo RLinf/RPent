@@ -17,20 +17,10 @@
 import pytest
 
 from rpent.planner.base import (
-    PlannerCapabilities,
     PlannerResult,
-    get_planner_capabilities,
     is_recoverable_planner_result,
     normalize_stop_info,
 )
-
-
-def test_default_capabilities_need_no_optional_backend(monkeypatch):
-    import sys
-
-    monkeypatch.setitem(sys.modules, "deepseek_harness", None)
-    for name in ("api", "codex", "claude_code", "flash", "future_backend"):
-        assert get_planner_capabilities(name) == PlannerCapabilities()
 
 
 @pytest.mark.parametrize(
@@ -39,6 +29,7 @@ def test_default_capabilities_need_no_optional_backend(monkeypatch):
         ("finish", "finish"),
         ("budget", "budget"),
         ("request_limit", "budget"),
+        ("tool_limit", "budget"),
         ("timeout", "timeout"),
         ("interrupted", "cancelled"),
         ("planner_error", "error"),

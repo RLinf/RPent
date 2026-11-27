@@ -495,10 +495,11 @@ lifecycle boundary.
 
 ``RunFinalizationContext.stop_reason`` and ``stop_info`` carry the planner's
 optional reason and structured stop evidence separately from usage statistics.
-Result writers should preserve
-the raw reason and use ``normalize_stop_info`` for the common category. LIBERO
-keeps native success, accepted finish, and operator verdict separate in
-``result.json``; a planner's finish does not establish environment success.
+``cancelled_reason`` carries runner cancellation, such as replacing a Dashboard
+task. Result writers should preserve backend evidence and resolve the final
+category consistently with trajectory capture. LIBERO keeps native success,
+accepted finish, and operator verdict separate in ``result.json``; a planner's
+finish does not establish environment success.
 
 Use ``write_json_atomic`` when the artifact is JSON so an interrupted write
 cannot leave a partial result:
@@ -517,10 +518,9 @@ cannot leave a partial result:
            },
        )
 
-Register the callback as ``RobotSpec(..., finalize_run=_finalize_run)``. This
-hook is currently limited to normal terminal runs; the Dashboard does not call
-it. Keep benchmark manifests, robot-specific runtime fields, and aggregation
-logic in the robot package rather than the shared CLI.
+Register the callback as ``RobotSpec(..., finalize_run=_finalize_run)``. Keep
+benchmark manifests, robot-specific runtime fields, and aggregation logic in
+the robot package rather than the shared CLI.
 
 .. _add-robot-testing:
 

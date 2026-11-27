@@ -82,6 +82,7 @@ class FlashPlanner(Planner):
 
         solved = bool(outcome.get("done"))
         return PlannerResult(
+            stop_reason="finish",
             finish_result={
                 "status": "success" if solved else "failure",
                 "summary": (

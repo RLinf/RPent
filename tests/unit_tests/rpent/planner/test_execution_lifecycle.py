@@ -27,10 +27,13 @@ from rpent.session import EnvState
 from rpent.tools import Toolkit, ToolResult, tool
 
 
-@pytest.mark.parametrize("timeout", [False, True])
+@pytest.mark.parametrize(
+    "stage", ["budget", "session_deadline", "budget_drain_deadline"]
+)
 def test_budget_drain_preserves_active_calls_but_timeout_cancels(
-    tmp_path, monkeypatch, timeout
+    tmp_path, monkeypatch, stage
 ):
+    timeout = stage != "budget"
     started, release = threading.Event(), threading.Event()
     completed = []
 
@@ -62,18 +65,21 @@ def test_budget_drain_preserves_active_calls_but_timeout_cancels(
             pass
 
     class Session:
-        error = None
+        diagnostics = ()
+        cleanup_complete = None
+        stop_reason = None
 
         async def run(self, prompt):
             self.active = asyncio.create_task(
                 execute_tool(toolkit, "inspect_scene", {})
             )
             assert await asyncio.to_thread(started.wait, 2)
-            if not timeout:
+            if stage != "session_deadline":
                 rejected = await execute_tool(toolkit, "inspect_scene", {})
                 assert rejected.data["code"] == "tool_limit"
                 observers[0]("inspect_scene", {}, rejected)
-                asyncio.get_running_loop().call_later(0.05, release.set)
+                if not timeout:
+                    asyncio.get_running_loop().call_later(0.05, release.set)
             result = await asyncio.shield(self.active)
             observers[0]("inspect_scene", {}, result)
             await asyncio.Event().wait()
@@ -83,7 +89,7 @@ def test_budget_drain_preserves_active_calls_but_timeout_cancels(
 
     monkeypatch.setattr(agent_session, "HttpMcpServer", Server)
     artifacts = AgentArtifacts("test", tmp_path / "agent.out")
-    error = asyncio.run(
+    error, stop_reason, cleanup_complete = asyncio.run(
         agent_session.run_agent(
             prompt="task",
             toolkit=toolkit,
@@ -99,7 +105,8 @@ def test_budget_drain_preserves_active_calls_but_timeout_cancels(
         )
     )
     assert bool(error) == timeout
-    assert artifacts.stop_reason == ("timeout" if timeout else "tool_limit")
+    assert stop_reason == ("timeout" if timeout else "tool_limit")
+    assert cleanup_complete is None
     assert completed == ([] if timeout else [True])
     assert toolkit.tool_calls_used == 1
 

@@ -68,10 +68,13 @@ class DashboardSessionController:
                 except Exception as exc:
                     error = exc
 
-                if self._state.task_replacement_requested:
-                    state = "cancelled"
-                elif error:
+                if error:
                     state = "failed"
+                elif (
+                    self._state.task_finalization_cancelled
+                    or self._state.task_replacement_requested
+                ):
+                    state = "cancelled"
                 else:
                     state = "succeeded"
                 self._state.complete_task(

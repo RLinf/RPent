@@ -20,15 +20,16 @@ import asyncio
 import os
 import queue
 from abc import ABC, abstractmethod
-from collections.abc import Callable, Mapping
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
-from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 from urllib.parse import unquote, urlsplit, urlunsplit
 
 from rpent.dashboard.events import DashboardEventSink
 from rpent.dashboard.interaction import DashboardInteractionPort
+from rpent.planner.stop import STOP_CATEGORIES as STOP_CATEGORIES
+from rpent.planner.stop import normalize_stop_info as normalize_stop_info
 from rpent.tools.base import ToolResult
 from rpent.tools.toolkit import Toolkit
 from rpent.utils.config import (
@@ -44,75 +45,6 @@ if TYPE_CHECKING:
 MCP_TOOL_PREFIX = "mcp__rpent__"
 REASONING_EFFORTS = ("none", "low", "medium", "high", "xhigh")
 CODEX_SANDBOX_CHOICES = ("read-only", "workspace-write", "full-access")
-STOP_CATEGORIES = frozenset(
-    {"finish", "budget", "timeout", "cancelled", "error", "unknown"}
-)
-
-
-@dataclass(frozen=True)
-class PlannerCapabilities:
-    """Runner requirements available before importing an optional backend."""
-
-    requires_memory_copy: bool = False
-    refresh_manual_observations: bool = False
-    withdraw_queued: bool = False
-
-
-_PLANNER_CAPABILITIES: dict[str, PlannerCapabilities] = {}
-
-
-def get_planner_capabilities(name: str) -> PlannerCapabilities:
-    """Return static runner requirements, preserving legacy backend defaults."""
-    return _PLANNER_CAPABILITIES.get(name, PlannerCapabilities())
-
-
-def normalize_stop_info(
-    stop_info: Mapping[str, Any] | None,
-    *,
-    reason: str | None = None,
-    error: str | None = None,
-    finish_accepted: bool = False,
-) -> dict[str, Any]:
-    """Preserve a backend's reason alongside a common termination category.
-
-    Args:
-        stop_info: Optional backend evidence, including its raw reason/category.
-        reason: Raw planner reason when absent from stop_info.
-        error: Planner error used only when no reason was supplied.
-        finish_accepted: Accepted finish used only when no reason was supplied.
-
-    Returns:
-        A copy with reason and category. Unknown reasons remain unknown even
-        when a finish or error is present. A category never authorizes recovery;
-        callers must also inspect the explicit execution and cleanup evidence.
-    """
-    normalized = dict(stop_info or {})
-    raw_reason = normalized.get("reason")
-    if not isinstance(raw_reason, str) or not raw_reason:
-        raw_reason = reason if isinstance(reason, str) and reason else None
-    if raw_reason is None:
-        raw_reason = (
-            "planner_error"
-            if error is not None
-            else "finish"
-            if finish_accepted
-            else "stopped"
-        )
-    category = normalized.get("category")
-    if not isinstance(category, str) or category not in STOP_CATEGORIES:
-        category = {
-            "finish": "finish",
-            "budget": "budget",
-            "request_limit": "budget",
-            "timeout": "timeout",
-            "interrupted": "cancelled",
-            "cancelled": "cancelled",
-            "error": "error",
-            "planner_error": "error",
-            "stopped": "unknown",
-        }.get(raw_reason, "unknown")
-    normalized.update(reason=raw_reason, category=category)
-    return normalized
 
 
 def resolve_model(planner: str, model: str | None) -> str | None:

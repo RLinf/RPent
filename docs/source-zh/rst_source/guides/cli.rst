@@ -215,6 +215,8 @@ RPent CLI 保留原有 ``--cuda-device`` 作为本地服务的共享默认值；
 
    * - 文件或路径
      - 用途
+   * - ``result.json``
+     - 原生成功、规划器终止信息、评测有效性和操作员裁决。结果含义见 :doc:`../simulators/libero`。
    * - ``transcript_*.json``
      - 规划器对话、工具调用及结束信息。
    * - ``trajectories/<task_id>/``

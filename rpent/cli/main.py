@@ -41,7 +41,7 @@ import queue
 import shlex
 import sys
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import replace
 from pathlib import Path
 
@@ -58,6 +58,7 @@ from rpent.memory import MemoryManager
 from rpent.planner.base import (
     CODEX_SANDBOX_CHOICES,
     REASONING_EFFORTS,
+    PlannerResult,
     build_planner,
     is_recoverable_planner_result,
 )
@@ -669,6 +670,26 @@ def main() -> int:
     environment_success: bool | None = None
     environment_metrics: dict = {}
     memory_manager: MemoryManager | None = None
+    task_state, result = None, None
+    task_exception: BaseException | None = None
+    cancelled_reason: str | None = None
+
+    def record_failure(exc: Exception, *, cleanup: bool = False) -> None:
+        nonlocal agent_error, stop_info, task_exception
+        diagnostic = f"{type(exc).__name__}: {exc}"
+        if not agent_error:
+            agent_error = diagnostic
+        elif diagnostic not in agent_error:
+            agent_error += f"; {diagnostic}"
+        task_exception = task_exception or exc
+        boundary = stop_info if stop_info is not None else stats.get("stop_info")
+        stop_info = {
+            **(boundary if isinstance(boundary, Mapping) else {}),
+            "category": "error",
+        }
+        if cleanup:
+            stop_info["cleanup_complete"] = False
+
     try:
         if first_user_msg is not None:
             dashboard_events.emit(RunStartedEvent())
@@ -676,6 +697,15 @@ def main() -> int:
         for session_number in range(1, sessions + 1):
             if session_msg is None:
                 break
+            end_planner_task(
+                task_state,
+                result,
+                finish_result=finish_result,
+                environment_success=environment_success,
+                exception=None,
+            )
+            task_state, result = None, None
+            agent_error = None
             environment_success, environment_metrics = None, {}
             stop_info, stop_reason = None, None
             stats = {
@@ -779,30 +809,34 @@ def main() -> int:
                     if solved and callable(write_recipe):
                         recipe_path = write_recipe(recipe_tag) or recipe_path
             finally:
+                active_exception = sys.exc_info()[1]
+                if isinstance(active_exception, Exception):
+                    record_failure(active_exception)
                 if operator_input is not None and input_queue is not None:
                     operator_input.bind_verdict(None)
-                try:
-                    if robot_spec.finalize_run is not None:
-                        toolkit.cancel_active_and_wait()
-                        solved_fn = getattr(toolkit, "solved", None)
-                        environment_success = (
-                            bool(solved_fn()) if callable(solved_fn) else None
-                        )
-                        solved = bool(environment_success)
-                        environment_metrics = toolkit.evaluation_metrics(
-                            success=environment_success
-                        )
-                finally:
+                if robot_spec.finalize_run is not None:
                     try:
-                        toolkit.close()
-                    finally:
-                        end_planner_task(
-                            task_state,
-                            result,
-                            finish_result=finish_result,
-                            environment_success=environment_success,
-                            exception=sys.exc_info()[1],
-                        )
+                        toolkit.cancel_active_and_wait()
+                    except Exception as exc:
+                        record_failure(exc, cleanup=True)
+                    else:
+                        try:
+                            solved_fn = getattr(toolkit, "solved", None)
+                            environment_success = (
+                                bool(solved_fn()) if callable(solved_fn) else None
+                            )
+                            solved = bool(environment_success)
+                            environment_metrics = toolkit.evaluation_metrics(
+                                success=environment_success
+                            )
+                        except Exception as exc:
+                            record_failure(exc)
+                try:
+                    toolkit.close()
+                except Exception as exc:
+                    record_failure(exc, cleanup=True)
+            if task_exception is not None:
+                break
             if (
                 solved
                 or (finish_result or {}).get("operator_aborted")
@@ -826,8 +860,11 @@ def main() -> int:
                     )
                     continue
                 break
+    except KeyboardInterrupt:
+        cancelled_reason = "operator"
+        logger.info("Interrupted by operator.")
     except Exception as exc:
-        agent_error = f"{type(exc).__name__}: {exc}"
+        record_failure(exc)
         logger.error("EXCEPTION in agent loop: %s", agent_error)
     finally:
         if operator_input is not None:
@@ -837,8 +874,26 @@ def main() -> int:
         else:
             logger.info("recipe: not written (cell unsolved)")
         for d in daemons:
-            d.stop()
+            try:
+                d.stop()
+            except Exception as exc:
+                record_failure(exc, cleanup=True)
 
+    capture_result = (
+        PlannerResult(
+            error=agent_error, stop_info=stop_info, stop_reason=stop_reason, stats=stats
+        )
+        if result is not None or agent_error is not None
+        else None
+    )
+    end_planner_task(
+        task_state,
+        capture_result,
+        finish_result=finish_result,
+        environment_success=environment_success,
+        exception=task_exception,
+        cancelled_reason=cancelled_reason,
+    )
     elapsed = time.time() - t0
 
     transcript_path = Path(output_dir) / f"transcript_{recipe_tag}.json"
@@ -886,12 +941,20 @@ def main() -> int:
                     stats=dict(stats),
                     stop_info=stop_info,
                     stop_reason=stop_reason,
+                    cancelled_reason=cancelled_reason,
                 )
             )
             if result_path:
                 logger.info("run result: %s", result_path)
         except Exception as exc:
-            agent_error = f"result finalization failed: {type(exc).__name__}: {exc}"
+            finalization_error = (
+                f"result finalization failed: {type(exc).__name__}: {exc}"
+            )
+            agent_error = (
+                f"{agent_error}; {finalization_error}"
+                if agent_error
+                else finalization_error
+            )
             logger.error("%s", agent_error)
 
     # Publish exploration artifacts into the corpus after the session loop.
@@ -899,6 +962,7 @@ def main() -> int:
         getattr(args, "explore", False)
         and getattr(args, "auto_merge_memory", False)
         and not agent_error
+        and not cancelled_reason
         and not (finish_result or {}).get("operator_aborted")
         and memory_manager is not None
     ):
@@ -914,7 +978,7 @@ def main() -> int:
             agent_error = f"memory finalization failed: {type(exc).__name__}: {exc}"
             logger.error("%s", agent_error)
 
-    return 1 if agent_error else 0
+    return 1 if agent_error or cancelled_reason else 0
 
 
 if __name__ == "__main__":

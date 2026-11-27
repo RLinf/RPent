@@ -168,7 +168,7 @@ class AcpPlanner(Planner):
                     redact=redact,
                 )
 
-            error = await run_agent(
+            error, stop_reason, cleanup_complete = await run_agent(
                 prompt=prompt,
                 toolkit=toolkit,
                 max_turns=max_turns,
@@ -194,6 +194,8 @@ class AcpPlanner(Planner):
             final_response=recorder.final_response,
             stats={**recorder.stats(), "turns_used": toolkit.tool_calls_used},
             error=error,
+            stop_reason=stop_reason,
+            cleanup_complete=cleanup_complete,
             stderr_path=stderr_path,
         )
 
@@ -283,7 +285,14 @@ class AcpSession:
         self._done.set()
         self._stderr_task: asyncio.Task | None = None
         self._closing = False
-        self.error: str | None = None
+        self.stop_reason: str | None = None
+        self.cleanup_complete: bool | None = None
+        self.diagnostics: list[str] = []
+
+    @property
+    def error(self) -> str | None:
+        """Return the redacted execution and cleanup diagnostics in order."""
+        return "; ".join(self.diagnostics) or None
 
     async def run(self, prompt: str) -> None:
         from acp import PROTOCOL_VERSION, spawn_agent_process
@@ -376,6 +385,7 @@ class AcpSession:
         if not self._done.is_set():
             raise RuntimeError("Cannot submit while an ACP prompt is active")
         self._done = asyncio.Event()
+        self.stop_reason = None
         self._emit({"type": "acp_prompt"})
         self._task = asyncio.create_task(self._consume_prompt(message.text, self._done))
         return 1
@@ -394,16 +404,21 @@ class AcpSession:
                     **jsonable(response, by_alias=True),
                 }
             )
+            self.stop_reason = {
+                "max_turn_requests": "budget",
+                "max_tokens": "budget",
+                "end_turn": "completed",
+            }.get(response.stop_reason, response.stop_reason)
             done.set()
             if self._closing or self._control is None:
                 return
-            if response.stop_reason in {"max_turn_requests", "max_tokens", "refusal"}:
+            if self.stop_reason in {"budget", "refusal"}:
                 self._control.end()
             else:
                 await self._control.complete(self)
         except Exception as exc:
             done.set()
-            self.error = self._redact(f"{type(exc).__name__}: {exc}")
+            self.diagnostics.append(self._redact(f"{type(exc).__name__}: {exc}"))
             if self._control is None and isinstance(exc, RequestError):
                 raise RequestError(exc.code, self._redact(str(exc))) from None
             if self._control is not None:
@@ -447,17 +462,41 @@ class AcpSession:
         self._closing = True
         try:
             if self._task is not None:
-                with contextlib.suppress(Exception):
+                try:
                     await self.interrupt()
-                if not self._task.done():
-                    self._task.cancel()
-                with contextlib.suppress(asyncio.CancelledError, Exception):
-                    await self._task
+                except Exception as exc:
+                    self.cleanup_complete = False
+                    self.diagnostics.append(
+                        self._redact(f"Prompt interruption failed: {exc}")
+                    )
+                finally:
+                    if not self._task.done():
+                        self._task.cancel()
+                    with contextlib.suppress(asyncio.CancelledError, Exception):
+                        await self._task
         finally:
-            if self._transport is not None:
-                await self._transport.__aexit__(None, None, None)
-            if self._stderr_task is not None:
-                await self._stderr_task
+            transport_closed = False
+            try:
+                if self._transport is not None:
+                    await self._transport.__aexit__(None, None, None)
+                transport_closed = True
+            except Exception as exc:
+                self.cleanup_complete = False
+                self.diagnostics.append(
+                    self._redact(f"ACP transport cleanup failed: {exc}")
+                )
+            finally:
+                if self._stderr_task is not None:
+                    # A failed or cancelled transport exit need not deliver EOF.
+                    if not transport_closed:
+                        self._stderr_task.cancel()
+                    (outcome,) = await asyncio.gather(
+                        self._stderr_task, return_exceptions=True
+                    )
+                    if isinstance(outcome, Exception):
+                        self.diagnostics.append(
+                            self._redact(f"Stderr reader failed: {outcome}")
+                        )
 
 
 # ---------------------------------------------------------------------------
