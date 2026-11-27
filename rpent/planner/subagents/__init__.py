@@ -42,9 +42,11 @@ def build_api_subagent(
 ) -> ApiSubAgent:
     """Construct an API role using the session's Toolkit adapter."""
     validate_subagent("api", name)
-    from rpent.planner.subagents.scene_narrator import build_api_narrator
+    if name == "narrator":
+        from rpent.planner.subagents.scene_narrator import build_api_narrator
 
-    return build_api_narrator(planner, recorder)
+        return build_api_narrator(planner, recorder)
+    raise ValueError(f"no api builder registered for subagent: {name}")
 
 
 def build_claude_subagent(
@@ -52,12 +54,14 @@ def build_claude_subagent(
 ) -> tuple[str, Any]:
     """Construct a named Claude Agent SDK role."""
     validate_subagent("claude_code", name)
-    from rpent.planner.subagents.scene_narrator import (
-        NARRATOR_NAME,
-        build_claude_narrator,
-    )
+    if name == "narrator":
+        from rpent.planner.subagents.scene_narrator import (
+            NARRATOR_NAME,
+            build_claude_narrator,
+        )
 
-    return NARRATOR_NAME, build_claude_narrator(sdk, toolkit=toolkit, model=model)
+        return NARRATOR_NAME, build_claude_narrator(sdk, toolkit=toolkit, model=model)
+    raise ValueError(f"no claude_code builder registered for subagent: {name}")
 
 
 def build_codex_subagent(
@@ -65,6 +69,8 @@ def build_codex_subagent(
 ) -> CodexSubAgent:
     """Construct a Codex role using the existing RPent MCP endpoint."""
     validate_subagent("codex", name)
-    from rpent.planner.subagents.scene_narrator import build_codex_narrator
+    if name == "narrator":
+        from rpent.planner.subagents.scene_narrator import build_codex_narrator
 
-    return build_codex_narrator(toolkit=toolkit, model=model)
+        return build_codex_narrator(toolkit=toolkit, model=model)
+    raise ValueError(f"no codex builder registered for subagent: {name}")

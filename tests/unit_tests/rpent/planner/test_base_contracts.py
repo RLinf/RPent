@@ -15,12 +15,14 @@
 from __future__ import annotations
 
 import asyncio
+from unittest.mock import MagicMock
 
 import httpx
 import pytest
 from pydantic_ai import ModelRequest, UserPromptPart
 from pydantic_ai.models import ModelRequestParameters
 
+from rpent.planner import subagents
 from rpent.planner.base import build_api_model
 
 
@@ -71,6 +73,25 @@ def test_subagent_configuration_fails_before_model_initialization(
             subagent=role,
             dashboard_events=NullDashboardEventSink(),
         )
+
+
+@pytest.mark.parametrize(
+    ("backend", "factory", "arguments"),
+    [
+        ("api", subagents.build_api_subagent, ("planner", "recorder")),
+        ("claude_code", subagents.build_claude_subagent, ("sdk", "toolkit", "model")),
+        ("codex", subagents.build_codex_subagent, ("toolkit", "model")),
+    ],
+)
+def test_subagent_role_without_backend_builder(
+    monkeypatch, backend, factory, arguments
+):
+    monkeypatch.setattr(
+        subagents, "SUBAGENT_NAMES", (*subagents.SUBAGENT_NAMES, "observer")
+    )
+    message = f"no {backend} builder registered for subagent: observer"
+    with pytest.raises(ValueError, match=message):
+        factory("observer", **{argument: MagicMock() for argument in arguments})
 
 
 @pytest.mark.parametrize("source", ["argument", "environment", "override"])
