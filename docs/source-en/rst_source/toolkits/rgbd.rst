@@ -138,3 +138,45 @@ the tools on the robot's toolkit.
    you reuse the same geometry tool instance across episodes and step numbers
    restart, call ``geometry.reset_cache()`` at the start of each new episode to
    clear the cache.
+
+Sample Parallel-Jaw Grasps
+--------------------------
+
+Add ``--rgbd-tools`` when you run LIBERO to use ``estimate_grasp_pose``.
+Confirm the target in the ``segment`` overlay and pass ``segment_artifact``,
+``camera`` and ``step`` from that result, as in this example.
+
+.. code-block:: json
+
+   {"segment_artifact": "segment_a1b2c3d4e5f6_000.json", "camera": "agentview", "step": 0}
+
+By default, the gripper approaches opposite the observation's
+``up_direction``. To select another direction of travel toward the target,
+give a nonzero ``approach_xyz`` in the same world frame.
+
+The tool returns up to ``top_k`` candidates (three by default). For each
+candidate, ``center_xyz`` in metres is adjusted along the closing axis to
+the midpoint of the observed limits. If a distant depth sample would pull
+the midpoint too far from the visible-surface center, the tool keeps that
+center. It uses PCA on the
+visible points projected onto the plane perpendicular to the approach to
+sample gripper yaw. The columns of each right-handed ``rotation_matrix`` express the
+gripper's local +X closing, +Y lateral and +Z approach axes in
+``world_frame_id``.
+
+``estimated_width_m`` is the span between the 2nd and 98th percentiles
+along the closing axis after trimming outliers. ``suggested_opening_m``
+is twice the distance to the farther measured limit along the closing axis,
+plus ``jaw_margin_m`` per jaw. Set ``max_opening_m`` to filter by that opening. Verify that extreme
+depth samples belong to the object before using the result. The ``score``
+divides the narrowest percentile span by the candidate's percentile span.
+Higher scores favour narrower spans. If the visible points give no
+clear in-plane direction, the tool sets ``pca_yaw_ambiguous`` and samples
+from a fixed world-frame reference.
+
+Use this prompt to guide the planner.
+
+   Pass a verified segmentation record to ``estimate_grasp_pose``. Check
+   the gripper opening, reachable pose, contact surfaces and collision
+   clearance for a candidate before choosing it. If there is too little
+   valid geometry, inspect the mask or select another view.
