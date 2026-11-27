@@ -90,6 +90,7 @@ class LiberoToolkit(Toolkit):
             from robots.libero.observations import LiberoGeometryObservations
             from toolkits.back_project import back_project
             from toolkits.segment import SegmentTool
+            from toolkits.spatial_relation import spatial_relation
 
             observations = LiberoGeometryObservations(state)
             self.add_tool(
@@ -103,6 +104,11 @@ class LiberoToolkit(Toolkit):
                     state=state,
                     segmenter=sam3,
                 ).segment
+            )
+            self.add_tool(
+                spatial_relation.with_handler(
+                    partial(spatial_relation, observations=observations, state=state)
+                )
             )
             if geometry_grounder is not None:
                 from toolkits.geometry.geometry_tool import GeometryTool

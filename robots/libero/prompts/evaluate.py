@@ -430,6 +430,13 @@ Read samples_xyz in point order. A null marks invalid or filtered depth. For a r
 box_rc [top,left,bottom,right] in place of points_rc (bottom and right are exclusive).
 A box returns surface_xyz and visible_bounds_xyz when enough samples exist. Optional height_m
 filters world heights in metres. Check visually which object the selected surface belongs to.
+Use spatial_relation for a metric distance or direction from a reference to a target.
+Supply a forward_xyz vector for the intended convention, such as [1,0,0] for world +X.
+Set reference and target to {"xyz":XYZ,"world_frame_id":FRAME_ID} using the returned
+frame ID, or to {"segment_artifact":ARTIFACT_NAME} from an inspected segment result
+at the same step. Positive offsets put the target in front, right or above the
+reference. For a mask, the point represents its visible surface.
+If the result needs another observation, check the reason before using a position.
 For segment, supply text, a point, or both with the camera and step. For the
 same pixel, include the shape of the image you inspected:
     segment({"camera":"agentview","step":0,"point":[200,240],"image_shape":[1024,1024]})

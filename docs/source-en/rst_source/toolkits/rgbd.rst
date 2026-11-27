@@ -138,3 +138,32 @@ the tools on the robot's toolkit.
    you reuse the same geometry tool instance across episodes and step numbers
    restart, call ``geometry.reset_cache()`` at the start of each new episode to
    clear the cache.
+
+Compare Two 3D Positions
+------------------------
+
+Add ``--rgbd-tools`` when you run LIBERO to use ``spatial_relation``. Select
+an observation with ``camera`` and ``step``. Each of ``reference`` and
+``target`` takes one of these objects:
+
+- A point with ``xyz`` in metres and the observation's ``world_frame_id``.
+- An object with only the ``segment_artifact`` name returned by ``segment``
+  at that step.
+
+Choose ``forward_xyz`` in the same world frame. The tool projects it onto
+the horizontal plane and defines right as forward crossed with up. For
+example, with Z up and ``[1, 0, 0]`` as forward, +X is forward, −Y is right
+and +Z is up. The tool returns the straight-line 3D distance and the offsets
+of target minus reference along those three axes. When an offset's absolute
+value is at most ``tolerance_m``, its direction is ``aligned``. The default
+tolerance is 0.001 metres.
+
+The point for a mask is the coordinate-wise median of its valid visible
+3D samples. Each mask needs at least ten such samples. If a mask has too
+few, choose another view with valid depth.
+
+Use this prompt to guide the planner.
+
+   Use ``spatial_relation`` to report the distance, signed height difference,
+   and directions of the target relative to the reference. When using
+   segmentation records, verify that each mask covers the intended object.
