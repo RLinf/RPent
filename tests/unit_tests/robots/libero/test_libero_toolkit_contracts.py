@@ -198,8 +198,10 @@ def test_generic_localization_is_registered_with_libero_observations(
         memory=MemoryManager(tmp_path / "memory"),
         state_output_dir=tmp_path / "state",
     )
-    assert _tool_names(tk) == EVALUATION_TOOLS | ({"geometry"} if enabled else set())
-    assert {"back_project", "segment"} <= _readonly_names(tk)
+    assert _tool_names(tk) == (
+        EVALUATION_TOOLS | {"image_diff"} | ({"geometry"} if enabled else set())
+    )
+    assert {"back_project", "image_diff", "segment"} <= _readonly_names(tk)
     if enabled:
         assert "geometry" in _readonly_names(tk)
         schema = tk._tools["geometry"].input_schema["properties"]
@@ -254,6 +256,33 @@ def test_generic_localization_is_registered_with_libero_observations(
         and segmented.data["evidence_status"] == "identity_unchecked"
     )
     assert tk.state.latest_step == step
+
+    with tk.state.record_step(state={}) as after_step:
+        rgb = np.zeros((4, 4, 3), dtype=np.uint8)
+        rgb[3, 1, 0] = 30
+        points[3, 1, 2] += 0.125
+        tk.state.save("agentview_high.png", rgb, step=after_step)
+        tk.state.save("agentview_world_high.npz", points, step=after_step)
+        tk.state.save(
+            "agentview_metadata.json",
+            tk.state.load("agentview_metadata.json", step=step),
+            step=after_step,
+        )
+    compared = tk.execute_tool(
+        "image_diff", {"camera": "agentview", "before_step": step}
+    )
+    assert compared.data["after_step"] == after_step
+    for modality in ("rgb", "depth"):
+        assert compared.data[modality]["bbox_rc"] == [3, 1, 4, 2]
+        assert compared.data[modality]["changed_ratio"] == 1 / 16
+    rejected = tk.execute_tool(
+        "image_diff", {"camera": "agentview", "before_step": step, "rgb_threshold": 0}
+    )
+    assert rejected.is_error
+    (validation_error,) = rejected.data["errors"]
+    assert validation_error["loc"] == ("rgb_threshold",)
+    assert validation_error["type"] == "greater_than_equal"
+    assert tk.state.latest_step == after_step
 
 
 def test_pinned_wrist_sample_uses_its_own_calibration(tmp_path):
@@ -325,6 +354,7 @@ def test_generic_tools_and_geometry_are_opt_in(
             "system", variables={**config.prompt_vars, "output_dir": str(tmp_path)}
         )
         assert ("points_rc" in prompt and "box_rc" in prompt) is generic
+        assert ("image_diff(" in prompt) is generic
         assert ('back_project({"row":' in prompt) is not generic
         assert ("mutually exclusive" in prompt) is not generic
         assert ("For geometry, give query" in prompt) is geometry
@@ -342,10 +372,15 @@ def test_generic_tools_and_geometry_are_opt_in(
             state_output_dir=tmp_path / "state",
         )
         schemas = {tool.name: tool.args_schema for tool in tk.list_tools()}
+        assert ("image_diff" in schemas) is generic
+        if generic:
+            assert "observations" not in schemas["image_diff"].model_fields
         examples = re.findall(
-            r"\b(back_project|segment|geometry)\((\{.*?\})\)", prompt, re.S
+            r"\b(back_project|image_diff|segment|geometry)\((\{.*?\})\)", prompt, re.S
         )
         expected = {"back_project", "segment"} | ({"geometry"} if geometry else set())
+        if generic:
+            expected.add("image_diff")
         assert {name for name, _ in examples} == expected
         for name, example in examples:
             # The default prompt uses ROW, COL and NN for the selected pixel and step.

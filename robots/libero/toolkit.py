@@ -89,6 +89,7 @@ class LiberoToolkit(Toolkit):
         if generic_tools:
             from robots.libero.observations import LiberoGeometryObservations
             from toolkits.back_project import back_project
+            from toolkits.image_diff import image_diff
             from toolkits.segment import SegmentTool
 
             observations = LiberoGeometryObservations(state)
@@ -103,6 +104,9 @@ class LiberoToolkit(Toolkit):
                     state=state,
                     segmenter=sam3,
                 ).segment
+            )
+            self.add_tool(
+                image_diff.with_handler(partial(image_diff, observations=observations))
             )
             if geometry_grounder is not None:
                 from toolkits.geometry.geometry_tool import GeometryTool
