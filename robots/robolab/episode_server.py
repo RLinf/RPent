@@ -334,6 +334,9 @@ class RoboLabEpisodeRuntime:
         if cuda_device is not None:
             os.environ["CUDA_VISIBLE_DEVICES"] = str(cuda_device)
             kit_args += f" --/renderer/activeGpu={cuda_device}"
+        extra_kit_args = os.environ.get("RPENT_ISAAC_KIT_ARGS", "").strip()
+        if extra_kit_args:
+            kit_args += f" {extra_kit_args}"
 
         import cv2  # noqa: F401  # Load OpenCV before Kit, as RoboLab does.
         from isaaclab.app import AppLauncher

@@ -94,10 +94,15 @@ def build_config(args: argparse.Namespace):
                 "headless": args.headless,
                 # Native camera buffers use CUDA ordinal zero. Isolate CUDA
                 # while selecting the physical Vulkan renderer explicitly.
-                "kit_args": (
-                    args.kit_args
-                    + " --/renderer/multiGpu/enabled=false"
-                    + f" --/renderer/activeGpu={args.cuda_device}"
+                "kit_args": " ".join(
+                    part
+                    for part in (
+                        args.kit_args.strip(),
+                        "--/renderer/multiGpu/enabled=false",
+                        f"--/renderer/activeGpu={args.cuda_device}",
+                        os.environ.get("RPENT_ISAAC_KIT_ARGS", "").strip(),
+                    )
+                    if part
                 ),
                 "random": args.random,
                 "max_episode_steps": args.max_episode_steps,
