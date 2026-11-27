@@ -24,8 +24,8 @@ loop is orchestrated, and which model SDK or CLI is used.
      - When to pick it
    * - ``api``
      - A tool-calling loop built on `Pydantic AI <https://ai.pydantic.dev/>`_
-       that supports multiple model APIs. For long conversations, it sends
-       fewer older messages to the model.
+       that supports multiple model APIs. For long conversations, it
+       automatically compacts the context.
      - Call Anthropic, Google, OpenAI, or a compatible model service directly.
    * - ``claude_code``
      - The `Claude Agent SDK
@@ -384,10 +384,11 @@ A turn is not a robot action: one model response can request several tools.
 The counting rule depends on the backend:
 
 - **API:** Each model request counts once across the whole conversation,
-  including retries, compaction summaries, and follow-up user inputs. Pydantic AI enforces the limit;
-  RPent reports the request count as ``turns_used``. Reaching the limit is a
-  normal stop, not a planner error or a claim of task success. Exploration can
-  continue with the next session and merge memory when otherwise eligible.
+  including retries, compaction summaries, and follow-up user inputs. RPent
+  enforces the limit and reports the request count as ``turns_used``. Reaching
+  the limit is a normal stop, not a planner error or a claim of task success.
+  Exploration can continue with the next session and merge memory when
+  otherwise eligible.
 - **Codex:** Each model response counts once, including responses with
   only reasoning or tool calls. Several tools requested in the same response
   still count as one turn. RPent enforces this limit.

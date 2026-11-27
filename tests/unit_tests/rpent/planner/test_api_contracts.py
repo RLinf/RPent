@@ -961,6 +961,95 @@ def test_multi_run_compaction_does_not_summarize_after_budget_exhausted(
     )
 
 
+@pytest.mark.parametrize(
+    ("model_name", "expected_effort"),
+    [("deepseek-v4.1-flash", "none"), ("o3", None)],
+)
+def test_compaction_summary_disables_optional_thinking(
+    tmp_path, model_name, expected_effort
+):
+    import httpx
+    from openai import AsyncOpenAI
+    from pydantic_ai.models.openai import OpenAIChatModel
+    from pydantic_ai.providers.openai import OpenAIProvider
+
+    bodies = []
+    parent_turns = 0
+
+    def sse(delta, finish_reason, prompt_tokens=1500):
+        base = {
+            "id": "c",
+            "created": 0,
+            "model": model_name,
+            "object": "chat.completion.chunk",
+        }
+        chunks = [
+            {
+                **base,
+                "choices": [
+                    {"index": 0, "delta": delta, "finish_reason": finish_reason}
+                ],
+            },
+            {
+                **base,
+                "choices": [],
+                "usage": {
+                    "prompt_tokens": prompt_tokens,
+                    "completion_tokens": 20,
+                    "total_tokens": prompt_tokens + 20,
+                },
+            },
+        ]
+        data = (
+            "".join(f"data: {json.dumps(c)}\n\n" for c in chunks) + "data: [DONE]\n\n"
+        )
+        return httpx.Response(
+            200, content=data.encode(), headers={"Content-Type": "text/event-stream"}
+        )
+
+    def handle(request):
+        nonlocal parent_turns
+        body = json.loads(request.content)
+        bodies.append(body)
+        if "tools" not in body:
+            return sse({"role": "assistant", "content": "Summary."}, "stop")
+        parent_turns += 1
+        name, args = ("observe", {}) if parent_turns < 3 else ("finish", FINISH_ARGS)
+        delta = {
+            "role": "assistant",
+            "content": "detail " * 800 if parent_turns < 3 else None,
+            "tool_calls": [
+                {
+                    "index": 0,
+                    "id": f"c{parent_turns}",
+                    "type": "function",
+                    "function": {"name": name, "arguments": json.dumps(args)},
+                }
+            ],
+        }
+        return sse(delta, "tool_calls", 5500 if parent_turns == 2 else 1500)
+
+    sdk = AsyncOpenAI(
+        api_key="offline-only",
+        base_url="https://example.invalid/v1",
+        http_client=httpx.AsyncClient(transport=httpx.MockTransport(handle)),
+    )
+    result, _, _ = solve(
+        tmp_path,
+        OpenAIChatModel(model_name, provider=OpenAIProvider(openai_client=sdk)),
+        max_tokens=8192,
+        context_window=6000,
+        reasoning_effort="high",
+        no_images=True,
+        max_turns=6,
+    )
+    assert result.error is None
+    (summary,) = [b for b in bodies if "tools" not in b]
+    assert summary.get("reasoning_effort") == expected_effort
+    assert summary.get("max_tokens", summary.get("max_completion_tokens")) == 4096
+    assert "parallel_tool_calls" not in summary
+
+
 def test_dashboard_steering_enters_next_request_in_same_native_run(tmp_path):
     state = dashboard(tmp_path)
     sent = []

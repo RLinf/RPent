@@ -314,6 +314,21 @@ def _build_model_settings(
     return ModelSettings(max_tokens=max_tokens, parallel_tool_calls=True)
 
 
+def _build_summary_model_settings(model: Model, max_tokens: int) -> ModelSettings:
+    """Cap summary output tokens and disable optional thinking."""
+    from pydantic_ai.models.openai import OpenAIChatModel, OpenAIChatModelSettings
+
+    summary_max_tokens = min(max_tokens, 4096)
+    if isinstance(model, OpenAIChatModel) and not model.profile.get(
+        "supports_thinking", False
+    ):
+        return OpenAIChatModelSettings(
+            max_tokens=summary_max_tokens,
+            openai_reasoning_effort="none",
+        )
+    return ModelSettings(max_tokens=summary_max_tokens, thinking=False)
+
+
 _IMAGE_REF_RE = re.compile(r"See file [0-9a-f]{6}\.")
 _ESTIMATED_IMAGE_TOKENS = 1_200
 
@@ -415,7 +430,7 @@ def _build_compaction(
                 fallback_chain=[
                     _SummarizingCompaction(
                         model=model,
-                        model_settings=ModelSettings(max_tokens=min(max_tokens, 4096)),
+                        model_settings=_build_summary_model_settings(model, max_tokens),
                         max_messages=1,
                         keep_messages=16,
                         keep_tokens=keep_tokens,
