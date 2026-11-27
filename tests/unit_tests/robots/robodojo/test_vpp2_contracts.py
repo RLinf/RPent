@@ -9,7 +9,7 @@ import pytest
 
 from robots.robodojo.env_client import ExecutionSyncError, RoboDojoEnvClient
 from robots.robodojo.primitives import RoboDojoPrimitives
-from robots.robodojo.vpp2_client import VPP2Client
+from components.models.vpp2.client import VPP2Client
 from rpent.tools.toolkit import ToolCancelled
 
 
@@ -427,7 +427,7 @@ def test_toolkit_registers_policy_and_exports_subtask(connected, tmp_path, monke
 @pytest.fixture
 def facade(monkeypatch):
     torch = pytest.importorskip("torch")
-    from robots.robodojo.vpp2_server import VPP2Facade
+    from components.models.vpp2.server import VPP2Facade
 
     calls = []
     helpers = ModuleType("vpp2.policy")
@@ -539,7 +539,7 @@ def test_fresh_inspection_restores_analytic_control_without_repairing_history(
 
 
 def test_vpp2_model_resource_layout(tmp_path):
-    from robots.robodojo.vpp2_server import model_paths
+    from components.models.vpp2.server import model_paths
 
     for file in (
         "policy/src/vpp2/policy.py",

@@ -64,11 +64,10 @@ DOC_ROOTS = tuple(f"docs/source-{lang}/rst_source/development" for lang in ("en"
 CODE_ROOTS = (
     "rpent",
     "robots",
-    "toolkits",
-    "calibration_tools",
+    "components",
     "tests",
-    "requirements",
     "pyproject.toml",
+    ".github/workflows",
     "docs/source-en/conf.py",
     "docs/source-zh/conf.py",
 )

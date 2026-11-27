@@ -27,7 +27,7 @@ from robots.yam.tasks import TASK_INSTRUCTIONS, resolve_task_language
 from rpent.dashboard.events import DashboardEventSink
 from rpent.dashboard.spec import DashboardSpec
 from rpent.memory import MemoryManager
-from rpent.robots.components.am_runtime import add_am_args, select_am
+from rpent.components.models.backends import add_am_args, select_am
 from rpent.robots.prompt_bundle import PromptBundle
 from rpent.robots.robot_spec import RobotSpec, RunConfig
 from rpent.robots.runtime import try_wait_server
@@ -317,7 +317,7 @@ def _build_env_runtime_kwargs(args: argparse.Namespace, env_rpc: Any) -> dict[st
 
 
 def _build_vla_runtime_kwargs(vla_rpc: Any) -> dict[str, Any]:
-    from rpent.robots.components.pi05_vla_client import Pi05VLAClient
+    from components.models.openpi.client import Pi05VLAClient
 
     expected_meta = vla_runtime_contract()
     actual_meta = vla_rpc.call("vla.get_model_meta", timeout_s=30.0)

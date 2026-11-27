@@ -20,10 +20,10 @@ from unittest.mock import Mock
 import numpy as np
 import pytest
 
-from robots.libero.wam_client import LiberoWAMClient, libero_request
-from rpent.robots.components.am_facade_base import BaseWAMFacade
-from rpent.robots.components.cosmos_policy.adapter import make_adapter
-from rpent.robots.components.cosmos_policy.server import CosmosPolicyFacade
+from components.sim.libero.wam_client import LiberoWAMClient, libero_request
+from rpent.components.models.facade import BaseWAMFacade
+from components.models.cosmos_policy.adapter import make_adapter
+from components.models.cosmos_policy.server import CosmosPolicyFacade
 
 
 @pytest.fixture

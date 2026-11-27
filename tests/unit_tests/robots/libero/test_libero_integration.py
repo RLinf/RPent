@@ -26,11 +26,11 @@ from robots.libero import robot_spec
 from robots.libero import toolkit as libero_toolkit
 from robots.libero.tools import LiberoPrimitives
 from rpent.dashboard.events import NullDashboardEventSink
-from rpent.flywheel.flywheel import select_vla_segments
-from rpent.flywheel.reader import iter_trajectories
+from components.tools.flywheel.flywheel import select_vla_segments
+from components.tools.flywheel.reader import iter_trajectories
 from rpent.memory import MemoryManager
 from rpent.planner.api_loop import ApiAgentLoop
-from rpent.robots.components.action_spec import validate_action
+from rpent.components.env.action_spec import validate_action
 from rpent.session import EnvState, Payload
 from rpent.session.env_capture import CapturingEnvClient, ToolCallCapture
 from rpent.tools import ToolResult
@@ -654,8 +654,8 @@ def test_libero_client_facade_capture_and_raw_trajectory_roundtrip(
     make_server_and_client, tmp_path, all_frames, default_all_frames, record
 ):
     from robots.libero.env_client import LiberoEnvClient
-    from robots.libero.env_server import LiberoEnvFacade
-    from rpent.flywheel.reader import read_array
+    from components.sim.libero.env_server import LiberoEnvFacade
+    from components.tools.flywheel.reader import read_array
 
     backend = _LiberoBackend()
     state = EnvState(tmp_path)
@@ -735,7 +735,7 @@ def test_libero_failed_chunk_discards_unconfirmed_actions(
     make_server_and_client, tmp_path
 ):
     from robots.libero.env_client import LiberoEnvClient
-    from robots.libero.env_server import LiberoEnvFacade
+    from components.sim.libero.env_server import LiberoEnvFacade
 
     state = EnvState(tmp_path)
     state.start_task(

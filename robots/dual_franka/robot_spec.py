@@ -35,7 +35,7 @@ from robots.franka.runtime_config import (
 from rpent.dashboard.events import DashboardEventSink, RuntimeStatusEvent
 from rpent.dashboard.spec import DashboardSpec
 from rpent.memory import MemoryManager
-from rpent.robots.components.am_runtime import (
+from rpent.components.models.backends import (
     AMConfig,
     add_am_args,
     select_am,
@@ -302,7 +302,7 @@ def _vla_server_command(
 ) -> list[str]:
     command = [
         "-m",
-        "rpent.robots.components.pi05_vla_server",
+        "components.models.openpi.server",
         "--embodiment",
         "dual_franka",
         "--transport",
@@ -388,7 +388,7 @@ def _spawn_sam3_server(
         name="sam3_server",
         cmd=[
             sys.executable,
-            str(get_repo_root() / "rpent" / "robots" / "components" / "sam3_server.py"),
+            str(get_repo_root() / "components" / "models" / "sam3" / "server.py"),
             "--transport",
             "http",
             "--host",
@@ -421,8 +421,8 @@ def _init_runtime(
     """
     select_am(args, "dual_franka")
     from robots.dual_franka.env_client import DualFrankaEnvClient
-    from rpent.robots.components.pi05_vla_client import Pi05VLAClient
-    from rpent.robots.components.sam3_client import Sam3Client
+    from components.models.openpi.client import Pi05VLAClient
+    from components.models.sam3.client import Sam3Client
 
     available = {"env", "vla", "sam3"}
     selected = available if components is None else components

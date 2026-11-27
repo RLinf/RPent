@@ -21,7 +21,7 @@ from typing import Any
 
 import numpy as np
 
-from robots.robotwin.control import QPOS_HISTORY_CAPACITY
+from components.sim.robotwin.control import QPOS_HISTORY_CAPACITY
 from robots.robotwin.robot_spec import (
     ROBOTWIN_CAMERA_NAMES,
     ROBOTWIN_READ_TIMEOUT_S,
@@ -29,7 +29,7 @@ from robots.robotwin.robot_spec import (
     ROBOTWIN_STATUS_KEYS,
     RoboTwinActionType,
 )
-from rpent.robots.components.env_client_base import BaseEnvClient
+from rpent.components.env.client import BaseEnvClient
 from rpent.utils.rpc import RpcClient
 
 

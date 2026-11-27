@@ -45,8 +45,8 @@ When `components` (`set[str] | None`) is passed by the Dashboard, start only the
   ]
   ```
 - When a robot extra pins incompatible `torch`, `transformers`, `numpy`, or `robosuite` versions, add pairs to `[tool.uv] conflicts`.
-- If a robot needs `uv` resolver overrides that must not affect other robots, put them in `requirements/<robot>-override.txt` (following `requirements/robodojo-override.txt`) and document `--override` in the simulator guide.
-- Keep `include = ["rpent*", "robots", "robots.*", "toolkits", "toolkits.*"]` in `[tool.setuptools.packages.find]` and list any non-Python prompt/config/guide assets under `[tool.setuptools.package-data]`.
+- If a robot needs `uv` resolver overrides that must not affect other robots, put them in `requirements/<robot>-override.txt` (following `components/sim/robodojo/requirements/robodojo-override.txt`) and document `--override` in the simulator guide.
+- Keep `include = ["rpent*", "robots", "robots.*", "toolkits", "components.tools.rgbd.*"]` in `[tool.setuptools.packages.find]` and list any non-Python prompt/config/guide assets under `[tool.setuptools.package-data]`.
 
 ## 4. GPU E2E runner and workflow wiring
 

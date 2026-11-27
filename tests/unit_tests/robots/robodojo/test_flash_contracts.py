@@ -19,8 +19,9 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
-from robots.robodojo import env_server, robot_spec
-from robots.robodojo.access import public_observation
+from components.sim.robodojo import env_server
+from robots.robodojo import robot_spec
+from components.sim.robodojo.access import public_observation
 from robots.robodojo.env_client import RoboDojoEnvClient
 from robots.robodojo.flash.generate import generate_plan
 from robots.robodojo.flash.grounding import ANCHOR_METHOD, mask_geometry
@@ -569,7 +570,7 @@ def test_recording_exports_perception_with_historical_motion_metadata(
 def test_flash_config_selects_mode_without_task_summary(monkeypatch, tmp_path):
     import argparse
 
-    from robots.robodojo import tasks
+    from components.sim.robodojo import tasks
 
     parser = argparse.ArgumentParser()
     robot_spec._add_cli_args(parser, False)

@@ -12,7 +12,7 @@ paths:
 
 # Robots, Packaging, and E2E
 
-Each concrete robot integration lives under `robots/<robot>/` and plugs into RPent through `RobotSpec`, `Toolkit`, shared RPC facades (`rpent/robots/components/`), and shared daemon helpers (`rpent/robots/runtime.py`). Dependencies live in `pyproject.toml` optional extras (plus `requirements/*-override.txt` when overrides must stay isolated), and GPU suites run through `tests/e2e_tests/run_gpu_suite.sh` and `.github/workflows/embodied-gpu-e2e*.yml`. Concrete code and packaging shapes are in [reference.md](reference.md).
+Each concrete robot integration lives under `robots/<robot>/` and plugs into RPent through `RobotSpec`, `Toolkit`, shared RPC facades (`rpent/components/`), and shared daemon helpers (`rpent/robots/runtime.py`). Dependencies live in `pyproject.toml` optional extras (plus `requirements/*-override.txt` when overrides must stay isolated), and GPU suites run through `tests/e2e_tests/run_gpu_suite.sh` and `.github/workflows/embodied-gpu-e2e*.yml`. Concrete code and packaging shapes are in [reference.md](reference.md).
 
 ## Conventions
 
@@ -30,7 +30,7 @@ Each concrete robot integration lives under `robots/<robot>/` and plugs into RPe
 1. **Package exports (`robots/<robot>/__init__.py`).** Expose `get_robot_spec` and `get_toolkit` (prefer lazy `__getattr__` as in `robots/libero/__init__.py` and `robots/robotwin/__init__.py`).
 2. **Spec and config (`robots/<robot>/robot_spec.py`).** Populate `RobotSpec` and `RunConfig` for identity, prompts, CLI args (`add_cli_args`, `validate_args`), config parsing (`parse_config`), and runner hooks. Inspect current fields in `rpent/robots/robot_spec.py` instead of copying a stale sibling.
 3. **Env/VLA RPC adapters.** Reuse `BaseEnvClient`/`BaseEnvFacade` and, when needed, `BaseVLAClient`/`BaseVLAFacade`. Match both sides of RPC routes, observation and action formats, reset/session semantics, and server constraints.
-4. **Toolkit and primitives.** Connect tool schemas, handlers, primitives, and state capture. Reuse `toolkits/` for opt-in RGB-D perception when applicable. Keep large observations out of tool-result text, and check tool exposure across supported planners.
+4. **Toolkit and primitives.** Connect tool schemas, handlers, primitives, and state capture. Reuse `components/tools/rgbd/` for opt-in RGB-D perception when applicable. Keep large observations out of tool-result text, and check tool exposure across supported planners.
 5. **Prompts.** Build `PromptBundle` from robot-owned templates. Verify rendered variables, tool names, and concise instructions, following [docs](../docs/SKILL.md) for prose quality.
 6. **Runtime lifecycle.** Implement `init_runtime` with `rpent/robots/runtime.py` helpers for both complete CLI startup and selected Dashboard component subsets. Keep robot-specific result schemas in `finalize_run`.
 7. **Packaging, tests, and docs.** Add or update the `pyproject.toml` extra and `conflicts`, add offline unit tests under `tests/unit_tests/robots/<robot>/`, add real-component/policy-chain e2e tests under `tests/e2e_tests/<robot>/` reusing `tests/e2e_tests/common.py`, and update paired EN/ZH docs and README highlights ([docs](../docs/SKILL.md)).

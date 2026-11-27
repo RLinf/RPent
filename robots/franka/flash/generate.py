@@ -166,7 +166,7 @@ def main() -> None:
     args = parser.parse_args()
     from robots.franka.flash.replay import ask_human
     from robots.franka.runtime_config import set_robot_config_path
-    from rpent.robots.components.molmo_client import MolmoClient
+    from components.models.molmo.client import MolmoClient
     from rpent.utils.rpc import make_rpc_client
 
     if args.destination.exists():

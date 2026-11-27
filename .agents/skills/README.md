@@ -8,7 +8,7 @@ An area skill owns part of the repository. It tells an agent what to read before
 
 | Skill | Owns |
 |---|---|
-| [code](code/SKILL.md) | code, tests, tools, and CI: `rpent/`, `robots/`, `toolkits/`, `calibration_tools/`, `tests/`, `.github/`, `pyproject.toml`, any `.py` file |
+| [code](code/SKILL.md) | code, tests, tools, and CI: `rpent/`, `robots/`, `components/`, `tests/`, `.github/`, `pyproject.toml`, any `.py` file |
 | [docs](docs/SKILL.md) | `docs/`, `README.md`, `README.zh-CN.md`, `CONTRIBUTING.md`, `CONTRIBUTING_zh.md` |
 | [robots](robots/SKILL.md) | robot integrations, packaging extras, and GPU e2e: `robots/`, `rpent/robots/`, `pyproject.toml`, `requirements/`, `tests/e2e_tests/`, `.github/workflows/embodied-gpu-e2e*.yml` |
 

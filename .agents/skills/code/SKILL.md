@@ -1,11 +1,11 @@
 ---
 name: code
-description: "RPent code, tests, tools, and CI (rpent/, robots/, toolkits/, calibration_tools/, tests/, .github/, pyproject.toml, any .py file): read before writing or changing them, then check and verify the change. Covers RPent's design patterns (extension points, containment, daemon ownership, lazy imports, no unnecessary protection code), code conventions, offline CPU unit-test layout, license headers, and verification evidence. Use before adding or changing a planner, session, toolkit, robot adapter, evaluation hook, CLI/Dashboard path, or test, and to check or verify such a change."
+description: "RPent code, tests, tools, and CI (rpent/, robots/, components/tools/rgbd/, robots/dual_franka/calibration/, tests/, .github/, pyproject.toml, any .py file): read before writing or changing them, then check and verify the change. Covers RPent's design patterns (extension points, containment, daemon ownership, lazy imports, no unnecessary protection code), code conventions, offline CPU unit-test layout, license headers, and verification evidence. Use before adding or changing a planner, session, toolkit, robot adapter, evaluation hook, CLI/Dashboard path, or test, and to check or verify such a change."
 paths:
   - rpent/**
   - robots/**
-  - toolkits/**
-  - calibration_tools/**
+  - components/tools/rgbd/**
+  - robots/dual_franka/calibration/**
   - tests/**
   - .github/**
   - pyproject.toml
@@ -21,7 +21,7 @@ RPent's design patterns live in [patterns.md](patterns.md), and the rules CI and
 1. Find the closest current sibling on `main` and start from it (`git log <base> -- <dir>` shows which sibling is recent, so you follow current contracts rather than legacy code).
 2. Plug into the extension point the component kind already has (AGENTS.md § Extending RPent) instead of adding robot- or planner-name branches to shared code.
 3. Read [patterns.md](patterns.md): its design philosophy first, then the Design, Code, and Tests patterns that apply to the change.
-4. Mirror the production module layout under `tests/unit_tests/` (`rpent/`, `robots/<robot>/`, `toolkits/`, `calibration_tools/`, `skills/`), test through the public contract offline on CPU, and mock only external edges ([tests/README.md](../../../tests/README.md)).
+4. Mirror the production module layout under `tests/unit_tests/` (`rpent/`, `robots/<robot>/`, `components/tools/rgbd/`, `robots/dual_franka/calibration/`, `skills/`), test through the public contract offline on CPU, and mock only external edges ([tests/README.md](../../../tests/README.md)).
 5. Keep optional simulator, VLA, and hardware imports inside the function or branch that uses them so `import rpent`, `enumerate_robots()`, and `rpent --help` work with no robot extra installed.
 6. Before you finish, go through [mistakes.md](mistakes.md), run the check below, and run the relevant unit tests.
 
@@ -37,7 +37,7 @@ Findings use the shared format of [README.md](../README.md#findings):
 | Rule | Severity | Reports |
 |---|---|---|
 | `code/pre-commit` | major | `pre-commit run --files` (or `ruff` fallback) fails: Ruff lint (`--preview`), format, and `CPY001` headers. Ruff runs with `--fix`, so re-run after it rewrites a file. |
-| `code/init` | major | a directory with Python files under `rpent/`, `robots/`, or `toolkits/` without `__init__.py` |
+| `code/init` | major | a directory with Python files under `rpent/`, `robots/`, or `components/tools/rgbd/` without `__init__.py` |
 | `code/license` | major or minor | a new Python file without `# Copyright <year> The RPent Authors.` (major), or with a year other than the current one (minor) |
 | `code/test-layout` | minor | a new `test_*.py` file placed directly under `tests/unit_tests/` instead of a component subdirectory |
 | `code/shell-syntax` | critical | a changed shell script that fails `bash -n` |

@@ -21,10 +21,10 @@ from types import SimpleNamespace
 import pytest
 
 from robots.robotwin import robot_spec
-from robots.robotwin.wam_client import RoboTwinWAMClient
+from components.sim.robotwin.wam_client import RoboTwinWAMClient
 from rpent.dashboard.events import NullDashboardEventSink
-from rpent.robots.components import am_runtime
-from rpent.robots.components.uniwam.adapter import make_adapter
+from rpent.components.models import backends as am_runtime
+from components.models.uniwam.adapter import make_adapter
 
 
 def arguments(*extra):

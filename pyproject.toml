@@ -65,7 +65,7 @@ dependencies = [
 rpent = "rpent.cli.main:main"
 rpent-memory = "rpent.cli.memory:main"
 rpent-check-llm = "rpent.cli.check_llm:main"
-rpent-flywheel = "rpent.flywheel.cli:main"
+rpent-flywheel = "components.tools.flywheel.cli:main"
 
 [project.urls]
 Homepage = "https://github.com/RLinf/RPent"
@@ -201,10 +201,10 @@ robolab = [
 prerelease = "allow"
 
 # `robodojo-sim` needs eight overrides for its simulator stack; they live in
-# requirements/robodojo-override.txt so every other robot keeps resolving the
+# components/sim/robodojo/requirements/robodojo-override.txt so every other robot keeps resolving the
 # versions it was validated against. Pass them explicitly:
 #
-#   uv pip install -e ".[robodojo]" --override requirements/robodojo-override.txt
+#   uv pip install -e ".[robodojo]" --override components/sim/robodojo/requirements/robodojo-override.txt
 
 # Each robot extra pulls a separately pinned VLA runtime whose Torch,
 # Transformers, Tokenizers, or Diffusers versions are mutually incompatible.
@@ -301,7 +301,7 @@ where = ["."]
 # leave the CLI unable to import any backend. The globs also cover every
 # per-robot subpackage (robots.yam.*, robots.robodojo.*, ...), as well as the
 # shared RGB-D tools.
-include = ["rpent*", "robots", "robots.*", "toolkits", "toolkits.*"]
+include = ["rpent*", "robots", "robots.*", "toolkits", "components.tools.rgbd.*"]
 exclude = ["tests*", "docs*", "examples*", "docker*"]
 
 [tool.setuptools.package-data]

@@ -1142,7 +1142,7 @@ def test_offline_http_planner_executes_action_and_finish(tmp_path, no_images):
     from pydantic_ai.models.openai import OpenAIChatModel
     from pydantic_ai.providers.openai import OpenAIProvider
 
-    from tests.e2e_tests.offline_planner_server import (
+    from tests.unit_tests.rpent.planner.offline_planner_server import (
         OFFLINE_MODEL_NAME,
         OfflinePlannerServer,
         ScriptedToolCall,
@@ -1190,7 +1190,7 @@ def test_offline_http_planner_preserves_non_streaming_responses(include_image):
 
     from openai import OpenAI
 
-    from tests.e2e_tests.offline_planner_server import (
+    from tests.unit_tests.rpent.planner.offline_planner_server import (
         OFFLINE_MODEL_NAME,
         OfflinePlannerServer,
         ScriptedToolCall,

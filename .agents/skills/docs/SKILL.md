@@ -46,7 +46,7 @@ Page findings count only on the lines the change adds, because older pages may p
 | `docs/build` | critical | a Sphinx warning in either language; both Read the Docs projects build with `fail_on_warning: true`, independently ([reference.md](reference.md#the-build-gate)) |
 | `docs/markup` | critical or major | inline markup next to CJK text that breaks the build (critical) or silently mis-renders (major) ([reference.md](reference.md#inline-markup-next-to-cjk-punctuation)) |
 | `docs/symbol` | major | a name in code font, on a Concepts & Development page, that nothing in the repository defines |
-| `docs/code-name` | major | internal `rpent/`, `robots/`, or `toolkits/` classes, functions, Sphinx API roles, or source paths on a simulator, toolkit, or user guide page |
+| `docs/code-name` | major | internal `rpent/`, `robots/`, or `components/` classes, functions, Sphinx API roles, or source paths on a simulator, toolkit, or user guide page |
 | `docs/structure` | major | a new simulator page missing required sections (`Overview`, `Tasks`, `Observation and Action`, `Installation [and Resources]`, `Run a Task`, `View Results`) |
 | `docs/rtd-link` | major | a hardcoded `rpent.readthedocs.io` link inside `docs/` instead of `:doc:` or `:ref:` |
 | `docs/parity` | major or minor | a page without its counterpart, or toctrees that differ (major); a page, README, or CONTRIBUTING changed while its counterpart did not (minor) |

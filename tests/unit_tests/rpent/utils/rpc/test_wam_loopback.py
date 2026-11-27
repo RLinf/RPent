@@ -19,9 +19,9 @@ from contextlib import ExitStack
 import numpy as np
 import pytest
 
-from rpent.robots.components.am_client_base import BaseWAMClient
-from rpent.robots.components.am_contracts import WAMModelMeta, WAMPrediction
-from rpent.robots.components.am_facade_base import BaseWAMFacade
+from rpent.components.models.client import BaseWAMClient
+from rpent.components.models.contracts import WAMModelMeta, WAMPrediction
+from rpent.components.models.facade import BaseWAMFacade
 from rpent.utils.rpc import RpcError, wait_for_ready
 
 

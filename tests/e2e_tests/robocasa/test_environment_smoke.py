@@ -53,7 +53,7 @@ def test_target50_environment_contract(task_name, monkeypatch):
 
     pytest.importorskip("robocasa")
     from robots.robocasa.env_client import RoboCasaEnvClient
-    from robots.robocasa.env_server import DEFAULT_CAMS, RoboCasaEnvFacade
+    from components.sim.robocasa.env_server import DEFAULT_CAMS, RoboCasaEnvFacade
 
     monkeypatch.setenv("MUJOCO_GL", "egl")
     monkeypatch.setenv("ROBOT_PLATFORM", "ROBOCASA")
@@ -105,7 +105,7 @@ def test_nav_camera_follows_mobile_base(monkeypatch):
 
     pytest.importorskip("robocasa")
     from robots.robocasa.env_client import RoboCasaEnvClient
-    from robots.robocasa.env_server import RoboCasaEnvFacade
+    from components.sim.robocasa.env_server import RoboCasaEnvFacade
 
     monkeypatch.setenv("MUJOCO_GL", "egl")
     monkeypatch.setenv("ROBOT_PLATFORM", "ROBOCASA")

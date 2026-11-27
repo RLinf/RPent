@@ -36,7 +36,7 @@ from rpent.dashboard.events import NullDashboardEventSink
 from rpent.memory import MemoryManager
 from rpent.prompt.utils import Numbered
 from rpent.robots import RunConfig
-from rpent.robots.components.sam3_client import Sam3Result
+from components.models.sam3.client import Sam3Result
 from rpent.session import EnvState
 from rpent.tools import Toolkit, ToolResult
 from rpent.tools.common import CommonTools

@@ -6,7 +6,7 @@ Check this list before finishing any documentation page, README update, prompt/t
 
 | Mistake | Fix |
 |---|---|
-| Naming internal `rpent/`, `robots/`, or `toolkits/` modules, classes, or helper functions on simulator, toolkit, or user guide pages | Describe CLI options, config keys, saved artifacts, and observable behavior |
+| Naming internal `rpent/`, `robots/`, or `components/` modules, classes, or helper functions on simulator, toolkit, or user guide pages | Describe CLI options, config keys, saved artifacts, and observable behavior |
 | Conflating planner `finish` or a clean CLI exit with benchmark task success | State the environment's native success criterion (`terminated` or verifier reward) explicitly |
 | Copying simulator/model commands, extras, defaults, or env vars from another page without checking code | Verify against `pyproject.toml`, `rpent/cli/main.py`, and `robots/<robot>/` |
 | Deleting leaderboard entries, reproduction conditions/denominators, or coming-soon placeholders while streamlining | Preserve published numbers, experimental conditions, and coming-soon entries unless explicitly asked to change them |

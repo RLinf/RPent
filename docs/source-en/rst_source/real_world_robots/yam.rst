@@ -236,7 +236,7 @@ then run:
 
 .. code-block:: bash
 
-   python -m rpent.robots.components.pi05_vla_server \
+   python -m components.models.openpi.server \
      --embodiment yam --model-path "$YAM_MODEL_PATH" \
      --norm-stats-path "$YAM_MODEL_PATH/norm_stats.json" \
      --transport socket --host 127.0.0.1 --port 8220

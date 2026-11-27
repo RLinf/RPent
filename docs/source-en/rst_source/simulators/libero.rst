@@ -286,14 +286,14 @@ What Runs Where
 LIBERO separates simulation and model inference into services. The toolkit
 uses their clients to execute the planner's requests.
 
-- **env_server** (``robots/libero/env_server.py``) — owns the LIBERO
+- **env_server** (``components/sim/libero/env_server.py``) — owns the LIBERO
   MuJoCo env and EGL rendering. Exposes ``reset``, ``step``,
   ``chunk_step``, ``render_camera``, ``get_camera_meta``, … over an RPC
   transport (HTTP by default; socket via ``--transport socket``).
-- **vla_server** (``rpent/robots/components/pi05_vla_server.py``) — owns the Pi0.5
+- **vla_server** (``components/models/openpi/server.py``) — owns the Pi0.5
   weights. Exposes ``predict`` over the same RPC transport (HTTP or
   socket).
-- **sam3_server** (``rpent/robots/components/sam3_server.py``) — loads SAM 3.0 and
+- **sam3_server** (``components/models/sam3/server.py``) — loads SAM 3.0 and
   segments a target region from a text description or one pixel on the target
   object. If the model produces multiple candidates, it selects the one with
   the highest model score and returns its mask as a compressed PNG through the

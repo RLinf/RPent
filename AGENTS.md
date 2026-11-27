@@ -54,14 +54,14 @@ python3 .agents/skills/docs/check.py
 - `rpent/tools/` and `rpent/memory/` – `Toolkit` container, scheduling/cancellation, common/HIL tools, and task memory sync and retrieval.
 - `rpent/robots/` – robot discovery (`base.py`), `RobotSpec`/`RunConfig`/`PromptBundle`, shared daemon lifecycle (`runtime.py`), and shared Env/VLA/SAM3 RPC components (`components/`).
 - `robots/<robot>/` – concrete robot integrations (`libero`, `robocasa`, `robotwin`, `robodojo`, `robolab`, `efe`, `franka`, `dual_franka`, `yam`), each exposing `get_robot_spec` and `get_toolkit`.
-- `toolkits/` – opt-in RGB-D perception tools (`back_project`, `segment`, experimental `geometry`) over observations that each robot adapts.
-- `rpent/cli/`, `rpent/dashboard/`, `rpent/evaluation/`, `rpent/flywheel/`, `rpent/utils/` – CLI entry points, interactive Dashboard, run finalization, trajectory data flywheel, and RPC/daemon/logging helpers.
-- `calibration_tools/`, `requirements/`, `tests/` (`unit_tests/`, `e2e_tests/`), and `docs/` (`source-en/`, `source-zh/`, `STYLE_GUIDE.md`).
+- `components/tools/rgbd/` – opt-in RGB-D perception tools (`back_project`, `segment`, experimental `geometry`) over observations that each robot adapts.
+- `rpent/cli/`, `rpent/dashboard/`, `rpent/evaluation/`, `components/tools/flywheel/`, `rpent/utils/` – CLI entry points, interactive Dashboard, run finalization, trajectory data flywheel, and RPC/daemon/logging helpers.
+- `robots/dual_franka/calibration/`, `requirements/`, `tests/` (`unit_tests/`, `e2e_tests/`), and `docs/` (`source-en/`, `source-zh/`, `STYLE_GUIDE.md`).
 
 ## Rules CI and reviewers enforce
 
 - **Optional dependencies and lazy imports.** Simulators, VLA models, and hardware SDKs are not installed in every environment. Import them inside the function or branch that uses them so `import rpent`, `enumerate_robots()`, and `rpent --help` work with no robot extra installed. Put integration-only dependencies in `pyproject.toml` extras and declare mutually incompatible extras in `[tool.uv] conflicts`.
-- **Package layout and headers.** Every directory containing Python files under `rpent/`, `robots/`, and `toolkits/` has an `__init__.py`, and every Python file starts with the Apache-2.0 header `# Copyright <year> The RPent Authors.` (Ruff `CPY001`).
+- **Package layout and headers.** Every directory containing Python files under `rpent/`, `robots/`, and `components/tools/rgbd/` has an `__init__.py`, and every Python file starts with the Apache-2.0 header `# Copyright <year> The RPent Authors.` (Ruff `CPY001`).
 - **Ruff and style.** Pre-commit runs Ruff (`--preview`) and Ruff format. Public Python APIs need type hints and Google-style docstrings.
 - **Comments and docstrings.** Keep them short, direct, and written for someone reading the current code. State the contract, invariants, ownership, and non-obvious reasons; do not narrate the implementation, repeat the signature, hedge, or record review/fix history.
 - **Logging and errors.** Use `rpent.utils.logging.get_logger()`, never `print`, in runtime code. Error and assertion messages say what was expected and what was found, preserving original exceptions (`raise ... from exc`).
@@ -76,13 +76,13 @@ Plug into an existing contract instead of adding robot- or planner-name branches
 |---|---|---|
 | Robot / simulator | `robots/<robot>/` exposing `get_robot_spec()` (`RobotSpec`) and `get_toolkit()` (`Toolkit`) | `docs/source-en/rst_source/development/add_robot.rst` |
 | Planner | `rpent/planner/` subclassing `Planner` | `docs/source-en/rst_source/development/add_planner.rst` |
-| Action model (VLA/WAM) | `BaseVLAClient`/`BaseVLAFacade` in `rpent/robots/components/` | `docs/source-en/rst_source/development/add_action_model.rst` |
+| Action model (VLA/WAM) | `BaseVLAClient`/`BaseVLAFacade` in `rpent/components/` | `docs/source-en/rst_source/development/add_action_model.rst` |
 | Primitive / tool | `Toolkit.add_tool` in `rpent/tools/toolkit.py` | `docs/source-en/rst_source/development/add_primitive.rst` |
-| RGB-D perception tool | `toolkits/` adapters over robot observations | `docs/source-en/rst_source/toolkits/rgbd.rst` |
+| RGB-D perception tool | `components/tools/rgbd/` adapters over robot observations | `docs/source-en/rst_source/toolkits/rgbd.rst` |
 
 ## Tests
 
-- Mirror production layout under `tests/unit_tests/rpent/`, `tests/unit_tests/robots/<robot>/`, `tests/unit_tests/toolkits/`, and `tests/unit_tests/skills/` (see [tests/README.md](tests/README.md)).
+- Mirror production layout under `tests/unit_tests/rpent/`, `tests/unit_tests/robots/<robot>/`, `tests/unit_tests/components/tools/`, and `tests/unit_tests/skills/` (see [tests/README.md](tests/README.md)).
 - Test observable contracts and concrete regressions offline on CPU; use real local loopback transports or fakes at external edges (LLM APIs, simulators, hardware SDKs).
 - Never weaken product code (for example replacing direct member access with `getattr`/`hasattr` or adding guard branches) so an incomplete mock or stub test passes; construct the real object or satisfy its contract in the test.
 - Never weaken or delete a failing test to make CI pass. Delete a test when you cannot name the change that would make it fail.
@@ -106,7 +106,7 @@ Skills live in `.agents/skills/<name>/SKILL.md` ([.agents/skills/README.md](.age
 
 | Files | Skill |
 |---|---|
-| Code, tests, tools, and CI: `rpent/`, `robots/`, `toolkits/`, `calibration_tools/`, `tests/`, `.github/`, `pyproject.toml`, any `.py` file | `code` |
+| Code, tests, tools, and CI: `rpent/`, `robots/`, `components/tools/rgbd/`, `robots/dual_franka/calibration/`, `tests/`, `.github/`, `pyproject.toml`, any `.py` file | `code` |
 | Docs: `docs/`, `README.md`, `README.zh-CN.md`, `CONTRIBUTING.md`, `CONTRIBUTING_zh.md` | `docs` |
 | Robots, packaging extras, and GPU e2e: `robots/`, `rpent/robots/`, `pyproject.toml`, `requirements/`, `tests/e2e_tests/`, `.github/workflows/embodied-gpu-e2e*.yml` | `robots` |
 

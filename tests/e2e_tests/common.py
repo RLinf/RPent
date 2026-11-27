@@ -33,7 +33,7 @@ import numpy as np
 
 from rpent.dashboard.events import NullDashboardEventSink
 from rpent.robots.robot_spec import RobotSpec
-from tests.e2e_tests.offline_planner_server import (
+from tests.unit_tests.rpent.planner.offline_planner_server import (
     OFFLINE_MODEL_NAME,
     OfflinePlannerServer,
     ScriptedToolCall,

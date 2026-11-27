@@ -30,7 +30,7 @@ from robots.franka.flash.replay import (
     prepare,
     replay,
 )
-from rpent.robots.components.molmo_client import MolmoResult
+from components.models.molmo.client import MolmoResult
 from rpent.tools import ToolResult
 
 
