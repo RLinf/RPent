@@ -196,9 +196,13 @@ Fast-WAM 使用 ``--am-backend fast-wam`` 及其 worker 地址。LIBERO-Pro 需�
 查看结果
 ------------
 
-任务成功了吗？打开输出目录里的 ``result.json``，查看 LIBERO 给出的 ``environment_success``。也可以用 ``view_env_state(step=-1)`` 查看最后一次观测，顶层的 ``terminated`` 就是环境的判定。规划器的 ``finish`` 请求是否获准，记录在 ``finish_accepted`` 中。文件还列出了运行结束的原因和类别，操作员的判断则记在 ``operator_verdict`` 中。
+运行结束后，打开输出目录里的 ``result.json``，看 ``environment_success`` 就知道 LIBERO 是否判定任务成功。也可以用 ``view_env_state(step=-1)`` 查看最后一次观测里的 ``terminated``。规划器的 ``finish`` 请求是否获准，记录在 ``finish_accepted`` 中。操作员的判断记在 ``operator_verdict`` 中。
 
-统计成功率时先看 ``valid``。例如，``valid`` 为真、``environment_success`` 为假，就要算一次失败。有环境判定时，即使模型没调用 ``finish`` 就结束了回复，或是用完了时间或预算，这次尝试也可能计入。Gemini 的 ``max_tokens`` 表示用完了输出预算。模型服务报错、任务取消或操作员中止时，这次尝试不计入。如果规划器还报告了动作、结果送达和清理情况，这三项都要确认才能计入。
+要查为什么停下来，看 ``termination_reason`` 里的具体原因，``termination_category`` 给出它所属的类别。例如，API 模型用完输出额度却没生成可用回复时，前者是 ``response_truncated``，后者是 ``budget``。Gemini 遇到输出上限时会报告 ``max_tokens``，RPent 在结果文件中把原因和类别都记为 ``budget``。
+
+计算成功率时，只统计 ``valid`` 为真的运行。其中 ``environment_success`` 为真的算成功，为假的算失败。例如，10 次运行中有 8 次有效，其中 6 次成功，成功率就是 6/8，即 75%。
+
+超时、预算用完或模型没调用 ``finish`` 就结束回复的运行也可能计入，以文件里的 ``valid`` 为准。模型服务报错、任务取消或操作员中止时，这次运行会被排除。规划器报告动作结果或收尾工作仍待确认时，这次运行也不计入。
 
 CLI 和 Dashboard 都在运行结束时写入 ``result.json``。如果启动时就出错，目录里可能没有这个文件。写入失败时，CLI 返回非零退出码，Dashboard 将任务标记为出错。
 

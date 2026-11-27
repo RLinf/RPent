@@ -214,6 +214,22 @@ def test_task_config_snapshot_redacts_mcp_header_values(tmp_path) -> None:
             "operator_pause",
         ),
         (
+            {"reason": "response_truncated", "category": "budget"},
+            "output limit reached",
+            None,
+            None,
+            "completed",
+            "response_truncated",
+        ),
+        (
+            {"reason": "response_truncated", "category": "error"},
+            "cleanup failed",
+            None,
+            None,
+            "failed",
+            "response_truncated",
+        ),
+        (
             {"reason": "step_budget", "category": "budget"},
             None,
             None,

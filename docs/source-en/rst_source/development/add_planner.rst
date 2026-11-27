@@ -55,12 +55,17 @@ Any planner must:
 5. Return the finish state, messages, usage statistics, and any error in
    ``PlannerResult``.
 
-Your planner reports why it stopped in ``stop_reason``. For example, if it
-returns ``cancelled`` or ``error`` alone, RPent ends exploration. To continue after either
-of those stops, have the planner explicitly allow a new session in
-``stop_info`` and confirm that it knows the action outcomes, delivered the
-results, and finished cleanup. The environment determines whether the task
+Use ``stop_reason`` to say why your planner stopped. Returning ``cancelled`` or
+``error`` alone ends exploration. The environment determines whether the task
 succeeded.
+
+To continue exploring after a cancellation or error, answer four questions
+in ``stop_info``. RPent needs a true value for each one.
+
+- ``execution_certain`` — Do you know the outcome of every action?
+- ``result_delivery_complete`` — Were all tool results delivered?
+- ``cleanup_complete`` — Has the previous session finished cleanup?
+- ``allow_new_session`` — Does the planner allow another session?
 
 Because the RPent tool schemas and prompt-rendering path stay the same,
 adding a planner does not require changes to tools or environment

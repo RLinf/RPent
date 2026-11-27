@@ -802,11 +802,15 @@ def test_full_cli_exploration_finalizes_memory_without_starting_gpu_runtime(
             task = store.get_task()
             assert task.ended_at is not None
             assert saved_tasks[task.task_id]["status"] == task.status
-        assert [store.get_task().status for store in stores] == (
-            ["failed", "completed"]
-            if outcome == "response_truncated"
-            else ["completed"] * len(stores)
-        )
+        assert all(store.get_task().status == "completed" for store in stores)
+        if outcome == "response_truncated":
+            assert len(stores) == 2
+            first_session = stores[0].get_task()
+            assert first_session.stop_reason == "response_truncated"
+            assert first_session.result.data["stop_info"]["category"] == "budget"
+            assert first_session.result.data["error"].startswith(
+                "planner response truncated"
+            )
         if outcome == "request_budget":
             assert all(store.get_task().stop_reason == "tool_limit" for store in stores)
     else:

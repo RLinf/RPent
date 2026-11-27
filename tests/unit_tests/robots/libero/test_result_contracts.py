@@ -280,6 +280,9 @@ def test_standalone_reason_precedes_legacy_stats_without_inventing_safety(
     [
         ("finish", "finish", None, True, False),
         ("request_limit", "budget", None, True, False),
+        ("request_limit", "budget", "provider failed", False, True),
+        ("response_truncated", "budget", "output limit reached", True, False),
+        ("response_truncated", "error", "cleanup failed", False, True),
         ("timeout", "timeout", "Planner timed out", True, False),
         ("timeout", "timeout", None, True, False),
         ("provider_timeout", "error", "TIMEOUT", False, True),

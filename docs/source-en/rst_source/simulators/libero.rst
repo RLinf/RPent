@@ -217,20 +217,27 @@ that call only. Chunk budgets do not specify where to stop inside a chunk.
 View Results
 ------------
 
-To check whether LIBERO considers the task solved, read
-``environment_success`` in the output directory's ``result.json``.
-You can also check ``terminated`` at the top level of the final observation
-with ``view_env_state(step=-1)``. The result file records whether the planner's
-``finish`` was accepted (``finish_accepted``), why the run stopped and its stop
-category, and the operator's verdict (``operator_verdict``).
+Open ``result.json`` in the output directory and read ``environment_success``
+to see whether LIBERO considers the task solved. You can also check
+``terminated`` in the final observation with ``view_env_state(step=-1)``.
+The file records whether the planner's ``finish`` request was accepted in
+``finish_accepted`` and the operator's verdict in ``operator_verdict``.
 
-Use ``valid`` when calculating the success rate. For example, if ``valid``
-is true and ``environment_success`` is false, count one failure. With a known
-environment outcome, a run can count even when the model ends its reply without
-calling ``finish``, runs out of time, or uses up its budget. Gemini reports
-its output limit as ``max_tokens``. A provider error, cancellation, or operator
-abort excludes the run. If the planner reports on the actions, delivery of
-their results, and cleanup, it must confirm all three for the run to count.
+To find out why the run stopped, check ``termination_reason`` for the specific
+reason and ``termination_category`` for its category. When an API model reaches
+its output limit before producing a usable reply, the reason is ``response_truncated`` and the category is
+``budget``. When Gemini reports ``max_tokens``, RPent records ``budget`` in
+both fields.
+
+To calculate the success rate, count only runs where ``valid`` is true. Among
+those runs, ``environment_success`` is true for a success and false for a
+failure. For example, if 8 out of 10 runs are valid and 6 of those succeeded,
+the success rate is 6/8, or 75%.
+
+A run can count even if it times out, uses up its budget, or ends without a
+``finish`` call. Check ``valid`` in the file. A provider error, cancellation,
+or operator abort excludes the run. A run is also excluded if the planner
+reports that it cannot confirm the action outcomes or cleanup.
 
 CLI and Dashboard runs write ``result.json`` at the end. If startup fails,
 there may be no file. If writing fails, the CLI exits with a nonzero status

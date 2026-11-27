@@ -90,8 +90,8 @@ def resolve_stop_info(
     Args:
         stop_info: Optional backend reason, category, and boundary evidence.
         reason: Legacy reason used when the structured reason is absent.
-        error: Diagnostic; only a classified planner deadline may carry one
-            without becoming an error. Provider timeouts must classify as errors.
+        error: Diagnostic from the planner or runner. A planner deadline or
+            a reply truncated at its output limit can carry a diagnostic.
         finish_result: Accepted finish or operator verdict, independently of
             native environment success.
         cancelled_reason: Actual runner cancellation, such as task replacement.
@@ -108,9 +108,11 @@ def resolve_stop_info(
         error=error,
         finish_accepted=finish.get("_finish") is True,
     )
-    if normalized["category"] == "error" or (
-        error is not None and normalized["category"] != "timeout"
-    ):
+    category = normalized["category"]
+    expected_diagnostic = category == "timeout" or (
+        category == "budget" and normalized["reason"] == "response_truncated"
+    )
+    if category == "error" or (error is not None and not expected_diagnostic):
         normalized["category"] = "error"
         return normalized
     if (

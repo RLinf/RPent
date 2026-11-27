@@ -240,6 +240,10 @@ def test_runners_require_stop_evidence_and_preserve_finalization_fields(
     else:
         assert captured[0].stats == returned_stats[-1]
         native = outcome.stop_reason or outcome.stats.get("stop_reason")
+        if native == "response_truncated" and stop_info is None:
+            assert result["termination_category"] == "budget"
+            assert result["planner_error"] is False
+            assert result["valid"] is True
         if stop_info is None and native in (
             "cancelled",
             "interrupted",
