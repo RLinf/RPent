@@ -52,9 +52,12 @@
    * - ``--mcp-config``
      - ``—``
      - 外部 MCP 配置文件（YAML）路径，其中的 ``mcp_servers`` 会自动注册到当前机器人的 ``toolkit`` 中；支持 ``api``、``claude_code``、``codex`` 和 ``gemini_cli``\ （``flash`` 会拒绝此参数）。参见 :ref:`external-mcp-servers`。
+   * - ``--subagent``
+     - ``—``
+     - 取值为 ``narrator`` 时，为 ``api``、``claude_code`` 或 ``codex`` 注册 :ref:`画面解说子智能体 <scene-narration>`。需要接入语音合成工具。
    * - ``--no-images``
      - ``false``
-     - 仅 ``api``：不向模型发送图像。
+     - 仅 ``api``：不向主模型发送图像。解说子智能体仍会接收图像。
    * - ``--claude-code-max-budget-usd``
      - ``—``
      - Claude Code 美元预算；默认取 ``MAX_BUDGET_USD`` 或 10。

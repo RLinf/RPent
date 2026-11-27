@@ -267,6 +267,7 @@ def build_planner(
     robot_name: str,
     base_url: str | None = None,
     model: str | None = None,
+    subagent: str | None = None,
     memory_dir: str | Path | None = None,
     max_tokens: int = 8192,
     planner_timeout_s: int | None = None,
@@ -277,7 +278,10 @@ def build_planner(
     no_images: bool = False,
     interactive: bool = False,
 ) -> Planner:
-    """Build a planner for the given backend, resolving credentials from env vars."""
+    """Build a planner and optional subagent sharing its model and credentials."""
+    from rpent.planner.subagents import validate_subagent
+
+    validate_subagent(planner_type, subagent)
     # Imports are deferred to avoid a circular import: api_loop / claude_code /
     # codex / gemini_cli all import from this module (PlannerResult).
 
@@ -296,6 +300,7 @@ def build_planner(
             no_images=no_images,
             timeout_s=api_timeout_s,
             interactive=interactive,
+            subagent_name=subagent,
         )
     if planner_type == "claude_code":
         from rpent.planner.claude_code import ClaudeCodePlanner
@@ -316,6 +321,7 @@ def build_planner(
             output_path=Path(output_dir) / f"claude_{recipe_tag}.txt",
             dashboard_events=dashboard_events,
             reasoning_effort=reasoning_effort,
+            subagent_name=subagent,
         )
     if planner_type == "codex":
         from rpent.planner.codex import CodexPlanner
@@ -338,6 +344,7 @@ def build_planner(
             dashboard_events=dashboard_events,
             reasoning_effort=reasoning_effort,
             sandbox=codex_sandbox,
+            subagent_name=subagent,
         )
     if planner_type == "gemini_cli":
         from rpent.planner.gemini_cli import GeminiCliPlanner

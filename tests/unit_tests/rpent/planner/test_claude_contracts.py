@@ -19,6 +19,7 @@ import base64
 import json
 import queue
 import threading
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 from unittest.mock import Mock
@@ -218,6 +219,7 @@ def test_options_construct_with_the_installed_claude_sdk(tmp_path: Path) -> None
     )
 
     assert isinstance(options, claude_agent_sdk.ClaudeAgentOptions)
+    assert options.agents is None
     assert options.cwd == str(tmp_path)
     assert options.model == "fake-claude"
     assert options.max_turns == 4
@@ -225,6 +227,50 @@ def test_options_construct_with_the_installed_claude_sdk(tmp_path: Path) -> None
         "mcp__rpent__inspect_scene",
         "mcp__rpent__finish",
     ]
+
+
+@pytest.mark.parametrize("override", [None, "haiku"])
+def test_narrator_uses_the_rpent_bridge_and_selected_model(tmp_path, override):
+    planner = ClaudeCodePlanner(
+        output_dir=str(tmp_path),
+        dashboard_events=RecordingSink(),
+        model="sonnet",
+        subagent_name="narrator",
+        subagent_model=override,
+    )
+    toolkit = FakeToolkit()
+    toolkit._tools += tuple(
+        replace(toolkit.inspect_scene, name=name)
+        for name in ("read_image", "tts__synthesize", "tts__preview_synthesize")
+    )
+    options = planner._build_options(claude_agent_sdk, toolkit=toolkit, max_turns=4)
+
+    assert set(options.mcp_servers) == {"rpent"}
+    assert "Agent" in options.tools and "Agent" in options.allowed_tools
+    role = options.agents["scene_narrator"]
+    assert role.model == (override or options.model)
+    assert role.background and role.maxTurns == 200
+    assert set(role.tools) == {"mcp__rpent__read_image", "mcp__rpent__tts__synthesize"}
+    assert "view_env_state" not in role.prompt
+    assert set(role.tools).issubset(options.allowed_tools)
+
+
+@pytest.mark.parametrize(
+    ("available", "missing"),
+    [("read_image", "synthesize"), ("tts__synthesize", "view_env_state|read_image")],
+)
+def test_narrator_requires_registered_observation_and_speech_tools(
+    tmp_path, available, missing
+):
+    planner = ClaudeCodePlanner(
+        output_dir=str(tmp_path),
+        dashboard_events=RecordingSink(),
+        subagent_name="narrator",
+    )
+    toolkit = FakeToolkit()
+    toolkit._tools += (replace(toolkit.inspect_scene, name=available),)
+    with pytest.raises(ValueError, match=missing):
+        planner._build_options(claude_agent_sdk, toolkit=toolkit, max_turns=4)
 
 
 def test_in_process_mcp_bridge_maps_schema_dispatch_and_errors() -> None:

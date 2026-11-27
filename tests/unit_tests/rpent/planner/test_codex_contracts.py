@@ -114,6 +114,8 @@ class FakeTurn:
 
 
 class FakeThread:
+    id = "main"
+
     def __init__(self, turn: FakeTurn) -> None:
         self.fake_turn = turn
         self.turn_prompts: list[tuple[str, dict[str, Any]]] = []
@@ -618,6 +620,74 @@ def test_planner_rejects_an_unknown_sandbox(tmp_path: Path) -> None:
         make_planner(tmp_path, RecordingSink(), sandbox="none")
 
 
+@pytest.mark.parametrize(
+    ("model", "child_model", "expected"),
+    [
+        (None, None, None),
+        ("main-model", None, "main-model"),
+        ("main-model", "small", "small"),
+    ],
+)
+def test_session_registers_narrator_on_the_filtered_rpent_bridge(
+    tmp_path, monkeypatch, model, child_model, expected
+):
+    try:
+        import tomllib
+    except ImportError:
+        import tomli as tomllib
+
+    class NarrationToolkit(FakeToolkit):
+        def list_tools(self):
+            return tuple(
+                SimpleNamespace(name=name)
+                for name in (
+                    "view_env_state",
+                    "voice__synthesize",
+                    "move",
+                    "voice__preview",
+                )
+            )
+
+    configs = install_fake_backend(monkeypatch)
+    monkeypatch.delenv("CODEX_MODEL", raising=False)
+    monkeypatch.setenv("CODEX_BASE_URL", "https://provider.invalid")
+    FakeCodex.events = [
+        {"method": "turn/completed", "payload": {"turn": {"status": "completed"}}}
+    ]
+    planner = CodexPlanner(
+        output_dir=str(tmp_path),
+        output_path=tmp_path / "codex.out",
+        dashboard_events=RecordingSink(),
+        model=model,
+        subagent_name="narrator",
+        subagent_model=child_model,
+    )
+    result = planner.solve(
+        system_prompt="",
+        user_message="Narrate.",
+        toolkit=NarrationToolkit(),
+        max_turns=1,
+    )
+    assert result.error is None
+    overrides = tomllib.loads("\n".join(configs[0]["config_overrides"]))
+    assert overrides["features"]["multi_agent"]
+    role = overrides["agents"]["scene_narrator"]
+    assert 'fork_turns="none"' in role["description"]
+    config = tomllib.loads(Path(role["config_file"]).read_text())
+    assert "read_image" not in config["developer_instructions"]
+    assert "agentview_high.png" not in config["developer_instructions"]
+    assert config.get("model") == expected
+    assert config["model_provider"] == PROVIDER_ID
+    assert config["sandbox_mode"] == "read-only"
+    assert config["mcp_servers"] == {
+        "rpent": {
+            "url": "http://fake.invalid/mcp/",
+            "enabled_tools": ["view_env_state", "voice__synthesize"],
+            "default_tools_approval_mode": "approve",
+        }
+    }
+
+
 def test_successful_fake_codex_lifecycle_uses_fake_mcp_and_accounts_events(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -671,7 +741,9 @@ def test_successful_fake_codex_lifecycle_uses_fake_mcp_and_accounts_events(
         max_turns=3,
     )
 
-    assert configs
+    assert not any(
+        entry.startswith("agents.") for entry in configs[0]["config_overrides"]
+    )
     assert FakeMcpServer.instances[0].started is True
     assert FakeMcpServer.instances[0].stopped is True
     fake_codex = FakeCodex.instances[0]
@@ -980,6 +1052,70 @@ def test_response_count_ignores_items_and_duplicate_usage():
     )
     assert recorder.turns == 2
     assert recorder.stats()["total_input_tokens"] == 20
+
+
+def test_recorder_renders_subagent_tool_calls_and_activity() -> None:
+    recorder = codex_module._Recorder(max_turns=3, dashboard_events=RecordingSink())
+
+    rendered = recorder.observe(
+        {
+            "method": "item/completed",
+            "payload": {
+                "item": {
+                    "type": "collabAgentToolCall",
+                    "tool": "spawnAgent",
+                    "status": "completed",
+                    "receiverThreadIds": ["thread-1"],
+                    "prompt": "narrate the view",
+                }
+            },
+        }
+    )
+    activity = recorder.observe(
+        {
+            "method": "item/completed",
+            "payload": {
+                "item": {
+                    "type": "subAgentActivity",
+                    "kind": "started",
+                    "agentPath": "/root/scene_narrator",
+                }
+            },
+        }
+    )
+
+    assert "[tool<-] agent:spawnAgent" in rendered
+    assert '"agents": ["thread-1"]' in rendered
+    assert '"prompt_size": 16' in rendered
+    assert "narrate the view" not in rendered
+    assert activity == "[subagent] started: /root/scene_narrator\n"
+    assert recorder.tool_calls == 1
+
+
+def test_recorder_ignores_subagent_token_usage() -> None:
+    recorder = codex_module._Recorder(max_turns=3, dashboard_events=RecordingSink())
+    recorder.main_thread_id = "main"
+    child_usage = {
+        "method": "thread/tokenUsage/updated",
+        "payload": {
+            "thread_id": "child",
+            "token_usage": {"total": {"input_tokens": 10, "output_tokens": 5}},
+        },
+    }
+
+    assert recorder.observe(child_usage) == ""
+    assert recorder.turns == 0
+
+    main_usage = {
+        "method": "thread/tokenUsage/updated",
+        "payload": {
+            "thread_id": "main",
+            "token_usage": {"total": {"input_tokens": 10, "output_tokens": 5}},
+        },
+    }
+
+    assert "turn 1/3" in recorder.observe(main_usage)
+    assert recorder.turns == 1
 
 
 def test_stats_distinguish_unobserved_usage_from_zero_tokens():

@@ -24,6 +24,7 @@ import json
 import threading
 from collections.abc import AsyncIterator, Sequence
 from contextlib import asynccontextmanager, nullcontext
+from contextvars import Context
 from functools import partial
 from typing import Any
 from uuid import uuid4
@@ -77,6 +78,7 @@ from rpent.planner.base import (
     execute_tool,
 )
 from rpent.prompt.api import API_PLANNER_INSTRUCTIONS, render_environment_context
+from rpent.session import Payload
 from rpent.session.env_capture import current_tool_call
 from rpent.session.planner_capture import CapturingModel, sdk_payload
 from rpent.tools.toolkit import Toolkit, ToolResult
@@ -109,12 +111,16 @@ class ApiAgentLoop(Planner):
         no_images: bool = False,
         timeout_s: float = 1200,
         interactive: bool = False,
+        subagent_name: str | None = None,
+        subagent_model: Model | None = None,
     ) -> None:
         if reasoning_effort not in REASONING_EFFORTS:
             raise ValueError(f"unsupported reasoning effort: {reasoning_effort}")
         if max_tokens < 1 or timeout_s <= 0:
             raise ValueError("max_tokens and timeout_s must be positive")
         self.model = model
+        self.subagent_name = subagent_name
+        self.subagent_model = subagent_model if subagent_model is not None else model
         self.dashboard_events = dashboard_events
         self.max_tokens = max_tokens
         self.reasoning_effort = reasoning_effort
@@ -176,6 +182,11 @@ class ApiAgentLoop(Planner):
         session = _Session(
             adapter, conversation_id, max_turns, interactive=self.interactive
         )
+        if self.subagent_name is not None:
+            from rpent.planner.subagents import build_api_subagent
+
+            session.subagent = build_api_subagent(self.subagent_name, self, adapter)
+            session.subagent.register()
         agent = Agent(
             capture if capture is not None else self.model,
             name="rpent_api",
@@ -249,9 +260,13 @@ class ApiAgentLoop(Planner):
 
 
 def _build_model_settings(
-    model: Model, max_tokens: int, reasoning_effort: str | None = None
+    model: Model,
+    max_tokens: int,
+    reasoning_effort: str | None = None,
+    *,
+    parallel_tool_calls: bool = True,
 ) -> ModelSettings:
-    """Enable parallel tool requests and preserve Anthropic prompt caching."""
+    """Configure tool requests and preserve Anthropic prompt caching."""
     from pydantic_ai.models.anthropic import AnthropicModel, AnthropicModelSettings
     from pydantic_ai.models.openai import OpenAIChatModel, OpenAIChatModelSettings
     from pydantic_ai.profiles.openai import OPENAI_REASONING_EFFORT_MAP
@@ -259,7 +274,7 @@ def _build_model_settings(
     if isinstance(model, AnthropicModel):
         return AnthropicModelSettings(
             max_tokens=max_tokens,
-            parallel_tool_calls=True,
+            parallel_tool_calls=parallel_tool_calls,
             anthropic_cache_instructions=True,
             anthropic_cache_tool_definitions=True,
             anthropic_cache_messages=True,
@@ -267,12 +282,12 @@ def _build_model_settings(
     if isinstance(model, OpenAIChatModel) and reasoning_effort is not None:
         return OpenAIChatModelSettings(
             max_tokens=max_tokens,
-            parallel_tool_calls=True,
+            parallel_tool_calls=parallel_tool_calls,
             openai_reasoning_effort=OPENAI_REASONING_EFFORT_MAP.get(
                 reasoning_effort, reasoning_effort
             ),
         )
-    return ModelSettings(max_tokens=max_tokens, parallel_tool_calls=True)
+    return ModelSettings(max_tokens=max_tokens, parallel_tool_calls=parallel_tool_calls)
 
 
 class _ConversationAgent(WrapperAgent):
@@ -326,6 +341,7 @@ class _HarnessToolkit(FunctionToolset):
         dashboard_events: DashboardEventSink,
         no_images: bool,
         capture: CapturingModel | None = None,
+        sequential: bool = False,
     ) -> None:
         super().__init__(id="rpent")
         self.toolkit = toolkit
@@ -379,6 +395,7 @@ class _HarnessToolkit(FunctionToolset):
                         description=spec.get("description"),
                         json_schema=spec["input_schema"],
                         takes_ctx=True,
+                        sequential=sequential,
                     )
                 )
 
@@ -514,6 +531,131 @@ class _HarnessToolkit(FunctionToolset):
         return result.to_text()
 
 
+class ApiSubAgent(AbstractCapability):
+    """Run a background agent with the tools selected for this instance."""
+
+    description: str
+
+    def __init__(
+        self,
+        agent: Agent,
+        recorder: "_HarnessToolkit",
+        dashboard_events: DashboardEventSink,
+        *,
+        prompt: str,
+        request_limit: int,
+    ) -> None:
+        self._agent = agent
+        self._recorder = recorder
+        self._events = dashboard_events
+        self._task: asyncio.Task[None] | None = None
+        self._prompt = prompt
+        self._request_limit = request_limit
+
+    def register(self) -> None:
+        """Expose this agent's background start tool to the main conversation."""
+        self._recorder.add_tool(
+            Tool(
+                self.start,
+                name=f"start_{self._agent.name}",
+                description=self.description,
+                takes_ctx=True,
+                sequential=True,
+            )
+        )
+
+    async def start(self, ctx: RunContext) -> str:
+        """Start the agent once; return immediately so the main agent continues."""
+        capture = self._recorder.capture
+        with capture.tool(ctx) if capture is not None else nullcontext() as call:
+            self._recorder._record_call(f"start_{self._agent.name}", {}, ctx)
+            if call is not None:
+                call.start()
+            if self._task is not None and not self._task.done():
+                text = f"{self._agent.name} is already running."
+            else:
+                self._task = Context().run(
+                    asyncio.create_task,
+                    self._run(),
+                    name=self._agent.name,
+                )
+                text = f"{self._agent.name} started."
+            self._recorder._record_result(f"start_{self._agent.name}", ctx, text)
+            if call is not None:
+                call.result(
+                    Payload(
+                        format="rpent.tool_result",
+                        data={"data": {"text": text}, "images": []},
+                        completeness="complete",
+                    )
+                )
+                capture.feedback(
+                    ctx,
+                    "pydantic_ai.tool_return",
+                    ToolReturn(return_value=text),
+                )
+                call.finish("completed")
+            return text
+
+    async def stop(self) -> None:
+        """Cancel and wait for the background agent, if it is running."""
+        task = self._task
+        if task is None or task.done():
+            return
+        task.cancel()
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
+        except Exception:
+            logger.exception("%s cleanup failed", self._agent.name)
+
+    async def before_node_run(self, ctx: RunContext, *, node: AgentNode) -> AgentNode:
+        if self._recorder.stopping.is_set():
+            # Dashboard drains physical tools before sending the SDK interrupt.
+            # A cancelled tool result must not trigger another model request.
+            ctx.cancel()
+        return node
+
+    async def _run(self) -> None:
+        self._emit("started")
+        try:
+            await self._agent.run(
+                self._prompt,
+                usage_limits=UsageLimits(request_limit=self._request_limit),
+                event_stream_handler=self._stream,
+                capabilities=[self],
+            )
+        except asyncio.CancelledError:
+            raise
+        except RunCancelled:
+            pass
+        except UsageLimitExceeded:
+            logger.info(
+                "%s reached its %d-request budget",
+                self._agent.name,
+                self._request_limit,
+            )
+            self._emit("request budget reached")
+        except Exception:
+            logger.exception("%s failed", self._agent.name)
+            self._emit("failed; see logs")
+        finally:
+            self._emit("stopped")
+
+    async def _stream(self, _ctx: RunContext, stream: AsyncIterator[Any]) -> None:
+        async for event in stream:
+            if isinstance(event, PartEndEvent) and isinstance(event.part, TextPart):
+                text = event.part.content.strip()
+                if text:
+                    self._emit(text)
+
+    def _emit(self, text: str) -> None:
+        self._events.emit(
+            TranscriptEvent({"type": "text", "text": f"[{self._agent.name}] {text}"})
+        )
+
+
 class _Session(AbstractCapability):
     """Track native runs and bridge Dashboard input and events.
 
@@ -544,6 +686,7 @@ class _Session(AbstractCapability):
         self.run_done.set()
         self.cancellation: CancellationToken | None = None
         self.completions = 0
+        self.subagent: ApiSubAgent | None = None
 
     async def wrap_run(
         self, ctx: RunContext, *, handler: WrapRunHandler
@@ -580,6 +723,12 @@ class _Session(AbstractCapability):
                 self.error = f"{type(exc).__name__}: {exc}"
             raise
         finally:
+            if self.subagent is not None:
+                await self.subagent.stop()
+                if not self.toolkit.stopping.is_set():
+                    # Cancelling a child tool drains the shared Toolkit. Reopen
+                    # it for manual actions while this conversation is idle.
+                    self.toolkit.toolkit.resume_calls()
             # clai also keeps its own per-run usage for /usage. Observe it without
             # replacing the SDK's counters, including failed/interrupted runs.
             self.usage.incr(ctx.usage)
@@ -707,6 +856,8 @@ class _Session(AbstractCapability):
             submission = self.inbox.get_nowait()
             if self.control is not None:
                 self.control.message_discarded(submission.message_id)
+        if self.subagent is not None:
+            await self.subagent.stop()
         if self.cancellation is not None:
             self.cancellation.cancel()
             await self.run_done.wait()
@@ -762,6 +913,8 @@ class _Session(AbstractCapability):
             # Stop new physical work before cancelling the SDK task. Toolkit
             # cancellation is cooperative, and must finish before solve returns.
             self.toolkit.stopping.set()
+            if self.subagent is not None:
+                await self.subagent.stop()
             if self.cancellation is not None:
                 self.cancellation.cancel()
             await cancel_and_wait(self.toolkit.cancel_active_and_wait)

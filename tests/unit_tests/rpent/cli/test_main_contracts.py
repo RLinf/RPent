@@ -91,6 +91,28 @@ def _cli_module():
     return cli
 
 
+@pytest.mark.parametrize(
+    "arguments",
+    [["--subagent"], ["--subagent", "unknown"], ["--narrator", "narrator"]],
+)
+def test_subagent_requires_a_known_role(arguments):
+    with pytest.raises(SystemExit) as exc:
+        _cli_module()._build_argparser().parse_args(arguments)
+    assert exc.value.code == 2
+
+
+@pytest.mark.parametrize("backend", ["flash", "gemini_cli"])
+def test_subagent_rejects_unsupported_planners_before_runtime(monkeypatch, backend):
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["rpent", "--robot", "libero", "--planner", backend, "--subagent", "narrator"],
+    )
+    with pytest.raises(SystemExit) as exc:
+        _cli_module().main()
+    assert exc.value.code == 2
+
+
 def _run_cli_help(*args: str) -> subprocess.CompletedProcess[str]:
     env = os.environ.copy()
     env["PYTHONPATH"] = os.pathsep.join(
@@ -788,6 +810,8 @@ def test_full_cli_exploration_finalizes_memory_without_starting_gpu_runtime(
             "4",
             "--explore-sessions",
             "3" if outcome == "response_truncated" else "2",
+            "--subagent",
+            "narrator",
             *(["--tui"] if interactive else []),
             *(["--record-trajectory"] if record_trajectory else []),
         ],
@@ -795,6 +819,7 @@ def test_full_cli_exploration_finalizes_memory_without_starting_gpu_runtime(
 
     assert cli.main() == 0
     assert calls["build_planner"][1]["interactive"] is interactive
+    assert calls["build_planner"][1]["subagent"] == "narrator"
     assert calls["build_planner"][1]["codex_sandbox"] == "read-only"
     saved_tasks = {
         data["task_id"]: data
