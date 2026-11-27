@@ -27,7 +27,7 @@ from scipy.ndimage import (
 from scipy.spatial import ConvexHull, QhullError
 
 from toolkits.geometry.depth_foreground import local_depth_range
-from toolkits.geometry.geometry import _basis
+from toolkits.geometry.geometry import _basis, ray_plane_offsets
 
 PLANE_TOLERANCE_M = 0.0013
 
@@ -236,6 +236,21 @@ def observed_face(observation, region, *, object_mask, plane):
                 supported[j, d] = (
                     sel.sum() >= 3 and _span(edge[sel, tangent]) >= 0.17 * size[tangent]
                 )
+    if supported.all():
+        # A sightline reaching a lower surface inside the four sides disproves
+        # material there. Missing depth and foreground occluders cannot do so.
+        extent = find_objects(roof, max_label=1)[0]
+        below = world[extent][valid[extent] & (h[extent] < -PLANE_TOLERANCE_M)]
+        crossings = (
+            ray_plane_offsets(below, observation.camera_to_world[:3, 3], origin, n)
+            @ axes
+        )
+        inside = (
+            (crossings > bounds[0] + edge_tolerance)
+            & (crossings < bounds[1] - edge_tolerance)
+        ).all(axis=1)
+        if np.count_nonzero(inside) > max(5, 0.15 * roof.sum()):
+            return None
     center = origin + np.mean(bounds, axis=0) @ axes.T
     return {
         "supported": supported,

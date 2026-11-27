@@ -114,6 +114,8 @@ LIBERO 默认仍使用自身的 ``back_project`` 和 ``segment``。加入 ``--rg
 
 启用 ``--geometry`` 时，必须用 ``--molmo-endpoint`` 指定 Molmo 服务地址。Molmo 的启动方法见\ `配置 Molmo <../guides/flash.html#molmo>`_。LIBERO 默认在本地启动 SAM3，也可用 ``--sam3-endpoint`` 连接已有服务。
 
+使用 ``--planner api --geometry`` 时，选用支持图像输入的模型，不加 ``--no-images``，以便规划器核对叠加图中标出的物体。
+
 同时指定 ``--geometry`` 和 ``--sam3-endpoint`` 后，LIBERO 会在启动时检查外部服务能否按文本提示返回候选掩膜。只能返回最高分掩膜的旧服务仍可用于 ``segment``。要用这类服务运行 ``geometry``，先在运行 SAM3 的机器上升级 RPent，再重启服务。
 
 测杯口圆心时，``object_prompt`` 写整个物体的简短名称，如“白杯子”，供 SAM3 分割。画面里有两只白杯子，要找盘子上的那只，就在 ``query`` 中写“盘子上的白杯子”。规划器根据这段描述核对叠加图中标出的杯子。

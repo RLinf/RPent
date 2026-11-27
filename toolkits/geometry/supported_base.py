@@ -26,6 +26,7 @@ from toolkits.geometry.geometry import (
     _basis,
     fit_circle,
     outer_boundary,
+    ray_plane_offsets,
     ray_plane_radius,
 )
 from toolkits.geometry.rgbd_parts import _circle, _plane
@@ -198,6 +199,10 @@ def _cylindrical_base(obs, mask, cloud, options):
     return ShapeFit(reason="cylindrical_sidewall_not_observed")
 
 
+def _azimuth_sectors(xy):
+    return np.floor(np.arctan2(xy[:, 1], xy[:, 0]) * 6 / np.pi).astype(int) % 12
+
+
 def _rim_base_on_support(obs, mask, cloud, center, axis, axes, radius, tol):
     """Intersect the centerline with a local support observed around the footprint."""
     box = find_objects(mask, max_label=1)[0]
@@ -211,8 +216,9 @@ def _rim_base_on_support(obs, mask, cloud, center, axis, axes, radius, tol):
     # within a bounded vertical distance of the lowest measured material.
     low = np.quantile(cloud @ obs.up_direction, 0.02)
     height = neighbors @ obs.up_direction - low
+    band = max(4 * tol, 0.25 * radius)
     near = (
-        (abs(distance) <= max(4 * tol, 0.25 * radius))
+        (abs(distance) <= band)
         & (height <= tol)
         & (height >= -max(4 * tol, 0.3 * radius))
     )
@@ -223,9 +229,7 @@ def _rim_base_on_support(obs, mask, cloud, center, axis, axes, radius, tol):
     if min(axis @ normal, axis @ obs.up_direction) < _UPRIGHT_COSINE:
         return ShapeFit(reason="body_axis_not_upright")
     around = (support - center) @ axes
-    angles = np.arctan2(around[:, 1], around[:, 0])
-    sectors = np.floor(angles * 6 / np.pi).astype(int) % 12
-    if (np.bincount(sectors, minlength=12) >= 3).sum() < 6:
+    if (np.bincount(_azimuth_sectors(around), minlength=12) >= 3).sum() < 6:
         return ShapeFit(reason="base_support_plane_not_observed")
     gap = float(np.quantile((cloud - origin) @ normal, 0.01))
     distance_to_plane = (center - origin) @ normal
@@ -233,6 +237,26 @@ def _rim_base_on_support(obs, mask, cloud, center, axis, axes, radius, tol):
     if not -tol <= gap <= clearance or distance_to_plane <= tol:
         return ShapeFit(reason="base_contact_not_observed")
     base = center - axis * (distance_to_plane / (axis @ normal))
+    # A ring of deeper readings can show an opening even when a countertop
+    # surrounds the bowl. Locate the rays at the support height, not the floor.
+    world = obs.world_xyz[roi]
+    below = obs.valid_mask[roi] & ~mask[roi] & ((world - origin) @ normal < -2 * tol)
+    plane_axes = np.column_stack(_basis(normal))
+    crossings = (
+        ray_plane_offsets(world[below], obs.camera_to_world[:3, 3], base, normal)
+        @ plane_axes
+    )
+    contact = (support - base) @ plane_axes
+    nearest_support = np.full(12, np.inf)
+    np.minimum.at(
+        nearest_support, _azimuth_sectors(contact), np.linalg.norm(contact, axis=1)
+    )
+    radial = np.linalg.norm(crossings, axis=1)
+    near = radial <= radius + band
+    sectors = _azimuth_sectors(crossings[near])
+    gap_sectors = sectors[radial[near] < nearest_support[sectors]]
+    if (np.bincount(gap_sectors, minlength=12) >= 3).sum() >= 6:
+        return ShapeFit(reason="base_support_gap_observed")
     return ShapeFit(
         accepted=True,
         parameters={"center": base.tolist()},
@@ -242,7 +266,7 @@ def _rim_base_on_support(obs, mask, cloud, center, axis, axes, radius, tol):
             "support_samples": len(support),
             "observed_clearance_m": gap,
         },
-        warnings=["base_contact_occluded"] if gap > 2 * tol else [],
+        warnings=["base_contact_occluded"] if gap > tol else [],
     )
 
 

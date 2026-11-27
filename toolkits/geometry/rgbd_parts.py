@@ -16,6 +16,8 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
+
 import numpy as np
 from scipy.ndimage import binary_erosion, label
 from scipy.optimize import least_squares
@@ -139,7 +141,9 @@ def rim(points, up, *, outer=False):
     return center, normal, radius
 
 
-def face_candidates(points, up):
+def face_candidates(
+    points: np.ndarray, up: np.ndarray, cancel: Callable[[], None] = lambda: None
+):
     """Return distinct upward-facing planes from highest to lowest."""
     faces = []
     remaining = points
@@ -150,6 +154,7 @@ def face_candidates(points, up):
         # Height bands also expose faces on objects dominated by vertical walls.
         for level in (heights, -heights):
             for cutoff in np.unique(np.quantile(level, (0.0, 0.55, 0.79, 0.90))):
+                cancel()
                 plane = _plane(remaining[level >= cutoff], up, 0.0018, min_up=0.91)
                 if plane is None:
                     continue
@@ -171,8 +176,8 @@ def face_candidates(points, up):
     return sorted(faces, key=lambda face: face[2].mean(axis=0) @ up, reverse=True)
 
 
-def object_points(world, valid, mask, camera_forward):
-    """Remove mixed pixels at silhouettes and detached foreground/background patches."""
+def object_points(world, valid, mask, camera_forward, *, keep_small_faces=False):
+    """Remove depth discontinuities and isolated specks from the object cloud."""
     yy, xx = np.nonzero(mask & valid)
     if not len(yy):
         return np.empty((0, 3))
@@ -186,7 +191,9 @@ def object_points(world, valid, mask, camera_forward):
     components, count = label(kept)
     if count:
         areas = np.bincount(components.ravel())[1:]
-        # Both sides of an aperture can be disconnected in depth.
-        keep = np.r_[False, areas >= max(15, areas.max() * 0.06)]
+        # A raised face can be much smaller than the surface below it. Keep
+        # the bulk-cloud filter for body and rim fits that use the whole cloud.
+        minimum = 15 if keep_small_faces else max(15, areas.max() * 0.06)
+        keep = np.r_[False, areas >= minimum]
         kept = keep[components]
     return xyz[kept]

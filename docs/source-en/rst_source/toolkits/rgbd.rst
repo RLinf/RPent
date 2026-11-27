@@ -147,6 +147,9 @@ For Molmo startup instructions, see
 `Configure Molmo <../guides/flash.html#configure-molmo>`_. LIBERO starts SAM3
 locally by default. To connect an existing service, pass ``--sam3-endpoint``.
 
+With ``--planner api --geometry``, use a model that accepts images and omit
+``--no-images`` so the planner can check which object the overlay highlights.
+
 With ``--geometry``, LIBERO checks at startup that the external SAM3 service
 can return candidate masks for a text prompt. Older services that only return
 the top mask still work with ``segment``. To use ``geometry`` with one of these

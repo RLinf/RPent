@@ -95,19 +95,18 @@ def select_object(
     }
     data["segment_attempts"].append(attempt)
 
-    point = None
-    warning = None
-    if len(candidates) != 1:
-        cancel()
-        calls["grounding"] += 1
-        point, warning = _source_pixel(grounder.ground(image, data["query"]), shape)
-        if point is not None:
-            attempt["point_rc"] = point
-
     if len(candidates) == 1:
         attempt["selected_index"] = 0
-        mask, method = candidates[0].mask, "sam3_single_candidate"
-    elif candidates:
+        data["identity_evidence"]["object"] = {"method": "sam3_single_candidate"}
+        return candidates[0].mask, None
+
+    cancel()
+    calls["grounding"] += 1
+    point, warning = _source_pixel(grounder.ground(image, data["query"]), shape)
+    if point is not None:
+        attempt["point_rc"] = point
+
+    if candidates:
         hits = []
         if point is not None:
             hits = [i for i, c in enumerate(candidates) if c.mask[tuple(point)]]

@@ -239,10 +239,10 @@ def fit_circle(points: np.ndarray, options: FitOptions | None = None) -> ShapeFi
     return result
 
 
-def ray_plane_radius(
+def ray_plane_offsets(
     points: np.ndarray, camera: np.ndarray, center: np.ndarray, normal: np.ndarray
 ) -> np.ndarray:
-    """Measure radius at each viewing ray's forward intersection with a plane."""
+    """Return offsets from the center where the viewing rays meet the plane."""
     rays = points - camera
     denominator = rays @ normal
     scale = np.divide(
@@ -252,7 +252,15 @@ def ray_plane_radius(
         where=abs(denominator) > 1e-12,
     )
     offset = (camera - center) + rays * scale[..., None]
-    return np.where(scale > 0, np.linalg.norm(offset, axis=-1), np.inf)
+    return np.where(scale[..., None] > 0, offset, np.nan)
+
+
+def ray_plane_radius(
+    points: np.ndarray, camera: np.ndarray, center: np.ndarray, normal: np.ndarray
+) -> np.ndarray:
+    """Measure radius at each viewing ray's forward intersection with a plane."""
+    radius = np.linalg.norm(ray_plane_offsets(points, camera, center, normal), axis=-1)
+    return np.where(np.isfinite(radius), radius, np.inf)
 
 
 def observed_silhouette(mask: np.ndarray, valid: np.ndarray) -> np.ndarray:

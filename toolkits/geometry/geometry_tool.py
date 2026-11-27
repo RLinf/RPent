@@ -253,6 +253,7 @@ class GeometryTool:
                 "feature": feature,
                 "object_prompt": object_prompt,
             }
+            self._check_cancelled()
             try:
                 artifact = self._save(f"geometry_{tag}.json", data, step)
                 result = self._planner_result(data, artifact)
@@ -360,6 +361,7 @@ class GeometryTool:
             observation.valid_mask,
             mask,
             observation.camera_to_world[:3, 2],
+            keep_small_faces=data["feature"] == "upper_face",
         )
         data["quality"]["n_cleaned"] = len(cloud)
         fields = {}

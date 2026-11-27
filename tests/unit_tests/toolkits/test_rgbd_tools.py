@@ -265,6 +265,8 @@ def test_geometry_shows_the_selected_mask_when_the_query_names_the_other_cube(tm
 
     result = measure()
     assert result.data["status"] == "usable"
+    saved = state.load(result.data["geometry_artifact"], step=0)
+    assert saved["identity_evidence"]["object"] == {"method": "sam3_single_candidate"}
     np.testing.assert_allclose(
         result.data["geometry"]["rectangle_center"]["value"], xyz[30, 22], atol=0.002
     )
@@ -526,7 +528,7 @@ def _stored_fit(state, result, quantity):
     return evidence["geometry"][quantity]
 
 
-def _measure_mask(tmp_path, mask, x, y, z, quantity, feature, *, from_below=False):
+def _mask_tool(tmp_path, mask, x, y, z, *, from_below=False, check_cancelled=None):
     pose = np.eye(4)
     if not from_below:
         pose[1, 1] = pose[2, 2] = -1
@@ -550,7 +552,13 @@ def _measure_mask(tmp_path, mask, x, y, z, quantity, feature, *, from_below=Fals
         observations=SimpleNamespace(get_observation=lambda **_: obs),
         segmenter=_PaintedMasks([220, 220, 220]),
         grounder=SimpleNamespace(),
+        check_cancelled=check_cancelled,
     )
+    return state, tool
+
+
+def _measure_mask(tmp_path, mask, x, y, z, quantity, feature, *, from_below=False):
+    state, tool = _mask_tool(tmp_path, mask, x, y, z, from_below=from_below)
     result = tool.geometry(
         "target",
         "front",
@@ -578,7 +586,13 @@ def _fit_face_center(mask, x, y, z, quantity, feature):
         up_direction=[0, 0, 1],
     )
     mask.setflags(write=False)
-    cloud = object_points(obs.world_xyz, obs.valid_mask, mask, pose[:3, 2])
+    cloud = object_points(
+        obs.world_xyz,
+        obs.valid_mask,
+        mask,
+        pose[:3, 2],
+        keep_small_faces=feature == "upper_face",
+    )
     _, fit = next(
         fit_features([quantity], feature, obs, mask, cloud, FitOptions(), lambda: None)
     )
@@ -586,11 +600,9 @@ def _fit_face_center(mask, x, y, z, quantity, feature):
 
 
 @pytest.mark.parametrize("stepped", [False, True])
-def test_disk_center_uses_the_outer_rim_only_on_a_continuous_shallow_face(
+def test_disk_center_measures_the_offset_planar_face_on_a_shallow_plate(
     tmp_path, stepped
 ):
-    from scipy.ndimage import binary_erosion
-
     rows, cols = np.indices((151, 151))
     x, y = (cols - 75) * 0.0008, (75 - rows) * 0.0008
     mask = np.hypot(x, y) <= 0.055
@@ -604,32 +616,34 @@ def test_disk_center_uses_the_outer_rim_only_on_a_continuous_shallow_face(
     z = np.where(mask, 0.05 + rise, 0.01)
     result, saved = _measure_mask(tmp_path, mask, x, y, z, "disk_center", "upper_face")
     assert result["status"] == "usable"
-    np.testing.assert_allclose(
-        saved["value"], [0.0032 if stepped else 0, 0, 0.05], atol=0.0003
-    )
-    assert saved["radius_m"] == pytest.approx(0.038 if stepped else 0.055, abs=0.0008)
-    if not stepped:
-        edge = mask & ~binary_erosion(mask)
-        cx, cy, _ = saved["value"]
-        residual = abs(np.hypot(x[edge] - cx, y[edge] - cy) - saved["radius_m"])
-        assert saved["quality"]["n_inliers"] == edge.sum()
-        assert saved["quality"]["residual_p95_m"] == pytest.approx(
-            np.quantile(residual, 0.95), abs=0.00002
-        )
+    np.testing.assert_allclose(saved["value"], [0.0032, 0, 0.05], atol=0.0006)
+    # The smooth slope stays within the 3 mm face tolerance for another 6.75 mm.
+    radius = 0.038 if stepped else 0.035 + 0.018 * 0.003 / 0.008
+    assert saved["radius_m"] == pytest.approx(radius, abs=0.001)
+    assert saved["definition"] == "center_of_selected_observed_circular_planar_surface"
 
 
-@pytest.mark.parametrize("quantity", ["disk_center", "rectangle_center"])
-def test_upper_face_rejects_an_underside_seen_from_below(tmp_path, quantity):
+@pytest.mark.parametrize(
+    "quantity,feature",
+    [
+        ("disk_center", "upper_face"),
+        ("rectangle_center", "upper_face"),
+        ("ring_center", "upper_outer_ring"),
+    ],
+)
+def test_upper_feature_rejects_an_underside_seen_from_below(
+    tmp_path, quantity, feature
+):
     rows, cols = np.indices((101, 101))
     x, y = (cols - 50) * 0.001, (rows - 50) * 0.001
     mask = (
         np.hypot(x, y) <= 0.04
-        if quantity == "disk_center"
+        if quantity != "rectangle_center"
         else (abs(x) <= 0.03) & (abs(y) <= 0.02)
     )
     z = np.where(mask, 0.50, 0.65)
     result, saved = _measure_mask(
-        tmp_path, mask, x, y, z, quantity, "upper_face", from_below=True
+        tmp_path, mask, x, y, z, quantity, feature, from_below=True
     )
     assert result["status"] == "insufficient_evidence"
     assert saved["value"] is None
@@ -664,7 +678,7 @@ def test_inner_rim_can_cross_the_image_border(tmp_path):
     assert saved["quality"]["angular_coverage_deg"] > 300
 
 
-@pytest.mark.parametrize("raised", ["tab", "competing_rim"])
+@pytest.mark.parametrize("raised", ["tab", "competing_rim", "neck"])
 def test_outer_rim_checks_height_around_its_circumference(tmp_path, raised):
     rows, cols = np.indices((111, 111))
     x, y = (cols - 55) * 0.001, (55 - rows) * 0.001
@@ -675,6 +689,8 @@ def test_outer_rim_checks_height_around_its_circumference(tmp_path, raised):
         if raised == "tab"
         else (radius >= 0.039) & (radius <= 0.042)
     )
+    if raised == "neck":
+        top = (radius >= 0.012) & (radius <= 0.015)
     z = np.select([top, mask], [0.065, 0.05], default=0.01)
     result, saved = _measure_mask(
         tmp_path, mask, x, y, z, "ring_center", "upper_outer_ring"
@@ -683,6 +699,10 @@ def test_outer_rim_checks_height_around_its_circumference(tmp_path, raised):
         assert result["status"] == "usable"
         np.testing.assert_allclose(saved["value"], [0, 0, 0.05], atol=0.001)
         assert saved["radius_m"] == pytest.approx(0.045, abs=0.001)
+    elif raised == "neck":
+        assert result["status"] == "usable"
+        np.testing.assert_allclose(saved["value"], [0, 0, 0.065], atol=0.001)
+        assert saved["radius_m"] == pytest.approx(0.015, abs=0.001)
     else:
         assert saved["value"] is None or saved["value"][2] == pytest.approx(
             0.065, abs=0.001
@@ -709,9 +729,9 @@ def test_disk_center_uses_the_observed_face_and_its_own_edges(scene):
     height = np.where(disk, 0.05, 0.0)
     expected = [0.0, 0.0, 0.05]
     if scene == "raised_face":
-        # This well-sampled face accounts for less than a tenth of the object.
-        height[np.hypot(x - 0.027, y) <= 0.0134] = 0.06
-        expected = [0.027, 0.0, 0.06]
+        # The depth step separates a small, independently sampled upper face.
+        height[np.hypot(x - 0.027, y) <= 0.010] = 0.07
+        expected = [0.027, 0.0, 0.07]
     elif scene in {"foreground_aperture", "coplanar_mask"}:
         mask = np.hypot(x - 0.015, y) <= 0.024
         if scene == "foreground_aperture":
@@ -730,6 +750,22 @@ def test_disk_center_uses_the_observed_face_and_its_own_edges(scene):
     else:
         assert fit.accepted
         np.testing.assert_allclose(fit.parameters["center"], expected, atol=0.001)
+
+
+@pytest.mark.parametrize("cutout", ["measured", "missing"])
+def test_rectangular_face_distinguishes_a_measured_cutout_from_missing_depth(cutout):
+    rows, cols = np.indices((121, 141))
+    x, y = (cols - 70) * 0.001, (60 - rows) * 0.001
+    plate = (abs(x) <= 0.055) & (abs(y) <= 0.045)
+    upper = (abs(x - 0.008) <= 0.030) & (abs(y) <= 0.025)
+    opening = upper & (x > -0.004) & (y > -0.010)
+    height = np.select([upper, plate], [0.07, 0.05], default=0.01)
+    height[opening] = 0.05 if cutout == "measured" else np.nan
+
+    fit = _fit_face_center(plate, x, y, height, "rectangle_center", "upper_face")
+    assert fit.accepted
+    expected = [0, 0, 0.05] if cutout == "measured" else [0.008, 0, 0.07]
+    np.testing.assert_allclose(fit.parameters["center"], expected, atol=0.001)
 
 
 @pytest.mark.parametrize("missing_cols, clipped", [(1, False), (2, False), (0, True)])
@@ -1280,7 +1316,10 @@ def test_cylindrical_base_uses_the_sidewall_and_its_support(tmp_path, view):
         assert result["status"] == "insufficient_evidence" and "value" not in field
 
 
-@pytest.mark.parametrize("view", ["resting", "floating", "eccentric", "no_support"])
+@pytest.mark.parametrize(
+    "view",
+    ["resting", "floating", "eccentric", "no_support", "open_gap", "small_platform"],
+)
 def test_round_base_needs_a_concentric_body_on_a_local_support(view):
     from toolkits.geometry.geometry import FitOptions
     from toolkits.geometry.object_features import fit_features
@@ -1309,6 +1348,19 @@ def test_round_base_needs_a_concentric_body_on_a_local_support(view):
     world[~mask, 2] = np.nan if view == "no_support" else base[2]
     pose = np.diag([1.0, -1.0, -1.0, 1.0])
     pose[2, 3] = 1.0
+    if view in {"open_gap", "small_platform"}:
+        camera = base + [0, 0, 0.40]
+        pose[:3, 3] = camera
+        rim_plane = (
+            base + x[..., None] * across + y[..., None] * [0, 1, 0] + 0.038 * axis
+        )
+        rays = rim_plane - camera
+        counter = camera + rays * ((base[2] - camera[2]) / rays[..., 2])[..., None]
+        radial = np.linalg.norm((counter - base)[..., :2], axis=2)
+        gap = radial < radius + 0.008 if view == "open_gap" else radial > radius + 0.010
+        height = base[2] - gap * 0.05
+        background = camera + rays * ((height - camera[2]) / rays[..., 2])[..., None]
+        world[~mask] = background[~mask]
     obs = GeometryObservation(
         "front",
         0,
@@ -1331,11 +1383,14 @@ def test_round_base_needs_a_concentric_body_on_a_local_support(view):
         )
     )
     assert name == "base_center"
-    if view == "resting":
+    if view in {"resting", "small_platform"}:
         assert fit.accepted, fit.reason
+        assert "base_contact_occluded" in fit.warnings
         np.testing.assert_allclose(fit.parameters["center"], base, atol=0.001)
     else:
         assert not fit.accepted and "center" not in fit.parameters
+        if view == "open_gap":
+            assert fit.reason == "base_support_gap_observed"
 
 
 def test_noisy_tilted_faces_keep_two_distinct_levels():
@@ -1349,6 +1404,54 @@ def test_noisy_tilted_faces_keep_two_distinct_levels():
     faces = face_candidates(cloud, np.array([0.0, 0.0, 1.0]))
     heights = [support[:, 2].mean() for _, _, support in faces]
     np.testing.assert_allclose(heights, [0.085, 0.05], atol=0.001)
+
+
+@pytest.mark.parametrize("stop_at", ["plane_fit", "measurement_complete"])
+def test_cancelled_face_measurement_is_not_published_or_cached(
+    tmp_path, monkeypatch, stop_at
+):
+    from rpent.tools.toolkit import ToolCancelled
+    from toolkits.geometry import rgbd_parts
+
+    rows, cols = np.indices((40, 40))
+    face = (abs(rows - 20) < 10) & (abs(cols - 20) < 12)
+    stopped = False
+
+    def check():
+        if stopped:
+            raise ToolCancelled()
+
+    state, tool = _mask_tool(
+        tmp_path, face, cols * 0.001, rows * 0.001, face * 0.05, check_cancelled=check
+    )
+    owner, name = (
+        (rgbd_parts, "_plane") if stop_at == "plane_fit" else (tool, "_measure")
+    )
+    original = getattr(owner, name)
+
+    def stop_after(*args, **kwargs):
+        nonlocal stopped
+        assert not stopped, "started another fit after cancellation"
+        result = original(*args, **kwargs)
+        stopped = True
+        return result
+
+    def measure():
+        return tool.geometry(
+            "block",
+            "front",
+            object_prompt="block",
+            required_geometry=["rectangle_center"],
+            feature="upper_face",
+        )
+
+    with monkeypatch.context() as patch:
+        patch.setattr(owner, name, stop_after)
+        with pytest.raises(ToolCancelled):
+            measure()
+    assert not any(path.endswith(".json") for path in state.get(0).artifacts)
+    stopped = False
+    assert measure().data["status"] == "usable"
 
 
 @pytest.mark.parametrize(
