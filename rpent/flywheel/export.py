@@ -12,12 +12,16 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Export and load per-step training data."""
+"""Export VLA training frames and VLM planner turns, and load VLA datasets."""
 
 from __future__ import annotations
 
 import json
+import mimetypes
 import shutil
+from collections import Counter
+from dataclasses import asdict
+from hashlib import sha256
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import TYPE_CHECKING, Any
@@ -29,7 +33,12 @@ from rpent.flywheel.flywheel import (
     resolve_action_config,
     select_vla_segments,
 )
-from rpent.flywheel.reader import iter_trajectories
+from rpent.flywheel.reader import (
+    has_confirmed_environment_success,
+    iter_jsonl,
+    iter_tasks,
+    iter_trajectories,
+)
 from rpent.robots import get_robot_spec
 
 if TYPE_CHECKING:
@@ -252,3 +261,161 @@ def load_dataset(
         root=root / report["dataset_paths"]["train"],
         video_backend="pyav",
     )
+
+
+def _copy_images(
+    row: dict,
+    root: Path,
+    output: Path,
+    source_paths: dict[str, str],
+    images_by_digest: dict[str, str],
+) -> list[str]:
+    """Store each distinct image once and replace source paths with dataset paths."""
+    images = [
+        block
+        for message in row["messages"]
+        for block in message["content"]
+        if block["type"] == "image"
+    ]
+    paths = {image["path"] for image in images}
+    missing = sorted(
+        path
+        for path in paths
+        if path not in source_paths and not (root / path).is_file()
+    )
+    if missing:
+        return missing
+    for image in images:
+        path = image["path"]
+        if path not in source_paths:
+            source = root / path
+            if not source.resolve().is_relative_to(root / "artifacts"):
+                raise ValueError(f"Image artifact outside trajectory: {source}")
+            data = source.read_bytes()
+            digest = sha256(data).hexdigest()
+            if digest not in images_by_digest:
+                suffix = mimetypes.guess_extension(image["media_type"]) or ".bin"
+                target = f"images/{digest}{suffix}"
+                (output / target).write_bytes(data)
+                images_by_digest[digest] = target
+            source_paths[path] = images_by_digest[digest]
+        image["path"] = source_paths[path]
+    return []
+
+
+def export_vlm_samples(
+    input_root: Path | str,
+    output_dir: Path | str,
+    *,
+    pattern: str = "*",
+    include_unsuccessful: bool = False,
+) -> dict[str, Any]:
+    """Export API turns with their recorded request history and portable images."""
+    from rpent.flywheel.vlm_api import TurnConversionError, api_turn_to_sample
+
+    destination = Path(output_dir).expanduser().resolve()
+    if destination.exists():
+        raise FileExistsError(f"Output directory already exists: {destination}")
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    report = {
+        "include_unsuccessful": include_unsuccessful,
+        "episode_count": 0,
+        "selected_episode_count": 0,
+        "exported_episode_count": 0,
+        "turn_count": 0,
+        "sample_count": 0,
+        "skipped_backend_counts": Counter(),
+        "excluded": [],
+    }
+    with TemporaryDirectory(
+        prefix=f".{destination.name}-", dir=destination.parent
+    ) as tmp:
+        output = Path(tmp)
+        (output / "images").mkdir()
+        images_by_digest = {}
+        with (output / "samples.jsonl").open("w", encoding="utf-8") as rows:
+            for root, task in iter_tasks(input_root, pattern):
+                selected = include_unsuccessful or has_confirmed_environment_success(
+                    task
+                )
+                report["episode_count"] += 1
+                if selected:
+                    report["selected_episode_count"] += 1
+                samples_before = report["sample_count"]
+                source_paths = {}
+                for planner in iter_jsonl(root / "planners.jsonl"):
+                    report["turn_count"] += 1
+                    source = {
+                        "episode_id": task["task_id"],
+                        "turn_id": planner["planner_id"],
+                    }
+                    backend = planner["backend"]
+                    if not selected:
+                        report["excluded"].append(
+                            {**source, "reason": "no_confirmed_environment_success"}
+                        )
+                        continue
+                    if backend != "api":
+                        report["skipped_backend_counts"][backend] += 1
+                        report["excluded"].append(
+                            {
+                                **source,
+                                "reason": "unsupported_backend",
+                                "backend": backend,
+                            }
+                        )
+                        continue
+                    try:
+                        sample = api_turn_to_sample(task, planner)
+                    except (ValueError, KeyError, TypeError) as exc:
+                        report["excluded"].append(
+                            {
+                                **source,
+                                "reason": exc.reason
+                                if isinstance(exc, TurnConversionError)
+                                else "invalid_turn",
+                                "detail": str(exc),
+                            }
+                        )
+                        continue
+                    row = asdict(sample)
+                    missing = _copy_images(
+                        row, root, output, source_paths, images_by_digest
+                    )
+                    if missing:
+                        report["excluded"].append(
+                            {
+                                **source,
+                                "reason": "missing_images",
+                                "paths": missing,
+                            }
+                        )
+                        continue
+                    rows.write(
+                        json.dumps(row, ensure_ascii=False, allow_nan=False) + "\n"
+                    )
+                    report["sample_count"] += 1
+                if report["sample_count"] > samples_before:
+                    report["exported_episode_count"] += 1
+        report["image_count"] = len(images_by_digest)
+        report["excluded_episode_counts"] = {
+            "no_confirmed_environment_success": report["episode_count"]
+            - report["selected_episode_count"]
+        }
+        counts = Counter(item["reason"] for item in report["excluded"])
+        report["excluded_turn_counts"] = {
+            reason: counts[reason]
+            for reason in (
+                "no_confirmed_environment_success",
+                "unsupported_backend",
+                "incomplete_response",
+                "invalid_tool_arguments",
+                "missing_images",
+                "invalid_turn",
+            )
+        }
+        (output / "report.json").write_text(
+            json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+        )
+        output.rename(destination)
+    return report

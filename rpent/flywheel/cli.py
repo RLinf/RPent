@@ -25,15 +25,23 @@ logger = get_logger("flywheel")
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="rpent-flywheel",
-        description=(
-            "Export successful VLA trajectory segments as per-step training data. "
-            "Robot type is read from task records; export each robot separately."
-        ),
+        description="Export VLA training frames or API planner turns for VLM training.",
     )
-    parser.add_argument(
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument(
         "--vla",
         action="store_true",
-        help="Export only VLA training data. This is the default when omitted.",
+        help="Export VLA training data (default).",
+    )
+    mode.add_argument(
+        "--vlm",
+        action="store_true",
+        help="Export API planner turns from environment-confirmed successes to samples.jsonl.",
+    )
+    parser.add_argument(
+        "--include-unsuccessful",
+        action="store_true",
+        help="Also export VLM turns from episodes with failed or unknown environment outcomes (VLM only).",
     )
     parser.add_argument(
         "--input-root",
@@ -56,39 +64,76 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--horizon",
         type=int,
-        default=10,
-        help="Positive window length used only for report counts (default: 10). "
+        default=None,
+        help="Positive window length used only for report counts (VLA only, default: 10). "
         "Exported frames and tails are unchanged.",
     )
     parser.add_argument(
         "--repo-id",
-        default="rpent/vla-sft",
-        help="Local LeRobot dataset identifier (default: rpent/vla-sft). "
+        default=None,
+        help="Local LeRobot dataset identifier (VLA only, default: rpent/vla-sft). "
         "Does not upload data.",
     )
     parser.add_argument(
         "--image-writer-threads",
         type=int,
-        default=0,
+        default=None,
         help="Image-writing threads shared by all cameras; "
-        "0 writes synchronously (default: 0).",
+        "0 writes synchronously (VLA only, default: 0).",
     )
     return parser
 
 
 def main() -> int:
     """Export trajectories and display the resulting counts and paths."""
-    args = _parser().parse_args()
+    parser = _parser()
+    args = parser.parse_args()
+    if args.include_unsuccessful and not args.vlm:
+        parser.error("--include-unsuccessful requires --vlm")
+    vla_only = [
+        flag
+        for flag, value in (
+            ("--horizon", args.horizon),
+            ("--repo-id", args.repo_id),
+            ("--image-writer-threads", args.image_writer_threads),
+        )
+        if value is not None
+    ]
+    if args.vlm and vla_only:
+        parser.error(f"{', '.join(vla_only)} cannot be used with --vlm")
     try:
-        from rpent.flywheel.export import export_dataset
+        from rpent.flywheel.export import export_dataset, export_vlm_samples
 
+        if args.vlm:
+            report = export_vlm_samples(
+                args.input_root,
+                args.output_dir,
+                pattern=args.pattern,
+                include_unsuccessful=args.include_unsuccessful,
+            )
+            print(
+                f"Episodes: {report['episode_count']} read, {report['selected_episode_count']} selected, {report['exported_episode_count']} exported"
+            )
+            print(f"Turns read: {report['turn_count']}")
+            print(f"Samples: {report['sample_count']}")
+            print(f"Unique images: {report['image_count']}")
+            print(f"Excluded turns: {len(report['excluded'])}")
+            print(f"Report: {args.output_dir / 'report.json'}")
+            return 0
+        vla_kwargs = {
+            name: value
+            for name, value in (
+                ("horizon", args.horizon),
+                ("repo_id", args.repo_id),
+                ("image_writer_threads", args.image_writer_threads),
+            )
+            if value is not None
+        }
         report = export_dataset(
             args.input_root,
             args.output_dir,
             pattern=args.pattern,
-            horizon=args.horizon,
-            repo_id=args.repo_id,
-            image_writer_threads=args.image_writer_threads,
+            **vla_kwargs,
         )
     except ModuleNotFoundError as exc:
         if exc.name != "lerobot":

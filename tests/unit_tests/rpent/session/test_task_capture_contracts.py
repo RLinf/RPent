@@ -18,15 +18,94 @@ from __future__ import annotations
 
 import json
 import logging
+from dataclasses import replace
+from typing import Annotated, Literal
 
 import pytest
+from pydantic import Field
 from pydantic_core import to_jsonable_python
 
+from rpent.dashboard.events import NullDashboardEventSink
+from rpent.memory import MemoryManager
 from rpent.planner.base import PlannerResult
 from rpent.robots import RunConfig
 from rpent.session import EnvState, Payload
-from rpent.session.planner_capture import end_planner_task, task_config_snapshot
+from rpent.session.planner_capture import (
+    end_planner_task,
+    start_planner_task,
+    task_config_snapshot,
+)
+from rpent.tools import Toolkit, ToolResult, tool
 from rpent.utils.mcp_servers import McpServerSpec
+
+
+@pytest.mark.parametrize(
+    "system_prompt", ["Use tools.\nPreserve world coordinates.", ""]
+)
+def test_task_start_saves_prompts_and_tools_without_mutating_sources(
+    tmp_path, monkeypatch, system_prompt
+):
+    """Verify that task capture takes an independent snapshot of the prompt and tools."""
+    monkeypatch.setattr("rpent.utils.templates.get_output_dir", lambda: tmp_path)
+    state = EnvState(tmp_path)
+    toolkit = Toolkit(
+        dashboard_events=NullDashboardEventSink(),
+        state=state,
+        memory=MemoryManager(tmp_path / "memory"),
+    )
+
+    @tool
+    def move(
+        row: Annotated[int, Field(ge=0, description="Pixel row in {{output_dir}}")],
+        camera: Annotated[
+            Literal["wrist", "agentview"], Field(json_schema_extra={"default": "wrist"})
+        ] = "wrist",
+    ) -> ToolResult:
+        """Move using the camera in {{output_dir}}."""
+        raise AssertionError("Capturing tool definitions must not execute tools")
+
+    toolkit.add_tool(move)
+    definitions = toolkit.list_tools()
+    config = {"arguments": {"robot_name": "test"}, "run": {"output_dir": tmp_path}}
+    start_planner_task(
+        state,
+        instruction="Move",
+        system_prompt=system_prompt,
+        config=config,
+        tools=definitions,
+    )
+
+    assert "tools" not in config
+    assert "system_prompt" not in config
+    assert "{{output_dir}}" in move.input_schema["properties"]["row"]["description"]
+    toolkit.add_tool(
+        replace(move, description="Changed after task start"), replace=True
+    )
+    move._input_schema["properties"]["row"]["minimum"] = 99
+    config["arguments"]["robot_name"] = "changed"
+
+    state.end_task(status="completed", stop_reason="model_output")
+    root = state.save_planner_trajectory()
+    document = json.loads((root / "task.json").read_text())
+    saved = document["task"]["config"]["data"]
+    assert document["schema_version"] == 5
+    assert document["task"]["instruction"] == "Move"
+    assert saved["system_prompt"] == system_prompt
+    assert saved["arguments"]["robot_name"] == "test"
+    assert saved["run"]["output_dir"] == str(tmp_path)
+    assert [item["name"] for item in saved["tools"]] == [d.name for d in definitions]
+    by_name = {item["name"]: item for item in saved["tools"]}
+    assert by_name["move"]["description"] == f"Move using the camera in {tmp_path}."
+    assert by_name["move"]["readonly"] is False
+    schema = by_name["move"]["input_schema"]
+    assert schema["required"] == ["row"]
+    assert schema["properties"]["row"]["type"] == "integer"
+    assert schema["properties"]["row"]["minimum"] == 0
+    assert schema["properties"]["row"]["description"] == f"Pixel row in {tmp_path}"
+    assert schema["properties"]["camera"]["enum"] == ["wrist", "agentview"]
+    assert schema["properties"]["camera"]["default"] == "wrist"
+    assert by_name["list_dir"]["readonly"] is True
+    assert "{{output_dir}}" not in json.dumps(saved["tools"])
 
 
 @pytest.mark.parametrize(

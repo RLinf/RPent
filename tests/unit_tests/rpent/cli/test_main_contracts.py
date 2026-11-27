@@ -896,6 +896,7 @@ def test_full_cli_calls_robot_result_finalizer_without_robot_special_case(
     from rpent.planner.base import PlannerResult
     from rpent.robots import PromptBundle, RobotSpec, RunConfig
     from rpent.session import EnvState
+    from rpent.tools.common import CommonTools
 
     captured: list[RunFinalizationContext] = []
     capture_enabled = record_trajectory and planner_name != "flash"
@@ -911,6 +912,11 @@ def test_full_cli_calls_robot_result_finalizer_without_robot_special_case(
         closed = False
         state = EnvState(tmp_path / "state")
         drained = False
+
+        def list_tools(self):
+            """Return the finish tool for CLI trajectory capture."""
+            assert capture_enabled
+            return (CommonTools.finish,)
 
         def cancel_active_and_wait(self) -> None:
             self.drained = True
@@ -928,10 +934,12 @@ def test_full_cli_calls_robot_result_finalizer_without_robot_special_case(
 
     class FakePlanner:
         def solve(self, **kwargs: Any) -> PlannerResult:
-            del kwargs
             task = robot_toolkit.state.get_task()
             if capture_enabled:
                 assert task.status == "running"
+                assert task.config.data["system_prompt"] == kwargs["system_prompt"]
+                assert task.instruction == kwargs["user_message"]
+                assert task.config.data["tools"][0]["name"] == "finish"
             else:
                 assert task is None
             return PlannerResult(
@@ -970,6 +978,15 @@ def test_full_cli_calls_robot_result_finalizer_without_robot_special_case(
             )["task"]
             assert saved_task["task_id"] == task.task_id
             assert saved_task["status"] == task.status
+            assert saved_task["config"]["data"]["system_prompt"] == "system\n"
+            assert saved_task["config"]["data"]["tools"] == [
+                {
+                    "name": "finish",
+                    "description": CommonTools.finish.description,
+                    "input_schema": CommonTools.finish.input_schema,
+                    "readonly": CommonTools.finish.readonly,
+                }
+            ]
         else:
             assert robot_toolkit.state.get_task() is None
             assert not (tmp_path / "state" / "trajectories").exists()
