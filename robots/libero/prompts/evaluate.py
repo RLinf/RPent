@@ -420,6 +420,12 @@ directly comparable. Do NOT blindly average them — accept wrist coords only wh
 consistent with the agentview anchor, or for basket/cavity geometry.)"""
 
 GENERIC_SAMPLING = """Use the registered tool schemas when applying examples from memory.
+Use check_free_space to assess a candidate placement on the recorded support
+surface. Pass center_xyz on that surface and copy its world_frame_id. Give the
+radius of a circle enclosing the object and the required clearance above the
+support, both in metres. If blocked, choose another placement. If unknown,
+inspect the reason and seek a calibrated view with the full footprint visible.
+Use free as local visibility evidence and check the approach path separately.
 `view_env_state` embeds `agentview_policy.png` (Pi0) followed by the calibrated agentview
 and wrist images, skipping missing images. Pick pixels on `agentview_high.png` or
 `wrist_high.png`, or the same camera's standard PNG if its high-resolution image is absent.

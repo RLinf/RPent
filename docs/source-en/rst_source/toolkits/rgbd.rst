@@ -138,3 +138,37 @@ the tools on the robot's toolkit.
    you reuse the same geometry tool instance across episodes and step numbers
    restart, call ``geometry.reset_cache()`` at the start of each new episode to
    clear the cache.
+
+Check a Placement Area
+----------------------
+
+Add ``--rgbd-tools`` when you run LIBERO to use ``check_free_space``. Select
+the recorded ``camera`` and ``step``. Set ``center_xyz`` to a world-frame
+point on the support surface at the center of the intended footprint. Copy
+``world_frame_id`` from the same coordinate result. Set
+``footprint_radius_m`` to the radius, in metres, of a circle covering the
+object's horizontal footprint. Set ``clearance_m`` to the required height
+above the support surface in metres.
+
+The tool fits a support plane near the supplied point and uses an 8-by-8
+grid over the region. ``support_coverage`` is the fraction of cells
+overlapping the circle that have a visible sample on the support plane.
+
+A ``free`` result requires a calibrated camera above the requested
+clearance. The footprint and the volume above it must fit in the image.
+Pixel rays through the footprint need valid support measurements. A missing
+return or a foreground surface may hide part of the clearance volume.
+At an acceptable slope, a measured protrusion yields ``blocked`` even
+with incomplete coverage. The tool also reports ``blocked`` when all grid
+cells have support and the plane exceeds the slope limit
+(``max_slope_deg``, 8 degrees by default). Read ``reason`` for details
+when coverage, calibration or visibility is insufficient.
+
+The result describes sampled geometry at the recorded view's resolution.
+Check the gripper and approach path separately.
+
+Use this prompt to guide the planner.
+
+   Use ``check_free_space`` before choosing a placement. Try another
+   placement if the result is blocked. If observations are missing or
+   occluded, seek a clearer view. Check the approach path separately.

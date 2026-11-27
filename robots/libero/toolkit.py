@@ -89,12 +89,18 @@ class LiberoToolkit(Toolkit):
         if generic_tools:
             from robots.libero.observations import LiberoGeometryObservations
             from toolkits.back_project import back_project
+            from toolkits.check_free_space import check_free_space
             from toolkits.segment import SegmentTool
 
             observations = LiberoGeometryObservations(state)
             self.add_tool(
                 back_project.with_handler(
                     partial(back_project, observations=observations)
+                )
+            )
+            self.add_tool(
+                check_free_space.with_handler(
+                    partial(check_free_space, observations=observations)
                 )
             )
             self.add_tool(
