@@ -191,30 +191,51 @@ RPent 的整体进程划分、服务职责和通信方式见 :doc:`系统说明 
 
 定义 ``system_prompt()`` 和 ``user_prompt()`` 两个 prompt 工厂，并在机器人的 ``robot_spec.py`` 中构造 ``PromptBundle(system=system_prompt, user=user_prompt)`` （见上面的“入口”）。每个工厂返回一个有序的 ``dict[str, PromptNode]``，其中包含带标题的分节； ``PromptBundle.render`` 负责组装和填充。一套 prompt 供 API loop、Claude Code 和 Codex 等 planner 共用。正文使用工具的裸名（如 ``move_to``），并说明 Claude Code 和 Codex SDK 会将其显示为 ``mcp__rpent__<name>``；无需分别维护 CLI 与 API 版本。
 
+接入操作类机器人时，优先复用 ``rpent/prompt/`` 中的通用提示词，只在 ``robots/<robot>/`` 下补充该机器人特有的内容。评测和探索分别使用公共的 ``evaluate.py`` 和 ``explore.py``，两者共用 ``workflow.py`` 定义的七个系统提示词分节。
+
+- ``ROLE AND TASK`` — 明确目标，以及判定成功所需的证据。
+- ``RUNTIME AND SAFETY`` — 说明工具、文件访问与运动的限制。
+- ``INITIALIZATION AND MEMORY`` — 规定启动检查和记忆读取顺序。
+- ``PERCEPTION AND LOCALIZATION`` — 说明如何识别目标并确定其位置。
+- ``ACTION AND VERIFICATION`` — 选择动作，并根据观测验证其实际效果。
+- ``RECOVERY AND BUDGET`` — 根据剩余预算决定何时纠偏、重试或停止。
+- ``SUCCESS AND REPORTING`` — 核对环境判定并记录结果。
+
+在 ``robots/<robot>/prompts/`` 下按职责组织提示词：
+
+- ``system.py`` 放机器人共用的系统说明和评测专用规则，例如相机视角、坐标系和原生成功信号。
+- ``explore.py`` 放该机器人在探索模式下追加的规则，例如重置前要保存哪些记录、交接笔记写到哪里。
+- ``action_models.py`` 按动作模型分别维护调用约定，包括输入指令、动作块长度和历史状态。
+- ``user.py`` 定义本轮任务字段 ``TASK`` 和启动指令 ``BEGIN``。
+
+``robots/<robot>/prompt_bundle.py`` 负责组装。它根据本轮模式选择公共工作流，将机器人专用说明追加到对应分节，并通过 ``action_model_guidance`` 将当前动作模型的调用约定追加到 ``ACTION AND VERIFICATION``：
+
 .. code-block:: python
 
    # robots/myrobot/prompt_bundle.py
-   from robots.myrobot.prompts import system as system_parts
-   from robots.myrobot.prompts import user as user_parts
-   from rpent.prompt.utils import PromptNode
+   from collections.abc import Mapping
 
-   def system_prompt() -> PromptNode:
-       return {
-           "INTRO": system_parts.PREAMBLE,
-           "GOAL": system_parts.GOAL,
-           "RULES": system_parts.RULES,
-           "WORKFLOW": system_parts.WORKFLOW,
-           "ENVIRONMENT": system_parts.ENVIRONMENT,
-           "OUTPUT": system_parts.OUTPUT,
-       }
+   from robots.myrobot.prompts import action_models, system, user
+   from robots.myrobot.prompts import explore as exploration
+   from rpent.prompt import evaluate, explore
+   from rpent.prompt.workflow import user_prompt as build_user_prompt
 
-   def user_prompt() -> PromptNode:
-       return {
-           "TASK": user_parts.TASK,
-           "BEGIN": user_parts.BEGIN,
-       }
+   def system_prompt(variables: Mapping[str, object] | None = None) -> dict[str, str]:
+       variables = variables or {}
+       exploring = variables.get("mode") == "explore"
+       workflow = explore if exploring else evaluate
+       backend = str(variables.get("policy_backend") or "default")
+       return workflow.system_prompt(
+           role=system.ROLE,
+           perception=system.PERCEPTION,
+           success=exploration.SUCCESS if exploring else system.SUCCESS,
+           action_model_guidance=action_models.GUIDANCE.get(backend, ""),
+       )
 
-将 prompt 内容保存在机器人包内，例如 ``robots/myrobot/prompts/system.py`` 和 ``user.py``。分节内容可以是普通字符串，也可以使用 ``BulletList`` 或 ``Numbered``。占位符 ``{{suite}}`` / ``{{task}}`` / ``{{seed}}`` / ``{{output_dir}}`` / ``{{recipe_tag}}`` 在渲染时填充。
+   def user_prompt(variables: Mapping[str, object] | None = None) -> dict[str, str]:
+       return build_user_prompt(user.TASK, user.BEGIN)
+
+``PromptBundle.render`` 会根据 ``RunConfig.prompt_vars`` 填充 ``{{task_name}}``、``{{seed}}``、``{{output_dir}}``、``{{memory_dir}}``、``{{recipe_tag}}`` 等占位符。不复用 ``rpent/prompt/workflow.py`` 的机器人也可以继续使用 ``rpent.prompt.utils`` 中的 ``BulletList`` 和 ``Numbered`` 组织自定义分节。
 
 .. _add-robot-toolkit:
 

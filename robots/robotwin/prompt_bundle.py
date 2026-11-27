@@ -12,64 +12,59 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""RoboTwin prompt bundle assembly."""
-
-from __future__ import annotations
+"""Select RoboTwin's local additions to the shared planner workflow."""
 
 from collections.abc import Mapping
 
-from robots.robotwin.prompts import evaluate as evaluate_parts
-from robots.robotwin.prompts import explore as explore_parts
-from robots.robotwin.prompts import user as user_parts
-from rpent.prompt.utils import PromptNode
+from robots.robotwin.prompts import action_models, system, user
+from robots.robotwin.prompts import explore as exploration
+from rpent.prompt import evaluate, explore
+from rpent.prompt.workflow import user_prompt as build_user_prompt
 
 
-def system_prompt(
-    variables: Mapping[str, object] | None = None,
-) -> PromptNode:
-    """Return the RoboTwin system prompt for the selected run mode."""
+def _backend(variables: Mapping[str, object]) -> str:
+    default = "wam" if variables.get("policy_kind") == "wam" else "lingbot"
+    return str(variables.get("policy_backend") or default)
+
+
+def _guidance(backend: str, variables: Mapping[str, object]) -> str:
+    if backend in action_models.GUIDANCE:
+        return action_models.GUIDANCE[backend]
+    if variables.get("policy_kind") == "wam" or backend == "wam":
+        return action_models.DEFAULT_WAM_GUIDANCE
+    return ""
+
+
+def system_prompt(variables: Mapping[str, object] | None = None) -> dict[str, str]:
     variables = variables or {}
-    if variables.get("policy_backend") == "uniwam":
-        from robots.robotwin.prompts.uniwam import evaluate
-
-        return (
-            explore_parts.system_prompt(
-                transfer=evaluate.TRANSFER, control=evaluate.CONTROL
-            )
-            if variables.get("mode") == "explore"
-            else evaluate.system_prompt()
+    backend = _backend(variables)
+    guidance = _guidance(backend, variables)
+    if backend not in {"lingbot", "uniwam"}:
+        # Other WAM adapters use local memory and the compact evaluation protocol.
+        return evaluate.system_prompt(
+            role=system.ROLE,
+            runtime=system.EVAL_ACCESS,
+            success=system.SUCCESS,
+            action_model_guidance=guidance,
         )
 
-    if (
-        variables.get("mode", "eval") == "explore"
-        and variables.get("policy_kind") != "wam"
-    ):
-        return explore_parts.system_prompt()
-    return evaluate_parts.system_prompt(variables)
-
-
-def user_prompt(
-    variables: Mapping[str, object] | None = None,
-) -> PromptNode:
-    variables = variables or {}
-    is_uniwam = variables.get("policy_backend") == "uniwam"
-    if variables.get("policy_kind") == "wam" and not is_uniwam:
-        return {
-            "TASK": user_parts.WAM_TASK,
-            "MEMORY": user_parts.WAM_MEMORY,
-        }
-    checkpoint = (
-        "UniWAM RoboTwin history-flow"
-        if is_uniwam
-        else "RLinf/LingBot-VLA-RoboTwin-EEF-ckpt1500"
+    exploring = variables.get("mode") == "explore"
+    workflow = explore if exploring else evaluate
+    read_order = exploration.READ_ORDER if exploring else system.READ_ORDER
+    return workflow.system_prompt(
+        role=system.ROLE,
+        runtime="" if exploring else system.EVAL_ACCESS,
+        initialization=read_order,
+        perception=system.PERCEPTION,
+        action=system.CONTROL,
+        recovery=exploration.RECOVERY if exploring else system.BUDGET,
+        success=exploration.SUCCESS if exploring else system.SUCCESS,
+        action_model_guidance=guidance,
     )
-    prompt = {
-        "CELL": user_parts.CELL + f"- checkpoint: {checkpoint}\n",
-        "BEGIN": user_parts.BEGIN,
-    }
-    if variables.get("mode", "eval") == "explore":
-        prompt["EXPLORE MODE"] = explore_parts.USER_MODE
-    return prompt
 
 
-__all__ = ["system_prompt", "user_prompt"]
+def user_prompt(variables: Mapping[str, object] | None = None) -> dict[str, str]:
+    backend = _backend(variables or {})
+    if backend not in {"lingbot", "uniwam"}:
+        return build_user_prompt(user.WAM_TASK, user.WAM_BEGIN)
+    return build_user_prompt(user.TASK, user.BEGIN)

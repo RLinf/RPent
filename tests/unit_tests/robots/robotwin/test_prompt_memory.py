@@ -76,5 +76,59 @@ def test_uniwam_prompt_selects_wam_tool_and_memory_for_mode(mode):
     assert "lingbot_act" not in system + user
     if mode == "eval":
         assert "shared-memory/MEMORY.md" in system
+        assert "Stop actions on native success or step exhaustion" in system
     else:
         assert "shared-memory/inbox/wip/" in system
+        assert "Stop actions on native success or step exhaustion" not in system
+        assert "exhausts step_lim while attempts remain" in system
+
+
+@pytest.mark.parametrize("backend", ["fast-wam", "wam", "custom-wam", None])
+def test_compact_wam_prompt_retains_wam_act_guidance(backend):
+    variables: dict[str, object] = {
+        "policy_kind": "wam",
+        "task_config": "demo_randomized",
+        "memory_dir": "memory/robotwin/wam",
+    }
+    if backend is not None:
+        variables["policy_backend"] = backend
+
+    system = format_prompt(system_prompt(variables), variables=variables)
+    user = format_prompt(user_prompt(variables), variables=variables)
+
+    assert "wam_act" in system
+    assert "lingbot_act" not in system
+    assert "memory/robotwin/wam" in system
+    assert "memory/robotwin/wam" in user
+    assert "GUIDE_RPENT.md" not in system
+    assert "{{" not in system + user
+
+
+def test_lingbot_explore_prompt_uses_exploration_closeout_and_memory():
+    variables = {
+        "policy_backend": "lingbot",
+        "policy_kind": "vla",
+        "mode": "explore",
+        "memory_dir": "memory/robotwin",
+        "task_name": "beat_block_hammer",
+        "task_config": "demo_randomized",
+        "seed": 7,
+        "reference_tag": "beat_block_hammer_s0",
+        "recipe_tag": "robotwin_beat_block_hammer_demo_randomized_s7",
+        "session_number": 1,
+        "session_max": 3,
+        "memory_inbox": "memory/robotwin/_internal/inbox/test",
+        "explore_attempts_per_session": 5,
+        "output_dir": "output",
+    }
+
+    system = format_prompt(system_prompt(variables), variables=variables)
+    user = format_prompt(user_prompt(variables), variables=variables)
+
+    assert "lingbot_act" in system
+    assert "wam_act" not in system
+    assert "memory/robotwin/_internal/inbox/test/wip/" in system
+    assert "exhausts step_lim while attempts remain" in system
+    assert "Stop actions on native success or step exhaustion" not in system
+    assert "task: beat_block_hammer" in user
+    assert "{{" not in system + user

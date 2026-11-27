@@ -14,18 +14,11 @@
 
 """User prompt for one RoboTwin run."""
 
-CELL = """- task: {{task_name}}
+TASK = """- task: {{task_name}}
 - seed: {{seed}}
-- task_config: {{task_config}}
-"""
+- task_config: {{task_config}}"""
 
-BEGIN = """Follow the required read order, bind the current task's targets and
-relations from fresh observation, then execute the first unmet recipe phase.
-After each action verify its observable gate, preserve achieved relations, and
-use the complete current task_language unchanged for every call to the action model."""
+BEGIN = "Follow the RoboTwin startup and memory read order."
 
-WAM_TASK = (
-    "Inspect view_env_state for the native task and current scene, then use wam_act."
-)
-
-WAM_MEMORY = "Local memory directory: {{memory_dir}}."
+WAM_TASK = "Follow the native task_language. Local memory directory: {{memory_dir}}."
+WAM_BEGIN = "Inspect view_env_state(step=0) for the native task and current scene."
