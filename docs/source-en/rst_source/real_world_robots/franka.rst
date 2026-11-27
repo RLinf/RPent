@@ -82,6 +82,19 @@ startup:
    ray stop --force
    ray start --head
 
+Safety
+------
+
+.. warning::
+
+   Keep an operator at the hardware emergency stop (E-stop) whenever motion is
+   enabled, and confirm the workspace is clear before starting any command.
+   Validate task ``0`` with very small motions before attempting a grasp. Stop
+   immediately if camera and state results disagree, if a requested motion is
+   not reached, or if any calibration is uncertain. After an E-stop or
+   unexpected stop, inspect the physical scene, clear any obstruction, reset
+   the robot controller, and restart the session before resuming.
+
 Run a Smoke Test
 ----------------
 
@@ -128,13 +141,6 @@ The extension exposes ``view_env_state``, ``view_camera_meta``, ``move_delta``,
 ``rotate_delta``, ``open_gripper``, ``close_gripper``, and ``vla_grasp``.
 Mutating tools capture robot state, wrist and external RGB images, optional
 aligned depth arrays, and camera metadata in RPent's central ``EnvState``.
-
-Safety
-------
-
-Keep an operator at the emergency stop. Validate task ``0`` with very small
-motions before attempting a grasp. Stop when camera/state results disagree,
-when the requested motion is not reached, or when any calibration is uncertain.
 
 .. _franka-flash:
 

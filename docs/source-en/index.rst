@@ -48,7 +48,7 @@ RPent (Recursive Physical Agent) is an open-source framework for building embodi
 
       Understand the execution flow and add robots, tools, or planners.
 
-See :doc:`Installation <rst_source/get_started/installation>` for component setup. Choose an environment: :doc:`LIBERO <rst_source/simulators/libero>`, :doc:`RoboCasa365 <rst_source/simulators/robocasa>`, or :doc:`RoboTwin <rst_source/simulators/robotwin>`. For robot deployment, see :doc:`Single-Arm Franka <rst_source/real_world_robots/franka>` and :doc:`Dual-Arm Franka <rst_source/real_world_robots/dual_franka>`; :doc:`YAM <rst_source/real_world_demos/yam>` has a task demo.
+See :doc:`Installation <rst_source/get_started/installation>` for component setup, or jump to a simulator (:doc:`LIBERO <rst_source/simulators/libero>`, :doc:`RoboCasa365 <rst_source/simulators/robocasa>`, :doc:`RoboTwin <rst_source/simulators/robotwin>`, :doc:`RoboDojo <rst_source/simulators/robodojo>`, :doc:`RoboLab <rst_source/simulators/robolab>`, :doc:`EFE <rst_source/simulators/efe>`) or real robot (:doc:`Single-Arm Franka <rst_source/real_world_robots/franka>`, :doc:`Dual-Arm Franka <rst_source/real_world_robots/dual_franka>`, :doc:`YAM <rst_source/real_world_robots/yam>`).
 
 .. toctree::
    :maxdepth: 2

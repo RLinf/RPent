@@ -389,7 +389,7 @@ Common settings are listed below; see :doc:`cli` for all options:
    * - ``--max-turns``
      - RPent tool-call budget for the whole task, default ``100``. Follow-up messages and interrupts do not reset it.
    * - ``--planner-timeout-s``
-     - An explicit timeout value in seconds takes precedence. Otherwise, defaults are resolved in priority order; see the code for that order.
+     - Wall-clock timeout in seconds for online planner runs (interactive API/Claude terminal sessions are exempt). Defaults to ``CODEX_TIMEOUT_S`` (``codex`` only), ``GEMINI_CLI_TIMEOUT_S`` (``gemini_cli`` only), ``CELL_TIMEOUT_S``, or ``1200``.
    * - ``--max-tokens``
      - ``api`` only: token limit per response, default ``8192``.
    * - ``--reasoning-effort``

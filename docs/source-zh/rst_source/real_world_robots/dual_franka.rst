@@ -45,6 +45,13 @@ RPent 通过 RLinf ``RealWorldEnv`` worker 控制双节点双臂 Franka 系统�
 
 未设置该变量或 ``--sam3-endpoint`` 时，分割功能不可用；仅安装组件不会下载权重。VLA checkpoint 配置见 :ref:`dual-franka-vla`。
 
+安全要求
+--------
+
+.. warning::
+
+   标定（需人工扳动右臂）、手动技能测试、独立 VLA 诊断和任务运行全程，操作员必须值守在硬件急停（E-stop）旁。``Ctrl+C`` 或创建 ``STOP`` 文件仅为软件停止，正在执行的 RPC 仍可能继续完成，**不能替代硬件急停**。移动机械臂或开启运动前，先确认双臂工作空间与回位路径净空，并用小幅位移验证。触发急停或执行状态不确定后，先检查现场、复位控制器，再重启会话。
+
 标定
 ----
 
@@ -212,6 +219,7 @@ RPent 会将该机器人配置转换成内部双节点 RLinf cluster 和环境�
 
 两个分类任务均提供 ``vla_right_grasp`` / ``vla_handoff`` / ``vla_left_place`` 技能。
 
+.. _vla-grasp-demo:
 .. _dual-franka-vla:
 
 VLA 配置

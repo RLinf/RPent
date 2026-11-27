@@ -78,7 +78,7 @@ Start the service with that environment's Python:
      --precision bf16 \
      --transport http --host 127.0.0.1 --port 8220
 
-Add ``--vla-endpoint http://127.0.0.1:8220`` to the LIBERO command. For remote
+Add ``--am-endpoint http://127.0.0.1:8220`` to the LIBERO command. For remote
 access, bind to a reachable interface and use the server's address. Stop this
 external service yourself when finished. Omitting the endpoint starts OpenPI.
 APXInf-robo's native OpenPI WebSocket server is not an RPent RPC endpoint;

@@ -229,7 +229,8 @@ Set ``VPP2_MODEL_PATH`` to start this model automatically when running a task.
 .. dropdown:: Start a standalone VPP2 service (optional)
 
    To manage the service yourself, install the policy dependencies and RPent's
-   core package in the model environment, then start the service:
+   core package in the model environment, then start the service from the RPent
+   checkout:
 
    .. code-block:: bash
 
@@ -282,7 +283,8 @@ Set ``AWOMO05_MODEL_PATH`` to start this model automatically when running a task
 .. dropdown:: Start a standalone Awomo05 service (optional)
 
    To manage the service yourself, install the policy dependencies and RPent's
-   core package in the model environment, then start the service:
+   core package in the model environment, then start the service from the RPent
+   checkout:
 
    .. code-block:: bash
 

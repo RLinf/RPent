@@ -196,7 +196,7 @@ VPP2 配置
 
 .. dropdown:: 手动启动 VPP2 服务（可选）
 
-   需要自行管理模型服务时，在模型环境中安装策略依赖和 RPent 核心包，然后启动：
+   需要自行管理模型服务时，在模型环境中安装策略依赖和 RPent 核心包，然后在 RPent 源码目录中启动：
 
    .. code-block:: bash
 
@@ -241,7 +241,7 @@ Awomo05 配置
 
 .. dropdown:: 手动启动 Awomo05 服务（可选）
 
-   需要自行管理模型服务时，在模型环境中安装策略依赖和 RPent 核心包，然后启动：
+   需要自行管理模型服务时，在模型环境中安装策略依赖和 RPent 核心包，然后在 RPent 源码目录中启动：
 
    .. code-block:: bash
 
@@ -376,7 +376,7 @@ SAM3 用于物体分割。先在 `facebook/sam3 模型页面 <https://huggingfac
 使用 ``--task`` 选择任务。固定场景通过 ``--seed`` 选择官方布局组，通过 ``--layout`` 选择组内布局，两者默认均为 ``0``。例如，``--task stack_blocks --seed 0 --layout 2`` 使用第 0 组的第 2 个布局。需要随机生成场景时，添加 ``--random``，此时 ``--layout`` 不生效。
 
 - ``--env-cuda-device``、``--am-cuda-device``、``--sam3-cuda-device``：分别选择本地服务的 GPU；省略时回退到 ``--cuda-device``，再沿用 ``CUDA_VISIBLE_DEVICES``。
-- ``--am-backend``：选择动作模型，目前支持 ``vpp2`` 或 ``awomo05``。
+- ``--am-backend``：选择动作模型，目前支持 ``vpp2``\ （默认）或 ``awomo05``。
 - ``--am-checkpoint``：指向包含 ``policy/`` 和 ``checkpoints/`` 的资源根目录，覆盖所选后端的 ``VPP2_MODEL_PATH`` 或 ``AWOMO05_MODEL_PATH``。
 - ``--env-endpoint``、``--sam3-endpoint``、``--am-endpoint``：连接已有 RPent RPC 服务；VLA 协议必须匹配所选后端。
 - ``--source-root``：使用本地 RoboDojo 源码替代包内源码。

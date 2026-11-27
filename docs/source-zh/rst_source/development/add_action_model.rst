@@ -74,7 +74,7 @@ VLA 和 WAM 通过公共 AM 基类复用 RPC 注册与推理转发。VLA 保留�
           -> create platform WAM client and check control compatibility
           -> report ready to Dashboard
 
-VLA 启动函数也使用 ``AMConfig.spawn_worker()``。平台保留各自的服务命令和传输方式，包括 LingBot 的原生 WebSocket 连接与 RoboCasa 的带会话 RPC。``ProcessDaemon`` 在启动失败时关闭日志；公共 ``robots/runtime.py`` 在资源交接后负责等待就绪、组件状态和进程组清理。连接外部 endpoint 时不返回自有 daemon。
+VLA 启动函数也使用 ``AMConfig.spawn_worker()``。平台保留各自的服务命令和传输方式，包括 LingBot 的原生 WebSocket 连接与 RoboCasa 的带会话 RPC。``ProcessDaemon`` 在启动失败时关闭日志；公共 ``rpent/robots/runtime.py`` 在资源交接后负责等待就绪、组件状态和进程组清理。连接外部 endpoint 时不返回自有 daemon。
 
 ``AMConfig`` 保存解析后的后端、平台、endpoint、checkpoint、Python、工作目录、GPU 和额外的 worker 参数。默认值解析不会修改原始 Namespace，避免 Dashboard 再次使用时把默认值误认为显式参数。WAM 的 ``runtime_config.py`` 补充模型专属默认值和 worker 参数；VLA 平台启动函数保留各自的原生命令构造。
 

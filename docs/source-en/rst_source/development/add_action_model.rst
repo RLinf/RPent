@@ -92,7 +92,7 @@ VLA launchers also use ``AMConfig.spawn_worker()``. Platforms retain their
 transport and model command arguments, including LingBot's native WebSocket
 connection and RoboCasa's session-enabled RPC. ``ProcessDaemon`` closes its
 log on a failed spawn. The shared
-``robots/runtime.py`` owns readiness, component status and group cleanup after
+``rpent/robots/runtime.py`` owns readiness, component status and group cleanup after
 resource handoff. Borrowed endpoints return no owned daemon.
 
 ``rpent.components.models.backends.add_am_args(parser, platform=...)`` registers supported backends

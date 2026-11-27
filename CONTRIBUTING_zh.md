@@ -8,7 +8,8 @@ RPent 欢迎社区贡献。无论是提交 bug、修复问题、完善测试和�
 planner、robot 或 tool 集成，都能帮助项目持续发展。
 
 集成新功能时，可以先阅读现有的[自定义 planner](docs/source-zh/rst_source/development/add_planner.rst)、
-[添加 robot](docs/source-zh/rst_source/development/add_robot.rst) 和
+[添加 robot](docs/source-zh/rst_source/development/add_robot.rst)、
+[添加动作模型](docs/source-zh/rst_source/development/add_action_model.rst)和
 [添加 primitive](docs/source-zh/rst_source/development/add_primitive.rst) 指南。
 
 ## 1. 贡献流程

@@ -47,7 +47,7 @@ These options control the planner, memory, output directory, and Dashboard.
        but can also increase task duration.
    * - ``--planner-timeout-s``
      - ``—``
-     - An explicit timeout value in seconds takes precedence. Otherwise, defaults are resolved in priority order; see the code for that order.
+     - Wall-clock timeout in seconds for online planner runs (interactive API/Claude terminal sessions are exempt). Defaults to ``CODEX_TIMEOUT_S`` (``codex`` only), ``GEMINI_CLI_TIMEOUT_S`` (``gemini_cli`` only), ``CELL_TIMEOUT_S``, or ``1200``.
    * - ``--codex-sandbox``
      - ``full-access``
      - Codex shell sandbox: ``read-only``, ``workspace-write``, or ``full-access``. Other planners ignore this flag.
@@ -103,7 +103,7 @@ These options control the planner, memory, output directory, and Dashboard.
 Environment Options
 -------------------
 
-LIBERO selects tasks with ``--suite``, ``--task``, ``--seed``, and ``--libero-type``; the variant defaults to ``LIBERO_TYPE`` or ``pro``. RoboCasa365 and RoboTwin use ``--task-name``. Franka uses ``--task-id`` and ``--robot-config``. See :doc:`../simulators/libero`, :doc:`../simulators/robocasa`, :doc:`../simulators/robotwin`, :doc:`../real_world_robots/franka`, and :doc:`../real_world_robots/dual_franka` for details.
+LIBERO selects tasks with ``--suite``, ``--task``, ``--seed``, and ``--libero-type``; when omitted, the variant uses ``LIBERO_TYPE`` if set, otherwise infers ``standard`` for base suites and ``pro`` for perturbation suites. RoboCasa365 and RoboTwin use ``--task-name``. Franka uses ``--task-id`` and ``--robot-config``. See :doc:`../simulators/libero`, :doc:`../simulators/robocasa`, :doc:`../simulators/robotwin`, :doc:`../real_world_robots/franka`, and :doc:`../real_world_robots/dual_franka` for details.
 
 ``--env-endpoint``, ``--am-endpoint``, and LIBERO’s ``--sam3-endpoint`` connect to existing environment, action-model (VLA or WAM), and SAM3 services respectively. RPent RPC addresses use ``[protocol://]host:port``, defaulting to ``http``. LingBot uses native WebSocket; see :doc:`../simulators/robotwin`. See :doc:`advanced_deployment` for GPU assignment and remote services.
 

@@ -10,7 +10,8 @@ integrations all help the project grow.
 
 For integration work, start with the existing guides for
 [custom planners](docs/source-en/rst_source/development/add_planner.rst),
-[new robots](docs/source-en/rst_source/development/add_robot.rst), and
+[new robots](docs/source-en/rst_source/development/add_robot.rst),
+[new action models](docs/source-en/rst_source/development/add_action_model.rst), and
 [new primitives](docs/source-en/rst_source/development/add_primitive.rst).
 
 ## 1. Contribution workflow

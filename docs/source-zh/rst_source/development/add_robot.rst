@@ -23,7 +23,7 @@ RPent 的整体进程划分、服务职责和通信方式见 :doc:`系统说明 
 4. :ref:`实现 toolkit 和 primitives <add-robot-toolkit>`。
 5. :ref:`注册环境参数并生成 RunConfig <add-robot-config>`。
 6. 实现 :ref:`runtime 钩子 <add-robot-runtime>`：同一个钩子既能为普通 CLI 初始化完整 runtime，也能为 Dashboard 初始化指定的 component 子集。
-7. 补充 :ref:`环境、各组件和完整调用链的测试 <add-robot-testing>`。
+7. 补充 :ref:`离线 CPU 单元测试与声明式 GPU 端到端套件 <add-robot-testing>`\ （``tests/e2e_tests/suites/<name>.toml``）。
 
 .. _add-robot-entry:
 
@@ -249,7 +249,7 @@ RPent 的整体进程划分、服务职责和通信方式见 :doc:`系统说明 
 2. ``prompt_bundle.py``
 -----------------------
 
-定义 ``system_prompt()`` 和 ``user_prompt()`` 两个 prompt 工厂，并在机器人的 ``robot_spec.py`` 中构造 ``PromptBundle(system=system_prompt, user=user_prompt)`` （见上面的“入口”）。每个工厂返回一个有序的 ``dict[str, PromptNode]``，其中包含带标题的分节； ``PromptBundle.render`` 负责组装和填充。一套 prompt 供 API loop、Claude Code 和 Codex 等 planner 共用。正文使用工具的裸名（如 ``move_to``），并说明 Claude Code 和 Codex SDK 会将其显示为 ``mcp__rpent__<name>``；无需分别维护 CLI 与 API 版本。
+定义 ``system_prompt()`` 和 ``user_prompt()`` 两个 prompt 工厂，并在机器人的 ``robot_spec.py`` 中构造 ``PromptBundle(system=system_prompt, user=user_prompt)``\ （见上面的“入口与组件清单”）。每个工厂返回一个有序的 ``dict[str, PromptNode]``，其中包含带标题的分节； ``PromptBundle.render`` 负责组装和填充。一套 prompt 供 API loop、Claude Code 和 Codex 等 planner 共用。正文使用工具的裸名（如 ``move_to``），并说明 Claude Code 和 Codex SDK 会将其显示为 ``mcp__rpent__<name>``；无需分别维护 CLI 与 API 版本。
 
 .. code-block:: python
 
@@ -348,7 +348,7 @@ toolkit 模块通常包含四部分：
 **``_parse_config(args) -> RunConfig``。** 普通 CLI 模式下，该钩子在 ``parser.parse_args()`` 后调用；Dashboard 模式下，每个 TaskRun 会先把请求字段写入任务参数，再调用该钩子。该钩子校验这些字段并返回
 :class:`~rpent.robots.RunConfig`：
 
-- ``recipe_tag`` —— 单次运行的机器人标签，用于 transcript 文件名和 recipe 路径（LIBERO 使用 ``f"{suite.replace('libero_', '')}_t{task}_s{seed}"``）。
+- ``recipe_tag`` —— 单次运行的机器人标签，用于 recipe 路径、planner CLI 输出文件和 transcript 中的 ``recipe_tag`` 字段（LIBERO 使用 ``f"{suite.replace('libero_', '')}_t{task}_s{seed}"``）。
 - ``output_dir`` —— 单次运行的临时目录路径。main.py 随后调用 ``init_output_dir`` 创建目录并配置日志。
 - ``prompt_vars`` —— 传给 ``PromptBundle.render`` 的字典，通常包含运行标识和 prompt 引用的其他变量。
 - ``task_desc`` —— 机器人特定的任务标识字典，会原样写入 transcript JSON 记录（LIBERO 使用 ``{"suite": ..., "task": ..., "seed": ...}``）。

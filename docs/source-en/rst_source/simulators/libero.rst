@@ -133,6 +133,7 @@ then point at it via ``PI05_CHECKPOINT_PATH``:
 .. code-block:: bash
 
    hf download RLinf/RLinf-Pi05-LIBERO-130-fullshot-SFT \
+     --exclude optimizer.pt \
      --local-dir /path/to/rlinf-pi05-libero-130-fullshot-sft
 
    export PI05_CHECKPOINT_PATH=/path/to/rlinf-pi05-libero-130-fullshot-sft

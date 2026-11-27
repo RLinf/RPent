@@ -195,6 +195,19 @@ Codex Configuration
 Before using Codex, configure separate runtime directories and log in by following
 :ref:`planner-codex-isolation`.
 
+Safety
+------
+
+.. warning::
+
+   Keep an operator at the hardware emergency stop (E-stop) before running
+   ``reset_pose``, manual skill tests, or ``rpent --robot yam``. Confirm both
+   arms' workspaces and reset paths are clear, remove any objects held in the
+   grippers before resetting, and verify basic actions before running VLA
+   rollouts. If execution state is uncertain or an unexpected motion occurs,
+   trigger the hardware E-stop, inspect the physical scene, recover the arms,
+   and restart the services before resuming.
+
 .. _id3:
 .. _yam-services:
 
@@ -408,9 +421,8 @@ VLA also provides ``pi05_act``.
 
 Select one arm with ``arm=left/right`` for basic actions. ``move_to`` uses xyz in metres
 in ``left_base`` and wxyz quaternions. ``rotate_wrist`` uses degrees. Gripper ``val=0``
-closes and ``val=1`` opens.
-
-Use ``set_gripper`` or ``release`` to open or close a gripper.
+closes and ``val=1`` opens: use ``set_gripper`` for an explicit opening value, or
+``release`` to open the gripper directly.
 
 .. _yam-exploration:
 

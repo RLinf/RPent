@@ -36,7 +36,7 @@ RPent 将任务规划、工具执行和环境运行分开：规划器选择工�
    * - 组件
      - 职责
    * - Planner
-     - 选择工具、维护模型交互并返回 ``PlannerResult``。``api`` 使用 Pydantic AI 原生循环，并通过 Harness 的滑动窗口裁剪历史；``claude_code`` 和 ``codex`` 使用各自的 SDK，``gemini_cli`` 和 ``opencode`` 复用 ``planner/utils/acp.py`` 中的 ACP 驱动。LIBERO Flash 执行保存的计划。
+     - 选择工具、维护模型交互并返回 ``PlannerResult``。``api`` 使用 Pydantic AI 原生循环，并通过 Harness 的滑动窗口裁剪历史；``claude_code`` 和 ``codex`` 使用各自的 SDK，``gemini_cli`` 和 ``opencode`` 复用 ``rpent/planner/utils/acp.py`` 中的 ACP 驱动。LIBERO Flash 执行保存的计划。
    * - Toolkit
      - 定义工具参数、分发调用、保存状态，并将工具返回值转换为供规划器读取的 ``ToolResult``。
    * - Environment service
@@ -132,9 +132,13 @@ LIBERO 会话复用 Pi0.5 和 SAM3，每个任务拥有独立环境并按顺序�
      - 指南
    * - 接入环境、机器人或 Dashboard 控件。
      - :doc:`add_robot`
+   * - 接入 VLA 或世界动作模型（WAM）后端。
+     - :doc:`add_action_model`
    * - 将动作或感知能力提供为工具。
      - :doc:`add_primitive`
    * - 添加规划器后端。
      - :doc:`add_planner`
    * - 理解记忆的访问和持久化机制。
      - :doc:`memory`
+   * - 运行离线单元测试、仓库结构检查与 GPU 端到端套件。
+     - :doc:`testing`

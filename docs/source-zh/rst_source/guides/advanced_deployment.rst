@@ -61,7 +61,7 @@ APXInf 适配器可以替代 Pi0.5 服务。在已安装 RPent 的环境中，�
      --precision bf16 \
      --transport http --host 127.0.0.1 --port 8220
 
-在 LIBERO 命令中增加 ``--vla-endpoint http://127.0.0.1:8220``。跨主机访问时，将服务绑定到可访问的网络接口，并使用服务端地址。用完后需自行停止这个外部服务；省略 endpoint 会启动 OpenPI。
+在 LIBERO 命令中增加 ``--am-endpoint http://127.0.0.1:8220``。跨主机访问时，将服务绑定到可访问的网络接口，并使用服务端地址。用完后需自行停止这个外部服务；省略 endpoint 会启动 OpenPI。
 APXInf-robo 原生的 OpenPI WebSocket 服务不是 RPent RPC endpoint，请使用上述适配器。
 
 适配器仅支持 eval 模式，模型配置如下：

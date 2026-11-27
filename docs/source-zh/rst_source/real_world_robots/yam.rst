@@ -159,6 +159,13 @@ Codex 配置
 
 使用 Codex 时，先按\ :ref:`planner-codex-isolation`\ 配置独立的运行目录并登录。
 
+安全要求
+--------
+
+.. warning::
+
+   执行 ``reset_pose``、手动技能测试或 ``rpent --robot yam`` 前，操作员必须值守在硬件急停（E-stop）旁。确认双臂工作空间与复位路径净空、先取下夹爪中的物体再执行复位，并在运行 VLA 前先验证基础动作。若执行状态不确定或出现异常运动，立即触发硬件急停，检查现场并恢复机械臂状态，重启服务后再继续运行。
+
 .. _id3:
 .. _yam-services:
 
@@ -334,9 +341,7 @@ Codex 配置
 
 YAM 提供 ``view_env_state``、``sample_world_xyz``、``query_world_map``、``render``、``status``，以及 ``move_to``、``rotate_wrist``、``set_gripper``、``release``。连接 VLA 后还提供 ``pi05_act``。
 
-基本动作通过 ``arm=left/right`` 选择一条机械臂。``move_to`` 的 xyz 单位为米，坐标系为 ``left_base``，四元数顺序为 wxyz；``rotate_wrist`` 使用角度；夹爪 ``val=0`` 闭合、``val=1`` 打开。
-
-开合夹爪使用 ``set_gripper`` 或 ``release``。
+基本动作通过 ``arm=left/right`` 选择一条机械臂。``move_to`` 的 xyz 单位为米，坐标系为 ``left_base``，四元数顺序为 wxyz；``rotate_wrist`` 使用角度；夹爪 ``val=0`` 闭合、``val=1`` 打开，指定开合值用 ``set_gripper``，直接松开用 ``release``。
 
 .. _yam-exploration:
 

@@ -41,7 +41,7 @@ different robots.
    * - Component
      - Responsibility
    * - Planner
-     - Select tools, manage model interaction, and return ``PlannerResult``. The ``api`` backend uses the native Pydantic AI loop and Harness sliding-window history trimming; ``claude_code`` and ``codex`` use their respective SDKs, and ``gemini_cli`` and ``opencode`` share the ACP driver in ``planner/utils/acp.py``. LIBERO Flash executes stored plans.
+     - Select tools, manage model interaction, and return ``PlannerResult``. The ``api`` backend uses the native Pydantic AI loop and Harness sliding-window history trimming; ``claude_code`` and ``codex`` use their respective SDKs, and ``gemini_cli`` and ``opencode`` share the ACP driver in ``rpent/planner/utils/acp.py``. LIBERO Flash executes stored plans.
    * - Toolkit
      - Define schemas, dispatch calls, record state, and expose results as ``ToolResult`` for the planner.
    * - Environment service
@@ -157,9 +157,13 @@ Choose the guide for the component you want to extend.
      - Guide
    * - Connect an environment, robot, or Dashboard control.
      - :doc:`add_robot`
+   * - Integrate a VLA or world action model (WAM) backend.
+     - :doc:`add_action_model`
    * - Expose an action or perception capability as a tool.
      - :doc:`add_primitive`
    * - Add a planning backend.
      - :doc:`add_planner`
    * - Understand memory access and persistence.
      - :doc:`memory`
+   * - Run offline unit tests, layout checks, and GPU e2e suites.
+     - :doc:`testing`

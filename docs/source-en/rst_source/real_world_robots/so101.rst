@@ -1,4 +1,6 @@
 SO-101
 ======
 
-Content coming soon.
+**Status: Planned (not yet supported).**
+
+RPent does not yet include a ``robot-so101`` component or deployment guide for the SO-101 arm. For supported real-world robots, see :doc:`franka`, :doc:`dual_franka`, and :doc:`yam`.

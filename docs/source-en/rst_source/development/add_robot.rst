@@ -40,8 +40,8 @@ order:
 6. Implement the :ref:`runtime hook <add-robot-runtime>`. The same hook starts
    the complete runtime for normal CLI runs or a selected component subset for
    the Dashboard.
-7. Add :ref:`tests for the environment, its components, and the complete
-   policy chain <add-robot-testing>`.
+7. Add :ref:`offline CPU unit tests and a declarative GPU end-to-end suite
+   <add-robot-testing>` (``tests/e2e_tests/suites/<name>.toml``).
 
 .. _add-robot-entry:
 
@@ -490,8 +490,9 @@ TaskRun after the requested fields have been copied to the task arguments. It
 validates those fields and returns a
 :class:`~rpent.robots.RunConfig`:
 
-- ``recipe_tag`` — robot's per-run tag, used in transcript filenames / recipe
-  path (LIBERO: ``f"{suite.replace('libero_', '')}_t{task}_s{seed}"``).
+- ``recipe_tag`` — robot's per-run tag, used in the recipe path, planner CLI
+  output files, and the transcript's ``recipe_tag`` field (LIBERO:
+  ``f"{suite.replace('libero_', '')}_t{task}_s{seed}"``).
 - ``output_dir`` — path to the working directory for this run (main.py then
   calls ``init_output_dir`` to create it and configure logging).
 - ``prompt_vars`` — dict passed to ``PromptBundle.render`` (typically the run

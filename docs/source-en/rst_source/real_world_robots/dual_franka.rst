@@ -57,6 +57,21 @@ Without this variable or ``--sam3-endpoint``, segmentation is unavailable;
 installing the environment alone does not download weights. VLA checkpoints are
 configured in :ref:`dual-franka-vla`.
 
+Safety
+------
+
+.. warning::
+
+   Keep an operator at the hardware emergency stop (E-stop) throughout
+   calibration, manual skill tests, VLA console rollouts, and task execution.
+   Calibration requires manually moving the right arm, and software interrupts
+   such as ``Ctrl+C`` or the ``STOP`` file are **not** hardware emergency stops
+   and may allow an in-flight RPC to finish. Before moving either arm or
+   enabling motion, confirm both arms' workspaces and reset paths are clear and
+   validate with small displacements first. After an E-stop or uncertain
+   execution state, inspect the physical scene, recover the robot controllers,
+   and restart the session before issuing new motion commands.
+
 Calibration
 -----------
 
