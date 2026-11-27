@@ -182,6 +182,9 @@ def _preload_simulator(environment: str, assets_path: str | None) -> None:
             os.environ["ROBOTWIN_ASSETS_PATH"] = assets_path
             os.environ["ROBOTWIN_ASSETS_ROOT"] = assets_path
         from robots.robotwin import env_server  # noqa: F401
+    elif environment == "robodojo":
+        if assets_path:
+            os.environ["ROBODOJO_ASSETS_ROOT"] = assets_path
 
 
 class _WorkerSessionHost:
@@ -293,26 +296,60 @@ class _WorkerSessionHost:
                 ).RoboCasaEnvClient(rpc),
             )
         if env_name == "robodojo":
+            task_name = str(task["task_name"])
+            layout = int(task.get("layout", 0))
+            seed = int(task["seed"])
+            env_cfg_type = str(task.get("env_cfg_type", "arx_x5"))
+            assets = task.get("assets_path") or self.assets_path
+            if assets:
+                os.environ["ROBODOJO_ASSETS_ROOT"] = str(assets)
+            source_root = (
+                task.get("source_root")
+                or task.get("robodojo_source_root")
+                or os.environ.get("ROBODOJO_SOURCE_ROOT")
+            )
+            script_args = [
+                "--task",
+                task_name,
+                "--layout",
+                str(layout),
+                "--seed",
+                str(seed),
+                "--env-cfg-type",
+                env_cfg_type,
+                "--max-episode-steps",
+                str(max_episode_steps),
+                "--mode",
+                "eval-fair",
+                "--episode-protocol",
+                "--headless",
+                "--enable_cameras",
+            ]
+            if source_root:
+                script_args.extend(["--source-root", str(source_root)])
+            expected_meta = {
+                "action_protocol_version": 1,
+                "task": task_name,
+                "layout": layout,
+                "seed": seed,
+                "env_cfg_type": env_cfg_type,
+                "device_id": int(self.gpu) if self.gpu is not None else 0,
+                "num_envs": 1,
+                "max_episode_steps": max_episode_steps,
+                "random": False,
+                "episode_protocol": True,
+                "mode": "eval-fair",
+            }
             return self._spawn_remote_env(
                 "robots/robodojo/env_server.py",
-                [
-                    "--task",
-                    str(task["task_name"]),
-                    "--layout",
-                    str(int(task.get("layout", 0))),
-                    "--seed",
-                    str(int(task["seed"])),
-                    "--max-episode-steps",
-                    str(max_episode_steps),
-                    "--mode",
-                    "eval-fair",
-                    "--episode-protocol",
-                    "--headless",
-                    "--enable_cameras",
-                ],
+                script_args,
                 lambda rpc: __import__(
                     "robots.robodojo.env_client", fromlist=["RoboDojoEnvClient"]
-                ).RoboDojoEnvClient(rpc, record_vpp2_history=False),
+                ).RoboDojoEnvClient(
+                    rpc,
+                    expected_meta=expected_meta,
+                    record_vpp2_history=False,
+                ),
             )
         if env_name == "robolab":
             assert self._robolab_runtime is not None
@@ -405,6 +442,8 @@ class _WorkerSessionHost:
         init_state_id = task.get("init_state_id")
         if init_state_id is None and self.environment == "robolab":
             init_state_id = int(task["seed"])
+        if init_state_id is None and self.environment == "robodojo":
+            init_state_id = int(task.get("layout", task.get("seed", 0)))
         if init_state_id is None and hasattr(env, "last_info"):
             init_state_id = env.last_info.get("init_state_id", task.get("seed"))
         return {
