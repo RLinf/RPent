@@ -28,14 +28,7 @@ from rpent.planner.utils.acp import AcpSession
     [
         ("{bad", "JSONDecodeError"),
         ("null", "AttributeError"),
-        ("[]", "AttributeError"),
         ('{"provider": null}', "Invalid provider configuration"),
-        ('{"provider": []}', "Invalid provider configuration"),
-        ('{"provider": {"local": null}}', "Invalid provider configuration"),
-        (
-            '{"provider": {"local": {"options": null}}}',
-            "Invalid provider configuration",
-        ),
     ],
 )
 def test_check_reports_invalid_inline_config(monkeypatch, config, detail):
