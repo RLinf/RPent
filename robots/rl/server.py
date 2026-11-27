@@ -33,6 +33,7 @@ import json
 import os
 import pickle
 import resource
+import shutil
 import signal
 import socket
 import struct
@@ -205,6 +206,16 @@ class _WorkerSessionHost:
         self._env = None
         self._daemon = None
         self._toolkit = None
+        self._robolab_runtime = None
+
+    def start(self, *, scratch_dir: Path | None = None) -> None:
+        """Start any runtime owned for the lifetime of this worker."""
+        if self.environment == "robolab":
+            from robots.robolab.episode_server import RoboLabEpisodeRuntime
+
+            self._robolab_runtime = RoboLabEpisodeRuntime(
+                cuda_device=self.gpu, scratch_dir=scratch_dir
+            )
 
     def _get_sam3(self):
         if self._sam3 is None and self.sam3_endpoint:
@@ -222,6 +233,7 @@ class _WorkerSessionHost:
         max_episode_steps: int,
         *,
         record_artifacts: bool = False,
+        output_dir: str | None = None,
     ):
         env_name = self.environment
         if env_name == "metaworld":
@@ -302,6 +314,16 @@ class _WorkerSessionHost:
                     "robots.robodojo.env_client", fromlist=["RoboDojoEnvClient"]
                 ).RoboDojoEnvClient(rpc, record_vpp2_history=False),
             )
+        if env_name == "robolab":
+            assert self._robolab_runtime is not None
+            return self._robolab_runtime.open_episode(
+                task=str(task["task_name"]),
+                seed=int(task["seed"]),
+                max_episode_steps=max_episode_steps,
+                save_dir=Path(output_dir) / "native"
+                if record_artifacts and output_dir
+                else None,
+            )
         raise ValueError(f"Unsupported simulator: {env_name}")
 
     def _spawn_remote_env(self, script: str, script_args: list[str], client_factory):
@@ -355,7 +377,10 @@ class _WorkerSessionHost:
         init_output_dir(output_dir or tempfile.gettempdir())
 
         env = self._build_env(
-            task, max_episode_steps, record_artifacts=record_artifacts
+            task,
+            max_episode_steps,
+            record_artifacts=record_artifacts,
+            output_dir=output_dir,
         )
         self._env = env
         runtime_kwargs: dict[str, Any] = {
@@ -378,6 +403,8 @@ class _WorkerSessionHost:
         )
         init_obs = toolkit.initial_observation()
         init_state_id = task.get("init_state_id")
+        if init_state_id is None and self.environment == "robolab":
+            init_state_id = int(task["seed"])
         if init_state_id is None and hasattr(env, "last_info"):
             init_state_id = env.last_info.get("init_state_id", task.get("seed"))
         return {
@@ -407,11 +434,14 @@ class _WorkerSessionHost:
         }
 
     def close(self) -> dict[str, Any]:
-        if self._toolkit is not None:
-            try:
+        try:
+            if self._toolkit is not None:
                 self._toolkit.close()
-            finally:
-                self._toolkit = None
+        finally:
+            self._toolkit = None
+            if self._robolab_runtime is not None:
+                self._env = None
+                self._robolab_runtime.close_episode()
         if self._env is not None:
             try:
                 self._env.close()
@@ -432,6 +462,14 @@ class _WorkerSessionHost:
             pass
         return {"closed": True}
 
+    def shutdown(self) -> None:
+        """Close the session and release process-owned simulators."""
+        try:
+            self.close()
+        finally:
+            if self._robolab_runtime is not None:
+                self._robolab_runtime.close()
+
 
 def _run_worker(args: argparse.Namespace) -> None:
     _configure_worker_gpu(args.env, args.gpu)
@@ -445,12 +483,13 @@ def _run_worker(args: argparse.Namespace) -> None:
         gpu=args.gpu,
     )
     sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-    sock.connect(args.socket)
-    _send_msg(
-        sock,
-        {"ready": True, "worker_id": args.worker_id, "pid": os.getpid()},
-    )
     try:
+        host.start(scratch_dir=Path(args.socket).parent / f"worker-{args.worker_id}")
+        sock.connect(args.socket)
+        _send_msg(
+            sock,
+            {"ready": True, "worker_id": args.worker_id, "pid": os.getpid()},
+        )
         while True:
             try:
                 cmd = _recv_msg(sock)
@@ -481,8 +520,10 @@ def _run_worker(args: argparse.Namespace) -> None:
                     },
                 )
     finally:
-        host.close()
-        sock.close()
+        try:
+            host.shutdown()
+        finally:
+            sock.close()
 
 
 # ---------------------------------------------------------------------------
@@ -502,6 +543,7 @@ class _WorkerHandle:
     alive: bool = True
     replaced: bool = False
     lock: asyncio.Lock = field(default_factory=asyncio.Lock)
+    scratch_dir: Path | None = None
 
     async def rpc(self, payload: dict[str, Any]) -> dict[str, Any]:
         async with self.lock:
@@ -530,6 +572,8 @@ class _WorkerHandle:
                 self.proc.wait(timeout=5)
             except Exception:
                 pass
+        if self.scratch_dir is not None:
+            shutil.rmtree(self.scratch_dir, ignore_errors=True)
 
 
 class SimPoolManager:
@@ -626,6 +670,9 @@ class SimPoolManager:
     async def _spawn_worker_impl(self, gpu: int | None) -> _WorkerHandle:
         wid = self._next_worker_id
         self._next_worker_id += 1
+        scratch_dir = (
+            self._sock_dir / f"worker-{wid}" if self.environment == "robolab" else None
+        )
         loop = asyncio.get_running_loop()
         waiter: asyncio.Future[tuple[asyncio.StreamReader, asyncio.StreamWriter]] = (
             loop.create_future()
@@ -671,21 +718,22 @@ class SimPoolManager:
 
         try:
             reader, writer = await asyncio.wait_for(waiter, timeout=240.0)
+            if self._sleeping or self._shutting_down:
+                writer.close()
+                raise asyncio.CancelledError(
+                    "SimPoolManager entered sleep/shutdown during spawn"
+                )
         except BaseException:
             self._ready_waiters.pop(wid, None)
-            if proc.poll() is None:
-                proc.kill()
-                proc.wait(timeout=5)
+            try:
+                if proc.poll() is None:
+                    proc.kill()
+                    proc.wait(timeout=5)
+            finally:
+                if scratch_dir is not None:
+                    shutil.rmtree(scratch_dir, ignore_errors=True)
             raise
-        if self._sleeping or self._shutting_down:
-            writer.close()
-            if proc.poll() is None:
-                proc.kill()
-                proc.wait(timeout=5)
-            raise asyncio.CancelledError(
-                "SimPoolManager entered sleep/shutdown during spawn"
-            )
-        handle = _WorkerHandle(wid, gpu, proc, reader, writer)
+        handle = _WorkerHandle(wid, gpu, proc, reader, writer, scratch_dir=scratch_dir)
         self._workers.add(handle)
         await self._idle.put(handle)
         return handle
@@ -787,20 +835,22 @@ class SimPoolManager:
         if worker is None:
             return {"closed": False, "already_closed": True}
         worker.episodes += 1
-        recycle = (
-            not worker.alive
-            or worker.busy
-            or worker.proc.poll() is not None
-            or (
-                self.max_episodes_per_worker > 0
-                and worker.episodes >= self.max_episodes_per_worker
-            )
-        )
-        if worker.replaced or recycle:
+        at_limit = 0 < self.max_episodes_per_worker <= worker.episodes
+        unavailable = not worker.alive or worker.busy or worker.proc.poll() is not None
+        if (
+            worker.replaced
+            or unavailable
+            or (at_limit and self.environment != "robolab")
+        ):
             asyncio.create_task(self._replace_worker(worker))
             return {"closed": True, "recycled": True}
         try:
+            # A healthy RoboLab worker finalizes its native recorder and
+            # episode artifacts before the application is recycled.
             await asyncio.wait_for(worker.rpc({"op": "close"}), timeout=30.0)
+            if at_limit:
+                asyncio.create_task(self._replace_worker(worker))
+                return {"closed": True, "recycled": True}
             if not worker.replaced and worker.alive:
                 await self._idle.put(worker)
             return {"closed": True, "recycled": False}
@@ -1066,13 +1116,26 @@ class SimPoolRouter:
 
         return min(self.backends, key=_key)
 
-    async def open_session(self, payload: dict[str, Any]) -> dict[str, Any]:
+    async def open_session(
+        self, payload: dict[str, Any], *, is_disconnected=None
+    ) -> dict[str, Any]:
         assert self._client is not None
         backend = self._pick_backend()
         self._reserved[backend] += 1
+        pending = asyncio.create_task(
+            self._client.post(f"{backend}/sessions/open", json=payload)
+        )
         try:
             try:
-                resp = await self._client.post(f"{backend}/sessions/open", json=payload)
+                while is_disconnected is not None and not pending.done():
+                    await asyncio.wait({pending}, timeout=0.25)
+                    if (
+                        not pending.done()
+                        and await is_disconnected()
+                        and not pending.done()
+                    ):
+                        raise HTTPException(499, "Client disconnected during open")
+                resp = await pending
             except httpx.TransportError as exc:
                 logger.warning(
                     "SimPoolRouter(%s) transport error opening session on %s: %s",
@@ -1088,11 +1151,18 @@ class SimPoolRouter:
                 raise HTTPException(status_code=resp.status_code, detail=resp.text)
             data = resp.json()
             sid = str(data["session_id"])
+            if is_disconnected is not None and await is_disconnected():
+                await self._client.post(f"{backend}/sessions/{sid}/close", json={})
+                raise HTTPException(499, "Client disconnected during open")
             self._sessions[sid] = (backend, payload.get("cohort_id"))
             return data
         except BaseException:
             self._reserved[backend] = max(0, self._reserved[backend] - 1)
             raise
+        finally:
+            if not pending.done():
+                pending.cancel()
+                await asyncio.gather(pending, return_exceptions=True)
 
     async def execute(
         self, session_id: str, raw_body: bytes, accept: str
@@ -1225,8 +1295,10 @@ def create_router_app(router: SimPoolRouter) -> FastAPI:
         return await router.health()
 
     @app.post("/sessions/open")
-    async def open_session(req: OpenRequest):
-        return await router.open_session(req.model_dump())
+    async def open_session(req: OpenRequest, request: Request):
+        return await router.open_session(
+            req.model_dump(), is_disconnected=request.is_disconnected
+        )
 
     @app.post("/cohorts/{cohort_id}/close")
     async def close_cohort(cohort_id: str):
@@ -1278,7 +1350,7 @@ def main() -> None:
     p_serve = sub.add_parser("serve", help="Run the HTTP warm worker pool server")
     p_serve.add_argument(
         "--env",
-        choices=("libero", "robotwin", "robocasa", "robodojo", "metaworld"),
+        choices=("libero", "robotwin", "robocasa", "robodojo", "metaworld", "robolab"),
         required=True,
     )
     p_serve.add_argument("--host", default="127.0.0.1")
@@ -1300,7 +1372,7 @@ def main() -> None:
     )
     p_router.add_argument(
         "--env",
-        choices=("libero", "robotwin", "robocasa", "robodojo", "metaworld"),
+        choices=("libero", "robotwin", "robocasa", "robodojo", "metaworld", "robolab"),
         required=True,
     )
     p_router.add_argument("--host", default="127.0.0.1")
@@ -1311,7 +1383,7 @@ def main() -> None:
     p_worker = sub.add_parser("worker", help="Internal persistent GPU worker process")
     p_worker.add_argument(
         "--env",
-        choices=("libero", "robotwin", "robocasa", "robodojo", "metaworld"),
+        choices=("libero", "robotwin", "robocasa", "robodojo", "metaworld", "robolab"),
         required=True,
     )
     p_worker.add_argument("--socket", required=True)
@@ -1343,6 +1415,11 @@ def main() -> None:
             timeout_keep_alive=300,
         )
         return
+
+    if args.env == "robolab":
+        from robots.robolab.access import require_isaac_eula
+
+        require_isaac_eula()
 
     manager = SimPoolManager(
         environment=args.env,

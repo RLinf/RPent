@@ -34,6 +34,7 @@ CAMERAS: dict[str, tuple[str, ...]] = {
     "robocasa": ("agentview", "agentview_right", "wrist"),
     "robotwin": ("head", "left_wrist", "right_wrist"),
     "robodojo": ("cam_head", "cam_left_wrist", "cam_right_wrist"),
+    "robolab": ("over_shoulder_left_camera", "wrist_cam"),
 }
 
 _LENGTH_FIELDS = frozenset({"xyz", "world_xyz", "tcp_xyz", "base_xyz", "vx", "vy"})

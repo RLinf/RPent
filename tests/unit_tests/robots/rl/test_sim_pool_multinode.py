@@ -22,7 +22,7 @@ from types import SimpleNamespace
 
 import httpx
 import pytest
-from fastapi import FastAPI, Request, Response
+from fastapi import FastAPI, HTTPException, Request, Response
 
 from robots.rl.server import (
     BINARY_EXECUTE_MEDIA_TYPE,
@@ -352,3 +352,69 @@ def test_sim_pool_sleep_prevents_replacement_respawns() -> None:
         assert spawn_calls == 0
 
     asyncio.run(_run())
+
+
+def test_router_cancels_upstream_open_when_http_client_disconnects() -> None:
+    async def scenario():
+        router = SimPoolRouter(environment="robolab", backends=["http://worker"])
+        started = asyncio.Event()
+        cancelled = asyncio.Event()
+
+        class Backend:
+            async def post(self, *args, **kwargs):
+                started.set()
+                try:
+                    await asyncio.Future()
+                finally:
+                    cancelled.set()
+
+        router._client = Backend()
+
+        async def disconnected() -> bool:
+            return started.is_set()
+
+        with pytest.raises(HTTPException) as error:
+            await asyncio.wait_for(
+                router.open_session({"task": {}}, is_disconnected=disconnected),
+                timeout=2,
+            )
+
+        assert getattr(error.value, "status_code", None) == 499
+        assert cancelled.is_set()
+        assert router._reserved["http://worker"] == 0
+
+    asyncio.run(scenario())
+
+
+def test_robolab_finalizes_episode_before_recycling_worker() -> None:
+    async def scenario() -> None:
+        manager = SimPoolManager(
+            environment="robolab",
+            gpus=[0],
+            num_workers=1,
+            sim_python="python",
+            sam3_endpoint=None,
+            max_episodes_per_worker=1,
+        )
+        events = []
+        worker = _WorkerHandle(0, 0, SimpleNamespace(poll=lambda: None), None, None)
+
+        async def close(request):
+            events.append(request["op"])
+            return {"closed": True}
+
+        async def replace(handle):
+            assert handle is worker
+            events.append("replace")
+
+        worker.rpc = close
+        manager._replace_worker = replace
+        manager._sessions["s-1"] = worker
+        try:
+            assert (await manager.close_session("s-1"))["recycled"]
+            await asyncio.sleep(0)
+            assert events == ["close", "replace"]
+        finally:
+            await manager.shutdown()
+
+    asyncio.run(scenario())

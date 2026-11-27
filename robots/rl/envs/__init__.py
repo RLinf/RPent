@@ -39,4 +39,8 @@ def primitive_owner(environment: str):
         from robots.rl.envs.robodojo import RoboDojoRLPrimitives
 
         return RoboDojoRLPrimitives
+    if environment == "robolab":
+        from robots.rl.envs.robolab import RoboLabRLPrimitives
+
+        return RoboLabRLPrimitives
     raise ValueError(f"Unsupported episode environment: {environment}")

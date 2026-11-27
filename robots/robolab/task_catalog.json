@@ -1,0 +1,733 @@
+{
+  "pilot": [
+    "BananaInBowlTask",
+    "BowlStackingLeftOnRightTask",
+    "RubiksCubeTask"
+  ],
+  "source_metadata": "robolab/tasks/_metadata/task_metadata.json",
+  "source_metadata_sha256": "ad7553707eed0d945e98ca4a5fdd8277eb31eecf5b2b64217a74debc47abb654",
+  "source_revision": "b6cfcf6ccd2113c4cd1216d35b33024a7d5691da",
+  "task_count": 120,
+  "tasks": {
+    "AnimalsInBinTask": {
+      "difficulty": "simple",
+      "instruction": "Put the lizards in the bin",
+      "native_episode_seconds": 90,
+      "source": "benchmark/animals_in_bin.py"
+    },
+    "AppleAndYogurtInBowlTask": {
+      "difficulty": "moderate",
+      "instruction": "Put the apple and yogurt in the bowl",
+      "native_episode_seconds": 120,
+      "source": "benchmark/apple_and_yogurt_in_bowl_task.py"
+    },
+    "BBQSauceInBinTask": {
+      "difficulty": "simple",
+      "instruction": "Put the red BBQ sauce bottles in the grey bin",
+      "native_episode_seconds": 90,
+      "source": "benchmark/bbq_sauce_in_bin_task.py"
+    },
+    "BagelsOnPlateTask": {
+      "difficulty": "simple",
+      "instruction": "Put the bagels on the plate",
+      "native_episode_seconds": 60,
+      "source": "benchmark/bagel_on_plate_task.py"
+    },
+    "BananaInBowlTask": {
+      "difficulty": "simple",
+      "instruction": "Pick up the banana and place it in the bowl",
+      "native_episode_seconds": 50,
+      "source": "benchmark/banana_in_bowl_task.py"
+    },
+    "BananaOnPlateTask": {
+      "difficulty": "simple",
+      "instruction": "Pick up the banana and put it on the plate",
+      "native_episode_seconds": 40,
+      "source": "benchmark/banana_on_plate_task.py"
+    },
+    "BananaThenRubiksCubeTask": {
+      "difficulty": "simple",
+      "instruction": "put the banana then the cube in the bowl",
+      "native_episode_seconds": 60,
+      "source": "benchmark/banana_then_rubiks_cube.py"
+    },
+    "BananasInBinOneMoreTask": {
+      "difficulty": "moderate",
+      "instruction": "Put one (1) more bananas in the grey bin.",
+      "native_episode_seconds": 60,
+      "source": "benchmark/bananas_in_bin_one_more.py"
+    },
+    "BananasInBinThreeTotalTask": {
+      "difficulty": "moderate",
+      "instruction": "Make sure there are 3 (three) bananas in the grey bin.",
+      "native_episode_seconds": 60,
+      "source": "benchmark/bananas_in_bin_three.py"
+    },
+    "BananasInCrateTask": {
+      "difficulty": "moderate",
+      "instruction": "Put 2 bananas in the crate",
+      "native_episode_seconds": 60,
+      "source": "benchmark/bananas_in_crate.py"
+    },
+    "BananasOutOfBinTask": {
+      "difficulty": "moderate",
+      "instruction": "Take the bananas out",
+      "native_episode_seconds": 90,
+      "source": "benchmark/bananas_out_of_bin.py"
+    },
+    "BigPumpkinInBinTask": {
+      "difficulty": "simple",
+      "instruction": "Put the bigger pumpkin in the bin",
+      "native_episode_seconds": 60,
+      "source": "benchmark/clutter_big_pumpkin_task.py"
+    },
+    "BlackItemsInBinTask": {
+      "difficulty": "complex",
+      "instruction": "Put the black items in the grey bin",
+      "native_episode_seconds": 120,
+      "source": "benchmark/black_items_in_bin.py"
+    },
+    "BlockStackingOrderAgnosticTask": {
+      "difficulty": "complex",
+      "instruction": "Stack the blocks into a tower",
+      "native_episode_seconds": 90,
+      "source": "benchmark/block_stacking_order_agnostic_task.py"
+    },
+    "BlockStackingSpecifiedOrderTask": {
+      "difficulty": "complex",
+      "instruction": "Stack the blocks in the order from bottom to top: red, blue, green, yellow",
+      "native_episode_seconds": 90,
+      "source": "benchmark/block_stacking_specified_order_task.py"
+    },
+    "BlocksInBinTask": {
+      "difficulty": "complex",
+      "instruction": "Sort all colored blocks into the bin",
+      "native_episode_seconds": 150,
+      "source": "benchmark/blocks_in_bin.py"
+    },
+    "BowlInBinTask": {
+      "difficulty": "simple",
+      "instruction": "put the bowl in the grey bin",
+      "native_episode_seconds": 60,
+      "source": "benchmark/bowl_in_bin_task.py"
+    },
+    "BowlStackingLeftOnRightTask": {
+      "difficulty": "simple",
+      "instruction": "Stack the left bowl on the right bowl",
+      "native_episode_seconds": 20,
+      "source": "benchmark/bowl_stacking_left_on_right.py"
+    },
+    "BowlStackingRightOnLeftTask": {
+      "difficulty": "simple",
+      "instruction": "Stack the right bowl on the left bowl",
+      "native_episode_seconds": 20,
+      "source": "benchmark/bowl_stacking_right_on_left.py"
+    },
+    "ButterAboveRaisinTask": {
+      "difficulty": "simple",
+      "instruction": "Pick up the butter box and place it on top of the raisin box",
+      "native_episode_seconds": 40,
+      "source": "benchmark/butter_above_raisin_task.py"
+    },
+    "CannedFoodInBinTask": {
+      "difficulty": "simple",
+      "instruction": "Put the canned food in the grey bin",
+      "native_episode_seconds": 60,
+      "source": "benchmark/canned_food_in_bin_task.py"
+    },
+    "ClampInRightBinTask": {
+      "difficulty": "simple",
+      "instruction": "Put the spring clamp in the right bin",
+      "native_episode_seconds": 60,
+      "source": "benchmark/clamp_in_right_bin.py"
+    },
+    "CleanUpToysTask": {
+      "difficulty": "complex",
+      "instruction": "Clean up all the smaller toys and leave the birdhouse on the table",
+      "native_episode_seconds": 300,
+      "source": "benchmark/clean_up_toys.py"
+    },
+    "ClearOrganicObjectsTask": {
+      "difficulty": "complex",
+      "instruction": "Clear away the organic objects",
+      "native_episode_seconds": 240,
+      "source": "benchmark/clutter_organic_objects_task.py"
+    },
+    "ClutterPlasticTask": {
+      "difficulty": "moderate",
+      "instruction": "Put all plastic bottles away in the bin",
+      "native_episode_seconds": 180,
+      "source": "benchmark/clutter_plastic_task.py"
+    },
+    "ClutterPumpkinTask": {
+      "difficulty": "simple",
+      "instruction": "Put all the pumpkins away in the bin",
+      "native_episode_seconds": 90,
+      "source": "benchmark/clutter_pumpkin_task.py"
+    },
+    "CoffeePotInBinTask": {
+      "difficulty": "simple",
+      "instruction": "Put the coffee pot in the grey bin",
+      "native_episode_seconds": 60,
+      "source": "benchmark/coffee_pot_in_bin.py"
+    },
+    "CondimentsInBinTask": {
+      "difficulty": "complex",
+      "instruction": "Sort the sauce condiments into the grey bin",
+      "native_episode_seconds": 180,
+      "source": "benchmark/condiments_in_bin_task.py"
+    },
+    "CookingClearPlateTask": {
+      "difficulty": "moderate",
+      "instruction": "Put the two measuring cups outside of the plate",
+      "native_episode_seconds": 180,
+      "source": "benchmark/cooking_clear_plate_specific.py"
+    },
+    "CookingPickPastaToolTask": {
+      "difficulty": "simple",
+      "instruction": "Move the pink tool from this utensil container to the other utensil holder",
+      "native_episode_seconds": 60,
+      "source": "benchmark/cooking_pick_pasta_tool.py"
+    },
+    "CubesAndBlocksInBinTask": {
+      "difficulty": "complex",
+      "instruction": "Put all the cubes and blocks in the bin",
+      "native_episode_seconds": 240,
+      "source": "benchmark/cubes_and_blocks_in_bin.py"
+    },
+    "DishesInBinTask": {
+      "difficulty": "moderate",
+      "instruction": "Put the dishware in the grey bin",
+      "native_episode_seconds": 180,
+      "source": "benchmark/dishes_in_bin.py"
+    },
+    "ElectronicsInBinTask": {
+      "difficulty": "complex",
+      "instruction": "Put the electronic devices in the grey bin",
+      "native_episode_seconds": 180,
+      "source": "benchmark/electronics_in_bin_task.py"
+    },
+    "FoodPacking1BoxesTask": {
+      "difficulty": "simple",
+      "instruction": "Pack boxed foods into the bin",
+      "native_episode_seconds": 60,
+      "source": "benchmark/foodpacking_1bin_1box.py"
+    },
+    "FoodPacking1CansTask": {
+      "difficulty": "simple",
+      "instruction": "Pack canned foods into the bin",
+      "native_episode_seconds": 60,
+      "source": "benchmark/foodpacking_1bin_1can.py"
+    },
+    "FoodPacking2BoxesTask": {
+      "difficulty": "simple",
+      "instruction": "Pack boxed foods into the bin",
+      "native_episode_seconds": 180,
+      "source": "benchmark/foodpacking_1bin_2box.py"
+    },
+    "FoodPacking2CansTask": {
+      "difficulty": "simple",
+      "instruction": "Pack canned foods into the bin",
+      "native_episode_seconds": 180,
+      "source": "benchmark/foodpacking_1bin_2can.py"
+    },
+    "FoodPacking3BoxesTask": {
+      "difficulty": "moderate",
+      "instruction": "Pack boxed foods into the bin",
+      "native_episode_seconds": 240,
+      "source": "benchmark/foodpacking_1bin_3box.py"
+    },
+    "FoodPacking3CansTask": {
+      "difficulty": "moderate",
+      "instruction": "Pack canned foods into the bin",
+      "native_episode_seconds": 240,
+      "source": "benchmark/foodpacking_1bin_3can.py"
+    },
+    "FoodPackingByColorTask": {
+      "difficulty": "moderate",
+      "instruction": "Pack yellow objects in right container and blue object in the left container",
+      "native_episode_seconds": 120,
+      "source": "benchmark/food_packing_by_color_task.py"
+    },
+    "FruitsGreenLimesOnPlateTask": {
+      "difficulty": "simple",
+      "instruction": "Put all the green fruit on the plate",
+      "native_episode_seconds": 90,
+      "source": "benchmark/fruits_green_limes_on_plate.py"
+    },
+    "FruitsMovingOrangeOrLimeTask": {
+      "difficulty": "simple",
+      "instruction": "Move an orange or a lime to the wood bowl",
+      "native_episode_seconds": 60,
+      "source": "benchmark/fruits_move_orange_or_lime.py"
+    },
+    "FruitsMovingTask": {
+      "difficulty": "simple",
+      "instruction": "Move an orange to the white bowl",
+      "native_episode_seconds": 60,
+      "source": "benchmark/fruits_move_orange.py"
+    },
+    "FruitsOnPlate3Task": {
+      "difficulty": "complex",
+      "instruction": "Put three (3) fruits on the plate",
+      "native_episode_seconds": 200,
+      "source": "benchmark/fruits_to_plate_3.py"
+    },
+    "FruitsOnPlateTask": {
+      "difficulty": "complex",
+      "instruction": "Put all the fruits on the plate",
+      "native_episode_seconds": 300,
+      "source": "benchmark/fruits_to_plate.py"
+    },
+    "FruitsOnionTask": {
+      "difficulty": "simple",
+      "instruction": "Put the onion in the wood bowl",
+      "native_episode_seconds": 60,
+      "source": "benchmark/fruits_onion_to_bowl.py"
+    },
+    "FruitsOnionToPlateTask": {
+      "difficulty": "simple",
+      "instruction": "Put the onion on the plate",
+      "native_episode_seconds": 60,
+      "source": "benchmark/fruits_onion_to_plate.py"
+    },
+    "FruitsOrangesOnPlateTask": {
+      "difficulty": "moderate",
+      "instruction": "Put all the oranges on the plate",
+      "native_episode_seconds": 90,
+      "source": "benchmark/fruits_oranges_on_plate.py"
+    },
+    "GrabABagelTask": {
+      "difficulty": "simple",
+      "instruction": "Grab a bagel",
+      "native_episode_seconds": 30,
+      "source": "benchmark/grab_a_bagel.py"
+    },
+    "GrabAFruitTask": {
+      "difficulty": "simple",
+      "instruction": "Pick up a fruit",
+      "native_episode_seconds": 30,
+      "source": "benchmark/grab_a_fruit.py"
+    },
+    "GreenSpoonsInPotTask": {
+      "difficulty": "complex",
+      "instruction": "Put the green spoons in the pot",
+      "native_episode_seconds": 180,
+      "source": "benchmark/green_spoons_in_pot.py"
+    },
+    "HammersInLeftBinTask": {
+      "difficulty": "moderate",
+      "instruction": "Put the red hammer and black hammer in the left bin",
+      "native_episode_seconds": 180,
+      "source": "benchmark/tool_organization_left_task.py"
+    },
+    "JugsOnShelfTask": {
+      "difficulty": "simple",
+      "instruction": "Put all the jugs on the shelf",
+      "native_episode_seconds": 120,
+      "source": "benchmark/jugs_on_shelf_task.py"
+    },
+    "KeyboardOutOfBinTask": {
+      "difficulty": "simple",
+      "instruction": "Take the keyboard out of the bin and put it on the table",
+      "native_episode_seconds": 60,
+      "source": "benchmark/keyboard_out_of_bin_task.py"
+    },
+    "LargerObjectRaisinBoxInBinTask": {
+      "difficulty": "simple",
+      "instruction": "Place the larger object in the grey bin.",
+      "native_episode_seconds": 30,
+      "source": "benchmark/bigger_object.py"
+    },
+    "MarkerInMugTask": {
+      "difficulty": "moderate",
+      "instruction": "Put the whiteboard marker in the mug",
+      "native_episode_seconds": 40,
+      "source": "benchmark/marker_in_mug_task.py"
+    },
+    "MouseOnKeyboardTask": {
+      "difficulty": "simple",
+      "instruction": "Put the computer mouse on the keyboard",
+      "native_episode_seconds": 60,
+      "source": "benchmark/mouse_on_keyboard.py"
+    },
+    "MoveBananaToBagelPlateTask": {
+      "difficulty": "simple",
+      "instruction": "Move the bananas to the bagel plate",
+      "native_episode_seconds": 90,
+      "source": "benchmark/move_banana_to_bagel_plate.py"
+    },
+    "MustardAboveRaisinTask": {
+      "difficulty": "simple",
+      "instruction": "Place the mustard on the raisin box. ",
+      "native_episode_seconds": 40,
+      "source": "benchmark/mustard_above_raisin_task.py"
+    },
+    "MustardInLeftBinTask": {
+      "difficulty": "simple",
+      "instruction": "Put the mustard in the left bin",
+      "native_episode_seconds": 30,
+      "source": "benchmark/mustard_in_left_bin.py"
+    },
+    "MustardInRightBinTask": {
+      "difficulty": "simple",
+      "instruction": "Put the mustard in the right bin",
+      "native_episode_seconds": 30,
+      "source": "benchmark/mustard_in_right_bin.py"
+    },
+    "NonHammerToolsInRightBinTask": {
+      "difficulty": "moderate",
+      "instruction": "Put the non-hammer tools in the right bin",
+      "native_episode_seconds": 180,
+      "source": "benchmark/non_hammer_tools_in_right_bin.py"
+    },
+    "OneBottleInSquarePailTask": {
+      "difficulty": "simple",
+      "instruction": "Put any white plastic bottle in the square pail",
+      "native_episode_seconds": 60,
+      "source": "benchmark/one_bottle_in_square_pail.py"
+    },
+    "OneBottleOnShelfTask": {
+      "difficulty": "simple",
+      "instruction": "Put any white plastic bottle on the shelf",
+      "native_episode_seconds": 60,
+      "source": "benchmark/one_bottle_on_shelf_task.py"
+    },
+    "PhoneOrRemoteInBinTask": {
+      "difficulty": "simple",
+      "instruction": "Put the phone or the remote in the grey bin",
+      "native_episode_seconds": 60,
+      "source": "benchmark/phone_or_remote_in_bin_task.py"
+    },
+    "PickDrillTask": {
+      "difficulty": "simple",
+      "instruction": "Pick up the cordless drill.",
+      "native_episode_seconds": 40,
+      "source": "benchmark/pick_drill.py"
+    },
+    "PickGlassesTask": {
+      "difficulty": "simple",
+      "instruction": "Pick up the eye glasses",
+      "native_episode_seconds": 30,
+      "source": "benchmark/pick_glasses_task.py"
+    },
+    "PickOrangeObjectTask": {
+      "difficulty": "simple",
+      "instruction": "Pick up the orange measuring cup",
+      "native_episode_seconds": 60,
+      "source": "benchmark/cooking_orange_object.py"
+    },
+    "PickUpBluePitcherTask": {
+      "difficulty": "moderate",
+      "instruction": "Pick up the large blue pitcher",
+      "native_episode_seconds": 30,
+      "source": "benchmark/pick_up_blue_pitcher.py"
+    },
+    "PickUpGreenObjectTask": {
+      "difficulty": "simple",
+      "instruction": "Pick up the green vegetable block",
+      "native_episode_seconds": 30,
+      "source": "benchmark/pick_up_green_object.py"
+    },
+    "PinkSpoonInPotTask": {
+      "difficulty": "moderate",
+      "instruction": "Put the pink spaghetti spoon in the pot",
+      "native_episode_seconds": 60,
+      "source": "benchmark/pink_spoon_in_pot.py"
+    },
+    "PlasticBottlesInSquarePailTask": {
+      "difficulty": "complex",
+      "instruction": "Put all the small plastic bottles in the square pail",
+      "native_episode_seconds": 180,
+      "source": "benchmark/bottles_on_shelf_task.py"
+    },
+    "PutBowlOnShelfTopTask": {
+      "difficulty": "simple",
+      "instruction": "Put the serving bowl anywhere on the shelf in front of you",
+      "native_episode_seconds": 60,
+      "source": "benchmark/put_bowl_on_shelf.py"
+    },
+    "PutMugsOnShelfTask": {
+      "difficulty": "moderate",
+      "instruction": "Put the two mugs on the shelf",
+      "native_episode_seconds": 180,
+      "source": "benchmark/put_mugs_on_shelf.py"
+    },
+    "PutTwoMugsOnShelfTask": {
+      "difficulty": "moderate",
+      "instruction": "Put two (2) mugs on the wire shelf",
+      "native_episode_seconds": 180,
+      "source": "benchmark/put_two_mugs_on_shelf.py"
+    },
+    "RecycleCartonTask": {
+      "difficulty": "simple",
+      "instruction": "Put the recyclable cartons in the grey bin",
+      "native_episode_seconds": 90,
+      "source": "benchmark/recycle_cartons.py"
+    },
+    "RecycleCartonsOnBoxTask": {
+      "difficulty": "simple",
+      "instruction": "Put the cartons that can be recycled on the box",
+      "native_episode_seconds": 90,
+      "source": "benchmark/recycle_cartons_on_box.py"
+    },
+    "RecycleCartonsVerticalCrateTask": {
+      "difficulty": "moderate",
+      "instruction": "Put the cartons that can be recycled in the vertical crate",
+      "native_episode_seconds": 90,
+      "source": "benchmark/recycle_cartons_vertical_crate.py"
+    },
+    "RedDishesInBinTask": {
+      "difficulty": "simple",
+      "instruction": "Put the red dishware in the grey bin",
+      "native_episode_seconds": 60,
+      "source": "benchmark/red_dishes_in_bin.py"
+    },
+    "RedItemsInBinTask": {
+      "difficulty": "moderate",
+      "instruction": "Put all the red things in the grey bin",
+      "native_episode_seconds": 60,
+      "source": "benchmark/red_items_in_bin.py"
+    },
+    "ReorientAllMugsTask": {
+      "difficulty": "complex",
+      "instruction": "Reorient all the mugs upright so that the opening is facing upwards.",
+      "native_episode_seconds": 90,
+      "source": "benchmark/reorient_all_mugs_task.py"
+    },
+    "ReorientJugTask": {
+      "difficulty": "moderate",
+      "instruction": "Stand the jug upright",
+      "native_episode_seconds": 60,
+      "source": "benchmark/reorient_jug.py"
+    },
+    "ReorientRedMugTask": {
+      "difficulty": "moderate",
+      "instruction": "Put the red mug upright so that the opening is facing upwards.",
+      "native_episode_seconds": 60,
+      "source": "benchmark/reorient_red_mugs_task.py"
+    },
+    "ReorientWhiteMugsTask": {
+      "difficulty": "moderate",
+      "instruction": "Make sure all the white mugs are upright so that the opening is facing upwards.",
+      "native_episode_seconds": 60,
+      "source": "benchmark/reorient_white_mugs.py"
+    },
+    "RubiksCubeAndBananaTask": {
+      "difficulty": "simple",
+      "instruction": "Put the cube and the banana in the bowl",
+      "native_episode_seconds": 60,
+      "source": "benchmark/rubiks_cube_and_banana_task.py"
+    },
+    "RubiksCubeBehindBowlTask": {
+      "difficulty": "moderate",
+      "instruction": "Put the rubiks cube behind the bowl",
+      "native_episode_seconds": 30,
+      "source": "benchmark/rubiks_cube_behind_bowl.py"
+    },
+    "RubiksCubeInFrontOfBowlTask": {
+      "difficulty": "moderate",
+      "instruction": "Put the rubiks cube in front of the bowl",
+      "native_episode_seconds": 30,
+      "source": "benchmark/rubiks_cube_in_front_of_bowl.py"
+    },
+    "RubiksCubeLeftOfBowlTask": {
+      "difficulty": "moderate",
+      "instruction": "Put the rubiks cube to the left of the bowl",
+      "native_episode_seconds": 30,
+      "source": "benchmark/rubiks_cube_left_of_bowl.py"
+    },
+    "RubiksCubeOrBananaTask": {
+      "difficulty": "simple",
+      "instruction": "Put the cube or the banana in the bowl",
+      "native_episode_seconds": 30,
+      "source": "benchmark/rubiks_cube_or_banana_task.py"
+    },
+    "RubiksCubeRightOfBowlTask": {
+      "difficulty": "moderate",
+      "instruction": "Put the rubiks cube to the right of the bowl",
+      "native_episode_seconds": 30,
+      "source": "benchmark/rubiks_cube_right_of_bowl.py"
+    },
+    "RubiksCubeTask": {
+      "difficulty": "simple",
+      "instruction": "Put the cube in the bowl",
+      "native_episode_seconds": 40,
+      "source": "benchmark/rubiks_cube_task.py"
+    },
+    "RubiksCubeThenBananaTask": {
+      "difficulty": "simple",
+      "instruction": "Put the cube then the banana in the bowl",
+      "native_episode_seconds": 60,
+      "source": "benchmark/rubiks_cube_then_banana.py"
+    },
+    "RubiksCubesInBinTask": {
+      "difficulty": "complex",
+      "instruction": "Sort all rubiks cubes into the bin",
+      "native_episode_seconds": 120,
+      "source": "benchmark/rubiks_cubes_in_bin.py"
+    },
+    "SauceBottlesCrateTask": {
+      "difficulty": "simple",
+      "instruction": "Put the red bbq sauce bottle in the crate",
+      "native_episode_seconds": 40,
+      "source": "benchmark/sauce_bottles_crate_task.py"
+    },
+    "SmallPumpkinInBinTask": {
+      "difficulty": "simple",
+      "instruction": "Put the small pumpkin in the bin",
+      "native_episode_seconds": 60,
+      "source": "benchmark/clutter_small_pumpkin_task.py"
+    },
+    "SmallerObjectButterInBinTask": {
+      "difficulty": "simple",
+      "instruction": "Place the smaller object in the grey bin.",
+      "native_episode_seconds": 30,
+      "source": "benchmark/smaller_object.py"
+    },
+    "SmartphoneInBinTask": {
+      "difficulty": "simple",
+      "instruction": "Put the smartphone in the grey bin",
+      "native_episode_seconds": 60,
+      "source": "benchmark/smartphone_in_bin_task.py"
+    },
+    "SpoonInMugTask": {
+      "difficulty": "moderate",
+      "instruction": "Put the metal spoon that's in the wooden bowl in the mug",
+      "native_episode_seconds": 60,
+      "source": "benchmark/spoon_in_mug_task.py"
+    },
+    "SpoonsInPotTask": {
+      "difficulty": "complex",
+      "instruction": "Put all of the serving spoons with no holes in the pot",
+      "native_episode_seconds": 180,
+      "source": "benchmark/spoons_in_pot.py"
+    },
+    "Stack3RubiksCubeTask": {
+      "difficulty": "moderate",
+      "instruction": "Stack the rubiks cubes in a tower",
+      "native_episode_seconds": 60,
+      "source": "benchmark/rubiks_cube_stacking_task.py"
+    },
+    "StackWhiteMugsTask": {
+      "difficulty": "moderate",
+      "instruction": "Stack the white mugs on top of each other.",
+      "native_episode_seconds": 60,
+      "source": "benchmark/stack_white_mugs_task.py"
+    },
+    "StackYellowOnRedTask": {
+      "difficulty": "moderate",
+      "instruction": "Stack the yellow block on the red block",
+      "native_episode_seconds": 60,
+      "source": "benchmark/stack_yellow_on_red.py"
+    },
+    "TakeMeasuringSpoonOutTask": {
+      "difficulty": "simple",
+      "instruction": "Take the white colored measuring spoon out of the red bowl and put it on the table.",
+      "native_episode_seconds": 40,
+      "source": "benchmark/take_measuring_spoon_out.py"
+    },
+    "TakeMugsOffOfShelfTask": {
+      "difficulty": "moderate",
+      "instruction": "Take the mugs off the shelf",
+      "native_episode_seconds": 180,
+      "source": "benchmark/take_mugs_off_of_shelf.py"
+    },
+    "TakeSpatulaOffShelfTask": {
+      "difficulty": "moderate",
+      "instruction": "Take the spatula off the shelf and put it on the table",
+      "native_episode_seconds": 60,
+      "source": "benchmark/take_spatula_off_shelf.py"
+    },
+    "ThrowAwayAppleTask": {
+      "difficulty": "simple",
+      "instruction": "Throw away the apple",
+      "native_episode_seconds": 60,
+      "source": "benchmark/throw_away_apple_task.py"
+    },
+    "ThrowAwaySnacksTask": {
+      "difficulty": "simple",
+      "instruction": "Put away the snacks in the bin",
+      "native_episode_seconds": 120,
+      "source": "benchmark/throw_away_snacks_task.py"
+    },
+    "ToolOrganizationBothTask": {
+      "difficulty": "moderate",
+      "instruction": "Put hammers in the right bin and do not touch anything else",
+      "native_episode_seconds": 180,
+      "source": "benchmark/tool_organization_both_task.py"
+    },
+    "ToolOrganizationTask": {
+      "difficulty": "moderate",
+      "instruction": "Put the red hammer and black hammer in the left bin",
+      "native_episode_seconds": 180,
+      "source": "benchmark/tool_organization_task.py"
+    },
+    "ToolsPickingAllHammersTask": {
+      "difficulty": "complex",
+      "instruction": "Take out all the hammers and put them on the table",
+      "native_episode_seconds": 240,
+      "source": "benchmark/tools_picking_all_hammers.py"
+    },
+    "ToolsPickingDrillTask": {
+      "difficulty": "simple",
+      "instruction": "Select the cordless drill and put it on the table",
+      "native_episode_seconds": 60,
+      "source": "benchmark/tools_picking_drill.py"
+    },
+    "ToolsPickingHammerTask": {
+      "difficulty": "simple",
+      "instruction": "Select the blue hammer and put it on the table",
+      "native_episode_seconds": 60,
+      "source": "benchmark/tools_picking_hammer.py"
+    },
+    "ToyInBinTask": {
+      "difficulty": "simple",
+      "instruction": "Put the lizard away in the bin",
+      "native_episode_seconds": 60,
+      "source": "benchmark/lizard_in_bin_task.py"
+    },
+    "UnstackRubiksCubeTask": {
+      "difficulty": "moderate",
+      "instruction": "Unstack the rubiks cube tower",
+      "native_episode_seconds": 90,
+      "source": "benchmark/unstack_rubiks_cube.py"
+    },
+    "UtensilsInMugTask": {
+      "difficulty": "moderate",
+      "instruction": "Put the fork and spoon in the ceramicmug",
+      "native_episode_seconds": 90,
+      "source": "benchmark/utensils_in_mug.py"
+    },
+    "WhiteMugInCenterOfTableTask": {
+      "difficulty": "moderate",
+      "instruction": "Put the white mug in the center of the table.",
+      "native_episode_seconds": 30,
+      "source": "benchmark/white_mug_in_center_of_table.py"
+    },
+    "WhiteMugsInBinTask": {
+      "difficulty": "simple",
+      "instruction": "Clean up the white mugs",
+      "native_episode_seconds": 60,
+      "source": "benchmark/white_mugs_in_bin.py"
+    },
+    "WoodSpatulaToBowlTask": {
+      "difficulty": "simple",
+      "instruction": "Put the wooden spatula in the bowl",
+      "native_episode_seconds": 60,
+      "source": "benchmark/wood_spatula_to_bowl.py"
+    },
+    "YellowAndWhiteObjectsInBinTask": {
+      "difficulty": "simple",
+      "instruction": "Put all white objects and yellow objects in the grey bin",
+      "native_episode_seconds": 60,
+      "source": "benchmark/yellow_and_white_objects_in_bin.py"
+    },
+    "YogurtInBowlTask": {
+      "difficulty": "simple",
+      "instruction": "Put the small red yogurt in the red bowl",
+      "native_episode_seconds": 40,
+      "source": "benchmark/yogurt_in_bowl.py"
+    }
+  }
+}

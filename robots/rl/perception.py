@@ -54,17 +54,18 @@ class CameraCapture:
             self._raw_png = encode_png(self.raw_rgb)
         return self._raw_png
 
-    def annotated_png(self, display_size: int | None = None) -> bytes:
-        if display_size is None:
+    def annotated_png(self, display_shape: tuple[int, int]) -> bytes:
+        if display_shape == self.shape:
             if self._annotated_png is None:
                 self._annotated_png = encode_png(self.annotated_rgb)
             return self._annotated_png
-        return encode_png(self.annotated_rgb, size=display_size)
+        height, width = display_shape
+        return encode_png(self.annotated_rgb, size=(width, height))
 
 
 @dataclass
 class StepSnapshot:
-    """Immutable per-step state and camera captures stored in RAM."""
+    """Measured step state and any captured camera views."""
 
     step_idx: int
     state: dict[str, Any]
@@ -79,6 +80,7 @@ class RecordedPerception:
 
     cameras: tuple[str, ...]
     display_size: int | None = None
+    defer_unrecorded_capture = False
     coordinates: geometry.Coordinates
 
     def _init_perception(
@@ -151,6 +153,30 @@ class RecordedPerception:
         if self.record_artifacts and self._state is not None:
             self._state.save(name, value, step=step)
 
+    def terminal_flags(self, state: dict[str, Any]) -> dict[str, bool]:
+        """Report the native success verdict and the recorded step budget."""
+        terminated = self.native_success()
+        truncated = (not terminated) and bool(
+            state.get("truncated", self.env_steps >= self._max_episode_steps)
+        )
+        return {"terminated": terminated, "truncated": truncated}
+
+    def _capture_views(self, state: dict[str, Any]) -> dict[str, CameraCapture]:
+        captures: dict[str, CameraCapture] = {}
+        rendered = self.capture_all()
+        for camera in self.cameras:
+            raw_rgb, world, calibration = rendered[camera]
+            raw = np.asarray(raw_rgb, dtype=np.uint8)
+            captures[camera] = CameraCapture(
+                raw_rgb=raw,
+                annotated_rgb=np.asarray(
+                    self.annotate(raw, calibration, state), dtype=np.uint8
+                ),
+                world=np.asarray(world, dtype=np.float32),
+                calibration=calibration,
+            )
+        return captures
+
     def record_observation(
         self,
         *,
@@ -158,37 +184,25 @@ class RecordedPerception:
         result: dict[str, Any] | None = None,
         elapsed_s: float | None = None,
     ) -> StepRecord | None:
-        """Capture robot state and RGB-D views; persist to disk only if requested."""
+        """Record measured state, optionally deferring RGB-D until a query."""
         state = self.robot_state()
-        terminated = self.native_success()
-        truncated = (not terminated) and bool(
-            state.get("truncated", self.env_steps >= self._max_episode_steps)
-        )
+        flags = self.terminal_flags(state)
         step_idx = len(self._steps)
         frame_version = getattr(getattr(self, "coordinates", None), "version", 0)
-        captures: dict[str, CameraCapture] = {}
-        rendered = self.capture_all()
-        for camera in self.cameras:
-            raw_rgb, world, calibration = rendered[camera]
-            raw_arr = np.asarray(raw_rgb, dtype=np.uint8)
-            annotated = np.asarray(
-                self.annotate(raw_arr, calibration, state), dtype=np.uint8
-            )
-            captures[camera] = CameraCapture(
-                raw_rgb=raw_arr,
-                annotated_rgb=annotated,
-                world=np.asarray(world, dtype=np.float32),
-                calibration=calibration,
-            )
-            if self.record_artifacts and camera == self.cameras[0]:
-                self.frames.append(annotated)
+        captures = (
+            {}
+            if self.defer_unrecorded_capture and not self.record_artifacts
+            else self._capture_views(state)
+        )
+        if self.record_artifacts:
+            self.frames.append(captures[self.cameras[0]].annotated_rgb)
 
         self._steps.append(
             StepSnapshot(
                 step_idx=step_idx,
                 state=state,
-                terminated=terminated,
-                truncated=truncated,
+                terminated=flags["terminated"],
+                truncated=flags["truncated"],
                 frame_version=frame_version,
                 cameras=captures,
             )
@@ -198,8 +212,8 @@ class RecordedPerception:
 
         with self._state.record_step(
             state=state,
-            terminated=terminated,
-            truncated=truncated,
+            terminated=flags["terminated"],
+            truncated=flags["truncated"],
             command=command,
             result=result,
             elapsed_s=elapsed_s,
@@ -246,6 +260,11 @@ class RecordedPerception:
             "historical_geometry": step != self.latest_step,
         }
 
+    def _display_shape(self, native_shape: tuple[int, int]) -> tuple[int, int]:
+        if self.display_size is None:
+            return native_shape
+        return self.display_size, self.display_size
+
     def _query_view(
         self, camera: str | None, step: int | None
     ) -> tuple[
@@ -257,13 +276,16 @@ class RecordedPerception:
         idx = self.latest_step if step is None else step
         if not 0 <= idx < len(self._steps):
             raise ValueError(f"unknown step {step}")
-        cap = self._steps[idx].cameras[camera]
+        snapshot = self._steps[idx]
+        if not snapshot.cameras:
+            if idx != self.latest_step:
+                raise ValueError(
+                    f"No RGB-D capture at step {idx}. Use view_env on the current step."
+                )
+            snapshot.cameras.update(self._capture_views(snapshot.state))
+        cap = snapshot.cameras[camera]
         native_shape = cap.shape
-        displayed = (
-            native_shape
-            if self.display_size is None
-            else (self.display_size, self.display_size)
-        )
+        displayed = self._display_shape(native_shape)
         metadata = self._frame_metadata(idx, camera)
         metadata["size"] = list(displayed)
         return idx, camera, cap, native_shape, displayed, metadata
@@ -318,10 +340,10 @@ class RecordedPerception:
         images, summaries = [], []
         for name in names:
             try:
-                _, _, cap, _, _, metadata = self._query_view(name, step)
+                _, _, cap, _, displayed, metadata = self._query_view(name, step)
             except ValueError as exc:
                 return _error(str(exc))
-            images.append(cap.annotated_png(self.display_size))
+            images.append(cap.annotated_png(displayed))
             summaries.append({"camera": name, "size": metadata["size"]})
         return ToolResult(
             data={**self._frame_metadata(step, camera), "images": summaries},

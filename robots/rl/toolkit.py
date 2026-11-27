@@ -330,6 +330,7 @@ def episode_tools(
         "robocasa": MobileBatch,
         "robotwin": DualArmBatch,
         "robodojo": DualArmBatch,
+        "robolab": ActionBatch,
     }[environment]
     batch = batch_type(toolkit).execute_actions
     schema = batch.input_schema
@@ -405,7 +406,7 @@ class RLToolkit(Toolkit):
             record_artifacts=self.record_artifacts,
             **runtime_kwargs,
         )
-        if (
+        if environment == "robolab" or (
             environment in {"libero", "robocasa", "metaworld"}
             and image_size != NATIVE_SIZE
         ):
@@ -447,13 +448,7 @@ class RLToolkit(Toolkit):
                 "truncated": bool(env.truncated),
             }
         state = self._primitives.robot_state()
-        terminated = self._primitives.native_success()
-        return {
-            **state,
-            "terminated": terminated,
-            "truncated": (not terminated)
-            and self._primitives.env_steps >= self._primitives._max_episode_steps,
-        }
+        return {**state, **self._primitives.terminal_flags(state)}
 
     def initial_observation(self) -> ToolResult:
         """Return the task and measured initial state for the opening user message."""

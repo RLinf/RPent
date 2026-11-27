@@ -55,3 +55,14 @@ simulators:
   #   env:
   #     MUJOCO_GL: egl
   #     PYOPENGL_PLATFORM: egl
+
+  # Uncomment after following the RoboLab installation in robots/rl/README.md.
+  # Export OMNI_KIT_ACCEPT_EULA=Y after accepting the NVIDIA Omniverse EULA.
+  # robolab:
+  #   python: /path/to/envs/robolab/bin/python
+  #   port: 28566
+  #   gpus: [7]
+  #   workers: 1
+  #   max_concurrent_spawns: 1
+  #   max_episodes_per_worker: 30
+  #   sleepable: false

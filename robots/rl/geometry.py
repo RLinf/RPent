@@ -309,11 +309,14 @@ def box_from_mask(mask: np.ndarray) -> list[int]:
     return [int(rows[0]), int(cols[0]), int(rows[-1]) + 1, int(cols[-1]) + 1]
 
 
-def encode_png(image: np.ndarray, *, size: int | None = None) -> bytes:
-    """Encode an RGB numpy array as lossless PNG (fast compress_level=1)."""
+def encode_png(
+    image: np.ndarray, *, size: int | tuple[int, int] | None = None
+) -> bytes:
+    """Encode RGB as PNG, optionally resizing to a square or (width, height)."""
     pil = Image.fromarray(np.asarray(image, dtype=np.uint8))
-    if size is not None and pil.size != (size, size):
-        pil = pil.resize((size, size), Image.Resampling.LANCZOS)
+    dimensions = (size, size) if isinstance(size, int) else size
+    if dimensions is not None and pil.size != dimensions:
+        pil = pil.resize(dimensions, Image.Resampling.LANCZOS)
     buf = io.BytesIO()
     pil.save(buf, format="PNG", compress_level=1)
     return buf.getvalue()

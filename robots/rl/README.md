@@ -1,6 +1,6 @@
 # RPent Unified RL Simulator Layer (`robots/rl`)
 
-`robots/rl` provides a compact, uniform tool-calling interface, warm HTTP simulator pools, and standalone rollout/evaluation harness across all supported manipulation simulators (`libero`, `robotwin`, `robocasa`, `robodojo`, and `metaworld`).
+`robots/rl` provides a compact, uniform tool-calling interface, warm HTTP simulator pools, and standalone rollout/evaluation harness across all supported manipulation simulators (`libero`, `robotwin`, `robocasa`, `robodojo`, `metaworld`, and `robolab`).
 
 ## Architecture
 
@@ -16,7 +16,8 @@ robots/rl/server.py  (FastAPI + SimPoolManager over Unix-socket warm workers)
    │     ├── robotwin.py         (LocalRoboTwinEnv + RoboTwinRLPrimitives)
    │     ├── metaworld.py        (LocalMetaWorldEnv, MetaWorldRLPrimitives)
    │     ├── robocasa.py         (RoboCasaRLPrimitives)
-   │     └── robodojo.py         (RoboDojoRLPrimitives)
+   │     ├── robodojo.py         (RoboDojoRLPrimitives)
+   │     └── robolab.py          (RoboLabRLPrimitives)
    ├── robots/rl/conversation.py (EpisodeConversation, validation retries, history compaction)
    ├── robots/rl/geometry.py     (camera projection, back-projection, PNG encode/overlay)
    ├── robots/rl/units.py        (centimeter/meter conversion helpers)
@@ -82,6 +83,67 @@ python -m robots.rl.rollout \
   --concurrency 16 \
   --max-turns 50 \
   --record-artifacts
+```
+
+### RoboLab DROID
+
+Use Linux x86-64, Python 3.11 and a CUDA 12.8-compatible NVIDIA driver
+with Vulkan support. Have Git LFS and FFmpeg available before installing.
+From the RPent checkout, install the native stack in a dedicated environment:
+
+```bash
+git clone https://github.com/NVlabs/RoboLab.git /path/to/RoboLab
+git -C /path/to/RoboLab checkout b6cfcf6ccd2113c4cd1216d35b33024a7d5691da
+git -C /path/to/RoboLab lfs pull
+python3.11 -m venv /path/to/envs/robolab
+/path/to/envs/robolab/bin/python -m pip install \
+  -r requirements/rl-robolab.txt -e /path/to/RoboLab -e .
+```
+
+Install the editable RoboLab checkout so its tasks can resolve the assets
+beside the source. The [DROID task catalog](../robolab/task_catalog.json)
+lists 120 task IDs and their native instructions. A request to
+`POST /sessions/open` can use
+`"task": {"task_name": "BananaInBowlTask", "seed": 0}`.
+
+After accepting the NVIDIA Omniverse EULA, export `OMNI_KIT_ACCEPT_EULA=Y`
+in the simulator process environment. Set `robolab.python` in the service
+configuration to the native interpreter above. A standalone pool can
+instead be started with:
+
+```bash
+python -m robots.rl.server serve --env robolab --port 28566 \
+  --sim-python /path/to/envs/robolab/bin/python --gpus 4 --workers 1 \
+  --max-concurrent-spawns 1 --log-dir /path/to/robolab-worker-logs
+```
+
+Each worker keeps one Isaac application warm and builds a seeded USD scene
+for each episode. Start with one worker per GPU. Use `--sleepable` for a
+simulator that shares GPUs with training. Dedicated worker pools can remain
+warm behind `python -m robots.rl.server router --env robolab`.
+For concurrent recordings, pass a distinct `output_dir` for each session.
+
+The general frame starts at the Franka mounting link (`panda_link0`).
+The grasp TCP is the midpoint of the Robotiq contact pads. Model-facing
+positions use centimetres and fixed-axis XYZ RPY uses radians. Both
+cameras provide 1280×720 native RGB-D. `image_size` limits the long edge of
+the returned RGB while preserving its aspect ratio. Pixel queries map back
+to the synchronized native depth map. With `record_artifacts=false`, the
+first perception request at a step captures the two views, and those
+captured steps remain available for later queries. Request a view before
+moving if its pixels will be needed later. Isaac's native rendering
+cadence stays enabled for physics and sensor updates.
+
+The native task may end before RPent's requested step limit. A blocked
+gripper stops the batch, and native success takes precedence when it
+coincides with the step limit.
+
+To check native geometry and seeded scene reuse, install the RPent test
+extra in the RoboLab interpreter and run:
+
+```bash
+RPENT_RUN_ROBOLAB_INTEGRATION=1 RPENT_ROBOLAB_GPU=4 \
+  /path/to/envs/robolab/bin/python -m pytest -s -q tests/e2e_tests/robolab
 ```
 
 ## Standalone Evaluation / Data Collection
