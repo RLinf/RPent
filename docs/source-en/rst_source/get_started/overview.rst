@@ -68,5 +68,3 @@ Choose a Platform
 Choose ``api``, ``claude_code``, ``codex``, ``gemini_cli``, or ``opencode`` for online planning. LIBERO also supports :doc:`Flash Mode <../guides/flash>` for executing stored plans. See :doc:`../guides/configure_planner` for model-service configuration.
 
 Start with :doc:`quickstart`. See :doc:`../leaderboard/index` for reported results and resource costs, and :doc:`../resources/harnessvla` for the research background.
-
-DreamZero, Cosmos Policy, and RoboDojo are also listed in the project roadmap; their usage documentation is pending.

@@ -330,7 +330,7 @@ RPent 需要 OpenCode 的 ``acp`` 子命令支持 ``--pure``，已测试版本�
    * - ``--max-turns``
      - 整个任务的 RPent 工具调用上限，默认 ``100``。追加消息和中断均不重置额度。
    * - ``--planner-timeout-s``
-     - 任务运行时限；未指定时读取 ``CELL_TIMEOUT_S``，再回退到 1200 秒。Codex 优先读取 ``CODEX_TIMEOUT_S``，Gemini CLI 优先读取 ``GEMINI_CLI_TIMEOUT_S``。终端交互式 API 和 Claude Code 会话不受此限。
+     - 超时值（秒）优先使用显式传入的值；未传入时按优先级取默认值，具体顺序见代码。
    * - ``--max-tokens``
      - 仅 ``api``：单次回复 token 上限，默认 ``8192``。
    * - ``--reasoning-effort``

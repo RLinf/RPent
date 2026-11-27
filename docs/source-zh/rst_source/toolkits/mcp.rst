@@ -136,7 +136,7 @@
 
 .. dropdown:: 规划器前缀与服务名规则
 
-   - 各规划器会在 ``<server>__<tool>`` 基础上附加各自的 ``toolkit`` 前缀：``api`` 直接使用 ``power__read_power_meter``，``claude_code`` 与 ``codex`` 为 ``mcp__rpent__power__read_power_meter``，``gemini_cli`` 为 ``mcp_rpent_power__read_power_meter``，``opencode`` 为 ``rpent_power__read_power_meter``。
+   - RPent 统一以 ``<server>__<tool>`` 注册外部工具，例如 ``power__read_power_meter``。各 SDK/CLI 会按自身规则添加 MCP 服务名前缀，模型看到的完整名称因此可能不同，无需手动配置这些前缀。
    - 服务名必须以字母或数字开头，其余字符仅限字母、数字、``_`` 或 ``-``，不能包含 ``__``，不能以 ``_`` 结尾，且不能为 ``rpent``。
 
 .. dropdown:: 配置合并与会话限制

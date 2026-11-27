@@ -371,8 +371,7 @@ the instructions and tools loaded automatically in planner sessions:
 To add tools, see :ref:`external-mcp-servers`; to let the planner submit direct
 control values, see :ref:`planner-direct-actions`.
 
-These session settings do not modify global configuration; a tool allowlist is
-not an OS sandbox.
+These session settings do not modify global configuration.
 
 .. _planner-limits:
 
@@ -390,10 +389,7 @@ Common settings are listed below; see :doc:`cli` for all options:
    * - ``--max-turns``
      - RPent tool-call budget for the whole task, default ``100``. Follow-up messages and interrupts do not reset it.
    * - ``--planner-timeout-s``
-     - Task time limit. When omitted, use ``CELL_TIMEOUT_S``, then 1200 seconds.
-       Codex checks ``CODEX_TIMEOUT_S`` first; Gemini CLI checks
-       ``GEMINI_CLI_TIMEOUT_S`` first. Terminal interactive API and Claude Code sessions
-       are exempt.
+     - An explicit timeout value in seconds takes precedence. Otherwise, defaults are resolved in priority order; see the code for that order.
    * - ``--max-tokens``
      - ``api`` only: token limit per response, default ``8192``.
    * - ``--reasoning-effort``
