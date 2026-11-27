@@ -838,6 +838,30 @@ def test_failed_file_write_reports_uncertainty_without_capturing_state(
     assert toolkit.capture_calls == []
 
 
+@pytest.mark.parametrize("refresh_first", [True, False])
+def test_refresh_observation_is_outside_the_tool_budget(tmp_path, refresh_first):
+    toolkit = _ContractToolkit(tmp_path)
+    toolkit.set_tool_budget(1)
+
+    @tool(readonly=True)
+    def sense() -> ToolResult:
+        return ToolResult(data={"ok": True})
+
+    toolkit.add_tool(sense)
+    if refresh_first:
+        assert toolkit.refresh_observation().data == {"observation": 1}
+        assert toolkit.tool_calls_used == 0
+    assert not toolkit.execute_tool("sense", {}).is_error
+    assert toolkit.tool_limit_reached
+    if not refresh_first:
+        assert toolkit.refresh_observation().data == {"observation": 1}
+    assert toolkit.tool_calls_used == 1
+    assert toolkit.execute_tool("sense", {}).data["code"] == "tool_limit"
+    assert [event.record.command for event in toolkit.events.events] == [
+        {"action": "refresh_observation"}
+    ]
+
+
 @pytest.mark.parametrize("close", [False, True])
 def test_refresh_observation_rejects_paused_or_closed_toolkits(tmp_path, close):
     toolkit = _ContractToolkit(tmp_path)

@@ -104,7 +104,9 @@ class _Scheduler:
         self.limit: int | None = None
         self.calls = 0
 
-    def acquire(self, *, readonly: bool) -> _ToolOperation:
+    def acquire(
+        self, *, readonly: bool, count_tool_call: bool = True
+    ) -> _ToolOperation:
         with self.condition:
             if self.closed:
                 raise ToolCancelled("Toolkit is closed.")
@@ -117,7 +119,11 @@ class _Scheduler:
                 while True:
                     if call.cancel_event.is_set():
                         raise ToolCancelled("tool operation interrupted")
-                    if self.limit is not None and self.calls >= self.limit:
+                    if (
+                        count_tool_call
+                        and self.limit is not None
+                        and self.calls >= self.limit
+                    ):
                         raise ToolLimitExceeded("RPent tool-call budget exhausted.")
                     exclusive = next(
                         (item for item in self.pending if not item.readonly), None
@@ -129,7 +135,8 @@ class _Scheduler:
                     ) or (not readonly and not self.active and call is exclusive):
                         self.pending.remove(call)
                         self.active.add(call)
-                        self.calls += 1
+                        if count_tool_call:
+                            self.calls += 1
                         return call
                     self.condition.wait()
             except BaseException:
@@ -520,7 +527,7 @@ class Toolkit:
         Returns:
             The fresh native observation, including its images.
         """
-        operation = self._scheduler.acquire(readonly=False)
+        operation = self._scheduler.acquire(readonly=False, count_tool_call=False)
         try:
             self.raise_if_cancelled()
             previous = self.state.latest_record()

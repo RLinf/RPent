@@ -62,44 +62,6 @@ Use ``@tool(readonly=True)`` for readers such as ``view_env_state`` and
 ``@tool(exclude=("state",))`` and bind them with ``Tool.with_handler``.
 All online planners use the registered declarations.
 
-Did the Action Run?
--------------------
-
-Before retrying a failed tool call, check whether the action may already have
-happened. A gripper may close even if the camera fails to capture its new position.
-Toolkit sets ``execution_uncertain=True`` on the returned
-``ToolResult`` if observation fails after an action. Your tool can also set
-this flag when the robot cannot confirm the outcome.
-
-Consider a file write. Denying permission before the first write leaves the
-file intact. An error halfway through can leave a partial file. A tool marked
-``readonly=True`` can run alongside other readonly calls and skips automatic
-observation. By default, an exception in an action handler sets the flag. An
-exception in a readonly handler leaves it unset. If the tool writes files, set ``uncertain_on_error=True``, as
-``write_text_file`` does, to report a potentially partial write.
-
-Read the flag on the result of ``Toolkit.execute_tool``. The model and the
-saved trajectory do not receive it. Invalid arguments or cancellation before
-the tool starts mean the action never began. The error
-``tool_result_serialization_failed`` tells you the tool result could not be
-delivered in full.
-
-Observe the Environment Between Calls
--------------------------------------
-
-Call ``Toolkit.refresh_observation()`` to see what changed between tool
-calls. It waits for active tools to finish. A paused or closed toolkit
-rejects the refresh.
-
-The trajectory gains a step only when ``get_env_state`` adds an observation.
-Capture errors propagate to the caller. If capture succeeds during
-cancellation, the trajectory keeps the new step.
-
-Skip ``{"action": "refresh_observation"}`` when replaying a trajectory. It
-marks an observation with no robot action to repeat. For real actions, put
-only the tool name and arguments in ``StepRecord.command`` and record who
-issued the command separately.
-
 .. _add-primitive-model-based:
 
 Model-backed Tools
@@ -110,6 +72,45 @@ For VLA/WAM services, clients, adapters and session lifecycle, follow
 returned native action chunk through the environment, and returns a
 ``ToolResult``. Register it with the same ``@tool`` and ``iter_tools``
 mechanism used above.
+
+Check Whether a Failed Action Ran
+---------------------------------
+
+A gripper can close even if the camera misses the next frame. When observation
+fails after an action, Toolkit sets ``execution_uncertain=True`` on the
+``ToolResult`` returned by ``execute_tool``. The caller can then check the
+gripper's position before retrying. A tool can also set this flag if the robot
+cannot confirm the outcome. Only the caller sees the flag. It stays out of the
+model input and the saved trajectory.
+
+By default, an exception in an action handler sets the flag. An exception in a
+readonly handler leaves it false. Writing a file does not move the robot, so
+``write_text_file`` uses ``readonly=True`` to skip observation and run alongside
+other readonly calls. Its decorator, ``@tool(readonly=True, uncertain_on_error=True)``,
+tells the caller that a write that fails halfway can leave a partial file.
+
+If write permission is denied before the first write, the arguments are invalid,
+or the call is cancelled before the tool starts, ``execution_uncertain`` stays
+false. Separately, ``tool_result_serialization_failed`` in ``ToolResult.data["code"]``
+means the result could not be delivered in full. That code alone cannot tell you
+whether the action ran.
+
+Observe the Environment Between Calls
+-------------------------------------
+
+If the camera missed the gripper's movement, call ``Toolkit.refresh_observation()``
+to check its position before retrying. A refresh waits for active tools to finish
+and does not count toward the planner's tool-call budget. If Toolkit is paused
+or closed, the method raises ``ToolCancelled``.
+
+The trajectory gains a step only when ``get_env_state`` adds an observation.
+Capture errors propagate to the caller. If cancellation arrives after a new
+observation has been recorded, Toolkit publishes the step before raising
+``ToolCancelled``.
+
+Skip ``{"action": "refresh_observation"}`` during replay. It records an
+observation with no robot action to repeat. For actions, keep the tool name and
+arguments in ``StepRecord.command`` and record who issued the command separately.
 
 Single-threaded Serve (EGL-rendering Backends)
 ----------------------------------------------
