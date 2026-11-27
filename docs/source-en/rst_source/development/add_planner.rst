@@ -56,10 +56,11 @@ Any planner must:
    ``PlannerResult``.
 
 Your planner reports why it stopped in ``stop_reason``. For example, if it
-returns ``cancelled`` or ``error`` alone, RPent ends exploration. To allow
-another session, use ``stop_info`` to confirm that each action's outcome is
-known, the results have been delivered, and cleanup is complete. The
-environment determines whether the task succeeded.
+returns ``cancelled`` or ``error`` alone, RPent ends exploration. To continue after either
+of those stops, have the planner explicitly allow a new session in
+``stop_info`` and confirm that it knows the action outcomes, delivered the
+results, and finished cleanup. The environment determines whether the task
+succeeded.
 
 Because the RPent tool schemas and prompt-rendering path stay the same,
 adding a planner does not require changes to tools or environment

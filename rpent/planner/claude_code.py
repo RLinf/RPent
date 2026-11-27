@@ -701,9 +701,12 @@ class _Recorder:
         elif matches is not False and not api_error and _budget_result(subtype, errors):
             self.stop_reason = "budget"
         elif get_field(message, "is_error", False) or api_error or errors:
-            detail = ": " + "; ".join(errors) if errors else ""
+            cause = f"API error (HTTP {api_error})" if api_error else subtype or "error"
+            detail = "; ".join(errors)
+            if api_error and not detail:
+                detail = get_field(message, "result") or ""
             self.error = self.error or redact_secrets(
-                f"Claude Agent SDK result {subtype or 'error'}{detail}"
+                f"Claude Agent SDK result {cause}" + (f": {detail}" if detail else "")
             )
         elif matches is not False and cancelled:
             self.stop_reason = "cancelled"

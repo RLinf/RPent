@@ -198,7 +198,7 @@ Fast-WAM 使用 ``--am-backend fast-wam`` 及其 worker 地址。LIBERO-Pro 需�
 
 任务成功了吗？打开输出目录里的 ``result.json``，查看 LIBERO 给出的 ``environment_success``。也可以用 ``view_env_state(step=-1)`` 查看最后一次观测，顶层的 ``terminated`` 就是环境的判定。规划器的 ``finish`` 请求是否获准，记录在 ``finish_accepted`` 中。文件还列出了运行结束的原因和类别，操作员的判断则记在 ``operator_verdict`` 中。
 
-这次尝试能否计入评测，要看 ``valid``。模型正常结束回复但没调用 ``finish``，或者用完了时间或预算，都有可能计入评测。Gemini 的 ``max_tokens`` 表示已达到输出长度上限。这几种情况都需要知道环境判定和每个动作的结果，并且工具结果已送达、清理已完成。模型服务报错、任务取消、操作员中止，或结果无法确定，都不计入评测。
+统计成功率时先看 ``valid``。例如，``valid`` 为真、``environment_success`` 为假，就要算一次失败。有环境判定时，即使模型没调用 ``finish`` 就结束了回复，或是用完了时间或预算，这次尝试也可能计入。Gemini 的 ``max_tokens`` 表示用完了输出预算。模型服务报错、任务取消或操作员中止时，这次尝试不计入。如果规划器还报告了动作、结果送达和清理情况，这三项都要确认才能计入。
 
 CLI 和 Dashboard 都在运行结束时写入 ``result.json``。如果启动时就出错，目录里可能没有这个文件。写入失败时，CLI 返回非零退出码，Dashboard 将任务标记为出错。
 

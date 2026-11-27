@@ -49,6 +49,22 @@ _SAFE_STOP = {
         (PlannerResult(stop_reason="budget"), 2, False),
         (PlannerResult(stop_reason="timeout", error="Planner timed out"), 2, False),
         (PlannerResult(error="Planner timed out"), 2, False),
+        (
+            PlannerResult(
+                stop_reason="response_truncated",
+                error="planner response truncated (length): no output",
+            ),
+            2,
+            False,
+        ),
+        (PlannerResult(stop_reason="response_truncated"), 2, False),
+        (
+            PlannerResult(
+                stop_reason="response_truncated", stop_info={"cleanup_complete": False}
+            ),
+            1,
+            False,
+        ),
         (PlannerResult(stop_reason="cancelled"), 1, False),
         (
             PlannerResult(stop_reason="cancelled", stats={"stop_reason": "budget"}),

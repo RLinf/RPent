@@ -224,12 +224,13 @@ with ``view_env_state(step=-1)``. The result file records whether the planner's
 ``finish`` was accepted (``finish_accepted``), why the run stopped and its stop
 category, and the operator's verdict (``operator_verdict``).
 
-Use ``valid`` to decide whether to count the attempt. A run can count even if
-the model finishes its reply without calling ``finish``, reaches its deadline,
-or uses up its budget. Gemini's ``max_tokens`` means it reached its output
-limit. In each case, the environment's verdict and action outcomes must be
-known, tool results delivered, and cleanup complete. A provider error,
-cancellation, operator abort, or uncertain outcome makes the attempt invalid.
+Use ``valid`` when calculating the success rate. For example, if ``valid``
+is true and ``environment_success`` is false, count one failure. With a known
+environment outcome, a run can count even when the model ends its reply without
+calling ``finish``, runs out of time, or uses up its budget. Gemini reports
+its output limit as ``max_tokens``. A provider error, cancellation, or operator
+abort excludes the run. If the planner reports on the actions, delivery of
+their results, and cleanup, it must confirm all three for the run to count.
 
 CLI and Dashboard runs write ``result.json`` at the end. If startup fails,
 there may be no file. If writing fails, the CLI exits with a nonzero status

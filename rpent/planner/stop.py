@@ -64,6 +64,7 @@ def normalize_stop_info(
             "model_output": "completed",
             "budget": "budget",
             "request_limit": "budget",
+            "response_truncated": "budget",
             "tool_limit": "budget",
             "timeout": "timeout",
             "interrupted": "cancelled",

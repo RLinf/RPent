@@ -662,6 +662,7 @@ def test_token_limit_truncation_is_marked_for_recovery(
     )
     assert requests == (2 if interactive else 1)
     assert result.error is not None
+    assert result.stop_reason == "response_truncated"
     assert result.error.startswith("planner response truncated (length): ")
     assert is_recoverable_planner_result(result)
     assert (

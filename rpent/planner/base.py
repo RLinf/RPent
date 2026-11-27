@@ -192,6 +192,8 @@ def exploration_handoff(result: PlannerResult) -> Literal["next", "recover", "st
         return "stop"
 
     reason = getattr(result, "stop_reason", None) or result.stats.get("stop_reason")
+    if reason == "response_truncated":
+        return "recover"
     if normalize_stop_info(None, reason=reason)["category"] in {"cancelled", "error"}:
         return "stop"
     if result.error:

@@ -46,7 +46,7 @@
 4. 识别 ``ToolResult.data.get("_finish")``，并按 ``max_turns`` 等限制终止循环。
 5. 用 ``PlannerResult`` 返回结束状态、消息、用量统计和错误信息。
 
-规划器用 ``stop_reason`` 说明自己为什么停下。例如，只返回 ``cancelled`` 或 ``error`` 时，RPent 就会结束探索。要允许下一轮探索，规划器需要在 ``stop_info`` 中明确允许继续，并确认每个动作的结果都已查明并送达，清理工作也已完成。任务是否成功由环境判定。
+规划器用 ``stop_reason`` 说明自己为什么停下。例如，只返回 ``cancelled`` 或 ``error`` 时，RPent 就会结束探索。如果遇到取消或错误后仍能继续，就在 ``stop_info`` 中明确允许下一轮，并确认动作结果已查明、已送达，清理也已完成。任务是否成功由环境判定。
 
 由于 RPent 的工具定义和提示词渲染流程保持不变，新增规划器无需修改工具或环境服务。接口参见 :doc:`architecture`；添加工具见 :doc:`add_primitive`。
 

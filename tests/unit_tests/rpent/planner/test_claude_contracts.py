@@ -1059,6 +1059,32 @@ def test_noninteractive_client_stops_at_first_result(
     assert result.finish_result is None
 
 
+def test_sdk_result_preserves_provider_status_and_redacted_cause(tmp_path, monkeypatch):
+    patch_sdk_surface(monkeypatch, FakeSdkTools())
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "secret-provider-key")
+
+    async def stream(**kwargs):
+        yield claude_agent_sdk.ResultMessage(
+            subtype="success",
+            is_error=True,
+            api_error_status=429,
+            result="rate limit for secret-provider-key",
+            num_turns=1,
+            session_id="session",
+            duration_ms=0,
+            duration_api_ms=0,
+        )
+
+    patch_client_stream(monkeypatch, stream)
+    result = make_planner(tmp_path, RecordingSink()).solve(
+        system_prompt="", user_message="task", toolkit=FakeToolkit(), max_turns=1
+    )
+    assert result.stop_reason == "planner_error"
+    assert "API error (HTTP 429): rate limit for " in result.error
+    assert "secret-provider-key" not in result.error
+    assert not is_recoverable_planner_result(result)
+
+
 @pytest.mark.parametrize("stage", ["connect", "query", None])
 @pytest.mark.parametrize("cleanup_error", [False, True])
 def test_terminal_startup_failure_closes_input_and_drains_tools(

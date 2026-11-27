@@ -554,14 +554,16 @@ class _Session(AbstractCapability):
 
     def record_failure(self, exc: Exception, *, cleanup: bool = False) -> None:
         """Keep independent diagnostics, including errors raised while stopping."""
-        self.stop_reason = "planner_error"
         if (
             not cleanup
             and isinstance(exc, UnexpectedModelBehavior)
             and _is_response_truncation(exc)
         ):
+            if self.stop_info is None:
+                self.stop_reason = "response_truncated"
             diagnostic = f"planner response truncated (length): {exc}"
         else:
+            self.stop_reason = "planner_error"
             diagnostic = f"{type(exc).__name__}: {exc}"
             self.stop_info = {
                 **(self.stop_info or {}),
