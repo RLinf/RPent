@@ -328,12 +328,14 @@ toolkit 模块通常包含四部分：
 
 endpoint（``--env-endpoint``、``--am-endpoint``，以及 LIBERO 的 ``--sam3-endpoint``）解析和环境专用服务命令，应放在拥有对应服务的钩子中。这些 spawner 应通过 ``rpent.robots.runtime.try_spawn_server`` 和 ``try_wait_server`` 组合，使各环境的状态事件、就绪失败和 owned daemon 清理保持一致；runner 不处理这些环境细节。参考模式见 ``robots/libero/robot_spec.py`` 和 ``robots/robocasa/robot_spec.py``。
 
-可选的运行结果 finalizer
-------------------------
+保存任务结果（可选）
+--------------------
 
-``RobotSpec.finalize_run`` 是面向所有机器人、与具体 benchmark 无关的通用运行结束钩子。RoboCasa 是当前使用方，用它记录单 cell 评测结果，供后续结果统计和聚合。任何需要发布机器可读评测产物的机器人都可以注册该钩子。其默认值为 ``None``，不会改变 runner 行为。配置该钩子后，普通终端 runner 会在关闭 toolkit 前读取 ``toolkit.solved()``，完成运行时清理后再把结构化的 ``RunFinalizationContext`` 传给钩子。产物 schema 与文件名由钩子负责，RPent 只定义生命周期边界。
+如果评测需要为每次运行保存一份结果文件，可以用 ``RobotSpec.finalize_run`` 注册回调。CLI 和 Dashboard 的 runner 会在关闭 toolkit 前读取环境的成败判定。清理结束后，runner 把环境判定和停止信息一起放进 ``RunFinalizationContext``，交给回调。
 
-JSON 产物应使用 ``write_json_atomic``，避免中断写入留下不完整结果：
+你可以按评测需要选择写入哪些字段。环境判定读 ``context.environment_success``，规划器的停止原因读 ``context.stop_reason``。如果任务被取消，runner 记录的原因在 ``context.cancelled_reason`` 中。清理失败时，可从 ``context.agent_error`` 读取错误信息，``context.stop_info`` 中的类别会标为 ``error``。如果结果文件需要这个类别，就把它和规划器原先的停止原因分开保存。
+
+下面的回调将任务、环境判定和停止原因写入 ``result.json``。如果还需要记录 ``finish`` 请求是否获准、操作员如何判定，可以参考 :doc:`LIBERO <../simulators/libero>`。
 
 .. code-block:: python
 
@@ -346,10 +348,12 @@ JSON 产物应使用 ``write_json_atomic``，避免中断写入留下不完整�
                "robot": context.robot_name,
                "task": dict(context.task_desc),
                "success": context.environment_success,
+               "stop_reason": context.stop_reason,
+               "cancelled_reason": context.cancelled_reason,
            },
        )
 
-通过 ``RobotSpec(..., finalize_run=_finalize_run)`` 注册回调。该钩子目前只用于普通终端运行，Dashboard 不会调用。benchmark manifest、机器人专用 runtime 字段和聚合逻辑应继续放在机器人目录中，而不是共享 CLI。
+用 ``RobotSpec(..., finalize_run=_finalize_run)`` 注册回调。评测清单、机器人专用字段和汇总逻辑都放在机器人的包里。
 
 .. _add-robot-testing:
 

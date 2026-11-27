@@ -248,10 +248,12 @@ def test_harness_reuses_acp_tools_probe_and_cleanup(tmp_path, monkeypatch, mode,
     with pytest.raises(ProcessLookupError):
         os.kill(child["pid"], 0)
     if error:
+        assert result.stop_reason == "planner_error"
         assert error in result.error
         toolkit.execute_tool.assert_not_called()
         return
     assert result.error is None
+    assert result.stop_reason == "finish"
     if mode in {"effort", "effort-grouped"}:
         assert child["effort"] == "high"
     assert result.stats["backend"] == "local_harness"

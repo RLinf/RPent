@@ -196,9 +196,16 @@ Fast-WAM 使用 ``--am-backend fast-wam`` 及其 worker 地址。LIBERO-Pro 需�
 查看结果
 ------------
 
-终端会显示服务器启动、规划器对话和工具调用。结束后查看输出目录中的 ``episode.mp4``、``transcript_*.json`` 和 ``run.log``；默认目录与逐步观测文件见 :ref:`run-output-files`。
+运行结束后，打开输出目录里的 ``result.json``，可以看到任务是否成功，以及这次运行是否计入成功率。
 
-通过 ``view_env_state(step=-1)`` 查看最终状态，顶层 ``terminated`` 表示环境是否判定成功。规划器调用 ``finish`` 只表示结束规划。实时观察方法见 :doc:`../guides/dashboard`。
+- 看任务成败，读 ``environment_success``。在有效运行中，``true`` 表示 LIBERO 判定成功，``false`` 表示失败。运行期间要核对最近一次观测，可以用 ``view_env_state(step=-1)`` 查看 ``terminated``。
+- 算成功率，只统计 ``valid`` 为 ``true`` 的运行。超时或用尽预算的运行仍可能计入。如果运行中断，动作结果或会话状态仍无法确认，``valid`` 就是 ``false``。
+- ``termination_category`` 记录停止类别，``termination_reason`` 说明具体原因。
+- ``finish_accepted`` 记录 RPent 是否接受了规划器的 ``finish`` 请求。如果操作员也给出了判断，结果记在 ``operator_verdict`` 中。
+
+例如，10 次运行中有 8 次有效，其中 6 次被 LIBERO 判定为成功，成功率就是 6/8 = 75%。
+
+输出目录中的 ``episode.mp4``、``transcript_*.json`` 和 ``run.log`` 分别保存录像、对话和运行日志。各步观测文件的位置见\ :ref:`run-output-files`。运行期间可在终端或 :doc:`Dashboard <../guides/dashboard>` 查看进展。
 
 .. _libero-exploration:
 

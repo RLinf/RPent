@@ -73,9 +73,6 @@ class AgentArtifacts:
         self.output_path = output_path
         self.raw_stream_path = self.sidecar(".stream.jsonl")
         self.started = time.monotonic()
-        # The session runner records why planning ended when it is not an error
-        # the caller can infer, such as reaching the time budget.
-        self.stop_reason: str | None = None
 
     def sidecar(self, suffix: str) -> Path:
         """Return a companion artifact path without replacing the output suffix."""
@@ -88,6 +85,8 @@ class AgentArtifacts:
         final_response: str | None,
         stats: dict[str, Any],
         error: str | None,
+        stop_reason: str | None = None,
+        cleanup_complete: bool | None = None,
         **extra_paths: Path,
     ) -> PlannerResult:
         """Build a result with backend statistics and companion artifact paths.
@@ -97,6 +96,8 @@ class AgentArtifacts:
             final_response: Last assistant response used for size reporting.
             stats: Backend-specific usage and turn counters.
             error: Execution or backend error, when present.
+            stop_reason: Explicit termination cause, including a planner deadline.
+            cleanup_complete: Known cleanup outcome, when reported by the backend.
             **extra_paths: Backend-specific artifact names and paths.
 
         Returns:
@@ -105,6 +106,15 @@ class AgentArtifacts:
         text = self.output_path.read_text(errors="replace")
         logger.info("%s output: %s", self.backend, self.output_path)
         logger.info("%s raw stream: %s", self.backend, self.raw_stream_path)
+        stop_info = None
+        if stop_reason == "planner_error":
+            stop_info = {
+                "reason": stop_reason,
+                "category": "error",
+                "allow_new_session": False,
+            }
+            if cleanup_complete is not None:
+                stop_info["cleanup_complete"] = cleanup_complete
         return PlannerResult(
             finish_result=finish_result,
             messages=[{"role": self.backend, "content": text}],
@@ -119,7 +129,8 @@ class AgentArtifacts:
                 **stats,
             },
             error=error,
-            stop_reason="finish" if finish_result is not None else self.stop_reason,
+            stop_reason=stop_reason,
+            stop_info=stop_info,
         )
 
 

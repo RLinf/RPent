@@ -28,6 +28,7 @@ import contextlib
 import dataclasses
 import json
 import queue
+import re
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -159,7 +160,10 @@ class ClaudeCodePlanner(Planner):
         run_id = uuid4().hex if task is not None and task.status == "running" else None
         capture = None
         error = None
+        stop_reason = None
         reader = None
+        driver = None
+        run_task = None
         with (
             artifacts.output_path.open("w") as output,
             artifacts.raw_stream_path.open("w") as raw,
@@ -220,29 +224,50 @@ class ClaudeCodePlanner(Planner):
                 if terminal is not None:
                     reader = asyncio.create_task(terminal.read_input())
                 # Human-supervised terminal sessions have no wall-clock cap.
-                await asyncio.wait_for(
-                    driver.run(prompt),
+                run_task = asyncio.create_task(driver.run(prompt))
+                done, _ = await asyncio.wait(
+                    (run_task,),
                     timeout=None if terminal is not None else self._timeout_s,
                 )
-                error = recorder.error or driver.error
-                if error:
-                    write_jsonl(raw, {"type": "error", "message": error})
-                if toolkit.tool_limit_reached:
-                    artifacts.stop_reason = "tool_limit"
-            except asyncio.TimeoutError:
-                error = f"Claude Agent SDK timed out after {self._timeout_s}s"
-                write_jsonl(raw, {"type": "timeout", "message": error})
+                if not done:
+                    stop_reason = "timeout"
+                    error = f"Claude Agent SDK timed out after {self._timeout_s}s"
+                    write_jsonl(raw, {"type": "timeout", "message": error})
+                    run_task.cancel()
+                    with contextlib.suppress(asyncio.CancelledError):
+                        await run_task
+                else:
+                    await run_task
+                    stop_reason = (
+                        "finish"
+                        if recorder.finish_result is not None
+                        else "tool_limit"
+                        if toolkit.tool_limit_reached
+                        else recorder.stop_reason
+                    )
             except Exception as exc:
-                error = redact_secrets(f"{type(exc).__name__}: {exc}")
-                write_jsonl(raw, {"type": "error", "message": error})
+                stop_reason = "planner_error"
+                failure = redact_secrets(f"{type(exc).__name__}: {exc}")
+                error = f"{error}; {failure}" if error else failure
             finally:
+                if run_task is not None and not run_task.done():
+                    run_task.cancel()
+                    with contextlib.suppress(asyncio.CancelledError):
+                        await _wait_for_cleanup(run_task)
                 if control is not None:
                     control.end()
                 if reader is not None:
                     await reader
                 if capture is not None:
                     await _wait_for_cleanup(asyncio.create_task(capture.finish()))
+            failures = [recorder.error, *(driver.errors if driver is not None else [])]
+            if any(failures):
+                stop_reason = "planner_error"
+                error = "; ".join(
+                    dict.fromkeys(item for item in [error, *failures] if item)
+                )
             if error:
+                write_jsonl(raw, {"type": "error", "message": error})
                 output.write(f"\n[cc-planner] {error}\n")
                 logger.info("[cc-planner] %s", error)
 
@@ -254,7 +279,9 @@ class ClaudeCodePlanner(Planner):
                 "turns_used": toolkit.tool_calls_used,
                 **({"claude_trace": capture.stats} if capture else {}),
             },
-            error=error or recorder.error,
+            error=error,
+            stop_reason=stop_reason,
+            cleanup_complete=driver.cleanup_complete if driver is not None else None,
         )
 
     # -- options + tool bridge ---------------------------------------------
@@ -328,9 +355,9 @@ class _ClaudeSessionDriver:
         self._client: Any | None = None
         self._turn_done = asyncio.Event()
         self._turn_done.set()
-        self._interrupting = False
         self._finished = asyncio.Event()
-        self.error: str | None = None
+        self.errors: list[str] = []
+        self.cleanup_complete: bool | None = None
 
     def observe_tool_result(self, name: str, result: ToolResult) -> None:
         """Record the tool verdict before ending a budget-limited session."""
@@ -345,9 +372,19 @@ class _ClaudeSessionDriver:
         # an AnyIO task group. Drain tools before closing that transport.
         async with contextlib.AsyncExitStack() as stack:
             try:
-                self._client = await stack.enter_async_context(
-                    self._sdk.ClaudeSDKClient(options=self._options)
-                )
+                client = self._sdk.ClaudeSDKClient(options=self._options)
+                self._client = await client.__aenter__()
+
+                async def close_client(*exc_info):
+                    try:
+                        return await client.__aexit__(*exc_info)
+                    except Exception as exc:
+                        # Preserve a query or stream error already in flight.
+                        self.cleanup_complete = False
+                        self.errors.append(redact_secrets(f"SDK cleanup failed: {exc}"))
+                        return False
+
+                stack.push_async_exit(close_client)
                 await self.query(prompt)
                 if self._control is not None:
                     await self._control.start()
@@ -366,12 +403,20 @@ class _ClaudeSessionDriver:
                 try:
                     await cancel_and_wait(self._toolkit.cancel_active_and_wait)
                 except Exception as exc:
-                    self.error = redact_secrets(f"Toolkit cleanup failed: {exc}")
-                    logger.error("%s", self.error)
+                    self.cleanup_complete = False
+                    failure = redact_secrets(f"Toolkit cleanup failed: {exc}")
+                    self.errors.append(failure)
+                    logger.error("%s", failure)
                 finally:
-                    for task in tasks:
-                        task.cancel()
-                    await asyncio.gather(*tasks, return_exceptions=True)
+                    cancelled = {task for task in tasks if task.cancel()}
+                    outcomes = await asyncio.gather(*tasks, return_exceptions=True)
+                    for task, outcome in zip(tasks, outcomes, strict=True):
+                        if isinstance(outcome, Exception):
+                            if task in cancelled:
+                                self.cleanup_complete = False
+                            self.errors.append(
+                                redact_secrets(f"{type(outcome).__name__}: {outcome}")
+                            )
                     self._client = None
 
     async def query(self, text: str) -> None:
@@ -379,8 +424,23 @@ class _ClaudeSessionDriver:
         if not self._turn_done.is_set():
             raise RuntimeError("Cannot submit while a Claude turn is active")
         self._turn_done.clear()
+        self._recorder.stop_reason = None
         try:
-            await self._client.query(text)
+            if self._control is None:
+                await self._client.query(text)
+            else:
+                # A Claude result can originate from an injected background turn.
+                self._recorder.query_id = str(uuid4())
+
+                async def prompt():
+                    yield {
+                        "type": "user",
+                        "uuid": self._recorder.query_id,
+                        "message": {"role": "user", "content": text},
+                        "parent_tool_use_id": None,
+                    }
+
+                await self._client.query(prompt())
         except BaseException:
             self._turn_done.set()
             raise
@@ -394,29 +454,33 @@ class _ClaudeSessionDriver:
         """Wait for the interrupted turn's result before accepting new input."""
         if self._turn_done.is_set():
             return 0
-        self._interrupting = True
-        self._recorder.suppress_next_result_error = True
+        self._recorder.interrupt_requested = True
         try:
             await self._client.interrupt()
             # The SDK acknowledgement can precede old tool request completion.
             await asyncio.wait_for(self._turn_done.wait(), timeout=15)
-        except BaseException:
-            self._recorder.suppress_next_result_error = False
-            raise
         finally:
-            self._interrupting = False
+            self._recorder.interrupt_requested = False
         return 1
 
     async def _consume(self) -> None:
         async for message in self._client.receive_messages():
             self._emit(message)
             completed = _kind(message) == "ResultMessage"
+            if completed and self._recorder.matches_query(message) is False:
+                if self._recorder.error:
+                    return
+                continue
             if completed:
                 self._turn_done.set()
             # A confirmed finish ends the task before queued input can flush.
-            if self._recorder.finish_result is not None:
+            if (
+                self._recorder.finish_result is not None
+                or self._recorder.stop_reason == "budget"
+                or self._recorder.error
+            ):
                 return
-            if completed and not self._interrupting:
+            if completed and not self._recorder.interrupt_requested:
                 if self._control is None:
                     return
                 await self._control.complete(self)
@@ -451,15 +515,20 @@ class _Recorder:
     total_cost_usd: float | None = None
     finish_result: dict[str, Any] | None = None
     error: str | None = None
-    #: Set by the interactive loop before a user-initiated ``interrupt`` so the
-    #: next result (which the CLI may flag ``is_error``) is not mistaken for a
-    #: real failure. Cleared by the next result regardless of its outcome.
-    suppress_next_result_error: bool = False
+    stop_reason: str | None = None
+    query_id: str | None = None
+    interrupt_requested: bool = False
+    interruption_diagnostics: list[str] = field(default_factory=list)
 
     # -- public ------------------------------------------------------------
 
-    def stats(self) -> dict[str, int | float | None]:
+    def stats(self) -> dict[str, Any]:
         return {
+            **(
+                {"interruption_diagnostics": self.interruption_diagnostics}
+                if self.interruption_diagnostics
+                else {}
+            ),
             "tool_calls": self.tool_calls,
             "total_cost_usd": self.total_cost_usd,
             **self.usage,
@@ -549,6 +618,7 @@ class _Recorder:
             elif block_kind == "ToolResultBlock":
                 lines.append(self._tool_result(block))
         if assistant_error := get_field(message, "error"):
+            self.error = redact_secrets(f"Claude assistant error: {assistant_error}")
             lines.append(f"[cc-assistant-error] {assistant_error}\n")
         return "".join(lines)
 
@@ -598,17 +668,50 @@ class _Recorder:
         )
         return f"[tool<-] {name}: {json.dumps(summary, ensure_ascii=False)}\n"
 
+    def matches_query(self, message: Any) -> bool | None:
+        """Match an attributed result, retaining legacy completions without IDs."""
+        query = get_field(message, "user_message_uuid")
+        queries = get_field(message, "user_message_uuids") or []
+        if self.query_id is not None and (query or queries):
+            return self.query_id == query or self.query_id in queries
+        if get_field(get_field(message, "origin"), "kind") not in (None, "human"):
+            return False
+        return None
+
     def _result(self, message: Any) -> str:
         if usage := get_field(message, "usage"):
             self._set_usage(usage)
         if cost := get_field(message, "total_cost_usd"):
             self.total_cost_usd = float(cost)
-        suppress = self.suppress_next_result_error
-        self.suppress_next_result_error = False
-        if get_field(message, "is_error", False) and not suppress:
-            self.error = (
-                f"Claude Agent SDK result {get_field(message, 'subtype', 'error')}"
+        subtype = get_field(message, "subtype", "")
+        terminal = get_field(message, "terminal_reason")
+        api_error = get_field(message, "api_error_status")
+        errors = get_field(message, "errors") or []
+        cancelled = terminal in {"aborted_streaming", "aborted_tools"}
+        matches = self.matches_query(message)
+        if (
+            matches is True
+            and self.interrupt_requested
+            and cancelled
+            and not (api_error or errors)
+            and subtype in {"success", "error_during_execution"}
+        ):
+            self.stop_reason = "cancelled"
+            self.interruption_diagnostics.append(terminal)
+        elif matches is not False and not api_error and _budget_result(subtype, errors):
+            self.stop_reason = "budget"
+        elif get_field(message, "is_error", False) or api_error or errors:
+            cause = f"API error (HTTP {api_error})" if api_error else subtype or "error"
+            detail = "; ".join(errors)
+            if api_error and not detail:
+                detail = get_field(message, "result") or ""
+            self.error = self.error or redact_secrets(
+                f"Claude Agent SDK result {cause}" + (f": {detail}" if detail else "")
             )
+        elif matches is not False and cancelled:
+            self.stop_reason = "cancelled"
+        elif matches is not False and subtype == "success":
+            self.stop_reason = "completed"
 
         parts = ["[cc-result]", str(get_field(message, "subtype", ""))]
         if duration_ms := get_field(message, "duration_ms"):
@@ -795,6 +898,19 @@ def _kind(value: Any) -> str:
     if isinstance(value, dict):
         return str(value.get("type") or value.get("kind") or "")
     return value.__class__.__name__
+
+
+def _budget_result(subtype: str, errors: list[str]) -> bool:
+    # The CLI also uses error_max_budget_usd for a pricing failure. Only its
+    # normal limit notice can accompany a budget result without an error.
+    notices = {
+        "error_max_turns": r"Reached maximum number of turns \(\d+\)",
+        "error_max_budget_usd": r"Reached maximum budget \(\$\d+(?:\.\d+)?(?:e[+-]?\d+)?\)",
+    }
+    notice = notices.get(subtype)
+    return notice is not None and (
+        not errors or (len(errors) == 1 and re.fullmatch(notice, errors[0]) is not None)
+    )
 
 
 def _message_to_json(message: Any) -> dict[str, Any]:

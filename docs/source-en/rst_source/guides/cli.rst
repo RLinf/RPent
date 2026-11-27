@@ -244,15 +244,20 @@ When using external MCP servers via ``--mcp-config``, ``MCP_CALL_TIMEOUT_S`` (po
 Output Files
 ------------
 
-``--output-dir`` selects the run directory. Without it, LIBERO writes to ``logs/<timestamp>_<suite>_t<task>_s<seed>/`` under the repository; other environments describe their directory names on their own pages.
+Use ``--output-dir`` to choose where RPent saves a run's files. Each
+environment supplies a default. For example, LIBERO uses
+``logs/<timestamp>_<suite>_t<task>_s<seed>/`` under the repository root.
 
-The table uses LIBERO as an example. Files depend on the environment, recording, and run outcome.
+The table covers multiple environments. The files you get depend on the
+environment, recording settings, and run outcome.
 
 .. list-table::
    :header-rows: 1
 
    * - File or path
      - Purpose
+   * - ``result.json``
+     - The environment's run result. For LIBERO's success and validity fields, see :doc:`../simulators/libero`.
    * - ``transcript_*.json``
      - Planner conversation, tool calls, and completion information.
    * - ``trajectories/<task_id>/``

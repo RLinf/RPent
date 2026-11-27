@@ -217,9 +217,27 @@ that call only. Chunk budgets do not specify where to stop inside a chunk.
 View Results
 ------------
 
-The terminal shows server startup, planner conversation, and tool calls. After the run, inspect ``episode.mp4``, ``transcript_*.json``, and ``run.log`` in the output directory; see :ref:`run-output-files` for default paths and step artifacts.
+Open ``result.json`` in the run's output directory to see whether LIBERO marked
+the task as successful and whether the run counts toward the success rate.
 
-Inspect the final state with ``view_env_state(step=-1)``. Its top-level ``terminated`` value is the native success result; ``finish`` ends planning. See :doc:`../guides/dashboard` for live monitoring.
+- ``environment_success`` gives LIBERO's verdict. On a valid run, ``true``
+  means success and ``false`` means failure. During a run, you can also check
+  ``terminated`` in the latest observation with ``view_env_state(step=-1)``.
+- Count only runs with ``valid`` set to ``true``. A run that timed out or
+  exhausted its budget can still count. A run interrupted before the action
+  outcome or session state could be confirmed has ``valid`` set to ``false``.
+- To find out why a run ended, read ``termination_category`` for the type of
+  stop and ``termination_reason`` for the specific reason.
+- ``finish_accepted`` tells you whether RPent accepted the planner's
+  ``finish`` request. ``operator_verdict`` records the operator's decision,
+  if there was one.
+
+For example, if 8 of 10 runs are valid and LIBERO marks 6 of those as
+successful, the success rate is 6/8 = 75%.
+
+Open ``episode.mp4``, ``transcript_*.json``, or ``run.log`` in the output
+directory to review a run. For step observations, see :ref:`run-output-files`.
+Follow a run live in the terminal or :doc:`../guides/dashboard`.
 
 .. _libero-exploration:
 

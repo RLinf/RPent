@@ -802,11 +802,15 @@ def test_full_cli_exploration_finalizes_memory_without_starting_gpu_runtime(
             task = store.get_task()
             assert task.ended_at is not None
             assert saved_tasks[task.task_id]["status"] == task.status
-        assert [store.get_task().status for store in stores] == (
-            ["failed", "completed"]
-            if outcome == "response_truncated"
-            else ["completed"] * len(stores)
-        )
+        assert all(store.get_task().status == "completed" for store in stores)
+        if outcome == "response_truncated":
+            assert len(stores) == 2
+            first_session = stores[0].get_task()
+            assert first_session.stop_reason == "response_truncated"
+            assert first_session.result.data["stop_info"]["category"] == "budget"
+            assert first_session.result.data["error"].startswith(
+                "planner response truncated"
+            )
         if outcome == "request_budget":
             assert all(store.get_task().stop_reason == "tool_limit" for store in stores)
     else:
@@ -899,6 +903,7 @@ def test_full_cli_calls_robot_result_finalizer_without_robot_special_case(
 
     captured: list[RunFinalizationContext] = []
     capture_enabled = record_trajectory and planner_name != "flash"
+    stop_info = {"reason": "backend_done", "category": "unknown"}
 
     class FakeDaemon:
         stopped = False
@@ -939,6 +944,8 @@ def test_full_cli_calls_robot_result_finalizer_without_robot_special_case(
                 messages=[],
                 stats={"tool_calls": 0},
                 error=planner_error,
+                stop_info=stop_info,
+                stop_reason="request_limit",
             )
 
     def add_cli_args(parser: Any, use_dashboard: bool) -> None:
@@ -1048,6 +1055,8 @@ def test_full_cli_calls_robot_result_finalizer_without_robot_special_case(
     assert context.max_turns == 100
     assert context.planner_timeout_s == 1800
     assert context.stats == {"tool_calls": 0}
+    assert context.stop_info == stop_info
+    assert context.stop_reason == "request_limit"
     assert json.loads((tmp_path / "result.json").read_text(encoding="utf-8")) == {
         "robot": "testrobot",
         "task": {"task_name": "OpenDrawer", "seed": 1},

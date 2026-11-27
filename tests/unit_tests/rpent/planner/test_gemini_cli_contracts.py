@@ -27,15 +27,25 @@ import pytest
 import rpent.planner.utils.agent_session as session_module
 from rpent.dashboard.events import NullDashboardEventSink, TranscriptEvent, UsageEvent
 from rpent.memory import MemoryManager
+from rpent.planner.base import exploration_handoff
 from rpent.planner.gemini_cli import GeminiCliPlanner
-from rpent.planner.utils.acp import AcpRecorder
-from rpent.tools import Toolkit, ToolResult
+from rpent.planner.opencode import OpenCodePlanner
+from rpent.planner.utils.acp import AcpRecorder, AcpSession
+from rpent.tools import Toolkit, ToolResult, tool
 from rpent.utils.logging import init_output_dir
 
 
 @pytest.fixture(autouse=True)
 def logging_directory(tmp_path):
     init_output_dir(tmp_path)
+
+
+@pytest.fixture
+def toolkit(tmp_path):
+    return Toolkit(
+        dashboard_events=NullDashboardEventSink(),
+        memory=MemoryManager(tmp_path / "memory"),
+    )
 
 
 def make_planner(tmp_path: Path, *, timeout_s=2) -> GeminiCliPlanner:
@@ -199,13 +209,17 @@ def acp_backend(monkeypatch):
     server_factory.return_value.start.return_value = "http://127.0.0.1:43210/mcp/"
     seen["server_factory"] = server_factory
     monkeypatch.setenv("GEMINI_BIN", "/fake/gemini")
+    monkeypatch.setenv("OPENCODE_BIN", "/fake/opencode")
     monkeypatch.setattr(session_module, "HttpMcpServer", server_factory)
 
     @asynccontextmanager
     async def spawn(client, binary, *args, cwd, **kwargs):
         seen["command"] = [binary, *args]
         seen["env"] = kwargs["env"]
-        seen["settings"] = json.loads((cwd / ".gemini" / "settings.json").read_text())
+        if binary == "/fake/gemini":
+            seen["settings"] = json.loads(
+                (cwd / ".gemini" / "settings.json").read_text()
+            )
         seen["cwd"] = cwd
         stderr = asyncio.StreamReader()
         stderr.feed_data(seen["stderr"].encode())
@@ -231,7 +245,6 @@ def acp_backend(monkeypatch):
                 session_cwd = Path(kwargs["cwd"])
                 assert session_cwd.is_absolute()
                 assert session_cwd == cwd
-                assert (session_cwd / ".gemini" / "settings.json").is_file()
                 assert kwargs["mcp_servers"] == (
                     [
                         acp.schema.HttpMcpServer(
@@ -255,6 +268,11 @@ def acp_backend(monkeypatch):
                     raise seen["prompt_error"]
                 if seen.get("block"):
                     await stopped.wait()
+                elif "call_tool" in seen:
+                    name = seen["call_tool"]
+                    toolkit = server_factory.call_args.args[0]
+                    result = toolkit.execute_tool(name, {})
+                    server_factory.call_args.kwargs["on_tool_result"](name, {}, result)
                 elif server_factory.called and seen.get("finish", True):
                     server_factory.call_args.kwargs["on_tool_result"](
                         "finish",
@@ -279,25 +297,192 @@ def acp_backend(monkeypatch):
                     ),
                 )
                 seen["events"].append("prompt_completed")
-                return SimpleNamespace(
-                    stop_reason="end_turn",
-                    model_dump=lambda **kwargs: {
-                        "stopReason": "end_turn",
-                        "usage": {"inputTokens": 8, "outputTokens": 2},
-                    },
+                return acp.schema.PromptResponse(
+                    stop_reason=seen.get("stop_reason", "end_turn"),
+                    usage=acp.schema.Usage(
+                        total_tokens=10, input_tokens=8, output_tokens=2
+                    ),
                 )
 
             async def cancel(self, session_id):
                 seen["events"].append("cancel")
-                stopped.set()
+                if "cancel_error" in seen:
+                    raise seen["cancel_error"]
+                if not seen.get("ignore_cancel"):
+                    stopped.set()
 
         try:
             yield Connection(), SimpleNamespace(stderr=stderr)
         finally:
             seen["events"].append("close")
+            if "close_error" in seen:
+                raise seen["close_error"]
 
     monkeypatch.setattr(acp, "spawn_agent_process", spawn)
     return seen
+
+
+@pytest.mark.parametrize(
+    "native,reason",
+    [
+        ("max_turn_requests", "budget"),
+        ("max_tokens", "budget"),
+        ("end_turn", "completed"),
+        ("refusal", "refusal"),
+        ("cancelled", "cancelled"),
+    ],
+)
+@pytest.mark.parametrize("planner_type", [GeminiCliPlanner, OpenCodePlanner])
+def test_acp_terminal_reason_reaches_planner_result(
+    tmp_path, acp_backend, toolkit, native, reason, planner_type
+):
+    acp_backend["finish"] = False
+    acp_backend["stop_reason"] = native
+    planner = planner_type(
+        output_dir=tmp_path, dashboard_events=NullDashboardEventSink()
+    )
+    result = planner.solve(
+        system_prompt="", user_message="task", toolkit=toolkit, max_turns=1
+    )
+    assert result.error is None
+    assert result.stop_reason == reason
+    assert result.finish_result is None
+    assert result.stats["turns_used"] == 0
+    events = Path(result.stats["raw_stream_path"]).read_text().splitlines()
+    assert any(json.loads(line).get("stopReason") == native for line in events)
+
+
+@pytest.mark.parametrize("planner_type", [GeminiCliPlanner, OpenCodePlanner])
+def test_last_admitted_tool_reaches_budget_before_native_end_turn(
+    tmp_path, acp_backend, toolkit, planner_type
+):
+    toolkit.add_tool(
+        tool(name="inspect_scene", readonly=True)(lambda: ToolResult(data={}))
+    )
+    acp_backend["call_tool"] = "inspect_scene"
+    planner = planner_type(
+        output_dir=tmp_path, dashboard_events=NullDashboardEventSink()
+    )
+    result = planner.solve(
+        system_prompt="", user_message="task", toolkit=toolkit, max_turns=1
+    )
+    assert result.error is None
+    assert result.stop_reason == "tool_limit"
+    assert result.stats["turns_used"] == 1
+
+
+@pytest.mark.parametrize("stage", ["startup_error", "prompt_error"])
+@pytest.mark.parametrize(
+    "failure",
+    [TimeoutError("provider TIMEOUT"), RuntimeError("fetch failed / TRANSPORT")],
+)
+def test_provider_failures_are_not_planner_deadlines(
+    tmp_path, acp_backend, toolkit, stage, failure
+):
+    acp_backend[stage] = failure
+    result = make_planner(tmp_path).solve(
+        system_prompt="", user_message="task", toolkit=toolkit, max_turns=1
+    )
+    assert result.stop_reason == "planner_error"
+    assert exploration_handoff(result) == "stop"
+    assert result.error == f"{type(failure).__name__}: {failure}"
+    assert result.stop_info.get("cleanup_complete") is None
+    acp_backend["server_factory"].return_value.stop.assert_called_once()
+    assert acp_backend["events"][-1] == "close"
+
+
+def test_deadline_cleanup_failure_preserves_both_causes(tmp_path, acp_backend, toolkit):
+    acp_backend["block"] = True
+    toolkit.cancel_active_and_wait = Mock(side_effect=RuntimeError("drain failed"))
+    result = make_planner(tmp_path, timeout_s=0.05).solve(
+        system_prompt="", user_message="task", toolkit=toolkit, max_turns=1
+    )
+    assert result.stop_reason == "planner_error"
+    assert exploration_handoff(result) == "stop"
+    assert "Gemini CLI timed out after 0.05s" in result.error
+    assert "Toolkit cleanup failed: drain failed" in result.error
+    assert result.stop_info["cleanup_complete"] is False
+    assert acp_backend["events"][-1] == "close"
+
+
+@pytest.mark.parametrize("transport", ["closed", "failed", "cancelled"])
+def test_transport_exit_joins_stderr_and_preserves_errors(
+    tmp_path, acp_backend, monkeypatch, toolkit, transport
+):
+    acp_backend["prompt_error"] = RuntimeError("provider failed")
+    if transport == "failed":
+        acp_backend["close_error"] = RuntimeError("close failed")
+    elif transport == "cancelled":
+        acp_backend["close_error"] = asyncio.CancelledError()
+    readers = []
+
+    async def read_stderr(self, stream):
+        readers.append(asyncio.current_task())
+        if transport != "closed":
+            try:
+                await asyncio.Event().wait()
+            except asyncio.CancelledError:
+                pass
+        raise OSError("stderr unavailable")
+
+    monkeypatch.setattr(AcpSession, "_read_stderr", read_stderr)
+
+    async def run():
+        solving = make_planner(tmp_path)._solve(
+            prompt="task",
+            toolkit=toolkit,
+            max_turns=1,
+            interaction=None,
+            input_queue=None,
+        )
+        if transport == "cancelled":
+            with pytest.raises(asyncio.CancelledError):
+                await asyncio.wait_for(solving, timeout=2)
+        else:
+            result = await asyncio.wait_for(solving, timeout=2)
+            errors = ["RuntimeError: provider failed"]
+            if transport == "failed":
+                errors.append("ACP transport cleanup failed: close failed")
+            errors.append("Stderr reader failed: stderr unavailable")
+            assert result.error == "; ".join(errors)
+            assert result.stop_info.get("cleanup_complete") is (
+                False if transport == "failed" else None
+            )
+        (reader,) = readers
+        assert reader.done()
+
+    asyncio.run(run())
+
+
+@pytest.mark.parametrize("outcome", ["cancel_error", "drain_timeout"])
+def test_deadline_interrupt_failure_is_reported_after_transport_close(
+    tmp_path, monkeypatch, acp_backend, toolkit, outcome
+):
+    acp_backend["block"] = True
+    if outcome == "cancel_error":
+        acp_backend["cancel_error"] = RuntimeError("cancel request rejected")
+    else:
+        acp_backend["ignore_cancel"] = True
+    wait_for = asyncio.wait_for
+
+    async def bounded_wait(awaitable, timeout):
+        return await wait_for(awaitable, timeout=0.01 if timeout == 15 else timeout)
+
+    monkeypatch.setattr(asyncio, "wait_for", bounded_wait)
+    result = make_planner(tmp_path, timeout_s=0.05).solve(
+        system_prompt="", user_message="task", toolkit=toolkit, max_turns=1
+    )
+    assert result.stop_reason == "planner_error"
+    assert exploration_handoff(result) == "stop"
+    assert "Gemini CLI timed out after 0.05s" in result.error
+    assert (
+        "cancel request rejected"
+        if outcome == "cancel_error"
+        else "ACP agent did not finish the interrupted prompt"
+    ) in result.error
+    assert acp_backend["events"][-2:] == ["cancel", "close"]
+    assert result.stop_info["cleanup_complete"] is False
+    acp_backend["server_factory"].return_value.stop.assert_called_once()
 
 
 @pytest.mark.parametrize(
@@ -311,7 +496,7 @@ def acp_backend(monkeypatch):
     ],
 )
 def test_session_result_artifacts_and_cleanup(
-    tmp_path, monkeypatch, acp_backend, outcome
+    tmp_path, monkeypatch, acp_backend, toolkit, outcome
 ):
     secret = "environment-secret-value"
     monkeypatch.chdir(tmp_path)
@@ -323,10 +508,6 @@ def test_session_result_artifacts_and_cleanup(
     acp_backend["block"] = outcome == "timeout"
     if outcome in {"startup_error", "prompt_error"}:
         acp_backend[outcome] = RuntimeError(f"gemini unavailable: {secret}")
-    toolkit = Toolkit(
-        dashboard_events=NullDashboardEventSink(),
-        memory=MemoryManager(tmp_path / "memory"),
-    )
     toolkit.cancel_active_and_wait = Mock(
         side_effect=lambda: acp_backend["events"].append("cancel_tools")
     )
@@ -368,6 +549,8 @@ def test_session_result_artifacts_and_cleanup(
             assert "<GEMINI_API_KEY>" in text
     if outcome == "timeout":
         assert result.error == "Gemini CLI timed out after 0.05s"
+        assert result.stop_reason == "timeout"
+        assert exploration_handoff(result) == "recover"
     elif outcome in {"startup_error", "prompt_error"}:
         assert result.error == "RuntimeError: gemini unavailable: <GEMINI_API_KEY>"
     else:

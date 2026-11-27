@@ -675,6 +675,8 @@ class DashboardState:
         if state not in TERMINAL_RUN_STATES:
             raise ValueError(f"invalid terminal run state: {state!r}")
         with self._condition:
+            if self._session_state == "fatal":
+                return
             if self.operator_verdict is not None and error is None:
                 state = {
                     "success": "succeeded",

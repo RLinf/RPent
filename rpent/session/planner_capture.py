@@ -32,6 +32,7 @@ from pydantic_ai.models.wrapper import WrapperModel
 from pydantic_ai.settings import ModelSettings
 from pydantic_core import to_jsonable_python
 
+from rpent.planner.stop import resolve_stop_info
 from rpent.session import EnvState, MissingInfo, Payload
 from rpent.session.env_capture import ToolCallCapture
 from rpent.utils.logging import get_logger
@@ -104,31 +105,34 @@ def end_planner_task(
     if state is None:
         return
     error = result.error if result is not None else None
-    reason = getattr(result, "stop_reason", None)
-    if exception is not None:
-        error = f"{type(exception).__name__}: {exception}"
-        status = (
-            "cancelled"
-            if isinstance(exception, (KeyboardInterrupt, asyncio.CancelledError))
-            else "failed"
-        )
-        reason = "operator" if status == "cancelled" else "execution_error"
-    elif cancelled_reason is not None:
-        status, reason = "cancelled", cancelled_reason
-    elif (finish_result or {}).get("operator_aborted"):
-        status, reason = "cancelled", "operator"
-    elif (finish_result or {}).get("operator_finished"):
-        status, reason = "completed", "operator_finished"
-    elif reason == "cancelled":
-        status = "cancelled"
-    elif error is not None or result is None:
-        status, reason = "failed", reason or "planner_error"
-    else:
-        status = "completed"
-        reason = reason or ("finish" if finish_result is not None else "model_output")
+    stats = result.stats if result is not None else {}
+    boundary = getattr(result, "stop_info", None)
+    if boundary is None:
+        boundary = stats.get("stop_info")
+    boundary = boundary if isinstance(boundary, Mapping) else None
+    reason = getattr(result, "stop_reason", None) or stats.get("stop_reason")
+    if isinstance(exception, (KeyboardInterrupt, asyncio.CancelledError)):
+        cancelled_reason = cancelled_reason or "operator"
+    elif exception is not None:
+        diagnostic = f"{type(exception).__name__}: {exception}"
+        if error is None or diagnostic not in error:
+            error = f"{error}; {diagnostic}" if error is not None else diagnostic
+        boundary = {**(boundary or {}), "category": "error"}
+    elif result is None and cancelled_reason is None:
+        error = "Planner returned no result"
+    normalized = resolve_stop_info(
+        boundary,
+        reason=reason,
+        error=error,
+        finish_result=finish_result,
+        cancelled_reason=cancelled_reason,
+    )
+    status = {"error": "failed", "cancelled": "cancelled"}.get(
+        normalized["category"], "completed"
+    )
     state.end_task(
         status=status,
-        stop_reason=reason,
+        stop_reason=normalized["reason"],
         result=Payload(
             format="rpent.task_result",
             format_version="1",
@@ -137,6 +141,7 @@ def end_planner_task(
                 "environment_success": environment_success,
                 "stats": result.stats if result is not None else {},
                 "error": error,
+                "stop_info": normalized,
             },
             completeness="complete",
         ),

@@ -433,7 +433,12 @@ def test_dashboard_selects_claimed_model_before_task_runtime(
         assert (root / "MEMORY.md").read_text() == ASTRA
         raise RuntimeError("stop after verifying selected root before task startup")
 
-    state = SimpleNamespace(task_replacement_requested=False)
+    state = SimpleNamespace(
+        task_replacement_requested=False,
+        task_finalization_cancelled=False,
+        session_state="task_starting",
+        operator_verdict=None,
+    )
     error = dashboard._run_dashboard_task(
         args=args,
         robot_spec=replace(spec, parse_config=parse_config, init_runtime=init_runtime),

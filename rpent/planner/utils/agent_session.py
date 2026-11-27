@@ -174,22 +174,27 @@ async def run_agent(
     redact: Callable[[str], str] = str,
     tool_event: Callable[[str, dict[str, Any], ToolResult], dict[str, Any]]
     | None = None,
-) -> str | None:
+) -> tuple[str | None, str | None, bool | None]:
     """Own one agent session, optional input, artifacts, and MCP server.
 
     The factory receives the MCP URL, shared controller, and event callback.
     Without input, the controller is None and the session runs one turn.
-    Its session implements run, submit, interrupt, close, and an error field.
+    Sessions expose their terminal reason, diagnostics, and cleanup evidence.
     Toolkit cancellation always precedes backend interruption and shutdown.
+    Returns the diagnostic, termination reason, and cleanup evidence. A failed
+    cleanup is False. Provider errors alone leave that evidence unknown.
     """
     toolkit.set_tool_budget(max_turns)
     terminal = TerminalInteraction(input_queue) if input_queue is not None else None
     port = terminal if terminal is not None else interaction
     error: str | None = None
+    stop_reason: str | None = None
+    cleanup_complete: bool | None = None
     session = None
     reader = None
     session_task = None
     finish_waiter = None
+    drain = None
     finished = asyncio.Event()
     loop = asyncio.get_running_loop()
     deadline = loop.time() + timeout_s
@@ -243,9 +248,10 @@ async def run_agent(
                 emit_event(tool_event(name, args, result))
             if name == "finish" and not result.is_error and result.data.get("_finish"):
                 recorder.finish_result = dict(result.data)
-            if toolkit.tool_limit_reached and artifacts.stop_reason is None:
-                artifacts.stop_reason = "tool_limit"
+            if recorder.finish_result is not None or toolkit.tool_limit_reached:
                 finished.set()
+                if control is not None:
+                    control.end()
 
         def observe_tool(name, args, result):
             loop.call_soon_threadsafe(record_tool, name, args, result)
@@ -263,46 +269,81 @@ async def run_agent(
                 timeout=timeout_s,
                 return_when=asyncio.FIRST_COMPLETED,
             )
-            if not done:
-                raise asyncio.TimeoutError
             if session_task in done:
                 await session_task
-            if artifacts.stop_reason == "tool_limit":
-                await asyncio.wait_for(
-                    asyncio.to_thread(toolkit.wait_for_calls),
-                    timeout=max(0, deadline - loop.time()),
+            if done and toolkit.tool_limit_reached:
+                # An admitted parallel call can still be running at the limit.
+                drain = asyncio.create_task(asyncio.to_thread(toolkit.wait_for_calls))
+                done, _ = await asyncio.wait(
+                    (drain,), timeout=max(0, deadline - loop.time())
                 )
-            error = session.error
-        except asyncio.TimeoutError:
-            error = f"{label} timed out after {timeout_s}s"
-            artifacts.stop_reason = "timeout"
+                if done:
+                    await drain
+            if not done:
+                stop_reason = "timeout"
+                error = f"{label} timed out after {timeout_s}s"
+            elif recorder.finish_result is not None:
+                stop_reason = "finish"
+            elif toolkit.tool_limit_reached:
+                stop_reason = "tool_limit"
+            else:
+                stop_reason = session.stop_reason
         except Exception as exc:
+            stop_reason = "planner_error"
             error = redact(f"{type(exc).__name__}: {exc}")
         finally:
-            if control is not None:
-                control.end()
+            failures = []
+            try:
+                if control is not None:
+                    control.end()
+            except Exception as exc:
+                cleanup_complete = False
+                failures.append(redact(f"Interaction cleanup failed: {exc}"))
             try:
                 await cancel_and_wait(toolkit.cancel_active_and_wait)
             except Exception as exc:
-                error = error or redact(f"Toolkit cleanup failed: {exc}")
+                cleanup_complete = False
+                failures.append(redact(f"Toolkit cleanup failed: {exc}"))
+            close_error = None
             try:
                 if session is not None:
                     await session.close()
-                    error = error or session.error
             except Exception as exc:
-                error = error or redact(f"Session cleanup failed: {exc}")
+                cleanup_complete = False
+                close_error = redact(f"Session cleanup failed: {exc}")
             finally:
                 tasks = [
-                    task for task in (session_task, finish_waiter) if task is not None
+                    task
+                    for task in (session_task, finish_waiter, drain)
+                    if task is not None
                 ]
-                for task in tasks:
-                    task.cancel()
-                await asyncio.gather(*tasks, return_exceptions=True)
-                await asyncio.to_thread(server.stop)
+                cancel_requested = [task.cancel() for task in tasks]
+                outcomes = await asyncio.gather(*tasks, return_exceptions=True)
+                if session is not None:
+                    failures.extend(redact(entry) for entry in session.diagnostics)
+                    if session.cleanup_complete is False:
+                        cleanup_complete = False
+                if close_error:
+                    failures.append(close_error)
+                for requested, outcome in zip(cancel_requested, outcomes, strict=True):
+                    if isinstance(outcome, Exception):
+                        if requested:
+                            cleanup_complete = False
+                        failures.append(redact(f"{type(outcome).__name__}: {outcome}"))
+                try:
+                    await asyncio.to_thread(server.stop)
+                except Exception as exc:
+                    cleanup_complete = False
+                    failures.append(redact(f"MCP cleanup failed: {exc}"))
                 if reader is not None:
                     with contextlib.suppress(asyncio.CancelledError):
                         await reader
+                if failures:
+                    stop_reason = "planner_error"
+                    error = "; ".join(
+                        dict.fromkeys(item for item in [error, *failures] if item)
+                    )
         if error:
             output.write(f"\n[{artifacts.backend}] {error}\n")
             write_jsonl(raw, {"type": "error", "message": error})
-    return error
+    return error, stop_reason, cleanup_complete

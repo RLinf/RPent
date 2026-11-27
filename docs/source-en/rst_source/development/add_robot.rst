@@ -480,21 +480,24 @@ robots. The runners do not handle these environment details. See
 ``robots/libero/robot_spec.py`` and ``robots/robocasa/robot_spec.py`` for the
 reference pattern.
 
-Optional Run-result Finalizer
------------------------------
+Save a Run Result (Optional)
+----------------------------
 
-``RobotSpec.finalize_run`` is a universal, robot-agnostic end-of-run hook.
-RoboCasa is its current consumer and uses it to record per-cell evaluation
-results for later statistics and aggregation. Any robot that publishes
-machine-readable evaluation artifacts may register the hook. The default is
-``None`` and leaves the runner unchanged. When the hook is present, the normal
-terminal runner captures ``toolkit.solved()`` before closing the toolkit, then
-passes a structured ``RunFinalizationContext`` to the hook after runtime
-cleanup. The hook owns the artifact schema and filename; RPent only defines the
-lifecycle boundary.
+If your benchmark needs a result file for each run, register a callback with
+``RobotSpec.finalize_run``. The CLI and Dashboard runners call it after
+cleanup. Its ``RunFinalizationContext`` contains the environment verdict
+captured before the toolkit closed and the reasons the run stopped.
 
-Use ``write_json_atomic`` when the artifact is JSON so an interrupted write
-cannot leave a partial result:
+Choose which fields to write. Read the environment verdict from
+``context.environment_success``, the planner's reason from ``context.stop_reason``,
+and the runner's cancellation reason, if any, from ``context.cancelled_reason``.
+For cleanup failures, ``context.agent_error`` carries the diagnostic and
+``context.stop_info`` gives the ``error`` category. If your file includes that
+category, keep it alongside the planner's original stop reason.
+
+This callback writes the task, its outcome and the reasons it stopped to
+``result.json``. For a benchmark that also records accepted ``finish`` requests
+and operator decisions, see :doc:`../simulators/libero`.
 
 .. code-block:: python
 
@@ -507,13 +510,14 @@ cannot leave a partial result:
                "robot": context.robot_name,
                "task": dict(context.task_desc),
                "success": context.environment_success,
+               "stop_reason": context.stop_reason,
+               "cancelled_reason": context.cancelled_reason,
            },
        )
 
-Register the callback as ``RobotSpec(..., finalize_run=_finalize_run)``. This
-hook is currently limited to normal terminal runs; the Dashboard does not call
-it. Keep benchmark manifests, robot-specific runtime fields, and aggregation
-logic in the robot package rather than the shared CLI.
+Register the callback as ``RobotSpec(..., finalize_run=_finalize_run)``. Keep
+benchmark manifests, robot-specific runtime fields, and aggregation logic in
+the robot package.
 
 .. _add-robot-testing:
 

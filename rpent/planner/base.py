@@ -20,14 +20,16 @@ import asyncio
 import os
 import queue
 from abc import ABC, abstractmethod
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 from urllib.parse import unquote, urlsplit, urlunsplit
 
 from rpent.dashboard.events import DashboardEventSink
 from rpent.dashboard.interaction import DashboardInteractionPort
+from rpent.planner.stop import STOP_CATEGORIES as STOP_CATEGORIES
+from rpent.planner.stop import normalize_stop_info as normalize_stop_info
 from rpent.tools.base import ToolResult
 from rpent.tools.toolkit import Toolkit
 from rpent.utils.config import (
@@ -133,7 +135,14 @@ class PlannerResult:
     planning without setting ``error``.
     """
 
-    __slots__ = ("finish_result", "messages", "stats", "error", "stop_reason")
+    __slots__ = (
+        "finish_result",
+        "messages",
+        "stats",
+        "error",
+        "stop_reason",
+        "stop_info",
+    )
 
     def __init__(
         self,
@@ -143,6 +152,7 @@ class PlannerResult:
         stats: dict | None = None,
         error: str | None = None,
         stop_reason: str | None = None,
+        stop_info: dict | None = None,
     ):
         """Initialize a serializable planner result."""
         self.finish_result = (
@@ -154,12 +164,41 @@ class PlannerResult:
         )  # {"total_input_tokens", "total_output_tokens", "turns_used", "tool_calls"}
         self.error = error  # str | None  — set when the planner raises
         self.stop_reason = stop_reason
+        self.stop_info = stop_info
 
 
 def is_recoverable_agent_error(agent_error: str | None) -> bool:
     """Whether the error allows a fresh exploration session."""
     lowered = (agent_error or "").lower()
     return "timed out" in lowered or "planner response truncated" in lowered
+
+
+def exploration_handoff(result: PlannerResult) -> Literal["next", "recover", "stop"]:
+    """Return next for a normal handoff, recover for an allowed retry, or stop."""
+    stop_info = getattr(result, "stop_info", None)
+    if stop_info is None:
+        stop_info = result.stats.get("stop_info")
+    if stop_info is not None:
+        if isinstance(stop_info, Mapping) and all(
+            stop_info.get(key) is True
+            for key in (
+                "execution_certain",
+                "result_delivery_complete",
+                "cleanup_complete",
+                "allow_new_session",
+            )
+        ):
+            return "recover"
+        return "stop"
+
+    reason = getattr(result, "stop_reason", None) or result.stats.get("stop_reason")
+    if reason == "response_truncated":
+        return "recover"
+    if normalize_stop_info(None, reason=reason)["category"] in {"cancelled", "error"}:
+        return "stop"
+    if result.error:
+        return "recover" if is_recoverable_agent_error(result.error) else "stop"
+    return "next"
 
 
 class Planner(ABC):
