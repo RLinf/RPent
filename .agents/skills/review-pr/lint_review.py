@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 # Copyright 2026 The RPent Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -15,26 +16,33 @@
 """Lint and post an RPent PR review written as a GitHub review payload.
 
 The payload is the JSON body of GitHub's create-review API
-(``POST /repos/{owner}/{repo}/pulls/{number}/reviews``).
-
-.. code-block:: json
+(``POST /repos/{owner}/{repo}/pulls/{number}/reviews``)::
 
     {
         "commit_id": "<PR head SHA>",
         "event": "COMMENT",
-        "body": "<the main comment>",
+        "body": "<the review: verdict, reproduction, findings>",
         "comments": [
             {"path": "rpent/x.py", "line": 42, "side": "RIGHT", "body": "..."},
-            {"path": "robots/libero/y.py", "start_line": 10, "start_side": "RIGHT",
-             "line": 12, "side": "RIGHT", "body": "..."}
-        ]
+            {
+                "path": "robots/libero/y.py",
+                "start_line": 10,
+                "start_side": "RIGHT",
+                "line": 12,
+                "side": "RIGHT",
+                "body": "...",
+            },
+        ],
     }
 
 Subcommands::
 
-    template                         print the review body template
+    template                         print the main-comment skeleton
     lint [--pr N] review.json        check the payload (and its lines, with --pr)
     post --pr N review.json          lint, then post it as one review
+    update --pr N --review ID review.json
+                                     lint the body against the review's posted
+                                     inline comments, then replace its body
 
 Exit code is 1 when any ERROR is reported, 0 otherwise (warnings pass).
 """
@@ -50,28 +58,51 @@ from dataclasses import dataclass
 from functools import cached_property
 
 RECOMMENDATIONS = ("Ready for senior review", "Changes requested", "Blocked")
-TEMPLATE = f"""\
-<!-- On the first line write one recommendation in bold: {", ".join(RECOMMENDATIONS)}. -->
+SEVERITIES = ("critical", "major", "minor")
+CATEGORIES = ("correctness", "design", "reuse", "tests", "docs", "docs-style", "style")
+STATUSES = ("confirmed", "unresolved")
+POSTED = ("inline", "here", "thread")
+REPRODUCTION, FINDINGS = "### Reproduction", "### Findings"
+SECTIONS = (REPRODUCTION, FINDINGS)
+REPRO_LABELS = ("- Result:", "- Setup:")
+REPRO_STATUSES = ("**Passed**", "**Failed**", "**Partial**", "**Not run**")
+NO_FINDINGS = "No findings."
+TABLE_COLUMNS = 7  # ID, Severity, Category, Location, Summary, Status, Posted
+MAX_BODY = 65536  # GitHub rejects a longer review body
+EVENTS = ("COMMENT", "REQUEST_CHANGES", "APPROVE")
+FIX_LEAD = "Suggested fix:"
+EVIDENCE_LEAD = "Evidence:"
+WALKTHROUGH_LEAD = "Code walkthrough:"
+TEMPLATE = """\
+**<Recommendation>** · <n critical, n major, n minor, or no findings> · head `<sha7>` · base `main@<sha7>`
 
-<!-- Summarize the change and explain the recommendation. -->
+<One short sentence: what blocks merge, or why it is ready.>
 
 ### Reproduction
 
-<!-- Identify the runner, revision, settings, commands, and results, or explain why the workflow was not run. -->
+- Result: **<Passed | Failed | Partial | Not run>** — <one short sentence: bounded functional status and native task result vs. baseline, or first blocker / what is missing>
+- Setup: <hardware and command/config run; or what a run needs if not run>
 
 ### Findings
 
-<!-- Write "No findings." or give each issue a heading such as "#### F1 · major · correctness · Title" followed by its location, trigger, impact, and evidence. -->
+| ID | Severity | Category | Location | Summary | Status | Posted |
+|---|---|---|---|---|---|---|
+| F1 | critical | correctness | `rpent/x.py:42` | <one line> | confirmed | inline |
+| F2 | major | docs | `docs/source-zh/...` | <one line> | confirmed | here |
+
+#### F2 · major · docs: <plain title>
+
+<what it tries to do, what happens instead, and why it matters, in 1-3 plain sentences>
+
+Suggested fix: <one sentence, then a code block when code changes>
+
+Evidence: <one line: command and result, or trace; for unresolved, what settles it>
 """
-FINDING_HEADING = re.compile(
-    r"#### (F[1-9][0-9]*) · (?:critical|major|minor) · "
-    r"(?:correctness|design|reuse|tests|docs|docs-style|style) · \S.*"
-)
-EVENTS = ("COMMENT", "REQUEST_CHANGES", "APPROVE")
-FIX_LEAD = "Suggested fix:"
 PAYLOAD_KEYS = {"commit_id", "event", "body", "comments"}
 COMMENT_KEYS = {"path", "line", "side", "start_line", "start_side", "body"}
 MAX_COMMENT_PROSE = 1000
+MAX_MINOR_FINDINGS = 5
+MAX_REPRO_BULLET = 300
 
 
 @dataclass(frozen=True)
@@ -91,7 +122,33 @@ class Markdown:
     FENCE = re.compile(r"^\s*(`{3,}|~{3,})(.*)$")
     BLOCK = re.compile(r"^\s*([#|>]|[-*+] |\d+[.)] |<)")
     HEADING = re.compile(r"^(#{1,6})\s")
-    HINT = "<!--"
+    # A tag, an HTML comment, or a <placeholder> left from the template.
+    HTML = re.compile(r"<!--|</?[A-Za-z][\w-]*(\s[^<>]*)?/?>")
+    CODE_SPAN = re.compile(r"(`+).+?\1")
+    HEDGING = re.compile(
+        r"\b(you might want to|you may want to|perhaps consider|"
+        r"consider (?:using|adding|changing|updating|removing)|"
+        r"it might be worth|it is worth noting|just a small)\b",
+        re.IGNORECASE,
+    )
+
+    @classmethod
+    def unclosed_fence(cls, text: str) -> int | None:
+        """Returns the 1-based opening line of an unclosed code fence, if any."""
+        fence, opened_at = "", None
+        for n, line in enumerate(text.splitlines(), 1):
+            m = cls.FENCE.match(line)
+            if not fence:
+                if m:
+                    fence, opened_at = m[1], n
+            elif (
+                m
+                and m[1][0] == fence[0]
+                and len(m[1]) >= len(fence)
+                and not m[2].strip()
+            ):
+                fence, opened_at = "", None
+        return opened_at
 
     @classmethod
     def unfenced(cls, text: str) -> list[tuple[int, str]]:
@@ -198,17 +255,68 @@ class PullRequest:
                 old, new = old + 1, new + 1
 
     @cached_property
+    def _top_level_comments(self) -> list[dict]:
+        """All top-level PR review comments (active and outdated)."""
+        return [
+            c
+            for c in self.api_items(
+                f"repos/{self.repo}/pulls/{self.number}/comments",
+                '.[] | {path, side: (.side // "RIGHT"), line, original_line, '
+                "user: .user.login, in_reply_to_id}",
+            )
+            if c["in_reply_to_id"] is None
+        ]
+
+    @cached_property
     def commented_lines(self) -> dict[tuple[str, str, int], str]:
-        """Maps (path, side, line) of existing review threads to their author."""
-        items = self.api_items(
-            f"repos/{self.repo}/pulls/{self.number}/comments",
-            ".[] | {path, side, line, user: .user.login, in_reply_to_id}",
-        )
+        """Maps (path, side, line) of active review threads to their author."""
         return {
             (c["path"], c["side"], c["line"]): c["user"]
-            for c in items
-            if c["line"] is not None and c["in_reply_to_id"] is None
+            for c in self._top_level_comments
+            if c["line"] is not None
         }
+
+    @cached_property
+    def thread_lines(self) -> dict[tuple[str, str, int], str]:
+        """Maps (path, side, line) of active and outdated review threads to their author."""
+        return {
+            (
+                c["path"],
+                c["side"],
+                c["line"] if c["line"] is not None else c["original_line"],
+            ): c["user"]
+            for c in self._top_level_comments
+            if (c["line"] if c["line"] is not None else c["original_line"]) is not None
+        }
+
+    def review_comments(self, review_id: int) -> list[dict]:
+        """The inline comments a posted review holds, at the lines it posted them on.
+
+        The per-review endpoint omits line numbers, so this filters the PR's
+        comments by review instead.
+        """
+        return self.api_items(
+            f"repos/{self.repo}/pulls/{self.number}/comments",
+            f".[] | select(.pull_request_review_id == {review_id}"
+            " and .in_reply_to_id == null) | {path, "
+            "line: (.original_line // .line), "
+            "start_line: (.original_start_line // .start_line), "
+            'side: (.side // "RIGHT"), '
+            'start_side: (.start_side // .side // "RIGHT"), body}',
+        )
+
+    def update(self, review_id: int, body: str) -> str:
+        endpoint = f"repos/{self.repo}/pulls/{self.number}/reviews/{review_id}"
+        out = self.gh(
+            "api",
+            "-X",
+            "PUT",
+            endpoint,
+            "--input",
+            "-",
+            stdin=json.dumps({"body": body}),
+        )
+        return json.loads(out)["html_url"]
 
     def post(self, payload: dict) -> str:
         endpoint = f"repos/{self.repo}/pulls/{self.number}/reviews"
@@ -218,10 +326,40 @@ class PullRequest:
         return json.loads(out)["html_url"]
 
 
+@dataclass(frozen=True)
+class Row:
+    """One row of the findings table."""
+
+    n: int
+    id: str
+    severity: str
+    category: str
+    location: str
+    posted: str
+
+
+@dataclass
+class Section:
+    """One finding's #### section, after its heading."""
+
+    n: int
+    severity: str
+    category: str
+    lines: list[str]
+
+
 class ReviewLinter:
     """Checks a review payload against the review-pr skill's output format."""
 
-    def __init__(self, payload: dict, pr: PullRequest | None) -> None:
+    VERDICT = re.compile(
+        r"^\*\*(" + "|".join(map(re.escape, RECOMMENDATIONS)) + r")\*\*"
+    )
+    ROW = re.compile(r"^\|\s*F\d+\s*\|")
+    FINDING = re.compile(r"^#### (F\d+) · ([\w-]+) · ([\w-]+): \S")
+    INLINE_HEADING = re.compile(r"^\*\*(F\d+) · ([\w-]+) · ([\w-]+): \S.*\*\*$")
+    LOCATION = re.compile(r"`([^`:\s]+):(\d+)(?:-(\d+))?`")
+
+    def __init__(self, payload: object, pr: PullRequest | None) -> None:
         self.payload = payload
         self.pr = pr
         self.findings: list[Finding] = []
@@ -258,7 +396,7 @@ class ReviewLinter:
                 r"[0-9a-fA-F]{40}", commit_id
             ):
                 self.error("commit_id", "must be a 40-character hexadecimal commit SHA")
-            elif self.pr and commit_id.lower() != self.pr.head_sha:
+            elif self.pr and commit_id.lower() != self.pr.head_sha.lower():
                 self.error(
                     "commit_id",
                     f"{commit_id[:7]} is not the PR head {self.pr.head_sha[:7]}; "
@@ -271,16 +409,30 @@ class ReviewLinter:
         return self.findings
 
     def check_prose(self, where: str, text: str) -> None:
+        opened_at = Markdown.unclosed_fence(text)
+        if opened_at is not None:
+            self.error(
+                where,
+                f"line {opened_at} opens a code fence that is never closed",
+            )
         for n in Markdown.wrapped(text):
             self.error(
                 where,
                 f"line {n} is hard-wrapped; GitHub renders it as a line break, so keep each paragraph on one line",
             )
         for n, line in Markdown.unfenced(text):
-            if Markdown.HINT in line:
+            stripped = Markdown.CODE_SPAN.sub("", line)
+            m = Markdown.HTML.search(stripped)
+            if m:
                 self.error(
                     where,
-                    f"line {n} still holds a template hint: {line.strip()[:60]!r}",
+                    f"line {n} holds HTML or an unfilled template placeholder ({m[0][:40]!r}); write plain Markdown",
+                )
+            h = Markdown.HEDGING.search(stripped)
+            if h:
+                self.warn(
+                    where,
+                    f"line {n} uses hedging or filler ({h[0]!r}); state the issue and fix directly",
                 )
 
     def check_body(self, body: object) -> None:
@@ -288,70 +440,276 @@ class ReviewLinter:
             self.error("body", "must be a string")
             return
         self.check_prose("body", body)
-        body = body.strip()
-        first_line = body.partition("\n")[0].rstrip()
-        if not any(first_line in (label, f"**{label}**") for label in RECOMMENDATIONS):
+        if len(body) > MAX_BODY:
             self.error(
                 "body",
-                f"start with one recommendation on its own line: {RECOMMENDATIONS}",
+                f"body is {len(body)} characters and GitHub accepts at most {MAX_BODY}; shorten the walkthroughs",
             )
-
-        lines = body.splitlines()
-        sections = []
-        for n, line in Markdown.unfenced(body):
-            heading = Markdown.HEADING.match(line)
-            if heading and len(heading[1]) <= 3:
-                sections.append((n, line.rstrip()))
-        if [title for _, title in sections] != ["### Reproduction", "### Findings"]:
-            self.error("body", "expected ### Reproduction followed by ### Findings")
-            return
-
-        reproduction, findings = (n for n, _ in sections)
-        if not any(line.strip() for line in lines[1 : reproduction - 1]):
-            self.error("body", "explain the recommendation before ### Reproduction")
-        if not any(line.strip() for line in lines[reproduction : findings - 1]):
-            self.error(
-                "body", "describe the reproduction or explain why it was not run"
-            )
-        self.check_findings("\n".join(lines[findings:]).strip())
-
-    def check_findings(self, text: str) -> None:
-        if text == "No findings.":
-            if self.payload.get("comments"):
-                self.error(
-                    "body", 'a review with inline comments cannot say "No findings."'
-                )
-            return
-
-        headings = [
-            (n - 1, line.rstrip())
-            for n, line in Markdown.unfenced(text)
-            if line.startswith("#### ")
-        ]
-        if not headings or headings[0][0] != 0:
+        lines = Markdown.unfenced(body)
+        self.check_verdict(lines)
+        sections: list[tuple[str, list[tuple[int, str]]]] = []
+        for n, line in lines:
+            m = Markdown.HEADING.match(line)
+            if m and len(m[1]) <= 3:
+                sections.append((line.strip(), []))
+            elif sections:
+                sections[-1][1].append((n, line))
+        found = [heading for heading, _ in sections]
+        if found != list(SECTIONS):
             self.error(
                 "body",
-                "start each finding with a numbered heading or write No findings.",
+                f"sections must be {list(SECTIONS)} in this order, found {found}; use #### inside a section",
             )
-            return
+        content = dict(reversed(sections))
+        rows = self.check_findings(content.get(FINDINGS, []), body.splitlines())
+        self.check_inline_rows(rows)
+        if REPRODUCTION in content:
+            self.check_reproduction(content[REPRODUCTION])
 
-        lines = text.splitlines()
-        seen = set()
-        for i, (start, title) in enumerate(headings):
-            match = FINDING_HEADING.fullmatch(title)
-            if not match:
+    def check_verdict(self, lines: list[tuple[int, str]]) -> None:
+        first = next((line.strip() for _, line in lines if line.strip()), "")
+        if not self.VERDICT.match(first):
+            choices = ", ".join(f"**{r}**" for r in RECOMMENDATIONS)
+            self.error(
+                "body",
+                f"the first line must start with one bold recommendation ({choices}), found {first[:60]!r}",
+            )
+        elif sum(r in first for r in RECOMMENDATIONS) > 1:
+            self.error(
+                "body", "the verdict line names several recommendations; state one"
+            )
+
+    def check_findings(
+        self, lines: list[tuple[int, str]], raw_lines: list[str]
+    ) -> list[Row]:
+        """Checks the findings table against the finding sections below it."""
+        rows: list[Row] = []
+        sections: dict[str, Section] = {}
+        current: Section | None = None
+        for n, line in lines:
+            if line.startswith("#### "):
+                m = self.FINDING.match(line)
+                current = None
+                if not m:
+                    self.error(
+                        "body",
+                        f"line {n}: a #### heading in Findings must read 'F<n> · <severity> · <category>: <title>'",
+                    )
+                elif m[1] in sections:
+                    self.error("body", f"line {n}: {m[1]} has a second section")
+                else:
+                    current = sections[m[1]] = Section(n, m[2], m[3], [])
+            elif current is not None:
+                current.lines.append(line)
+            elif not sections and self.ROW.match(line):
+                rows.append(self.parse_row(n, line))
+        if not rows and not sections:
+            if NO_FINDINGS not in "\n".join(line for _, line in lines):
                 self.error(
                     "body",
-                    f"expected #### F<n> · severity · category · title, found {title!r}",
+                    f"Findings lists no finding; write '{NO_FINDINGS}' and what was checked",
+                )
+            return rows
+        ranks = [SEVERITIES.index(r.severity) for r in rows if r.severity in SEVERITIES]
+        if ranks != sorted(ranks):
+            self.warn("body", "list the findings by severity, most severe first")
+        minor_count = sum(1 for r in rows if r.severity == "minor")
+        if minor_count > MAX_MINOR_FINDINGS:
+            self.warn(
+                "body",
+                f"review lists {minor_count} minor findings; merge or drop low-value nitpicks so major issues stay in focus",
+            )
+        starts = sorted(s.n for s in sections.values())
+        next_start = {
+            start: starts[i + 1] - 1 if i + 1 < len(starts) else len(raw_lines)
+            for i, start in enumerate(starts)
+        }
+        seen: set[str] = set()
+        for row in rows:
+            if row.id in seen:
+                self.error("body", f"line {row.n}: {row.id} has a second table row")
+            seen.add(row.id)
+            section = sections.get(row.id)
+            if row.posted == "inline":
+                if section is not None:
+                    self.error(
+                        "body",
+                        f"line {section.n}: {row.id} is posted inline; do not repeat it as a section in the main comment",
+                    )
+                continue
+            if row.posted == "thread":
+                if section is not None:
+                    self.error(
+                        "body",
+                        f"line {section.n}: {row.id} is replied on an existing thread; do not repeat it as a section in the main comment",
+                    )
+                continue
+            if section is None:
+                self.error(
+                    "body",
+                    f"{row.id} is posted here but has no '#### {row.id} · ...' section",
                 )
                 continue
-            finding_id = match[1]
-            if finding_id in seen:
-                self.error("body", f"duplicate finding ID {finding_id}")
-            seen.add(finding_id)
-            end = headings[i + 1][0] if i + 1 < len(headings) else len(lines)
-            if not any(line.strip() for line in lines[start + 1 : end]):
-                self.error("body", f"{finding_id} needs a description")
+            if (section.severity, section.category) != (row.severity, row.category):
+                self.error(
+                    "body",
+                    f"line {section.n}: the {row.id} heading says {section.severity} {section.category}, "
+                    f"the table says {row.severity} {row.category}",
+                )
+            self.check_section(
+                row, section, raw_lines[section.n : next_start[section.n]]
+            )
+        for fid, section in sections.items():
+            if fid not in seen:
+                self.error(
+                    "body", f"line {section.n}: {fid} has a section but no table row"
+                )
+        return rows
+
+    def parse_row(self, n: int, line: str) -> Row:
+        cells = [c.strip() for c in line.strip().strip("|").split("|")]
+        if len(cells) != TABLE_COLUMNS:
+            self.error(
+                "body",
+                f"line {n}: a findings row needs {TABLE_COLUMNS} cells "
+                "(ID, Severity, Category, Location, Summary, Status, Posted), "
+                f"found {len(cells)}",
+            )
+            cells += [""] * TABLE_COLUMNS
+        fid, severity, category, location, _, status, posted = cells[:TABLE_COLUMNS]
+        for value, allowed, column in (
+            (severity, SEVERITIES, "Severity"),
+            (category, CATEGORIES, "Category"),
+            (status, STATUSES, "Status"),
+            (posted, POSTED, "Posted"),
+        ):
+            if value not in allowed:
+                self.error(
+                    "body",
+                    f"line {n}: {fid} {column} must be one of {allowed}, found {value!r}",
+                )
+        return Row(n, fid, severity, category, location, posted)
+
+    def check_section(self, row: Row, section: Section, raw_slice: list[str]) -> None:
+        text = "\n".join(line.strip() for line in section.lines)
+        where = f"body {row.id}"
+        if not any(
+            line.startswith(EVIDENCE_LEAD) and line[len(EVIDENCE_LEAD) :].strip()
+            for line in text.splitlines()
+        ):
+            self.error(where, f"the section needs an '{EVIDENCE_LEAD}' paragraph")
+        if FIX_LEAD not in text:
+            self.error(where, f"a finding posted here needs a '{FIX_LEAD}' paragraph")
+        if any(line.strip() == WALKTHROUGH_LEAD for line in section.lines) and not any(
+            Markdown.FENCE.match(line) for line in raw_slice
+        ):
+            self.warn(
+                where,
+                f"'{WALKTHROUGH_LEAD}' has no fenced code block; quote the relevant lines under path:line",
+            )
+
+    def check_inline_rows(self, rows: list[Row]) -> None:
+        """Pairs inline rows with comments[] and checks carried-forward thread rows."""
+        assert isinstance(self.payload, dict)
+        comments = [
+            (i, c)
+            for i, c in enumerate(self.payload.get("comments") or [])
+            if isinstance(c, dict)
+        ]
+        matched: set[int] = set()
+        for row in rows:
+            if row.posted not in ("inline", "thread"):
+                continue
+            m = self.LOCATION.search(row.location)
+            if not m:
+                self.error(
+                    f"body {row.id}",
+                    f"a{'n inline' if row.posted == 'inline' else ' thread'} finding's Location must be `path:line` or `path:start-end`",
+                )
+                continue
+            path, start, end = m[1], int(m[2]), int(m[3] or m[2])
+            if row.posted == "thread":
+                if self.pr is not None:
+                    threads = self.pr.thread_lines
+                    if any((path, side, end) in threads for side in ("RIGHT", "LEFT")):
+                        continue
+                    if any(p == path for p, _, _ in threads):
+                        self.warn(
+                            f"body {row.id}",
+                            f"marked 'thread' at {m[0]}, but no existing thread sits on line {end} of {path}",
+                        )
+                    else:
+                        self.error(
+                            f"body {row.id}",
+                            f"marked 'thread' at {m[0]}, but no existing inline thread sits on {path}; post it inline or here",
+                        )
+                continue
+            hits = [
+                i
+                for i, c in comments
+                if c.get("path") == path
+                and c.get("line") == end
+                and (c.get("start_line") or end) == start
+            ]
+            if not hits:
+                self.error(
+                    f"body {row.id}",
+                    f"posted inline at {m[0]}, but no inline comment sits there",
+                )
+            comment_by_idx = dict(comments)
+            for i in hits:
+                raw_body = comment_by_idx[i].get("body")
+                first = next(
+                    (
+                        line.strip()
+                        for line in (
+                            raw_body if isinstance(raw_body, str) else ""
+                        ).splitlines()
+                        if line.strip()
+                    ),
+                    "",
+                )
+                hm = self.INLINE_HEADING.match(first)
+                if hm and (hm[1], hm[2], hm[3]) != (
+                    row.id,
+                    row.severity,
+                    row.category,
+                ):
+                    self.error(
+                        f"comment {i + 1} ({path}:{end})",
+                        f"heading says {hm[1]} {hm[2]} {hm[3]}, "
+                        f"the table says {row.id} {row.severity} {row.category}",
+                    )
+            matched.update(hits)
+        for i, c in comments:
+            if i not in matched:
+                self.error(
+                    f"comment {i + 1} ({c.get('path')}:{c.get('line')})",
+                    "has no inline row in the findings table; every inline comment needs an inline row in the findings table",
+                )
+
+    def check_reproduction(self, lines: list[tuple[int, str]]) -> None:
+        text = [line.strip() for _, line in lines]
+        for label in REPRO_LABELS:
+            matches = [
+                t for t in text if t.startswith(label) and t[len(label) :].strip()
+            ]
+            if not matches:
+                self.error("body", f"Reproduction needs a '{label}' bullet")
+                continue
+            bullet = matches[0]
+            content = bullet[len(label) :].strip()
+            if label == "- Result:" and not content.startswith(REPRO_STATUSES):
+                self.warn(
+                    "body",
+                    f"start '- Result:' with one of {', '.join(REPRO_STATUSES)} so the outcome is clear at a glance",
+                )
+            if len(bullet) > MAX_REPRO_BULLET:
+                self.warn(
+                    "body",
+                    f"Reproduction '{label}' bullet is {len(bullet)} characters (limit {MAX_REPRO_BULLET}); "
+                    "keep only outcome, key metrics, and essential hardware/command",
+                )
 
     def check_comment(self, i: int, c: object, seen: set) -> None:
         if not isinstance(c, dict):
@@ -378,14 +736,28 @@ class ReviewLinter:
             )
             return
         if side not in ("RIGHT", "LEFT") or c.get("start_side", side) != side:
-            self.error(where, "side and start_side must match and be RIGHT or LEFT")
+            self.error(
+                where, f"side and start_side must both be RIGHT or LEFT, found {side!r}"
+            )
         if start is not None and (not isinstance(start, int) or start >= line):
             self.error(
                 where,
                 f"start_line must be an integer below line {line}, found {start!r}",
             )
+        first = next((line.strip() for line in body.splitlines() if line.strip()), "")
+        if not self.INLINE_HEADING.match(first):
+            self.error(
+                where,
+                "start the inline comment with '**F<n> · <severity> · <category>: <title>**' matching its table row",
+            )
         if FIX_LEAD not in body:
             self.error(where, f"every inline comment needs a '{FIX_LEAD}' paragraph")
+        if not any(
+            line.strip().startswith(EVIDENCE_LEAD)
+            and line.strip()[len(EVIDENCE_LEAD) :].strip()
+            for _, line in Markdown.unfenced(body)
+        ):
+            self.error(where, f"every inline comment needs an '{EVIDENCE_LEAD}' line")
         if "```suggestion" in body and side == "LEFT":
             self.error(
                 where, "a suggestion block only applies to RIGHT-side (new) lines"
@@ -394,7 +766,7 @@ class ReviewLinter:
         if Markdown.prose_length(body) > MAX_COMMENT_PROSE:
             self.warn(
                 where,
-                f"prose is over {MAX_COMMENT_PROSE} characters; put the walkthrough in the review body",
+                f"prose is over {MAX_COMMENT_PROSE} characters; keep the explanation to 1-3 sentences, a short fix, and a one-line Evidence",
             )
         key = (path, side, line)
         if key in seen:
@@ -409,10 +781,12 @@ class ReviewLinter:
     def check_location(
         self, where: str, path: str, side: str, start: int | None, line: int
     ) -> None:
+        assert self.pr is not None
         lines = self.pr.diff_lines.get((path, side))
         if lines is None:
             self.error(
-                where, "the PR does not change this file; move the finding to the body"
+                where,
+                "the PR does not change this file; post the finding in the main comment",
             )
             return
         for n in (start, line):
@@ -431,11 +805,11 @@ class ReviewLinter:
             )
 
 
-def report(findings: list[Finding], payload: dict, checked_lines: bool) -> int:
+def report(findings: list[Finding], payload: object, checked_lines: bool) -> int:
     errors = [f for f in findings if f.level == "ERROR"]
     warns = [f for f in findings if f.level == "WARN"]
-    if not errors:
-        n = len(payload.get("comments", []))
+    if not errors and isinstance(payload, dict):
+        n = len(payload.get("comments") or [])
         print(
             f"review: {payload.get('event', 'COMMENT')}, body + {n} inline comment(s)"
         )
@@ -451,13 +825,16 @@ def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     p.add_argument("--repo", default="RLinf/RPent", help="owner/name of the PR's repo")
     sub = p.add_subparsers(dest="cmd", required=True)
-    sub.add_parser("template", help="print the review body template")
+    sub.add_parser("template", help="print the main-comment skeleton")
     for name, help_text in (
         ("lint", "check a review payload"),
         ("post", "lint, then post"),
+        ("update", "lint, then replace the body of a posted review"),
     ):
         cmd = sub.add_parser(name, help=help_text)
-        cmd.add_argument("--pr", type=int, required=name == "post", help="PR number")
+        cmd.add_argument("--pr", type=int, required=name != "lint", help="PR number")
+        if name == "update":
+            cmd.add_argument("--review", type=int, required=True, help="review id")
         cmd.add_argument("payload", help="review payload JSON file")
     args = p.parse_args(argv)
 
@@ -468,9 +845,24 @@ def main(argv: list[str] | None = None) -> int:
     with open(args.payload, encoding="utf-8") as fh:
         payload = json.load(fh)
     pr = PullRequest(args.repo, args.pr) if args.pr else None
+    if args.cmd == "update":
+        assert pr is not None
+        if not isinstance(payload, dict) or not isinstance(payload.get("body"), str):
+            return report([Finding("ERROR", "body", "must be a string")], payload, True)
+        # Only the body changes; its findings table must match the inline
+        # comments the review already holds, which sit on checked lines.
+        update_payload = {
+            "body": payload["body"],
+            "comments": pr.review_comments(args.review),
+        }
+        status = report(ReviewLinter(update_payload, None).run(), update_payload, True)
+        if not status:
+            print(f"updated: {pr.update(args.review, update_payload['body'])}")
+        return status
     status = report(ReviewLinter(payload, pr).run(), payload, pr is not None)
     if args.cmd == "lint" or status:
         return status
+    assert pr is not None and isinstance(payload, dict)
     payload["commit_id"] = pr.head_sha
     payload.setdefault("event", "COMMENT")
     print(f"posted: {pr.post(payload)}")

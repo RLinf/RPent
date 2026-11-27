@@ -24,7 +24,6 @@ from typing import Any
 from unittest.mock import AsyncMock, Mock
 
 import pytest
-from openai_codex import JsonRpcError, TransportClosedError
 
 import rpent.planner.codex as codex_module
 import rpent.planner.utils.agent_session as interactive_module
@@ -37,7 +36,7 @@ from rpent.planner.codex import (
 )
 from rpent.planner.utils.http_mcp_server import HttpMcpServer
 from rpent.session import EnvState, MissingInfo, Payload, codex_capture
-from rpent.tools import ToolResult
+from rpent.tools import Toolkit, ToolResult
 from rpent.tools.common import CommonTools
 
 
@@ -53,37 +52,29 @@ class RecordingSink:
         self.events.append(event)
 
 
-class FakeToolkit:
+class FakeToolkit(Toolkit):
     def __init__(self, state: EnvState | None = None) -> None:
-        self._state = state
+        super().__init__(dashboard_events=RecordingSink(), memory=Mock(), state=state)
         self.cancel_calls = 0
 
-    @property
-    def state(self) -> EnvState:
-        if self._state is None:
-            raise RuntimeError("toolkit has no environment state")
-        return self._state
-
-    def list_tools(self):
-        return (
-            CommonTools.finish.with_handler(lambda **kwargs: ToolResult(data=kwargs)),
+    def _register_common_tools(self):
+        self.add_tool(
+            CommonTools.finish.with_handler(
+                lambda **kwargs: ToolResult(data={"_finish": True, **kwargs})
+            )
         )
-
-    def execute_tool(self, name: str, args: dict[str, Any]) -> ToolResult:
-        return ToolResult(data={"name": name, "args": args})
 
     def cancel_active_and_wait(self) -> None:
         self.cancel_calls += 1
-
-    def resume_calls(self) -> None:
-        pass
+        super().cancel_active_and_wait()
 
 
 class FakeMcpServer:
     instances: list[FakeMcpServer] = []
 
-    def __init__(self, toolkit: FakeToolkit) -> None:
+    def __init__(self, toolkit: FakeToolkit, *, on_tool_result=None) -> None:
         self.toolkit = toolkit
+        self.on_tool_result = on_tool_result
         self.started = False
         self.stopped = False
         self.instances.append(self)
@@ -684,7 +675,7 @@ def test_successful_fake_codex_lifecycle_uses_fake_mcp_and_accounts_events(
     }
     assert result.error is None
     assert result.stats["backend"] == "codex_sdk"
-    assert result.stats["turns_used"] == 1
+    assert result.stats["turns_used"] == 0  # Recorded SDK events did not execute tools.
     assert result.stats["tool_calls"] == 1
     assert result.stats["total_input_tokens"] == 11
     assert result.stats["total_output_tokens"] == 6
@@ -733,229 +724,61 @@ def _model_response_events(index: int, *, text: bool = False, finish: bool = Fal
     yield usage  # A repeated SDK notification is not another model response.
 
 
-def test_cli_interrupts_once_at_tool_only_response_budget(tmp_path, monkeypatch):
+@pytest.mark.parametrize("finish_on_last", [False, True])
+@pytest.mark.parametrize("completed_status", ["completed", "failed"])
+def test_tool_budget_drains_and_preserves_verdict(
+    tmp_path, monkeypatch, finish_on_last, completed_status
+):
+    from rpent.planner.base import execute_tool
+    from rpent.tools import tool
+
     install_fake_backend(monkeypatch)
+    toolkit = FakeToolkit()
+    executed = []
+
+    @tool(readonly=True)
+    def inspect_scene() -> ToolResult:
+        executed.append("inspect")
+        return ToolResult(data={"observed": True})
+
+    toolkit.add_tool(inspect_scene)
 
     async def stream(self):
-        for index in range(1, 6):
-            if self.interrupt_calls:
-                break
-            for event in _model_response_events(index):
-                yield event
-        yield {
-            "method": "turn/completed",
-            "payload": {"turn": {"status": "interrupted"}},
-        }
+        # Model responses alone must not exhaust the tool budget.
+        for index in range(1, 4):
+            for event in _model_response_events(index, text=True):
+                if event["method"] == "thread/tokenUsage/updated":
+                    yield event
+        server = FakeMcpServer.instances[0]
+        for name in ("inspect_scene", "finish" if finish_on_last else "inspect_scene"):
+            args = {"status": "success", "summary": "done"} if name == "finish" else {}
+            result = await execute_tool(toolkit, name, args)
+            server.on_tool_result(name, args, result)
+        while not self.interrupt_calls:
+            await asyncio.sleep(0)
+        turn = {"status": completed_status}
+        if completed_status == "failed":
+            turn["error"] = {"message": "provider failed"}
+        yield {"method": "turn/completed", "payload": {"turn": turn}}
 
     monkeypatch.setattr(FakeTurn, "stream", stream)
     result = make_planner(tmp_path, RecordingSink()).solve(
-        system_prompt="system",
-        user_message="task",
-        toolkit=FakeToolkit(),
-        max_turns=2,
+        system_prompt="", user_message="task", toolkit=toolkit, max_turns=2
     )
     assert result.stats["turns_used"] == 2
-    assert result.stats["tool_calls"] == 4
-    assert result.stats["total_input_tokens"] == 20
+    assert executed == ["inspect"] * (1 if finish_on_last else 2)
+    assert (result.finish_result is not None) == finish_on_last
+    assert result.error == ("provider failed" if completed_status == "failed" else None)
+    assert result.stop_reason == ("finish" if finish_on_last else "tool_limit")
     assert FakeCodex.instances[0].thread.fake_turn.interrupt_calls == 1
     assert FakeCodex.instances[0].closed
     assert FakeMcpServer.instances[0].stopped
-    assert result.error is None
-
-
-def test_cli_keeps_finish_at_the_response_budget(tmp_path, monkeypatch):
-    install_fake_backend(monkeypatch)
-    FakeCodex.events = [
-        *_model_response_events(1, finish=True),
-        {"method": "turn/completed", "payload": {"turn": {"status": "completed"}}},
-    ]
-    result = make_planner(tmp_path, RecordingSink()).solve(
-        system_prompt="system",
-        user_message="task",
-        toolkit=FakeToolkit(),
-        max_turns=1,
-    )
-    assert result.stats["turns_used"] == 1
-    assert result.finish_result["status"] == "stuck"
-    assert FakeCodex.instances[0].thread.fake_turn.interrupt_calls == 0
-    assert FakeCodex.instances[0].closed
-    assert FakeMcpServer.instances[0].stopped
-    assert result.error is None
-
-
-@pytest.mark.parametrize(
-    ("interrupt_error", "completed_status", "expected_error"),
-    [
-        pytest.param(
-            JsonRpcError(-32600, "no active turn to interrupt"),
-            "completed",
-            None,
-            id="already-completed",
-        ),
-        pytest.param(
-            JsonRpcError(-32600, "no active turn to interrupt"),
-            "failed",
-            "provider failed",
-            id="failed-terminal-status",
-        ),
-        pytest.param(
-            JsonRpcError(-32600, "thread not found"),
-            None,
-            "JsonRpcError: JSON-RPC error -32600: thread not found",
-            id="other-rpc-error",
-        ),
-        pytest.param(
-            RuntimeError("no active turn to interrupt"),
-            None,
-            "RuntimeError: no active turn to interrupt",
-            id="non-sdk-error",
-        ),
-    ],
-)
-def test_cli_budget_interrupt_preserves_terminal_status(
-    tmp_path, monkeypatch, interrupt_error, completed_status, expected_error
-):
-    install_fake_backend(monkeypatch)
-    terminal = {
-        "method": "turn/completed",
-        "payload": {"turn": {"status": completed_status or "completed"}},
-    }
-    if completed_status == "failed":
-        terminal["payload"]["turn"]["error"] = {"message": "provider failed"}
-    FakeCodex.events = [*_model_response_events(1, text=True), terminal]
-
-    async def interrupt(self):
-        self.interrupt_calls += 1
-        raise interrupt_error
-
-    monkeypatch.setattr(FakeTurn, "interrupt", interrupt)
-    result = make_planner(tmp_path, RecordingSink()).solve(
-        system_prompt="system",
-        user_message="task",
-        toolkit=FakeToolkit(),
-        max_turns=1,
-    )
-    assert result.error == expected_error
-    assert result.stats["turns_used"] == 1
-    assert FakeCodex.instances[0].thread.fake_turn.interrupt_calls == 1
-    assert FakeCodex.instances[0].closed
-    assert FakeMcpServer.instances[0].stopped
-    events = [
-        json.loads(line)
-        for line in (tmp_path / "codex.out.stream.jsonl").read_text().splitlines()
-    ]
-    assert (terminal in events) is (completed_status is not None)
-    if completed_status is not None:
-        assert (tmp_path / "codex.out.last").read_text() == "still working"
-
-
-@pytest.mark.parametrize(
-    ("interrupt_error", "completed_status", "expected_error"),
-    [
-        pytest.param(None, "interrupted", None, id="active-turn"),
-        pytest.param(
-            JsonRpcError(-32600, "no active turn to interrupt"),
-            "completed",
-            None,
-            id="already-completed",
-        ),
-        pytest.param(
-            JsonRpcError(-32600, "no active turn to interrupt"),
-            "failed",
-            "provider failed",
-            id="failed-terminal-status",
-        ),
-        pytest.param(
-            TransportClosedError("transport closed"),
-            None,
-            "TransportClosedError: transport closed",
-            id="transport-error",
-        ),
-    ],
-)
-def test_dashboard_interrupts_at_response_budget_and_closes(
-    interrupt_error, completed_status, expected_error
-):
-    from rpent.planner.codex import _CodexSession, _Recorder
-
-    async def run():
-        class Turn:
-            interrupt_calls = 0
-
-            async def stream(self):
-                for index in range(1, 6):
-                    if self.interrupt_calls:
-                        break
-                    for event in _model_response_events(index, text=True):
-                        yield event
-                terminal = {
-                    "method": "turn/completed",
-                    "payload": {"turn": {"status": completed_status or "completed"}},
-                }
-                if completed_status == "failed":
-                    terminal["payload"]["turn"]["error"] = {
-                        "message": "provider failed"
-                    }
-                yield terminal
-
-            async def interrupt(self):
-                self.interrupt_calls += 1
-                if interrupt_error is not None:
-                    raise interrupt_error
-
-        class Control:
-            ended = False
-            closed = False
-
-            async def complete(self, session):
-                raise AssertionError("a budget-limited session must end")
-
-            def end(self):
-                self.ended = True
-
-            async def close(self):
-                self.closed = True
-
-        recorder = _Recorder(max_turns=1, dashboard_events=RecordingSink())
-        control = Control()
-        events = []
-
-        def emit_event(event):
-            events.append(event)
-            recorder.observe(event)
-
-        session = _CodexSession(
-            config=None,
-            thread_options={},
-            turn_options={},
-            recorder=recorder,
-            emit_event=emit_event,
-            control=control,
-        )
-        turn = Turn()
-        done = asyncio.Event()
-        session._codex = control
-        session._turn = turn
-        session._turn_done = done
-        await session._consume_turn(turn, done)
-        await session.close()
-        assert done.is_set() and control.ended and control.closed
-        assert session.error == expected_error
-        assert turn.interrupt_calls == 1
-        assert recorder.turns == 1
-        assert recorder.finish_result is None
-        assert recorder.final_response == "still working"
-        assert any(event["method"] == "turn/completed" for event in events) is (
-            completed_status is not None
-        )
-
-    asyncio.run(run())
 
 
 def test_response_count_ignores_items_and_duplicate_usage():
     from rpent.planner.codex import _Recorder
 
-    recorder = _Recorder(max_turns=10, dashboard_events=RecordingSink())
+    recorder = _Recorder(dashboard_events=RecordingSink())
     usage_events = []
     for index, text in [(1, False), (2, True)]:
         events = list(_model_response_events(index, text=text))
@@ -985,7 +808,7 @@ def test_response_count_ignores_items_and_duplicate_usage():
 def test_stats_distinguish_unobserved_usage_from_zero_tokens():
     from rpent.planner.codex import _Recorder
 
-    recorder = _Recorder(max_turns=10, dashboard_events=RecordingSink())
+    recorder = _Recorder(dashboard_events=RecordingSink())
 
     assert recorder.stats()["usage_observed"] is False
     assert recorder.stats()["total_input_tokens"] == 0
@@ -1000,7 +823,7 @@ def test_stats_distinguish_unobserved_usage_from_zero_tokens():
 def test_rejected_finish_item_is_not_promoted() -> None:
     from rpent.planner.codex import _Recorder
 
-    recorder = _Recorder(max_turns=2, dashboard_events=RecordingSink())
+    recorder = _Recorder(dashboard_events=RecordingSink())
 
     rendered = recorder.observe(
         {
@@ -1036,7 +859,7 @@ def test_rejected_finish_item_is_not_promoted() -> None:
 def test_finish_uses_accepted_tool_result_over_requested_success(
     wrapped, payload, is_error, accepted
 ):
-    recorder = codex_module._Recorder(max_turns=2, dashboard_events=RecordingSink())
+    recorder = codex_module._Recorder(dashboard_events=RecordingSink())
     result = (
         {
             "isError": is_error,
@@ -1464,7 +1287,7 @@ def test_retry_error_is_visible_without_poisoning_successful_turn():
     from rpent.planner.codex import _Recorder
 
     sink = RecordingSink()
-    recorder = _Recorder(max_turns=2, dashboard_events=sink)
+    recorder = _Recorder(dashboard_events=sink)
     recorder.observe(
         {
             "method": "error",

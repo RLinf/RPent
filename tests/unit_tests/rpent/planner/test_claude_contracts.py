@@ -91,15 +91,20 @@ class RecordingSink:
         self.events.append(event)
 
 
-class FakeToolkit:
+class FakeToolkit(Toolkit):
     def __init__(self, result: dict[str, Any] | None = None, *, images=None) -> None:
         self.result = result or {"value": "ok"}
         self.images = images or []
         self.calls: list[tuple[str, dict[str, Any]]] = []
         self.cancel_calls = 0
-        self._tools = (
-            self.inspect_scene,
-            CommonTools.finish.with_handler(lambda **kwargs: ToolResult(data=kwargs)),
+        super().__init__(dashboard_events=RecordingSink(), memory=Mock())
+
+    def _register_common_tools(self):
+        self.add_tool(self.inspect_scene)
+        self.add_tool(
+            CommonTools.finish.with_handler(
+                lambda **kwargs: ToolResult(data=dict(self.result), images=self.images)
+            )
         )
 
     @tool(readonly=True)
@@ -107,22 +112,13 @@ class FakeToolkit:
         """Inspect the current scene."""
         return ToolResult(data=dict(self.result), images=list(self.images))
 
-    def list_tools(self):
-        return self._tools
-
-    @property
-    def state(self) -> EnvState:
-        raise RuntimeError("toolkit has no environment state")
-
     def execute_tool(self, name: str, args: dict[str, Any]) -> ToolResult:
         self.calls.append((name, args))
-        return ToolResult(data=dict(self.result), images=list(self.images))
+        return super().execute_tool(name, args)
 
     def cancel_active_and_wait(self) -> None:
         self.cancel_calls += 1
-
-    def resume_calls(self) -> None:
-        pass
+        super().cancel_active_and_wait()
 
 
 class FakeSdkTools:
@@ -188,12 +184,12 @@ def test_options_translate_builtin_and_rpent_tools_without_mutating_specs(
     original_specs = toolkit.list_tools()
     fake_sdk = FakeSdkTools()
 
-    options = planner._build_options(fake_sdk, toolkit=toolkit, max_turns=4)
+    options = planner._build_options(fake_sdk, toolkit=toolkit)
 
     assert options is fake_sdk.options
     assert options["cwd"] == str(tmp_path)
     assert options["model"] == "fake-claude"
-    assert options["max_turns"] == 4
+    assert "max_turns" not in options
     assert options["max_budget_usd"] == 2.5
     assert options["tools"] == ["Read", "Grep"]
     assert options["allowed_tools"] == [
@@ -214,13 +210,12 @@ def test_options_construct_with_the_installed_claude_sdk(tmp_path: Path) -> None
     options = planner._build_options(
         claude_agent_sdk,
         toolkit=FakeToolkit(),
-        max_turns=4,
     )
 
     assert isinstance(options, claude_agent_sdk.ClaudeAgentOptions)
     assert options.cwd == str(tmp_path)
     assert options.model == "fake-claude"
-    assert options.max_turns == 4
+    assert options.max_turns is None
     assert options.allowed_tools[-2:] == [
         "mcp__rpent__inspect_scene",
         "mcp__rpent__finish",
@@ -316,7 +311,7 @@ def test_successful_fake_sdk_stream_accounts_for_finish_and_hides_image_payload(
 
 
 def test_rejected_finish_result_is_not_promoted(tmp_path: Path) -> None:
-    recorder = _Recorder(max_turns=2, dashboard_events=RecordingSink())
+    recorder = _Recorder(dashboard_events=RecordingSink())
     recorder.observe(
         {
             "type": "AssistantMessage",
@@ -483,7 +478,7 @@ def test_stateful_sdk_driver_drains_tools_before_closing_tasks_and_client():
     driver = _ClaudeSessionDriver(
         sdk=Sdk(),
         options={},
-        recorder=_Recorder(max_turns=1, dashboard_events=RecordingSink()),
+        recorder=_Recorder(dashboard_events=RecordingSink()),
         emit=lambda message: None,
         toolkit=Toolkit(),
         control=Control(),
@@ -576,7 +571,7 @@ def test_claude_bridge_readonly_calls_execute_concurrently(
 
     patch_client_stream(monkeypatch, query)
     result = make_planner(tmp_path, RecordingSink(), timeout_s=10).solve(
-        system_prompt="", user_message="Sense.", toolkit=runtime_toolkit, max_turns=1
+        system_prompt="", user_message="Sense.", toolkit=runtime_toolkit, max_turns=3
     )
     assert result.error is None
     assert list(replies) == ["second", "first"]
@@ -818,7 +813,7 @@ def test_claude_interrupt_waits_for_old_results_before_next_query():
         driver = _ClaudeSessionDriver(
             sdk=Sdk(),
             options={},
-            recorder=_Recorder(max_turns=3, dashboard_events=RecordingSink()),
+            recorder=_Recorder(dashboard_events=RecordingSink()),
             emit=lambda message: None,
             toolkit=FakeToolkit(),
             control=Control(),

@@ -25,6 +25,10 @@ from typing import Any
 
 import pytest
 
+from rpent.planner.check import EXTERNALLY_CONFIGURED_PLANNERS
+from rpent.robots import RunConfig
+from rpent.utils.mcp_servers import McpServerSpec
+
 REPO_ROOT = Path(__file__).resolve().parents[4]
 ROBOT_HELP_CASES = [
     ("libero", ("--suite", "--task", "--libero-type")),
@@ -209,19 +213,26 @@ def test_shared_cli_defaults_reach_robot_config_parser(
     ("channel", "attribute"),
     [("--tui", "tui"), ("--interactive", "tui"), ("--dashboard", "dashboard")],
 )
-def test_gemini_interactive_modes_reach_robot_configuration(
-    monkeypatch, channel, attribute
+@pytest.mark.parametrize("planner", ["gemini_cli", "opencode"])
+def test_acp_harness_interactive_modes_reach_robot_configuration(
+    monkeypatch, channel, attribute, planner
 ):
     _, args = _capture_validated_args(
-        monkeypatch, ["--robot", "libero", "--planner", "gemini_cli", channel]
+        monkeypatch, ["--robot", "libero", "--planner", planner, channel]
     )
-    assert args.planner == "gemini_cli"
+    assert args.planner == planner
     assert getattr(args, attribute) is True
 
 
 @pytest.mark.parametrize(
     ("planner", "default_effort"),
-    [("api", "high"), ("codex", "none"), ("claude_code", "none")],
+    [
+        ("api", "high"),
+        ("codex", "none"),
+        ("claude_code", "none"),
+        ("gemini_cli", "none"),
+        ("opencode", "none"),
+    ],
 )
 @pytest.mark.parametrize("explicit_effort", [None, "none", "low", "xhigh"])
 def test_cli_reasoning_effort_defaults_and_explicit_overrides(
@@ -309,17 +320,6 @@ def test_robot_and_env_aliases_are_mutually_exclusive(
             [
                 "--robot",
                 "libero",
-                "--planner",
-                "gemini_cli",
-                "--reasoning-effort",
-                "high",
-            ],
-            "--reasoning-effort is not supported by the gemini_cli planner",
-        ),
-        (
-            [
-                "--robot",
-                "libero",
                 "--memory-profile",
                 "hf",
                 "--memory-dir",
@@ -375,7 +375,7 @@ def test_shared_cli_validation_stops_before_robot_runtime(
 
 @pytest.mark.parametrize(
     "planner",
-    ["claude_code", "codex", "gemini_cli"],
+    EXTERNALLY_CONFIGURED_PLANNERS,
 )
 def test_run_cli_rejects_base_url_for_the_backends_that_ignore_it(
     monkeypatch: pytest.MonkeyPatch,
@@ -579,14 +579,16 @@ def test_full_cli_exploration_finalizes_memory_without_starting_gpu_runtime(
     record_trajectory: bool,
 ) -> None:
     cli = _cli_module()
+    from rpent.dashboard.events import NullDashboardEventSink
     from rpent.planner.base import PlannerResult
     from rpent.robots import PromptBundle, RobotSpec, RunConfig
     from rpent.session import EnvState
-    from rpent.tools import common
+    from rpent.tools import Toolkit, common
     from rpent.tools.toolkit import ToolResult
 
     calls: dict[str, Any] = {}
     stores = []
+    toolkits = []
     model_requests = 0
 
     class FakeMemoryManager:
@@ -600,14 +602,19 @@ def test_full_cli_exploration_finalizes_memory_without_starting_gpu_runtime(
         def stop(self) -> None:
             self.stopped = True
 
-    class FakeToolkit:
+    class FakeToolkit(Toolkit):
         def __init__(self) -> None:
             self.calls: list[tuple[str, dict[str, Any]]] = []
             self.closed = False
-            self.memory = FakeMemoryManager()
+            super().__init__(
+                dashboard_events=NullDashboardEventSink(), memory=FakeMemoryManager()
+            )
 
-        def execute_tool(self, name: str, args: dict[str, Any]) -> ToolResult:
-            self.calls.append((name, args))
+        def _register_common_tools(self):
+            self.add_tool(common.CommonTools.finish.with_handler(self.finish))
+
+        def finish(self, **args: Any) -> ToolResult:
+            self.calls.append(("finish", args))
             if outcome == "request_budget":
                 return ToolResult(data={"error": "finish refused"})
             return ToolResult(
@@ -620,19 +627,7 @@ def test_full_cli_exploration_finalizes_memory_without_starting_gpu_runtime(
 
         def close(self) -> None:
             self.closed = True
-
-        def list_tools(self):
-            return (
-                common.CommonTools.finish.with_handler(
-                    lambda **args: ToolResult(data=args)
-                ),
-            )
-
-        def resume_calls(self):
-            pass
-
-        def cancel_active_and_wait(self) -> None:
-            pass
+            super().close()
 
         def solved(self) -> bool:
             return outcome != "request_budget" and any(
@@ -744,8 +739,11 @@ def test_full_cli_exploration_finalizes_memory_without_starting_gpu_runtime(
         return planner
 
     def get_toolkit(*args: Any, **kwargs: Any) -> FakeToolkit:
+        nonlocal toolkit
         calls["get_toolkit"] = (args, kwargs)
-        toolkit.state = EnvState(kwargs["state_output_dir"])
+        toolkit = FakeToolkit()
+        toolkits.append(toolkit)
+        toolkit._state = EnvState(kwargs["state_output_dir"])
         stores.append(toolkit.state)
         return toolkit
 
@@ -810,9 +808,7 @@ def test_full_cli_exploration_finalizes_memory_without_starting_gpu_runtime(
             else ["completed"] * len(stores)
         )
         if outcome == "request_budget":
-            assert all(
-                store.get_task().stop_reason == "request_limit" for store in stores
-            )
+            assert all(store.get_task().stop_reason == "tool_limit" for store in stores)
     else:
         assert all(store.get_task() is None for store in stores)
         assert all(store.planner_records() == [] for store in stores)
@@ -825,7 +821,8 @@ def test_full_cli_exploration_finalizes_memory_without_starting_gpu_runtime(
     transcript = json.loads((tmp_path / "transcript_libero_s0.json").read_text())
     if outcome == "request_budget":
         assert calls["planner_count"] == 2
-        assert len(toolkit.calls) == 8
+        assert [len(instance.calls) for instance in toolkits] == [4, 4]
+        assert all(instance.closed for instance in toolkits)
         assert "write_recipe" not in calls
         assert calls["merge_memory"] == {
             "cell_tag": "libero_s0",
@@ -1162,3 +1159,201 @@ def test_invalid_memory_source_fails_before_startup(
         cli.main()
     assert exc.value.code == 2
     assert message in capsys.readouterr().err
+
+
+def test_shared_mcp_servers_merge_into_run_config(tmp_path: Path) -> None:
+    cli = _cli_module()
+
+    run_config = RunConfig(
+        recipe_tag="run",
+        output_dir=tmp_path,
+        prompt_vars={},
+        task_desc={},
+    )
+    shared = (McpServerSpec(name="lights", url="https://lights.example/mcp"),)
+
+    merged = cli._with_shared_mcp_servers(run_config, shared)
+
+    assert merged.mcp_servers == shared
+    assert run_config.mcp_servers == ()
+
+
+def test_shared_mcp_servers_reject_collision_with_robot_config(tmp_path: Path) -> None:
+    cli = _cli_module()
+
+    run_config = RunConfig(
+        recipe_tag="run",
+        output_dir=tmp_path,
+        prompt_vars={},
+        task_desc={},
+        mcp_servers=(McpServerSpec(name="web", url="https://robot.example/mcp"),),
+    )
+    shared = (McpServerSpec(name="web", url="https://shared.example/mcp"),)
+
+    with pytest.raises(ValueError, match="duplicate MCP server name 'web'"):
+        cli._with_shared_mcp_servers(run_config, shared)
+
+
+def test_cli_loads_mcp_config_and_merges_with_robot_servers(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    cli = _cli_module()
+    shared = tmp_path / "mcp.yaml"
+    shared.write_text(
+        "mcp_servers:\n"
+        "  power:\n"
+        "    url: http://127.0.0.1:8765/mcp\n"
+        "    tools: [read_power_meter]\n"
+    )
+    captured_configs: list[RunConfig] = []
+
+    def add_cli_args(parser, use_dashboard: bool) -> None:
+        del use_dashboard
+        parser.add_argument("--suite", default="s")
+
+    def parse_config(args) -> RunConfig:
+        del args
+        return RunConfig(
+            recipe_tag="run",
+            output_dir=tmp_path / "out",
+            prompt_vars={},
+            task_desc={},
+            mcp_servers=(McpServerSpec(name="dock", url="http://127.0.0.1:8766/mcp"),),
+        )
+
+    def fake_get_toolkit(name: str, **kwargs: Any) -> Any:
+        del name
+        captured_configs.append(kwargs["config"])
+        raise RuntimeError("stop after toolkit capture")
+
+    monkeypatch.setattr(cli, "enumerate_robots", lambda: ("libero",))
+    monkeypatch.setattr(cli, "get_toolkit", fake_get_toolkit)
+    monkeypatch.setattr(
+        cli,
+        "get_robot_spec",
+        lambda name: SimpleNamespace(
+            name=name,
+            add_cli_args=add_cli_args,
+            parse_config=parse_config,
+            init_runtime=lambda *args: ([], {}),
+            prepare_memory=None,
+            prepare_prompt_vars=None,
+            prompts=SimpleNamespace(render=lambda *args, **kwargs: "prompt"),
+            validate_args=None,
+            resolve_dashboard=None,
+            finalize_run=None,
+            supports_exploration=False,
+            supports_human_interactive_exploration=False,
+            is_real_robot=False,
+        ),
+    )
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "rpent",
+            "--robot",
+            "libero",
+            "--planner",
+            "gemini_cli",
+            "--memory-profile",
+            "local",
+            "--mcp-config",
+            str(shared),
+        ],
+    )
+
+    assert cli.main() == 1
+    assert len(captured_configs) == 1
+    assert [spec.name for spec in captured_configs[0].mcp_servers] == ["dock", "power"]
+    assert captured_configs[0].mcp_servers[1].tools == ("read_power_meter",)
+
+
+def test_cli_rejects_mcp_config_with_flash_planner(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    tmp_path: Path,
+) -> None:
+    cli = _cli_module()
+    started = False
+
+    def init_runtime(*args: Any) -> tuple[list[Any], dict[str, Any]]:
+        nonlocal started
+        started = True
+        return [], {}
+
+    monkeypatch.setattr(cli, "enumerate_robots", lambda: ("libero",))
+    monkeypatch.setattr(
+        cli,
+        "get_robot_spec",
+        lambda name: SimpleNamespace(
+            name=name,
+            add_cli_args=lambda parser, use_dashboard: None,
+            parse_config=lambda args: RunConfig(
+                recipe_tag="run",
+                output_dir=tmp_path / "out",
+                prompt_vars={},
+                task_desc={},
+            ),
+            init_runtime=init_runtime,
+            run_flash=object(),
+            validate_args=None,
+            resolve_dashboard=None,
+            supports_exploration=False,
+            supports_human_interactive_exploration=False,
+            is_real_robot=False,
+        ),
+    )
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "rpent",
+            "--robot",
+            "libero",
+            "--planner",
+            "flash",
+            "--mcp-config",
+            str(tmp_path / "mcp.yaml"),
+        ],
+    )
+
+    with pytest.raises(SystemExit) as exc:
+        cli.main()
+
+    assert exc.value.code == 2
+    assert (
+        "--mcp-config is not supported with --planner flash" in capsys.readouterr().err
+    )
+    assert started is False
+
+
+def test_cli_rejects_a_missing_mcp_config(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    tmp_path: Path,
+) -> None:
+    cli = _cli_module()
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "rpent",
+            "--robot",
+            "libero",
+            "--suite",
+            "libero_object",
+            "--task",
+            "0",
+            "--seed",
+            "0",
+            "--mcp-config",
+            str(tmp_path / "missing.yaml"),
+        ],
+    )
+
+    with pytest.raises(SystemExit):
+        cli.main()
+
+    assert "MCP config not found" in capsys.readouterr().err

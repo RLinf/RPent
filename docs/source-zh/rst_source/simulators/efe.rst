@@ -227,7 +227,7 @@ Linux 宿主机前置要求：
      - Codex 推理强度：``none``、``low``、``medium``、``high`` 或 ``xhigh``。
    * - ``max_turns=N``
      - ``200``
-     - 规划器的模型回复轮数上限（非 Shell 命令次数）。
+     - 本次 Trial 的 RPent 工具调用上限。
    * - ``memory_source=/path``
      - 未设置
      - 上传已有 RPent 记忆目录供本次 Trial 使用（未设置时从空 ``memory/`` 开始）。

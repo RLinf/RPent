@@ -50,7 +50,8 @@ RPent is built for four kinds of users:
 - [2026/11] 🔥 Fixed an issue that caused the API planner to underperform. With DeepSeek V4.1 Flash, the API planner achieved a success rate of **65.6% (164/250)** on RoboTwin C2R. See the [Leaderboard](https://rpent.readthedocs.io/en/latest/rst_source/leaderboard/index.html).
 - [2026/11] 🔥 RPent supports Embodied First Exam (EFE) tasks through Harbor, with Skills or the task's native actions. See the [EFE guide](https://rpent.readthedocs.io/en/latest/rst_source/simulators/efe.html).
 - [2026/11] 🔥 Added MetaWorld with RGB-D observations and Cartesian motion tools, without a VLA checkpoint. See the [MetaWorld guide](https://rpent.readthedocs.io/en/latest/rst_source/simulators/metaworld.html).
-- [2026/11] 🔥 Added a [generic RGB-D toolkit](https://rpent.readthedocs.io/en/latest/rst_source/development/generic_toolkit.html) for reading 3D coordinates, segmenting objects, and measuring object parts from recorded camera views.
+- [2026/11] 🔥 Added an [embodied RGB-D toolkit](https://rpent.readthedocs.io/en/latest/rst_source/toolkits/rgbd.html) for reading 3D coordinates, segmenting objects, and measuring object parts from recorded camera views.
+- [2026/11] 🔥 RPent supports external MCP tools through `--mcp-config`, exposing third-party Streamable HTTP servers across all online planners. See the [external MCP guide](https://rpent.readthedocs.io/en/latest/rst_source/toolkits/mcp.html).
 - [2026/11] 🔥 Added the data flywheel. Supervised fine-tuning of the VLA on successful trajectories collected with the flywheel raised RPent's task success rate on RoboTwin from 48% to 72%, a gain of **24 percentage points**. See the [user guide](https://rpent.readthedocs.io/en/latest/rst_source/guides/flywheel.html).
 - [2026/10] 🔥 Added an optional APXInf VLA endpoint. See the [deployment guide](https://rpent.readthedocs.io/en/latest/rst_source/guides/advanced_deployment.html#apxinf-vla-service-optional).
 - [2026/09] 🔥 Added the interactive RPent Leaderboard for LIBERO, LIBERO-PRO, RoboCasa365, and RoboTwin, with model comparisons and suite-level results. Explore the [Leaderboard](https://rpent.readthedocs.io/en/latest/rst_source/leaderboard/index.html).
@@ -76,8 +77,10 @@ RPent is built for four kinds of users:
     <tr>
       <td>
         <ul style="margin-left: 0; padding-left: 16px;">
-          <li><a href="https://rpent.readthedocs.io/en/latest/rst_source/guides/configure_planner.html#the-claude-code-planner">Claude Code</a> ✅</li>
-          <li><a href="https://rpent.readthedocs.io/en/latest/rst_source/guides/configure_planner.html#the-codex-planner">Codex</a> ✅</li>
+          <li><a href="https://rpent.readthedocs.io/en/latest/rst_source/guides/configure_planner.html#planner-claude-code">Claude Code</a> ✅</li>
+          <li><a href="https://rpent.readthedocs.io/en/latest/rst_source/guides/configure_planner.html#planner-codex">Codex</a> ✅</li>
+          <li><a href="https://rpent.readthedocs.io/en/latest/rst_source/guides/configure_planner.html#planner-gemini-cli">Gemini CLI</a> ✅</li>
+          <li><a href="https://rpent.readthedocs.io/en/latest/rst_source/guides/configure_planner.html#planner-opencode">OpenCode</a> ✅</li>
           <li><a href="https://rpent.readthedocs.io/en/latest/rst_source/development/add_planner.html">Custom Planner</a> ✅</li>
         </ul>
       </td>
@@ -197,12 +200,12 @@ rpent --robot libero --suite libero_object_swap --task 2 --seed 0 \
   --planner claude_code --model claude-opus-4-8
 ```
 
-See the [planner docs](https://rpent.readthedocs.io/en/latest/rst_source/guides/configure_planner.html) to configure other planners (`api`, `codex`, `gemini_cli`) and model providers.
+See the [planner docs](https://rpent.readthedocs.io/en/latest/rst_source/guides/configure_planner.html) to configure other planners (`api`, `codex`, `gemini_cli`, `opencode`) and model providers.
 For the exploration workflow and local-memory evaluation, see [LIBERO exploration mode](https://rpent.readthedocs.io/en/latest/rst_source/simulators/libero.html#exploration-and-local-memory-evaluation).
 
 ### Interactive CLI mode
 
-With `claude_code`, `codex`, or `gemini_cli`, add `--tui` (`-t`) for terminal interaction. The built-in task is pre-filled at the `you>` prompt; edit it or press Enter to submit. Follow-up messages queue until the current turn completes. Use `/interrupt [message]` to interrupt; an attached message goes ahead of the queue. `/help` lists commands; `/quit` or Ctrl-D ends the session. Requires a TTY. The `api` planner uses a native CLI that runs the preset task first and accepts follow-ups between runs; use `/exit` to close it.
+With `claude_code`, `codex`, `gemini_cli`, or `opencode`, add `--tui` (`-t`) for terminal interaction. The built-in task is pre-filled at the `you>` prompt; edit it or press Enter to submit. Follow-up messages queue until the current turn completes. Use `/interrupt [message]` to interrupt; an attached message goes ahead of the queue. `/help` lists commands; `/quit` or Ctrl-D ends the session. Requires a TTY. The `api` planner uses a native CLI that runs the preset task first and accepts follow-ups between runs; use `/exit` to close it.
 
 ```bash
 rpent --robot libero --suite libero_object_swap --task 2 --seed 0 \

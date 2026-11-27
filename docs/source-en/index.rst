@@ -88,13 +88,23 @@ Choose an environment: :doc:`LIBERO <rst_source/simulators/libero>`, :doc:`RoboC
    :caption: Guides
 
    Memory and Exploration <rst_source/guides/memory>
-   Action Primitives and Tools <rst_source/guides/configure_primitives>
    Planner Configuration <rst_source/guides/configure_planner>
    Command-Line Reference <rst_source/guides/cli>
    Interactive Usage <rst_source/guides/dashboard>
    Flash Mode <rst_source/guides/flash>
    Trajectory Collection and Data Flywheel <rst_source/guides/flywheel>
    Remote Services and Parallel Runs <rst_source/guides/advanced_deployment>
+
+.. toctree::
+   :maxdepth: 2
+   :includehidden:
+   :titlesonly:
+   :hidden:
+   :caption: Toolkits
+
+   Action Primitives and Tools <rst_source/toolkits/overview>
+   Embodied RGB-D Toolkit <rst_source/toolkits/rgbd>
+   External MCP Tools <rst_source/toolkits/mcp>
 
 .. toctree::
    :maxdepth: 2
@@ -133,7 +143,6 @@ Choose an environment: :doc:`LIBERO <rst_source/simulators/libero>`, :doc:`RoboC
    Architecture and Execution <rst_source/development/architecture>
    Core Interfaces <rst_source/development/interfaces>
    Memory Design <rst_source/development/memory>
-   Generic RGB-D Toolkit <rst_source/development/generic_toolkit>
    Add a Robot or Simulator <rst_source/development/add_robot>
    Add an Action Primitive <rst_source/development/add_primitive>
    Add an Action Model <rst_source/development/add_action_model>

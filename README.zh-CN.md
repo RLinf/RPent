@@ -50,7 +50,8 @@ RPent 面向以下四类用户：
 - [2026/11] 🔥 修复 API 规划器性能较差的问题。搭配 DeepSeek V4.1 Flash，API 规划器在 RoboTwin C2R 上的成功率达到 **65.6%（164/250）**。详见 [排行榜](https://rpent.readthedocs.io/zh-cn/latest/rst_source/leaderboard/index.html)。
 - [2026/11] 🔥 RPent 支持通过 Harbor 运行 Embodied First Exam（EFE）任务，可使用 Skills 或任务原生动作。详见 [EFE 使用指南](https://rpent.readthedocs.io/zh-cn/latest/rst_source/simulators/efe.html)。
 - [2026/11] 🔥 新增 MetaWorld 接入，支持 RGB-D 观测和笛卡尔运动工具，无需 VLA 权重。参见 [MetaWorld 指南](https://rpent.readthedocs.io/zh-cn/latest/rst_source/simulators/metaworld.html)。
-- [2026/11] 🔥 新增[通用 RGB-D 工具包](https://rpent.readthedocs.io/zh-cn/latest/rst_source/development/generic_toolkit.html)，可从已记录的相机观测中读取三维坐标、分割物体并测量指定部位的尺寸。
+- [2026/11] 🔥 新增[具身 RGB-D 工具包](https://rpent.readthedocs.io/zh-cn/latest/rst_source/toolkits/rgbd.html)，可从已记录的相机观测中读取三维坐标、分割物体并测量指定部位的尺寸。
+- [2026/11] 🔥 RPent 支持通过 `--mcp-config` 接入外部 Streamable HTTP MCP 服务，在所有在线规划器中调用其工具。详见 [外部 MCP 工具指南](https://rpent.readthedocs.io/zh-cn/latest/rst_source/toolkits/mcp.html)。
 - [2026/11] 🔥 新增数据飞轮。支持轨迹采集和数据清洗功能，用采集的成功轨迹对 VLA 进行监督微调后，RPent 在 RoboTwin 评测中的任务成功率从 48% 升至 72%，提高 **24 个百分点**。详见 [使用指南](https://rpent.readthedocs.io/zh-cn/latest/rst_source/guides/flywheel.html)。
 - [2026/10] 🔥 新增可选的 APXInf VLA endpoint 接入，参见 [部署指南](https://rpent.readthedocs.io/zh-cn/latest/rst_source/guides/advanced_deployment.html#apxinf-vla-service-optional)。
 - [2026/09] 🔥 新增交互式 RPent 排行榜，覆盖 LIBERO、LIBERO-PRO、RoboCasa365 与 RoboTwin，提供模型对比及套件汇总。查看 [排行榜](https://rpent.readthedocs.io/zh-cn/latest/rst_source/leaderboard/index.html)。
@@ -76,8 +77,10 @@ RPent 面向以下四类用户：
     <tr>
       <td>
         <ul style="margin-left: 0; padding-left: 16px;">
-          <li><a href="https://rpent.readthedocs.io/zh-cn/latest/rst_source/guides/configure_planner.html#claude-code-planner">Claude Code</a> ✅</li>
-          <li><a href="https://rpent.readthedocs.io/zh-cn/latest/rst_source/guides/configure_planner.html#codex-planner">Codex</a> ✅</li>
+          <li><a href="https://rpent.readthedocs.io/zh-cn/latest/rst_source/guides/configure_planner.html#planner-claude-code">Claude Code</a> ✅</li>
+          <li><a href="https://rpent.readthedocs.io/zh-cn/latest/rst_source/guides/configure_planner.html#planner-codex">Codex</a> ✅</li>
+          <li><a href="https://rpent.readthedocs.io/zh-cn/latest/rst_source/guides/configure_planner.html#planner-gemini-cli">Gemini CLI</a> ✅</li>
+          <li><a href="https://rpent.readthedocs.io/zh-cn/latest/rst_source/guides/configure_planner.html#planner-opencode">OpenCode</a> ✅</li>
           <li><a href="https://rpent.readthedocs.io/zh-cn/latest/rst_source/development/add_planner.html">Custom Planner</a> ✅</li>
         </ul>
       </td>
@@ -198,12 +201,12 @@ rpent --robot libero --suite libero_object_swap --task 2 --seed 0 \
   --planner claude_code --model claude-opus-4-8
 ```
 
-其他规划器（`api`、`codex`、`gemini_cli`）与模型提供商的配置见[规划器文档](https://rpent.readthedocs.io/zh-cn/latest/rst_source/guides/configure_planner.html)。
+其他规划器（`api`、`codex`、`gemini_cli`、`opencode`）与模型提供商的配置见[规划器文档](https://rpent.readthedocs.io/zh-cn/latest/rst_source/guides/configure_planner.html)。
 探索模式与本地 memory 评测详见 [LIBERO 文档](https://rpent.readthedocs.io/zh-cn/latest/rst_source/simulators/libero.html)。
 
 ### 交互模式
 
-使用 `claude_code`、`codex` 或 `gemini_cli` 时，加上 `--tui`（`-t`）即可在终端交互。内置任务会预填在 `you>` 提示符处，可编辑后提交，也可直接按 Enter。追加消息默认排队，等待当前轮次完成；使用 `/interrupt [消息]` 可中断当前轮次，附带的消息会优先于队列发送。`/help` 查看命令，`/quit` 或 Ctrl-D 结束会话。需要真实终端（TTY）。`api` planner 使用原生 CLI，先运行预设任务，再在每轮运行完成后接收输入，使用 `/exit` 退出。
+使用 `claude_code`、`codex`、`gemini_cli` 或 `opencode` 时，加上 `--tui`（`-t`）即可在终端交互。内置任务会预填在 `you>` 提示符处，可编辑后提交，也可直接按 Enter。追加消息默认排队，等待当前轮次完成；使用 `/interrupt [消息]` 可中断当前轮次，附带的消息会优先于队列发送。`/help` 查看命令，`/quit` 或 Ctrl-D 结束会话。需要真实终端（TTY）。`api` planner 使用原生 CLI，先运行预设任务，再在每轮运行完成后接收输入，使用 `/exit` 退出。
 
 ```bash
 rpent --robot libero --suite libero_object_swap --task 2 --seed 0 \

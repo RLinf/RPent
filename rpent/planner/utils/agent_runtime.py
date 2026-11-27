@@ -119,7 +119,7 @@ class AgentArtifacts:
                 **stats,
             },
             error=error,
-            stop_reason=self.stop_reason,
+            stop_reason="finish" if finish_result is not None else self.stop_reason,
         )
 
 

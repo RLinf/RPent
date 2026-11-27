@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import copy
 import threading
+from concurrent.futures import ThreadPoolExecutor
 from functools import partial
 from pathlib import Path
 from typing import Annotated, Any
@@ -84,6 +85,46 @@ class _ContractToolkit(Toolkit):
 
     def solved(self) -> bool:
         return False
+
+
+@pytest.mark.parametrize("readonly", [False, True])
+def test_tool_budget_is_atomic_and_survives_resume(tmp_path, readonly):
+    toolkit = _ContractToolkit(tmp_path)
+    entered = threading.Event()
+    release = threading.Event()
+    calls = []
+
+    @tool(readonly=readonly)
+    def inspect_scene() -> ToolResult:
+        calls.append("executed")
+        entered.set()
+        assert release.wait(3)
+        return ToolResult(data={"error": "sensor unavailable"})
+
+    toolkit.add_tool(inspect_scene)
+    toolkit.set_tool_budget(1)
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        first = pool.submit(toolkit.execute_tool, "inspect_scene", {})
+        try:
+            assert entered.wait(3)
+            others = [
+                pool.submit(toolkit.execute_tool, "inspect_scene", {}) for _ in range(3)
+            ]
+            assert all(f.result(3).data["code"] == "tool_limit" for f in others)
+            assert not first.done()
+        finally:
+            release.set()
+        assert first.result(3).is_error
+    assert calls == ["executed"]
+    assert toolkit.tool_calls_used == 1
+    toolkit.cancel_active_and_wait()
+    toolkit.resume_calls()
+    assert toolkit.execute_tool("inspect_scene", {}).data["code"] == "tool_limit"
+    toolkit.set_tool_budget(2)
+    assert not toolkit.tool_limit_reached
+    assert toolkit.tool_calls_used == 0
+    toolkit.execute_tool("inspect_scene", {})
+    assert toolkit.tool_calls_used == 1
 
 
 def test_toolkit_and_common_tools_require_memory() -> None:
