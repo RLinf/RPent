@@ -42,28 +42,60 @@ _SAFE_STOP = {
 
 @pytest.mark.parametrize("entrypoint", ["cli", "dashboard"])
 @pytest.mark.parametrize(
-    "stop_info,planner_error,expected_sessions,fail_second",
+    "outcome,expected_sessions,fail_second",
     [
-        (None, None, 2, False),
-        (None, "Planner timed out", 2, False),
-        ({}, None, 1, False),
-        ({}, "Planner timed out", 1, False),
-        ({**_SAFE_STOP, "execution_certain": False}, "Planner timed out", 1, False),
-        ({**_SAFE_STOP, "allow_new_session": False}, None, 1, False),
-        (_SAFE_STOP, None, 2, False),
-        (_SAFE_STOP, "Planner timed out", 2, False),
-        (_SAFE_STOP, None, 2, True),
+        (PlannerResult(), 2, False),
+        (PlannerResult(stop_reason="completed"), 2, False),
+        (PlannerResult(stop_reason="budget"), 2, False),
+        (PlannerResult(stop_reason="timeout", error="Planner timed out"), 2, False),
+        (PlannerResult(error="Planner timed out"), 2, False),
+        (PlannerResult(stop_reason="cancelled"), 1, False),
+        (
+            PlannerResult(stop_reason="cancelled", stats={"stop_reason": "budget"}),
+            1,
+            False,
+        ),
+        (PlannerResult(stop_reason="interrupted"), 1, False),
+        (PlannerResult(stop_reason="error"), 1, False),
+        (PlannerResult(stop_reason="planner_error"), 1, False),
+        (PlannerResult(stop_reason="error", error="provider timed out"), 1, False),
+        (PlannerResult(stats={"stop_reason": "cancelled"}), 1, False),
+        (
+            PlannerResult(
+                stop_reason="request_limit",
+                stats={"stop_reason": "budget"},
+                stop_info=_SAFE_STOP,
+            ),
+            2,
+            False,
+        ),
+        (PlannerResult(stop_info={}), 1, False),
+        (PlannerResult(stop_info={}, error="Planner timed out"), 1, False),
+        (
+            PlannerResult(
+                stop_reason="cancelled",
+                stop_info={**_SAFE_STOP, "execution_certain": False},
+                error="Planner timed out",
+            ),
+            1,
+            False,
+        ),
+        (PlannerResult(stop_info={**_SAFE_STOP, "allow_new_session": False}), 1, False),
+        (PlannerResult(stop_reason="cancelled", stop_info=_SAFE_STOP), 2, False),
+        (PlannerResult(stop_info=_SAFE_STOP, error="Planner timed out"), 2, False),
+        (PlannerResult(stop_info=_SAFE_STOP), 2, True),
     ],
 )
 def test_runners_require_stop_evidence_and_preserve_finalization_fields(
     tmp_path,
     monkeypatch,
     entrypoint,
-    stop_info,
-    planner_error,
+    outcome,
     expected_sessions,
     fail_second,
 ):
+    stop_info = outcome.stop_info
+    planner_error = outcome.error
     captured = []
     solve_calls = []
     returned_stats = []
@@ -92,13 +124,13 @@ def test_runners_require_stop_evidence_and_preserve_finalization_fields(
         solve_calls.append(kwargs["user_message"])
         if fail_second and len(solve_calls) == 2:
             raise RuntimeError("second session failed")
-        stats = {**usage, "stop_reason": "budget", "stop_info": stop_info}
+        stats = {**usage, **outcome.stats}
         returned_stats.append(stats)
         return PlannerResult(
             stats=stats,
             error=planner_error,
             stop_info=stop_info,
-            stop_reason="request_limit" if stop_info is not None else None,
+            stop_reason=outcome.stop_reason,
         )
 
     def finalize(context):
@@ -180,13 +212,8 @@ def test_runners_require_stop_evidence_and_preserve_finalization_fields(
     assert captured[0].stop_info == (
         {"category": "error"} if fail_second else stop_info
     )
-    assert captured[0].stop_reason == (
-        None if fail_second or stop_info is None else "request_limit"
-    )
-    assert all(
-        stats == {**usage, "stop_reason": "budget", "stop_info": stop_info}
-        for stats in returned_stats
-    )
+    assert captured[0].stop_reason == (None if fail_second else outcome.stop_reason)
+    assert all(stats == {**usage, **outcome.stats} for stats in returned_stats)
     result = json.loads(finalize_libero_result(captured[0]).read_text())
     if fail_second:
         assert captured[0].stats == usage
@@ -196,9 +223,22 @@ def test_runners_require_stop_evidence_and_preserve_finalization_fields(
         assert result["stop_info"]["execution_certain"] is None
     else:
         assert captured[0].stats == returned_stats[-1]
+        native = outcome.stop_reason or outcome.stats.get("stop_reason")
+        if stop_info is None and native in (
+            "cancelled",
+            "interrupted",
+            "error",
+            "planner_error",
+        ):
+            assert result["termination_category"] == (
+                "cancelled" if native in ("cancelled", "interrupted") else "error"
+            )
+            assert result["valid"] is False
         assert result["termination_reason"] == (
             (stop_info or {}).get("reason")
-            or ("request_limit" if stop_info is not None else "budget")
+            or outcome.stop_reason
+            or outcome.stats.get("stop_reason")
+            or ("planner_error" if planner_error else "stopped")
         )
 
 

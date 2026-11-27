@@ -39,7 +39,7 @@ from rpent.memory import MemoryManager
 from rpent.planner.base import (
     PlannerResult,
     build_planner,
-    is_recoverable_planner_result,
+    exploration_handoff,
 )
 from rpent.planner.stop import resolve_stop_info
 from rpent.robots import get_toolkit
@@ -454,21 +454,19 @@ def _run_dashboard_task(
                     or (finish_result or {}).get("operator_finished")
                 ):
                     break
-                if agent_error or stop_info is not None:
-                    if session_number < sessions and is_recoverable_planner_result(
-                        result
-                    ):
-                        logger.warning(
-                            "session %d/%d ended with %s; continuing with a fresh handoff",
-                            session_number,
-                            sessions,
-                            agent_error
-                            or (stop_info or {}).get("reason")
-                            or stop_reason
-                            or "unknown",
-                        )
-                        continue
+                handoff = exploration_handoff(result)
+                if handoff == "stop":
                     break
+                if handoff == "recover" and session_number < sessions:
+                    logger.warning(
+                        "session %d/%d ended with %s; continuing with a fresh handoff",
+                        session_number,
+                        sessions,
+                        agent_error
+                        or (stop_info or {}).get("reason")
+                        or stop_reason
+                        or "unknown",
+                    )
     except KeyboardInterrupt:
         state.request_shutdown()
         logger.info("Dashboard interrupted by operator.")

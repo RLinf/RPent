@@ -60,7 +60,7 @@ from rpent.planner.base import (
     REASONING_EFFORTS,
     PlannerResult,
     build_planner,
-    is_recoverable_planner_result,
+    exploration_handoff,
 )
 from rpent.planner.check import (
     CHECK_PLANNERS,
@@ -843,23 +843,19 @@ def main() -> int:
                 or (finish_result or {}).get("operator_finished")
             ):
                 break
-            if agent_error or stop_info is not None:
-                if (
-                    getattr(args, "explore", False)
-                    and session_number < sessions
-                    and is_recoverable_planner_result(result)
-                ):
-                    logger.warning(
-                        "session %d/%d ended with %s; continuing with a fresh handoff",
-                        session_number,
-                        sessions,
-                        agent_error
-                        or (stop_info or {}).get("reason")
-                        or stop_reason
-                        or "unknown",
-                    )
-                    continue
+            handoff = exploration_handoff(result)
+            if handoff == "stop":
                 break
+            if handoff == "recover" and session_number < sessions:
+                logger.warning(
+                    "session %d/%d ended with %s; continuing with a fresh handoff",
+                    session_number,
+                    sessions,
+                    agent_error
+                    or (stop_info or {}).get("reason")
+                    or stop_reason
+                    or "unknown",
+                )
     except KeyboardInterrupt:
         cancelled_reason = "operator"
         logger.info("Interrupted by operator.")

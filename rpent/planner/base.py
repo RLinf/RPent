@@ -20,10 +20,10 @@ import asyncio
 import os
 import queue
 from abc import ABC, abstractmethod
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 from urllib.parse import unquote, urlsplit, urlunsplit
 
 from rpent.dashboard.events import DashboardEventSink
@@ -173,20 +173,35 @@ def is_recoverable_agent_error(agent_error: str | None) -> bool:
     return "timed out" in lowered or "planner response truncated" in lowered
 
 
-def is_recoverable_planner_result(result: PlannerResult) -> bool:
-    """Require complete safety evidence when a backend supplies stop_info.
-
-    Older planners retain their existing text-based recovery contract.
-    """
+def exploration_handoff(result: PlannerResult) -> Literal["next", "recover", "stop"]:
+    """Decide whether exploration can start another session after this result."""
     stop_info = getattr(result, "stop_info", None)
+    if stop_info is None:
+        stop_info = result.stats.get("stop_info")
     if stop_info is not None:
-        return (
-            stop_info.get("execution_certain") is True
-            and stop_info.get("allow_new_session") is True
-            and stop_info.get("result_delivery_complete") is True
-            and stop_info.get("cleanup_complete") is True
-        )
-    return is_recoverable_agent_error(result.error)
+        if isinstance(stop_info, Mapping) and all(
+            stop_info.get(key) is True
+            for key in (
+                "execution_certain",
+                "result_delivery_complete",
+                "cleanup_complete",
+                "allow_new_session",
+            )
+        ):
+            return "recover"
+        return "stop"
+
+    reason = getattr(result, "stop_reason", None) or result.stats.get("stop_reason")
+    if normalize_stop_info(None, reason=reason)["category"] in {"cancelled", "error"}:
+        return "stop"
+    if result.error:
+        return "recover" if is_recoverable_agent_error(result.error) else "stop"
+    return "next"
+
+
+def is_recoverable_planner_result(result: PlannerResult) -> bool:
+    """Whether exploration can recover from this planner interruption."""
+    return exploration_handoff(result) == "recover"
 
 
 class Planner(ABC):
