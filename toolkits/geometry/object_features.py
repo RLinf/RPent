@@ -98,7 +98,7 @@ def _boundary_steps(face, adjacent):
         yield row[keep], col[keep], dr, dc
 
 
-def _outer_edge_steps(on_plane, valid, mask, height, camera_height, band):
+def _outer_edge_steps(on_plane, valid, mask, height, camera_height, band, *, min_drop):
     """Yield face pixels and the raster direction of each measured outer boundary."""
     # The segmentation can stop one pixel inside a measured planar face.
     on_plane = on_plane | (
@@ -112,7 +112,7 @@ def _outer_edge_steps(on_plane, valid, mask, height, camera_height, band):
         physical = np.where(
             mask[neighbor],
             abs(height[neighbor]) > band,
-            np.sign(camera_height) * (height[row, col] - height[neighbor]) > band,
+            np.sign(camera_height) * (height[row, col] - height[neighbor]) > min_drop,
         )
         yield row[physical], col[physical], dr, dc
 
@@ -120,10 +120,22 @@ def _outer_edge_steps(on_plane, valid, mask, height, camera_height, band):
 def _visible_outer_edge(on_plane, valid, mask, height, camera_height, band):
     edge = np.zeros_like(mask)
     for row, col, _, _ in _outer_edge_steps(
-        on_plane, valid, mask, height, camera_height, band
+        on_plane, valid, mask, height, camera_height, band, min_drop=band
     ):
         edge[row, col] = True
     return edge
+
+
+def _plane_noise_band(height, measured, max_band):
+    """Estimate height scatter from second differences along measured pixel triples."""
+    scatter = []
+    for h, valid in ((height, measured), (height.T, measured.T)):
+        triples = valid[:-2] & valid[1:-1] & valid[2:]
+        scatter.append(abs(np.diff(h, n=2, axis=0))[triples])
+    samples = np.concatenate(scatter)
+    if len(samples):
+        return np.clip(2 * np.median(samples), 1e-6, max_band)
+    return None
 
 
 def _tapered_cap_edges(world, material, raised, normal, options, cancel):
@@ -149,16 +161,9 @@ def _tapered_cap_edges(world, material, raised, normal, options, cancel):
             continue
         origin, axis = _refit_plane(top, normal)
         height = (xyz - origin) @ axis
-        # Second differences remove a local slope and measure height scatter
-        # without mixing in the total drop from the cap to the shoulder.
-        scatter = []
-        for h, measured in ((height, patch), (height.T, patch.T)):
-            triples = measured[:-2] & measured[1:-1] & measured[2:]
-            scatter.append(abs(np.diff(h, n=2, axis=0))[triples])
-        samples = np.concatenate(scatter)
-        if not len(samples):
+        tolerance = _plane_noise_band(height, patch, options.distance_threshold_m)
+        if tolerance is None:
             continue
-        tolerance = np.clip(2 * np.median(samples), 1e-6, options.distance_threshold_m)
         level = np.quantile(height[patch], 0.98)
         near = patch & (abs(height - level) <= tolerance)
         if near.sum() < options.min_points:
@@ -256,7 +261,9 @@ def _openings_on_plane(world, valid, mask, plane, camera, options, cancel):
     origin, normal = plane
     height = (world - origin) @ normal
     band = options.distance_threshold_m
-    lip = mask & valid & (abs(height) <= band)
+    level = valid & (abs(height) <= band)
+    lip = mask & level
+    lip |= binary_dilation(lip) & level
     lower = valid & (height < -band)
     clipped = mask[0].any() or mask[-1].any() or mask[:, 0].any() or mask[:, -1].any()
     # Keep openings separate even when their floors share the same height.
@@ -275,8 +282,13 @@ def _openings_on_plane(world, valid, mask, plane, camera, options, cancel):
         if len(boundary) < options.min_points:
             continue
         inward_half_steps = boundary - world[box][tuple(pixels.T)]
-        fit = _circle_on_plane(
-            boundary, origin, normal, options, inward_half_steps=inward_half_steps
+        fit = _fit_measured_circle(
+            boundary,
+            pixels,
+            region.shape,
+            plane,
+            options,
+            inward_half_steps=inward_half_steps,
         )
         if not fit.parameters:
             continue
@@ -338,19 +350,36 @@ def _inner_ring_center(world, valid, mask, up, camera, options, cancel):
         fits.extend(
             _openings_on_plane(world, valid, mask, plane, camera, options, cancel)
         )
-    accepted = sorted(
-        (f for f in fits if f.accepted),
-        key=lambda f: np.dot(f.parameters["center"], up),
-        reverse=True,
-    )
-    if not accepted:
-        return fits[0] if fits else ShapeFit(reason="inner_ring_not_observed")
-    top = np.asarray(accepted[0].parameters["center"])
-    for other in accepted[1:]:
-        offset = top - other.parameters["center"]
-        if offset @ up <= band and np.linalg.norm(offset) > band:
-            return ShapeFit(reason="ambiguous_inner_rings")
-    return accepted[0]
+    return _upper_center(fits, up, band, opening=True)
+
+
+def _upper_center(fits, up, tolerance, *, opening=False):
+    # A measured upper lip can be too incomplete to publish its center.
+    # Its presence still rules out returning a deeper opening.
+    partial_arc = {"partial_circular_arc", "insufficient_circle_angular_coverage"}
+    candidates = [
+        fit
+        for fit in fits
+        if fit.accepted
+        or (opening and fit.warnings and partial_arc.issuperset(fit.warnings))
+    ]
+    if not candidates:
+        if fits:
+            return next((fit for fit in fits if fit.parameters), fits[0])
+        return ShapeFit(
+            reason="inner_ring_not_observed"
+            if opening
+            else "selected_face_not_observed"
+        )
+    highest = max(candidates, key=lambda fit: np.dot(fit.parameters["center"], up))
+    center = np.asarray(highest.parameters["center"])
+    for candidate in candidates:
+        offset = center - candidate.parameters["center"]
+        if offset @ up <= tolerance and np.linalg.norm(offset) > tolerance:
+            return ShapeFit(
+                reason="ambiguous_inner_rings" if opening else "ambiguous_upper_faces"
+            )
+    return highest
 
 
 def _ring_center(world, valid, mask, up, camera, feature, options, cancel):
@@ -401,12 +430,25 @@ def _edge_samples(world, on_face, steps):
     return np.concatenate(samples), np.concatenate(pixels)
 
 
-def _conflicting_disk_edge(boundary, pixels, shape, center, normal, radius, tolerance):
-    """Check for a continuous measured edge outside the circle's fit tolerance."""
+def _fit_measured_circle(
+    boundary, pixels, shape, plane, options, *, inward_half_steps=None
+):
+    """Fit the circle and check all connected edges for contradictory measurements."""
+    origin, normal = plane
+    fit = _circle_on_plane(
+        boundary, origin, normal, options, inward_half_steps=inward_half_steps
+    )
+    if not fit.parameters:
+        return fit
+    center = np.asarray(fit.parameters["center"])
+    radius = fit.parameters["radius"]
+    tolerance = max(
+        options.distance_threshold_m, options.max_relative_residual * radius
+    )
     xy = (boundary - center) @ np.column_stack(_basis(normal))
     off_circle = abs(np.linalg.norm(xy, axis=1) - radius) > tolerance
     if not off_circle.any():
-        return False
+        return fit
     row, col = pixels[off_circle].T
     edge = np.zeros(shape, dtype=bool)
     edge[row, col] = True
@@ -414,37 +456,44 @@ def _conflicting_disk_edge(boundary, pixels, shape, center, normal, radius, tole
     sizes = np.bincount(runs[edge])
     run_ids = runs[row, col]
     offsets = xy[off_circle]
-    return any(
+    if any(
         np.linalg.norm(np.ptp(offsets[run_ids == index], axis=0)) > 2 * tolerance
         for index in np.flatnonzero(sizes >= 3)
-    )
+    ):
+        fit.warn("noncircular_measured_edge")
+    return fit
 
 
 def _disk_center(world, valid, mask, on_face, face, camera, options):
     origin, normal, support = face
     band = options.distance_threshold_m
     height = (world - origin) @ normal
+    # Resolve the start of a bevel when a coherent planar patch stands out
+    # above depth noise. A few isolated mesh facets cannot define the disk.
+    plane_band = band
+    noise = _plane_noise_band(height, on_face, band)
+    if noise is not None and noise < band:
+        refined = _plane(world[on_face], normal, noise)
+        if refined is not None:
+            refined_height = (world - refined[0]) @ refined[1]
+            flat = on_face & (abs(refined_height) <= noise)
+            if flat.sum() >= options.min_inlier_ratio * on_face.sum():
+                origin, normal = refined
+                height, on_face, plane_band = refined_height, flat, noise
+                support = support[abs((support - origin) @ normal) <= plane_band]
     camera_height = (camera - origin) @ normal
     # The cleaned cloud selects the plane. Its eroded perimeter would shrink
     # the radius, so measure the boundary on the original depth raster.
-    steps = _outer_edge_steps(on_face, valid, mask, height, camera_height, band)
+    steps = _outer_edge_steps(
+        on_face, valid, mask, height, camera_height, plane_band, min_drop=band
+    )
     boundary, pixels = _edge_samples(world, on_face, steps)
     if not len(boundary):
         return ShapeFit(reason="disk_perimeter_not_observed")
-    fit = _circle_on_plane(boundary, origin, normal, options)
+    fit = _fit_measured_circle(boundary, pixels, mask.shape, (origin, normal), options)
     if fit.parameters:
         radius = fit.parameters["radius"]
         center = np.asarray(fit.parameters["center"])
-        if fit.accepted and _conflicting_disk_edge(
-            boundary,
-            pixels,
-            mask.shape,
-            center,
-            normal,
-            radius,
-            max(band, options.max_relative_residual * radius),
-        ):
-            fit.warn("noncircular_measured_edge")
         offset = support - center
         radial_sq = np.einsum("ij,ij->i", offset, offset) - (offset @ normal) ** 2
         central = int((radial_sq < (0.5 * radius) ** 2).sum())
@@ -502,13 +551,15 @@ def _fits_on_plane(name, obs, mask, roi, face, options, cancel):
     components, _ = label(on_plane)
     counts = np.bincount(components.ravel())[1:]
     ids = np.flatnonzero(counts >= 25)
+    matches = {}
+    enclosed_components = set()
     for index in ids[np.argsort(-counts[ids], kind="stable")]:
         cancel()
         patch = components == index + 1
         if name == "rectangle_center":
             image_region = np.zeros_like(mask)
             image_region[roi] = patch
-            yield _rectangle_center(obs, mask, image_region, face[:2])
+            fit = _rectangle_center(obs, mask, image_region, face[:2])
         else:
             if len(ids) > 1:
                 support = object_points(
@@ -518,7 +569,7 @@ def _fits_on_plane(name, obs, mask, roi, face, options, cancel):
                     obs.camera_to_world[:3, 2],
                     keep_small_faces=True,
                 )
-            yield _disk_center(
+            fit = _disk_center(
                 world,
                 valid,
                 region,
@@ -527,6 +578,17 @@ def _fits_on_plane(name, obs, mask, roi, face, options, cancel):
                 obs.camera_to_world[:3, 3],
                 options,
             )
+        if fit.accepted and len(ids) > 1:
+            # The same plane can also be visible through a hole in an occluder.
+            # Count that patch once with the face that surrounds it.
+            matches[index + 1] = fit
+            holes = binary_fill_holes(patch) & ~patch
+            enclosed_components.update(np.unique(components[holes]))
+        else:
+            yield fit
+    for component, fit in matches.items():
+        if component not in enclosed_components:
+            yield fit
 
 
 def fit_features(
@@ -568,21 +630,12 @@ def fit_features(
         if (camera - origin) @ normal > 0
     ]
     for name in names:
-        best = None
-        highest = -np.inf
-        fits = (
+        fits = [
             fit
             for face in faces
             for fit in _fits_on_plane(name, obs, mask, roi, face, options, cancel)
-        )
-        for fit in fits:
-            if fit.accepted:
-                height = np.dot(fit.parameters["center"], up)
-                if height > highest:
-                    best, highest = fit, height
-            elif best is None or (not best.parameters and fit.parameters):
-                best = fit
-        yield name, best or ShapeFit(reason="selected_face_not_observed")
+        ]
+        yield name, _upper_center(fits, up, options.distance_threshold_m)
 
 
 def feature_result(

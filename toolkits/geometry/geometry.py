@@ -83,10 +83,15 @@ def _basis(normal: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
     return first, np.cross(normal, first)
 
 
-def _coverage(xy: np.ndarray) -> float:
+def _coverage(xy: np.ndarray, min_points: int) -> float:
     angles = np.sort(np.mod(np.arctan2(xy[:, 1], xy[:, 0]), 2 * np.pi))
     gaps = np.diff(np.r_[angles, angles[0] + 2 * np.pi])
-    return float(np.degrees(2 * np.pi - gaps.max()))
+    # Allow two sample intervals for uneven spacing along a measured arc.
+    # Larger gaps between separate arcs contribute no observed perimeter.
+    max_gap = 2 * (2 * np.pi / min_points)
+    if np.all(gaps <= max_gap):
+        return 360.0
+    return float(np.degrees(gaps[gaps <= max_gap].sum()))
 
 
 def _support_quality(
@@ -217,7 +222,7 @@ def fit_circle(
             result.reason = "insufficient_circle_consensus"
             return result
     xy = (points[best] - center) @ basis
-    coverage = _coverage(xy)
+    coverage = _coverage(xy, options.min_points)
     result.quality = _support_quality(residual, best, options)
     result.quality["angular_coverage_deg"] = coverage
     relative_residual = result.quality["residual_p95_m"] / max(

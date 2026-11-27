@@ -599,27 +599,27 @@ def _fit_face_center(mask, x, y, z, quantity, feature):
     return fit
 
 
-@pytest.mark.parametrize("stepped", [False, True])
-def test_disk_center_measures_the_offset_planar_face_on_a_shallow_plate(
-    tmp_path, stepped
-):
+@pytest.mark.parametrize("edge", ["step", "bevel", "asymmetric_bevel"])
+def test_disk_center_measures_the_offset_planar_face_on_a_shallow_plate(tmp_path, edge):
     rows, cols = np.indices((151, 151))
     x, y = (cols - 75) * 0.0008, (75 - rows) * 0.0008
     mask = np.hypot(x, y) <= 0.055
     # The planar patch is offset from the enclosing circular outline.
     radius = np.hypot(x - 0.0032, y)
-    rise = (
-        0.006 * (radius > 0.038)
-        if stepped
-        else 0.008 * np.clip((radius - 0.035) / 0.018, 0, 1)
-    )
+    if edge == "step":
+        flat_radius = 0.038
+        rise = 0.006 * (radius > flat_radius)
+    else:
+        flat_radius = 0.035
+        width = 0.018
+        if edge == "asymmetric_bevel":
+            width *= 1 + 0.4 * np.cos(np.arctan2(y, x - 0.0032))
+        rise = 0.008 * np.clip((radius - flat_radius) / width, 0, 1)
     z = np.where(mask, 0.05 + rise, 0.01)
     result, saved = _measure_mask(tmp_path, mask, x, y, z, "disk_center", "upper_face")
     assert result["status"] == "usable"
     np.testing.assert_allclose(saved["value"], [0.0032, 0, 0.05], atol=0.0006)
-    # The smooth slope stays within the 3 mm face tolerance for another 6.75 mm.
-    radius = 0.038 if stepped else 0.035 + 0.018 * 0.003 / 0.008
-    assert saved["radius_m"] == pytest.approx(radius, abs=0.001)
+    assert saved["radius_m"] == pytest.approx(flat_radius, abs=0.001)
     assert saved["definition"] == "center_of_selected_observed_circular_planar_surface"
 
 
@@ -693,7 +693,35 @@ def test_inner_rim_can_cross_the_image_border(tmp_path):
     assert saved["quality"]["angular_coverage_deg"] > 300
 
 
-@pytest.mark.parametrize("opening", ["thin_lip", "offset", "two_openings", "solid"])
+@pytest.mark.parametrize("cropped", [False, True])
+def test_stepped_opening_preserves_the_height_of_the_upper_lip(tmp_path, cropped):
+    rows, cols = np.indices((241, 241))
+    x, y = (cols - 120) * 0.0005, (120 - rows) * 0.0005
+    radius = np.hypot(x, y)
+    lid = radius <= 0.055
+    z = np.select(
+        [radius < 0.006, radius < 0.040, lid], [0.02, 0.05, 0.10], default=0.0
+    )
+    view = np.s_[:, x[0] >= -0.008] if cropped else np.s_[:, :]
+    result, saved = _measure_mask(
+        tmp_path,
+        lid[view],
+        x[view],
+        y[view],
+        z[view],
+        "ring_center",
+        "upper_inner_ring",
+    )
+    if cropped:
+        assert result["missing_geometry"] == ["ring_center"]
+        assert saved["value"] is None and saved["reason"] == "partial_circular_arc"
+    else:
+        np.testing.assert_allclose(saved["value"], [0, 0, 0.10], atol=0.0006)
+
+
+@pytest.mark.parametrize(
+    "opening", ["thin_lip", "offset", "two_openings", "solid", "d_shaped"]
+)
 def test_inner_ring_uses_the_openings_own_depth_boundary(opening):
     pitch, half = (0.0005, 205) if opening == "thin_lip" else (0.001, 105)
     rows, cols = np.indices((2 * half + 1, 2 * half + 1))
@@ -703,11 +731,15 @@ def test_inner_ring_uses_the_openings_own_depth_boundary(opening):
     floor = (np.hypot(x - center_x, y) < radius) & (opening != "solid")
     if opening == "two_openings":
         floor |= np.hypot(x + center_x, y) < radius
+    elif opening == "d_shaped":
+        floor = (np.hypot(x, y) < 0.080) & (x <= 0.048)
     z = np.select([floor, lid], [0.030, 0.050], default=0.010)
     fit = _fit_face_center(lid, x, y, z, "ring_center", "upper_inner_ring")
     assert fit.accepted == (opening in {"thin_lip", "offset"}), fit.reason
     if opening == "two_openings":
         assert fit.reason == "ambiguous_inner_rings"
+    elif opening == "d_shaped":
+        assert fit.reason == "noncircular_measured_edge"
     if fit.accepted:
         np.testing.assert_allclose(
             fit.parameters["center"], [center_x, 0, 0.05], atol=0.0006
@@ -829,6 +861,17 @@ def test_disk_distinguishes_a_measured_chord_from_an_occluding_edge(occluded):
         assert fit.reason == "noncircular_measured_edge"
 
 
+def test_two_opposite_strips_of_a_square_do_not_establish_a_disk():
+    rows, cols = np.indices((421, 421))
+    x, y = (cols - 210) * 0.0005, (210 - rows) * 0.0005
+    plate = (abs(x) <= 0.100) & (abs(y) <= 0.100)
+    z = np.select([plate, abs(y) <= 0.005], [0.05, 0.01], default=np.nan)
+    fit = _fit_face_center(plate, x, y, z, "disk_center", "upper_face")
+    assert not fit.accepted
+    assert fit.reason == "insufficient_circle_angular_coverage"
+    assert fit.quality["angular_coverage_deg"] == pytest.approx(11.4, abs=0.5)
+
+
 @pytest.mark.parametrize(
     ("central", "opening_z", "dropout"),
     [
@@ -940,7 +983,11 @@ def test_rectangle_measures_all_four_edges_of_an_inset_mask(inset):
 
 @pytest.mark.parametrize(
     ("quantity", "feature"),
-    [("disk_center", "upper_face"), ("ring_center", "upper_outer_ring")],
+    [
+        ("disk_center", "upper_face"),
+        ("ring_center", "upper_outer_ring"),
+        ("ring_center", "upper_inner_ring"),
+    ],
 )
 @pytest.mark.parametrize(("inset", "outside_z"), [(1, 0.02), (1, 0.07), (2, 0.02)])
 def test_circular_edge_one_pixel_outside_mask_needs_a_measured_drop(
@@ -951,6 +998,8 @@ def test_circular_edge_one_pixel_outside_mask_needs_a_measured_drop(
     rows, cols = np.indices((95, 105))
     x, y = (cols - 55) * 0.001, (45 - rows) * 0.001
     face = np.hypot(x, y) <= 0.035
+    if feature == "upper_inner_ring":
+        face = ~face & (np.hypot(x, y) <= 0.042)
     mask = binary_erosion(face, iterations=inset)
     fit = _fit_face_center(
         mask, x, y, np.where(face, 0.05, outside_z), quantity, feature
@@ -973,18 +1022,22 @@ def test_rectangle_in_a_deep_tray_pocket():
 
 
 @pytest.mark.parametrize("quantity", ["rectangle_center", "disk_center"])
-def test_upper_face_ranks_coplanar_pads_by_center_height(quantity):
+@pytest.mark.parametrize("slope", [0.0, 0.01, 0.2])
+def test_upper_face_ranks_coplanar_pads_by_center_height(quantity, slope):
     rows, cols = np.indices((95, 201))
     x, y = (cols - 100) * 0.001, (47 - rows) * 0.001
     if quantity == "rectangle_center":
         lower = (abs(x + 0.060) <= 0.027) & (abs(y) <= 0.020)
         upper = (abs(x - 0.060) <= 0.015) & (abs(y) <= 0.012)
     else:
-        lower = np.hypot((x + 0.060) * np.hypot(1, 0.2), y) <= 0.026
-        upper = np.hypot((x - 0.060) * np.hypot(1, 0.2), y) <= 0.016
+        lower = np.hypot((x + 0.060) * np.hypot(1, slope), y) <= 0.026
+        upper = np.hypot((x - 0.060) * np.hypot(1, slope), y) <= 0.016
     bridge = (abs(x) <= 0.060) & (abs(y) <= 0.004)
-    z = np.select([lower | upper, bridge], [0.060 + 0.2 * x, 0.030], default=0.01)
+    z = np.select([lower | upper, bridge], [0.060 + slope * x, 0.030], default=0.01)
     fit = _fit_face_center(lower | upper | bridge, x, y, z, quantity, "upper_face")
+    if slope < 0.2:
+        assert not fit.accepted and fit.reason == "ambiguous_upper_faces"
+        return
     assert fit.accepted, fit.reason
     np.testing.assert_allclose(fit.parameters["center"], [0.060, 0, 0.072], atol=0.001)
 

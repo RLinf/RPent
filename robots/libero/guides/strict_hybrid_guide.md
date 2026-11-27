@@ -102,10 +102,11 @@ and relation landmark named by `task_language`). Record the name or role,
 agentview identity evidence, measurement source and step,
 final coordinates, and uncertainty. For manual localization, include the
 sampled pixels, median xy and wrist-refinement outcome. When `geometry` is
-enabled, an accepted measurement of the requested quantity fills that entry
-directly. Before a coordinate-based action, check that its targets have usable
-coordinates, any wrist refinement agrees with agentview, and basket placement
-uses the open interior. Rationale: in single-attempt
+enabled, check that the overlay highlights the object described by the full
+query before recording an accepted center. If the match is wrong or unclear,
+leave the entry unresolved. Before a coordinate-based action, check that its
+targets have usable coordinates, any wrist refinement agrees with agentview,
+and basket placement uses the open interior. Rationale: in single-attempt
 mode a **wrong-target first grab is unrecoverable** (it tips/displaces both the
 grabbed object and the target zone), so the cheap insurance is to identify all
 entities up front instead of recovering later.
