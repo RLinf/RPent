@@ -1,0 +1,9 @@
+policy_name: RPent
+protocol: ws
+host: 127.0.0.1
+port: 19000
+bench_name: RoboDojo
+env_cfg_type: arx_x5
+action_type: joint
+eval_batch: false
+request_timeout_s: 300

@@ -28,8 +28,12 @@ position can be unreachable with the requested orientation.
 
 `set_gripper(arm, val, steps=10)` uses a normalized opening target: `0` is
 closed and `1` is fully open. Intermediate values specify neither physical
-widths in metres nor gripping forces. The command interpolates from the
-measured opening while retaining the other controller targets. Its `steps`
+widths in metres nor gripping forces. In the native RPent environment, the
+command interpolates from measured opening and retains other controller targets.
+With XPolicyLab, it starts from the last requested or reported opening target;
+`gripper_target` is a control target, not measured opening. Joint targets are
+retained between Primitive actions. After VPP2, the next Primitive establishes
+its joint holds from the measured joint positions. Its `steps`
 counts action targets, not physics steps. `release` performs the same operation
 with a default target of `1`.
 
