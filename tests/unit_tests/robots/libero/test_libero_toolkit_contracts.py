@@ -17,6 +17,7 @@
 from __future__ import annotations
 
 import argparse
+import io
 import json
 import re
 import threading
@@ -28,6 +29,7 @@ from typing import Any
 
 import numpy as np
 import pytest
+from PIL import Image
 
 from robots.libero import robot_spec, toolkit
 from robots.libero.observations import LiberoGeometryObservations
@@ -198,8 +200,10 @@ def test_generic_localization_is_registered_with_libero_observations(
         memory=MemoryManager(tmp_path / "memory"),
         state_output_dir=tmp_path / "state",
     )
-    assert _tool_names(tk) == EVALUATION_TOOLS | ({"geometry"} if enabled else set())
-    assert {"back_project", "segment"} <= _readonly_names(tk)
+    assert _tool_names(tk) == (
+        EVALUATION_TOOLS | {"crop_zoom"} | ({"geometry"} if enabled else set())
+    )
+    assert {"back_project", "crop_zoom", "segment"} <= _readonly_names(tk)
     if enabled:
         assert "geometry" in _readonly_names(tk)
         schema = tk._tools["geometry"].input_schema["properties"]
@@ -237,12 +241,27 @@ def test_generic_localization_is_registered_with_libero_observations(
         data={**expected_view.data, "agent_elapsed_s": 0.5}, images=expected_view.images
     )
 
+    crop = tk.execute_tool(
+        "crop_zoom",
+        {
+            "camera": "agentview",
+            "image_shape": [2, 2],
+            "box_rc": [1, 0, 2, 1],
+            "marks_rc": [[1, 0]],
+        },
+    )
+    with Image.open(io.BytesIO(crop.images[0])) as image:
+        assert image.size == (4, 4)
+    assert crop.data["source_box_rc"] == [2, 0, 4, 2]
     selected = tk.execute_tool(
         "back_project",
         {
-            "camera": "agentview",
-            "step": step,
-            "selection": {"image_shape": [2, 2], "points_rc": [[1, 0]]},
+            "camera": crop.data["camera"],
+            "step": crop.data["step"],
+            "selection": {
+                "image_shape": crop.data["image_shape"],
+                "points_rc": [crop.data["marks"][0]["source_point_rc"]],
+            },
         },
     )
     assert selected.data["samples_xyz"] == [[0.25, 0.5, 0.75]]
@@ -325,6 +344,7 @@ def test_generic_tools_and_geometry_are_opt_in(
             "system", variables={**config.prompt_vars, "output_dir": str(tmp_path)}
         )
         assert ("points_rc" in prompt and "box_rc" in prompt) is generic
+        assert ("`crop_zoom`" in prompt or "crop_zoom(" in prompt) is generic
         assert ('back_project({"row":' in prompt) is not generic
         assert ("mutually exclusive" in prompt) is not generic
         assert ("For geometry, give query" in prompt) is geometry
@@ -342,10 +362,15 @@ def test_generic_tools_and_geometry_are_opt_in(
             state_output_dir=tmp_path / "state",
         )
         schemas = {tool.name: tool.args_schema for tool in tk.list_tools()}
+        assert ("crop_zoom" in schemas) is generic
+        if generic:
+            assert "observations" not in schemas["crop_zoom"].model_fields
         examples = re.findall(
-            r"\b(back_project|segment|geometry)\((\{.*?\})\)", prompt, re.S
+            r"\b(back_project|crop_zoom|segment|geometry)\((\{.*?\})\)", prompt, re.S
         )
         expected = {"back_project", "segment"} | ({"geometry"} if geometry else set())
+        if generic:
+            expected.add("crop_zoom")
         assert {name for name, _ in examples} == expected
         for name, example in examples:
             # The default prompt uses ROW, COL and NN for the selected pixel and step.

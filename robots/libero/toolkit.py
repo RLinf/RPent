@@ -89,6 +89,7 @@ class LiberoToolkit(Toolkit):
         if generic_tools:
             from robots.libero.observations import LiberoGeometryObservations
             from toolkits.back_project import back_project
+            from toolkits.crop_zoom import crop_zoom
             from toolkits.segment import SegmentTool
 
             observations = LiberoGeometryObservations(state)
@@ -96,6 +97,9 @@ class LiberoToolkit(Toolkit):
                 back_project.with_handler(
                     partial(back_project, observations=observations)
                 )
+            )
+            self.add_tool(
+                crop_zoom.with_handler(partial(crop_zoom, observations=observations))
             )
             self.add_tool(
                 SegmentTool(

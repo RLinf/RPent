@@ -268,8 +268,8 @@ def _add_cli_args(parser: argparse.ArgumentParser, use_dashboard: bool) -> None:
         "--rgbd-tools",
         action=argparse.BooleanOptionalAction,
         default=False,
-        help="Replace LIBERO's back_project and segment with the generic RGB-D "
-        "tools. Defaults to disabled.",
+        help="Enable crop_zoom and replace LIBERO's back_project and segment "
+        "with the generic RGB-D tools. Defaults to disabled.",
     )
     parser.add_argument(
         "--geometry",
