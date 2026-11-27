@@ -570,7 +570,8 @@ def test_recipe_exports_generic_segment_calls_without_geometry_masks(tmp_path):
     from rpent.session import EnvState
 
     state = EnvState(tmp_path)
-    call = {"camera": "wrist", "prompt": "cup", "point": [3, 5], "image_shape": [6, 8]}
+    text_call = {"camera": "wrist", "prompt": "cup"}
+    point_call = {"camera": "wrist", "point": [3, 5], "image_shape": [6, 8]}
     previous = {
         "camera": "agentview",
         "point": [1, 2],
@@ -578,12 +579,16 @@ def test_recipe_exports_generic_segment_calls_without_geometry_masks(tmp_path):
         "min_score": 0.4,
     }
     with state.record_step(state={}, terminated=True):
-        state.save("segment_0a1b2c_001.json", {**call, "found": True})
+        state.save("segment_0a1b2c_000.json", {**text_call, "found": True})
+        state.save("segment_0a1b2c_001.json", {**point_call, "found": True})
         state.save(
             "geometry_segment_123456abcdef_002.json", {**previous, "found": True}
         )
         state.save(
             "geometry_segment_123456abcdef_003.json", {**previous, "found": False}
+        )
+        state.save(
+            "segment_0a1b2c_004.json", {**point_call, **text_call, "found": True}
         )
         state.save(
             "geometry_segment_0a1b2c_000_rim_000.json",
@@ -592,7 +597,8 @@ def test_recipe_exports_generic_segment_calls_without_geometry_masks(tmp_path):
     name = write_recipe_from_states(state, "test", output_dir=tmp_path)
     commands = [json.loads(line) for line in (tmp_path / name).read_text().splitlines()]
     assert commands == [
-        {"action": "segment", **call},
+        {"action": "segment", **text_call},
+        {"action": "segment", **point_call},
         {"action": "segment", **previous},
     ]
 

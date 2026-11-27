@@ -186,9 +186,16 @@ def test_generic_localization_is_registered_with_libero_observations(
     monkeypatch.setattr(
         templates, "default_variables", lambda: {"output_dir": str(tmp_path)}
     )
-    mask = np.ones((4, 4), dtype=bool)
+    rows, cols = np.indices((40, 40))
+    mask = (abs(rows - 20) <= 8) & (abs(cols - 22) <= 10)
+    points = np.stack((cols * 0.002, rows * 0.002, 0.4 + mask * 0.04), axis=-1)
+    pose = np.diag([1.0, -1.0, -1.0, 1.0])
+    pose[2, 3] = 1.0
     sam = SimpleNamespace(
-        segment=lambda *a, **kw: Sam3Result(found=True, mask=mask, score=0.9)
+        segment=lambda *a, **kw: Sam3Result(found=True, mask=mask, score=0.9),
+        segment_candidates=lambda *a, **kw: [
+            Sam3Result(found=True, mask=mask, score=0.9)
+        ],
     )
     tk = toolkit.LiberoToolkit(
         runtime_kwargs={"env": object(), "sam3_client": sam},
@@ -202,31 +209,80 @@ def test_generic_localization_is_registered_with_libero_observations(
     assert {"back_project", "segment"} <= _readonly_names(tk)
     if enabled:
         assert "geometry" in _readonly_names(tk)
-        schema = tk._tools["geometry"].input_schema["properties"]
-        assert set(schema) == {
-            "query",
-            "camera",
-            "step",
-            "measurement",
-            "required_geometry",
+        schema = tk._tools["geometry"].input_schema
+        required = {"query", "camera", "object_prompt", "required_geometry", "feature"}
+        assert set(schema["required"]) == required
+        assert set(schema["properties"]) == required | {"step"}
+        quantities = schema["properties"]["required_geometry"]["items"]["enum"]
+        assert set(quantities) == {
+            "ring_center",
+            "disk_center",
+            "rectangle_center",
+            "base_center",
+        }
+        assert set(schema["properties"]["feature"]["enum"]) == {
+            "upper_inner_ring",
+            "upper_outer_ring",
+            "upper_face",
+            "supported_round_base",
         }
 
     with tk.state.record_step(state={}) as step:
         tk.state.save("agentview_policy.png", np.ones((4, 4, 3), np.uint8), step=step)
-        tk.state.save("agentview_high.png", np.zeros((4, 4, 3), np.uint8), step=step)
+        tk.state.save(
+            "agentview_high.png", np.zeros((*mask.shape, 3), np.uint8), step=step
+        )
         tk.state.save("wrist_high.png", np.zeros((600, 800, 3), np.uint8), step=step)
-        points = np.ones((4, 4, 3))
-        points[3, 1] = [0.25, 0.5, 0.75]
         tk.state.save("agentview_world_high.npz", points, step=step)
         tk.state.save(
             "agentview_metadata.json",
             {
-                "height": 4,
-                "width": 4,
+                "height": mask.shape[0],
+                "width": mask.shape[1],
                 "intrinsic_K": np.eye(3).tolist(),
-                "extrinsic_cam2world": np.eye(4).tolist(),
+                "extrinsic_cam2world": pose.tolist(),
             },
             step=step,
+        )
+    if enabled:
+        target = {
+            "camera": "agentview",
+            "query": "box",
+            "object_prompt": "box",
+            "step": step,
+        }
+        request = {
+            **target,
+            "required_geometry": ["rectangle_center"],
+            "feature": "upper_face",
+        }
+        for args, invalid_fields in (
+            (target, {"required_geometry", "feature"}),
+            ({**request, "measurement": "surface_point"}, {"measurement"}),
+            ({**request, "measurement": "visible_region"}, {"measurement"}),
+            ({**request, "feature": "largest_face"}, {"feature"}),
+            (
+                {
+                    **request,
+                    "required_geometry": ["cylinder_base_center"],
+                    "feature": "supported_base",
+                },
+                {"required_geometry", "feature"},
+            ),
+        ):
+            errors = tk.execute_tool("geometry", args).data["errors"]
+            assert {error["loc"][0] for error in errors} == invalid_fields
+        measured = tk.execute_tool("geometry", request).data
+        assert measured["status"] == "usable" and measured["camera"] == "agentview"
+        np.testing.assert_allclose(
+            measured["geometry"]["rectangle_center"]["value"],
+            points[20, 22],
+            atol=0.002,
+        )
+        rejected = tk.execute_tool("geometry", {**request, "camera": "wrist"}).data
+        assert (
+            rejected["code"] == "unsupported_camera"
+            and "agentview" in rejected["error"]
         )
     expected_view = toolkit.libero_tools.view_env_state(step, state=tk.state)
     assert tk.execute_tool("view_env_state", {"step": step}) == expected_view
@@ -245,9 +301,9 @@ def test_generic_localization_is_registered_with_libero_observations(
             "selection": {"image_shape": [2, 2], "points_rc": [[1, 0]]},
         },
     )
-    assert selected.data["samples_xyz"] == [[0.25, 0.5, 0.75]]
+    assert selected.data["samples_xyz"] == [points[30, 10].tolist()]
     segmented = tk.execute_tool(
-        "segment", {"camera": "agentview", "step": step, "prompt": "cup"}
+        "segment", {"camera": "agentview", "step": step, "prompt": "box"}
     )
     assert (
         segmented.data["found"]
@@ -284,6 +340,31 @@ def test_pinned_wrist_sample_uses_its_own_calibration(tmp_path):
     np.testing.assert_array_equal(latest.intrinsics, [[8, 0, 4], [0, 8, 4], [0, 0, 1]])
     with pytest.raises(ValueError, match="calibrated RGB-D pair"):
         obs.get_observation(camera="agentview", step=0)
+
+
+def test_geometry_requires_images_for_the_api_planner(tmp_path):
+    from rpent.cli.main import _build_argparser
+
+    spec = robot_spec.get_robot_spec()
+    parser = _build_argparser()
+    spec.add_cli_args(parser, False)
+    base = [
+        "--suite",
+        "libero_spatial_task",
+        "--task",
+        "0",
+        "--output-dir",
+        str(tmp_path),
+    ]
+    geometry = ["--geometry", "--molmo-endpoint", "http://localhost:8118"]
+    args = parser.parse_args([*base, "--planner", "api", "--no-images", *geometry])
+    for configure in (spec.parse_config, spec.resolve_dashboard):
+        with pytest.raises(ValueError, match=r"--geometry.*--no-images"):
+            configure(args)
+    rgbd = parser.parse_args([*base, "--planner", "api", "--no-images", "--rgbd-tools"])
+    assert spec.parse_config(rgbd).prompt_vars["generic_tools"]
+    sdk = parser.parse_args([*base, "--planner", "codex", "--no-images", *geometry])
+    assert spec.parse_config(sdk).prompt_vars["geometry"]
 
 
 def test_generic_tools_and_geometry_are_opt_in(
@@ -327,9 +408,18 @@ def test_generic_tools_and_geometry_are_opt_in(
         assert ("points_rc" in prompt and "box_rc" in prompt) is generic
         assert ('back_project({"row":' in prompt) is not generic
         assert ("mutually exclusive" in prompt) is not generic
-        assert ("For geometry, give query" in prompt) is geometry
+        assert ('geometry({"query":' in prompt) is geometry
+        assert ('"object_prompt":"blue cup"' in prompt) is geometry
+        assert ('"feature":"upper_inner_ring"' in prompt) is geometry
         assert ("insufficient_evidence" in prompt) is geometry
+        assert ("highlighted object matches the full query" in prompt) is geometry
+        assert ("bare table next to it" in prompt) is not geometry
+        assert ("measure the actual support surface" in prompt) is geometry
         assert ("nudge and re-observe" in prompt) is not geometry
+        assert (
+            "two-camera relation protocol for disambiguating identical objects"
+            in prompt
+        ) is not geometry
 
         tk = robot_spec.get_toolkit(
             config=config,
@@ -394,12 +484,17 @@ def test_rgbd_menu_preserves_the_planners_task_and_memory_instructions(settings)
         }
 
     rgbd = {**settings, "generic_tools": True}
-    assert task_sections(prompts.system(rgbd)) == task_sections(baseline)
+    rgbd_prompt = prompts.system(rgbd)
+    assert task_sections(rgbd_prompt) == task_sections(baseline)
     assert prompts.user(rgbd) == original_user
 
     variables = {**rgbd, "geometry": True}
     actual = prompts.system(variables)
     user = prompts.user(variables)
+    localization = next(
+        value for key, value in actual.items() if key.startswith("LOCALIZATION")
+    )
+    assert "coarse localization" in localization and "samples_xyz" in localization
     for key in original_user.keys() - {"MODE"}:
         assert user[key] == original_user[key]
     if settings.get("policy_kind") == "wam":
@@ -407,7 +502,15 @@ def test_rgbd_menu_preserves_the_planners_task_and_memory_instructions(settings)
         assert actual["OUTCOME"] == baseline["OUTCOME"]
         return
 
+    heading = "FIRST-STEP ALGORITHM"
+    if settings.get("memory_profile") != "local":
+        heading += " — agentview = IDENTITY, wrist = GEOMETRY"
+    assert baseline[heading] == rgbd_prompt[heading] == evaluate.PERCEPTION_ALGORITHM
+    algorithm = actual["FIRST-STEP ALGORITHM"]
+    assert "agentview" in algorithm and "wrist" not in algorithm
     assert "`geometry`" in user["MODE"]
+    assert "Leave missing centers unresolved" in user["MODE"]
+    assert "samples_xyz" in algorithm and "samples_xyz" in user["MODE"]
     rules = actual["RULES (NON-NEGOTIABLE)"]
     assert "`geometry`, `back_project` or `segment`" in rules
     assert "you get object positions ONLY by camera images, depth, and" not in rules

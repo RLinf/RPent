@@ -23,8 +23,9 @@ Runs under the ``molmo`` extra's own interpreter, which does not have RPent
 installed -- hence the explicit ``PYTHONPATH``.
 
 The ``molmo.ground`` RPC selects an open-vocabulary point over HTTP or socket.
-Flash uses the manipulation prompt. Geometry requests a single native point and
-uses ``molmo.verify`` on the same model to check the identity of a proposed region.
+Flash uses the manipulation prompt. Geometry requests a native point when SAM3
+returns zero or multiple candidates. The separate ``molmo.verify`` RPC answers
+identity questions about a supplied image.
 """
 
 from __future__ import annotations

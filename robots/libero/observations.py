@@ -17,7 +17,6 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterable
 from uuid import uuid4
 
 import numpy as np
@@ -67,15 +66,3 @@ class LiberoGeometryObservations:
                 },
             )
         raise ValueError(f"no matching calibrated RGB-D pair for {camera} at step {nn}")
-
-    def additional_observations(
-        self, primary: GeometryObservation
-    ) -> Iterable[GeometryObservation]:
-        """Read the other calibrated camera from this exact state record."""
-        other = "wrist" if primary.camera == "agentview" else "agentview"
-        if not any(
-            name in self.state.get(primary.step).artifacts
-            for name in (f"{other}_high.png", f"{other}.png")
-        ):
-            return
-        yield self.get_observation(camera=other, step=primary.step)

@@ -24,7 +24,9 @@ from typing import Any
 import imageio.v2 as imageio
 import numpy as np
 
-from rpent.utils.rpc import RpcClient
+from rpent.utils.rpc import RpcClient, RpcError
+
+_CANDIDATES_RPC = "sam3.segment_candidates"
 
 
 @dataclass(frozen=True)
@@ -39,12 +41,47 @@ class Sam3Result:
     reason: str | None = None
 
 
+def _image_payload(image: bytes | bytearray | memoryview | np.ndarray) -> str:
+    if isinstance(image, np.ndarray):
+        buffer = io.BytesIO()
+        imageio.imwrite(buffer, image, format="png")
+        image_bytes = buffer.getvalue()
+    else:
+        image_bytes = bytes(image)
+    return base64.b64encode(image_bytes).decode("ascii")
+
+
 class Sam3Client:
     """Client wrapping the SAM3 service over any :class:`RpcClient`."""
 
     def __init__(self, client: RpcClient, *, timeout_s: float = 120.0) -> None:
         self._client = client
         self._timeout_s = timeout_s
+
+    def supports_segment_candidates(self) -> bool:
+        """Check whether the server implements candidate masks without running inference."""
+        timeout = min(self._timeout_s, 5.0)
+        health = self._client.call(
+            "healthz", kwargs={"check_method": _CANDIDATES_RPC}, timeout_s=timeout
+        )
+        if isinstance(health, dict) and isinstance(health.get("supported"), bool):
+            return health["supported"]
+
+        # Older servers only report health. A registered handler rejects an
+        # empty prompt before decoding the image or running the model.
+        try:
+            self._client.call(
+                _CANDIDATES_RPC,
+                kwargs={"image_base64": "", "text_prompt": ""},
+                timeout_s=timeout,
+            )
+        except RpcError as exc:
+            message = str(exc).removeprefix(f"{_CANDIDATES_RPC}: ")
+            if message == f"unknown RPC method: {_CANDIDATES_RPC!r}":
+                return False
+            if message != "segment_candidates requires a text prompt":
+                raise
+        return True
 
     def segment(
         self,
@@ -68,14 +105,8 @@ class Sam3Client:
         if not 0.0 <= float(min_score) <= 1.0:
             raise ValueError("min_score must be between 0 and 1")
 
-        if isinstance(image, np.ndarray):
-            buffer = io.BytesIO()
-            imageio.imwrite(buffer, image, format="png")
-            image_bytes = buffer.getvalue()
-        else:
-            image_bytes = bytes(image)
         body: dict[str, Any] = {
-            "image_base64": base64.b64encode(image_bytes).decode("ascii"),
+            "image_base64": _image_payload(image),
             "min_score": float(min_score),
         }
         if has_text:
@@ -89,6 +120,29 @@ class Sam3Client:
             timeout_s=self._timeout_s,
         )
         return self._decode_result(payload)
+
+    def segment_candidates(
+        self, image: bytes | np.ndarray, *, text_prompt: str, min_score: float = 0.2
+    ) -> list[Sam3Result]:
+        """Return all nonempty text masks scoring strictly above the threshold, best first."""
+        if not isinstance(text_prompt, str) or not text_prompt.strip():
+            raise ValueError("segment_candidates requires a text prompt")
+        if not 0.0 <= min_score <= 1.0:
+            raise ValueError("min_score must be between 0 and 1")
+        payload = self._client.call(
+            _CANDIDATES_RPC,
+            kwargs={
+                "image_base64": _image_payload(image),
+                "text_prompt": text_prompt.strip(),
+                "min_score": min_score,
+            },
+            timeout_s=self._timeout_s,
+        )
+        if not isinstance(payload, dict) or not isinstance(
+            payload.get("candidates"), list
+        ):
+            raise RuntimeError("invalid SAM3 candidate list")
+        return [self._decode_result(item) for item in payload["candidates"]]
 
     @staticmethod
     def _decode_result(payload: Any) -> Sam3Result:

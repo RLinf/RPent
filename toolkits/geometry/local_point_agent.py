@@ -38,7 +38,7 @@ class PointOutput(BaseModel):
     """At most one point measured in the supplied RGB raster."""
 
     xy: tuple[FiniteFloat, FiniteFloat] | None
-    image_size: tuple[PositiveInt, PositiveInt]
+    image_size: tuple[PositiveInt, PositiveInt] | None
     answer: str | None = None
 
 
@@ -46,8 +46,6 @@ class LocalPointAgent:
     """Translate structured agent I/O to one local native point call without a text planner."""
 
     def __init__(self, backend: VisualGrounder):
-        self._backend = backend
-
         def respond(messages, info):
             request = next(
                 p for p in messages[-1].parts if isinstance(p, UserPromptPart)
@@ -72,15 +70,6 @@ class LocalPointAgent:
             output_type=PointOutput,
             retries=0,
         )
-
-    def verify(
-        self, image: bytes, query: str | None, *, isolated: bool = False
-    ) -> str | None:
-        """Reuse the injected local model; old point-only backends have no identity verdict."""
-        verify = getattr(self._backend, "verify", None)
-        if verify is None:
-            return None
-        return verify(image, query, isolated=True) if isolated else verify(image, query)
 
     def ground(self, image: bytes, query: str) -> MolmoResult:
         result = self._agent.run_sync(
