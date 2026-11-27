@@ -483,27 +483,22 @@ reference pattern.
 Optional Run-result Finalizer
 -----------------------------
 
-``RobotSpec.finalize_run`` is a universal, robot-agnostic end-of-run hook.
-It records per-cell evaluation results for later statistics and aggregation.
-Any robot that publishes
-machine-readable evaluation artifacts may register the hook. The default is
-``None`` and leaves the runner unchanged. When the hook is present, terminal
-and Dashboard runners capture ``toolkit.solved()`` before closing the toolkit, then
-pass a structured ``RunFinalizationContext`` to the hook after runtime
-cleanup. The hook owns the artifact schema and filename; RPent only defines the
-lifecycle boundary.
+If your benchmark needs a result file for each run, register a writer with
+``RobotSpec.finalize_run``. The writer chooses the filename and fields.
+The terminal and Dashboard runners read ``toolkit.solved()`` before closing
+the toolkit and pass ``RunFinalizationContext`` to the writer after cleanup.
 
-``RunFinalizationContext.stop_reason`` and ``stop_info`` carry the planner's
-optional reason and structured stop evidence separately from usage statistics.
-``cancelled_reason`` carries runner cancellation, such as replacing a Dashboard
-task. Preserve the planner's stop evidence. If you publish a stop category,
-match the trajectory (for example, record a cleanup failure as an error).
-Each robot chooses which fields to publish in its result file. LIBERO keeps native success,
-accepted finish, and operator verdict separate in ``result.json``; a planner's
-finish does not establish environment success.
+Use ``environment_success`` for the environment's verdict. The planner supplies
+the optional ``stop_reason`` and ``stop_info``. The runner records cancellation
+in ``cancelled_reason`` (for example, if a Dashboard user replaces the task)
+and reports cleanup errors. Preserve the planner's reason if cleanup fails,
+and use the same error category as the trajectory if you publish one.
 
-Use ``write_json_atomic`` when the artifact is JSON so an interrupted write
-cannot leave a partial result:
+See :doc:`../simulators/libero` for a result file that also records whether
+``finish`` was accepted and what the operator decided.
+
+This example uses ``write_json_atomic`` to save a JSON file with the task and
+the environment's verdict.
 
 .. code-block:: python
 
@@ -521,7 +516,7 @@ cannot leave a partial result:
 
 Register the callback as ``RobotSpec(..., finalize_run=_finalize_run)``. Keep
 benchmark manifests, robot-specific runtime fields, and aggregation logic in
-the robot package rather than the shared CLI.
+the robot package.
 
 .. _add-robot-testing:
 

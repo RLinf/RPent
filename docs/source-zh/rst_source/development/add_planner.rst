@@ -44,9 +44,9 @@
 2. 从 ``toolkit.list_tools()`` 取得工具的 ``name``、``description`` 和 ``input_schema``，并通过 ``toolkit.execute_tool(name, arguments)`` 执行工具。
 3. 将 ``ToolResult.to_text()`` 的文本和 ``ToolResult.images`` 中的 PNG 字节转换成模型 SDK 所需的格式。
 4. 识别 ``ToolResult.data.get("_finish")``，并按 ``max_turns`` 等限制终止循环。
-5. 从 ``solve()`` 返回 ``PlannerResult``，其中包含结束状态、消息、用量统计和可能出现的错误。例如，达到轮数上限时，可以用 ``stop_reason`` 说明原因。任务是否成功由环境判定。
+5. 用 ``PlannerResult`` 返回结束状态、消息、用量统计和错误信息。
 
-如果规划器使用 ``stop_info``，请在本次会话中所有动作的结果都已确认并送达、清理工作也已完成后，再允许开启新的探索会话。
+规划器用 ``stop_reason`` 说明自己为什么停下。例如，只返回 ``cancelled`` 或 ``error`` 时，RPent 就会结束探索。要允许下一轮探索，规划器需要在 ``stop_info`` 中明确允许继续，并确认每个动作的结果都已查明并送达，清理工作也已完成。任务是否成功由环境判定。
 
 由于 RPent 的工具定义和提示词渲染流程保持不变，新增规划器无需修改工具或环境服务。接口参见 :doc:`architecture`；添加工具见 :doc:`add_primitive`。
 

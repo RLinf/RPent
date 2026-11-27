@@ -244,9 +244,12 @@ When using external MCP servers via ``--mcp-config``, ``MCP_CALL_TIMEOUT_S`` (po
 Output Files
 ------------
 
-``--output-dir`` selects the run directory. Without it, LIBERO writes to ``logs/<timestamp>_<suite>_t<task>_s<seed>/`` under the repository; other environments describe their directory names on their own pages.
+For example, LIBERO writes ``result.json`` to the run directory selected by
+``--output-dir``. The default LIBERO directory is
+``logs/<timestamp>_<suite>_t<task>_s<seed>/`` under the repository. See each
+environment's guide for its default directory.
 
-The table uses LIBERO as an example. Files depend on the environment, recording, and run outcome.
+The files below depend on the environment, recording settings, and run outcome.
 
 .. list-table::
    :header-rows: 1
@@ -254,7 +257,7 @@ The table uses LIBERO as an example. Files depend on the environment, recording,
    * - File or path
      - Purpose
    * - ``result.json``
-     - Native success, planner termination, evaluation validity, and operator verdict. See :doc:`../simulators/libero` for result interpretation.
+     - LIBERO's success verdict, why planning stopped, whether the attempt counts for evaluation, and the operator's verdict. See :doc:`../simulators/libero`.
    * - ``transcript_*.json``
      - Planner conversation, tool calls, and completion information.
    * - ``trajectories/<task_id>/``

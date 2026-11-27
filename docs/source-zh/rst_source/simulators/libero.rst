@@ -196,13 +196,13 @@ Fast-WAM 使用 ``--am-backend fast-wam`` 及其 worker 地址。LIBERO-Pro 需�
 查看结果
 ------------
 
-终端会显示服务器启动、规划器对话和工具调用。结束后查看输出目录中的 ``result.json``、``episode.mp4``、``transcript_*.json`` 和 ``run.log``；默认目录与逐步观测文件见 :ref:`run-output-files`。
+任务成功了吗？打开输出目录里的 ``result.json``，查看 LIBERO 给出的 ``environment_success``。也可以用 ``view_env_state(step=-1)`` 查看最后一次观测，顶层的 ``terminated`` 就是环境的判定。规划器的 ``finish`` 请求是否获准，记录在 ``finish_accepted`` 中。文件还列出了运行结束的原因和类别，操作员的判断则记在 ``operator_verdict`` 中。
 
-通过 ``view_env_state(step=-1)`` 查看最终状态，顶层 ``terminated`` 表示环境是否判定成功。规划器调用 ``finish`` 只表示结束规划。实时观察方法见 :doc:`../guides/dashboard`。
+这次尝试能否计入评测，要看 ``valid``。模型正常结束回复但没调用 ``finish``，或者用完了时间或预算，都有可能计入评测。Gemini 的 ``max_tokens`` 表示已达到输出长度上限。这几种情况都需要知道环境判定和每个动作的结果，并且工具结果已送达、清理已完成。模型服务报错、任务取消、操作员中止，或结果无法确定，都不计入评测。
 
-``result.json`` 分别记录原生结果 ``environment_success``、``finish_accepted``、``operator_verdict``，以及终止原因和分类。``valid`` 表示本次尝试是否可纳入评测，与任务是否成功独立。模型正常结束但未调用 ``finish``、达到规划器总时限或耗尽预算时，若原生结果已知且执行、结果交付和清理状态确定，仍可计为有效尝试。Gemini 的 ``max_tokens`` 表示其输出长度上限。provider 错误、取消、操作员中止及状态不确定的尝试均无效。
+CLI 和 Dashboard 都在运行结束时写入 ``result.json``。如果启动时就出错，目录里可能没有这个文件。写入失败时，CLI 返回非零退出码，Dashboard 将任务标记为出错。
 
-CLI 与 Dashboard 运行进入最终结果写入阶段时生成此文件；早期初始化失败可能不生成结果文件。写入失败会报告运行错误：CLI 返回非零退出码，Dashboard 记录任务错误。
+终端会显示服务启动过程、规划器对话和工具调用。运行结束后，可以打开输出目录里的 ``episode.mp4`` 回看录像，或查看 ``transcript_*.json`` 和 ``run.log``。默认路径和各步观测文件见 :ref:`run-output-files`，实时查看任务进展见 :doc:`../guides/dashboard`。
 
 .. _libero-exploration:
 

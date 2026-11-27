@@ -52,14 +52,14 @@ Any planner must:
    format expected by the model SDK.
 4. Detect ``ToolResult.data.get("_finish")`` and stop according to
    ``max_turns`` and any other limits.
-5. Return a ``PlannerResult`` from ``solve()`` with the finish state, messages,
-   usage statistics, and any error. For example, if the planner reaches its turn
-   limit, it can report this in ``stop_reason``. The environment determines
-   whether the task succeeded.
+5. Return the finish state, messages, usage statistics, and any error in
+   ``PlannerResult``.
 
-If your planner uses ``stop_info``, allow a new exploration session only when
-all action outcomes are known, their results have been delivered, and cleanup
-is complete.
+Your planner reports why it stopped in ``stop_reason``. For example, if it
+returns ``cancelled`` or ``error`` alone, RPent ends exploration. To allow
+another session, use ``stop_info`` to confirm that each action's outcome is
+known, the results have been delivered, and cleanup is complete. The
+environment determines whether the task succeeded.
 
 Because the RPent tool schemas and prompt-rendering path stay the same,
 adding a planner does not require changes to tools or environment

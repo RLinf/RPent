@@ -217,21 +217,28 @@ that call only. Chunk budgets do not specify where to stop inside a chunk.
 View Results
 ------------
 
-The terminal shows server startup, planner conversation, and tool calls. After the run, inspect ``result.json``, ``episode.mp4``, ``transcript_*.json``, and ``run.log`` in the output directory; see :ref:`run-output-files` for default paths and step artifacts.
+To check whether LIBERO considers the task solved, read
+``environment_success`` in the output directory's ``result.json``.
+You can also check ``terminated`` at the top level of the final observation
+with ``view_env_state(step=-1)``. The result file records whether the planner's
+``finish`` was accepted (``finish_accepted``), why the run stopped and its stop
+category, and the operator's verdict (``operator_verdict``).
 
-Inspect the final state with ``view_env_state(step=-1)``. Its top-level ``terminated`` value is the native success result; ``finish`` ends planning. See :doc:`../guides/dashboard` for live monitoring.
+Use ``valid`` to decide whether to count the attempt. A run can count even if
+the model finishes its reply without calling ``finish``, reaches its deadline,
+or uses up its budget. Gemini's ``max_tokens`` means it reached its output
+limit. In each case, the environment's verdict and action outcomes must be
+known, tool results delivered, and cleanup complete. A provider error,
+cancellation, operator abort, or uncertain outcome makes the attempt invalid.
 
-``result.json`` records native ``environment_success``, ``finish_accepted``,
-``operator_verdict``, and the termination reason and category. ``valid`` identifies
-an attempt eligible for evaluation, independently of task success. A normal model
-completion without ``finish``, a planner deadline, or an exhausted budget can
-count when the native outcome is known and execution, result delivery, and
-cleanup are certain. Gemini's ``max_tokens`` denotes its output limit. Provider errors,
-cancellations, operator aborts, and uncertain outcomes are invalid.
+CLI and Dashboard runs write ``result.json`` at the end. If startup fails,
+there may be no file. If writing fails, the CLI exits with a nonzero status
+and the Dashboard reports a task error.
 
-CLI and Dashboard runs write this file when they reach finalization; an early
-initialization failure may leave no result file. A write failure is reported as a
-run error. CLI returns a nonzero exit status; Dashboard records a task error.
+The terminal shows startup, the planner conversation, and tool calls. To
+review a run, open ``episode.mp4``, ``transcript_*.json``, or ``run.log`` in
+the output directory. See :ref:`run-output-files` for paths and step
+observations, or :doc:`../guides/dashboard` to follow a run live.
 
 .. _libero-exploration:
 
