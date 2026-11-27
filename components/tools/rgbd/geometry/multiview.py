@@ -21,8 +21,8 @@ import time
 import numpy as np
 from scipy.spatial import cKDTree
 
-from rpent.tools import ToolResult
 from components.tools.rgbd.observation import GeometryObservation
+from rpent.tools import ToolResult
 
 
 def _missing(result):

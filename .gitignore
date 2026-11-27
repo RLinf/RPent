@@ -22,9 +22,14 @@ uv.lock
 docs/build/
 
 build/
+dist/
+.coverage
 .claude/settings.json
 .venv/
 /.codex-rpent-live/
+# `rpent-install` state: environments it creates by default.
+/.rpent/
 
-# Standalone calibration environment.
-.venv-calibration/
+# Environments the installation guide creates inside the checkout
+# (`.venv-libero`, `.venv-dev`, ...) and the standalone calibration one.
+.venv-*/

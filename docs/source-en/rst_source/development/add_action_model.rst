@@ -29,7 +29,7 @@ The WAM execution path illustrates the platform/model boundary:
      -> wam_act: observe, predict, execute, record
      -> observation.py + wam_client.py: physical observations and control identity
      -> BaseWAMClient -> existing HTTP/socket RPC -> BaseWAMFacade
-     -> <model>/adapter/encode.py -> predict_native -> adapter/decode.py
+     -> encode -> predict_native -> decode
      -> action chunk -> platform env_client.chunk_step -> simulator
 
 ``wam_act`` lives in LIBERO's ``tools.py`` and RoboTwin's ``primitives.py``.
@@ -48,7 +48,7 @@ toolkit owns registration, cancellation, state capture and recording.
    * - ``components/sim/<platform>/wam_client.py``
      - Select a compatible controller and attach execution identity to observations.
    * - ``rpent/components/models/contracts.py``
-     - Declare shared physical observations/native control and WAM-specific capability, request and result dictionaries in separate sections.
+     - Declare shared physical observations/native control and the AM request built on them, then WAM-specific capability, request and result dictionaries in separate sections.
    * - ``rpent/components/models/client.py``
      - Define the shared ``BaseAMClient`` and its VLA/WAM subclasses; share prediction dispatch and timeouts, keeping each contract's arguments and checks.
    * - ``rpent/components/models/facade.py``
@@ -60,9 +60,9 @@ toolkit owns registration, cancellation, state capture and recording.
    * - ``<model>/runtime_config.py``
      - Supply WAM model-specific arguments, defaults and configuration requirements.
    * - ``<model>/server.py``
-     - Load a WAM model or connect its native service, and implement the inference call.
-   * - ``<model>/adapter/{__init__,encode,decode}.py``
-     - Register paired transforms, build model input and restore native actions.
+     - Load a WAM model or connect its native service, and implement ``encode``, ``predict_native`` and ``decode``.
+   * - ``<model>/adapter/__init__.py``
+     - Declare the platforms the model serves and the contract each one reports.
 
 Physical observations are reusable by VLA and WAM integrations. Model encoders
 remain distinct: Cosmos uses LIBERO's xyzw quaternion in a 9D state, whereas
@@ -231,15 +231,15 @@ RPent reuses its existing LIBERO client and maps observations and predictions
 at that boundary. These backends require different checkpoints.
 
 1. Create a model package under ``components/models/``. Its
-   ``server.py`` subclasses ``BaseWAMFacade`` and implements
-   ``predict_native``; provide a required ``(encode, decode)`` adapter pair.
-2. Register each supported platform in the model's ``ADAPTERS`` mapping
-   using ``WAMAdapterSpec`` from ``rpent/components/models/facade.py``. The model metadata factory declares checkpoint
-   identity, camera/state requirements, native control and executable chunk size.
-   Declare ``joint_target_history_shape`` if the model requires executed joint targets,
-   and validate the checkpoint's history settings at startup.
-   Encode physical observations into model inputs; decode predictions into the
-   declared platform action format.
+   ``server.py`` subclasses ``BaseWAMFacade``, which calls ``encode``,
+   ``predict_native`` and ``decode`` in that order. Implement the three methods
+   and keep whatever checkpoint state they need on the instance.
+2. Register each supported platform in the model's ``ADAPTERS`` mapping. Each
+   entry declares checkpoint identity, camera/state requirements, native control
+   and executable chunk size. Declare ``joint_target_history_shape`` if the
+   model requires executed joint targets, and validate the checkpoint's history
+   settings at startup. Encode physical observations into model inputs; decode
+   predictions into the declared platform action format.
 3. Reuse a platform's ``wam_client.py`` when its observation and control
    contracts fit. ``BaseWAMClient`` fetches ``wam.get_model_meta`` once at
    initialization; the platform checks control compatibility before executing
@@ -303,9 +303,9 @@ Add a Platform and Check Compatibility
 
 For another platform, provide physical observations, native control definitions,
 a platform client and tool/runtime wiring. Each supported model still needs a
-matching checkpoint and paired transforms; registration does not establish
-checkpoint compatibility. RoboTwin's EEF16 controller is defined, but its
-current Fast-WAM adapter uses qpos14. Cosmos Policy has no RoboTwin adapter.
+matching checkpoint and its own transforms; registration does not establish
+checkpoint compatibility. RoboTwin's EEF16 controller is defined, but Fast-WAM's
+RoboTwin facade uses qpos14. Cosmos Policy serves no RoboTwin contract.
 
 ``future_observation`` and ``value`` reserve space for model predictions.
 Separate forecasting/planning RPCs and planner consumption of predictions are

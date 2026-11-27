@@ -12,54 +12,30 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Matched Cosmos Policy platform encoders and decoders."""
+"""Cosmos Policy's supported platforms and the contract each one declares."""
 
-from functools import partial
-
-from components.sim.libero.control import LIBERO_OSC
-from rpent.components.models.contracts import WAMModelMeta
-from rpent.components.models.facade import (
-    WAMAdapter,
-    WAMAdapterSpec,
-)
 from components.models.cosmos_policy import USES_SESSIONS
-from components.models.cosmos_policy.adapter.decode import decode_libero
-from components.models.cosmos_policy.adapter.encode import (
-    STATE_SCHEMA,
-    encode_libero,
-)
+from rpent.components.models.contracts import WAMModelMeta
+from rpent.components.models.platforms import LIBERO_OSC
 
-ADAPTERS = {
-    "libero": WAMAdapterSpec(
-        encode_libero,
-        decode_libero,
-        partial(
-            WAMModelMeta,
-            control=LIBERO_OSC,
-            camera_roles=("primary", "wrist"),
-            state_schema=STATE_SCHEMA,
-        ),
-    ),
-}
+STATE_SCHEMA = {"gripper_qpos": 2, "eef_position": 3, "eef_quaternion_xyzw": 4}
 
 
-def make_adapter(
-    platform: str, checkpoint: str, *, predict_future: bool = False
-) -> tuple[WAMModelMeta, WAMAdapter]:
-    """Select a supported checkpoint contract and its paired transforms."""
-    if platform not in ADAPTERS:
-        raise ValueError(f"unsupported Cosmos Policy platform: {platform!r}")
-    spec = ADAPTERS[platform]
-    model_meta = spec.model_meta(
+def libero_model_meta(*, checkpoint: str, predict_future: bool) -> WAMModelMeta:
+    """Declare the official two-camera OSC contract and its optional outputs."""
+    return WAMModelMeta(
         backend="cosmos_policy",
         checkpoint=checkpoint,
+        control=LIBERO_OSC,
+        camera_roles=("primary", "wrist"),
+        state_schema=STATE_SCHEMA,
         chunk_size=16,
         uses_sessions=USES_SESSIONS,
         returns_future_observation=predict_future,
         returns_value=predict_future,
         metadata={},
     )
-    return model_meta, (
-        spec.encode,
-        partial(spec.decode, predict_future=predict_future),
-    )
+
+
+#: Platform -> the checkpoint contract this model serves on it.
+ADAPTERS = {"libero": libero_model_meta}

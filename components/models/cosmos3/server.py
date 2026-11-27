@@ -19,8 +19,11 @@ from __future__ import annotations
 import argparse
 from typing import Any
 
+import numpy as np
+
+from components.models.cosmos3.adapter import ADAPTERS
+from rpent.components.models.contracts import WAMPrediction
 from rpent.components.models.facade import BaseWAMFacade
-from components.models.cosmos3.adapter import ADAPTERS, make_adapter
 
 
 class Cosmos3Facade(BaseWAMFacade):
@@ -47,10 +50,38 @@ class Cosmos3Facade(BaseWAMFacade):
         self._timeout = float(
             policy.cfg_rollout.get("sglang", {}).get("http_timeout_s", 600)
         )
-        meta, adapter = make_adapter(platform, checkpoint, policy=policy)
+        meta = ADAPTERS[platform](checkpoint=checkpoint, policy=policy)
         # Cover the native request budget plus encoding and RPC overhead.
         meta["prediction_timeout_s"] = self._timeout + 30.0
-        super().__init__(meta, adapter=adapter)
+        super().__init__(meta)
+
+    def encode(self, request: dict) -> dict:
+        """Let RLinf compose images and construct the native action request."""
+        # Physical views are vertically flipped; RLinf expects a 180-degree rotation.
+        observation = {
+            "main_images": np.ascontiguousarray(request["images"]["primary"][:, ::-1])[
+                None
+            ],
+            "wrist_images": np.ascontiguousarray(request["images"]["wrist"][:, ::-1])[
+                None
+            ],
+            "task_descriptions": [request["instruction"]],
+        }
+        payload, state = self._policy.build_request(observation, mode="eval")
+        return {"payload": payload, "state": state}
+
+    def decode(self, result: tuple[dict, dict]) -> WAMPrediction:
+        """Unbatch native actions after RLinf restores LIBERO's control convention."""
+        from rlinf.envs.action_utils import prepare_actions_for_libero
+
+        response, state = result
+        actions, _ = self._policy.parse_response(response, state)
+        if actions.ndim != 3 or actions.shape[0] != 1:
+            raise ValueError("Cosmos3 must return one batched action chunk")
+        actions = prepare_actions_for_libero(
+            actions[0].cpu().numpy(), model_type="cosmos3"
+        )
+        return WAMPrediction(actions=actions)
 
     def predict_native(
         self, request: dict, *, session_id: str | None = None

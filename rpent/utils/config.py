@@ -69,10 +69,6 @@ def get_pi05_checkpoint_path() -> str:
     return os.environ.get("PI05_CHECKPOINT_PATH", "")
 
 
-def get_libero_type() -> str:
-    return os.environ.get("LIBERO_TYPE", "pro")
-
-
 def get_rlinf_repo_path() -> Path:
     """Return the RLinf path that RPC servers import."""
     env = os.environ.get("RPENT_RLINF_ROOT") or os.environ.get("RLINF_REPO_PATH")

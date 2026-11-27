@@ -22,7 +22,7 @@ VLA 和 WAM 通过公共 AM 基类复用 RPC 注册与推理转发。VLA 保留�
      -> wam_act: observe, predict, execute, record
      -> observation.py + wam_client.py: physical observations and control identity
      -> BaseWAMClient -> existing HTTP/socket RPC -> BaseWAMFacade
-     -> <model>/adapter/encode.py -> predict_native -> adapter/decode.py
+     -> encode -> predict_native -> decode
      -> action chunk -> platform env_client.chunk_step -> simulator
 
 ``wam_act`` 在 LIBERO 的 ``tools.py`` 和 RoboTwin 的 ``primitives.py`` 中通过 ``@tool`` 声明，返回 ``ToolResult(data=...)``。平台已有 toolkit 负责工具注册、取消、状态采集和录制。
@@ -39,7 +39,7 @@ VLA 和 WAM 通过公共 AM 基类复用 RPC 注册与推理转发。VLA 保留�
    * - ``components/sim/<platform>/wam_client.py``
      - 选择兼容控制方式，给物理观测附加执行身份。
    * - ``rpent/components/models/contracts.py``
-     - 分节声明共享物理观测、原生控制，以及 WAM 专用的能力、请求和结果字典。
+     - 分节声明共享物理观测、原生控制及其上的 AM 请求，以及 WAM 专用的能力、请求和结果字典。
    * - ``rpent/components/models/client.py``
      - 定义公共 ``BaseAMClient`` 及 VLA/WAM 子类，共享推理转发和超时处理，各自保留协议参数与检查。
    * - ``rpent/components/models/facade.py``
@@ -51,11 +51,11 @@ VLA 和 WAM 通过公共 AM 基类复用 RPC 注册与推理转发。VLA 保留�
    * - ``<model>/runtime_config.py``
      - 补充 WAM 模型专属参数、默认值和配置要求。
    * - ``<model>/server.py``
-     - 加载 WAM 模型或连接其原生服务，实现推理调用。
-   * - ``<model>/adapter/{__init__,encode,decode}.py``
-     - 注册成对转换，构造模型输入并还原平台动作。
+     - 加载 WAM 模型或连接其原生服务，实现 ``encode``、``predict_native`` 和 ``decode``。
+   * - ``<model>/adapter/__init__.py``
+     - 声明该模型支持的平台，以及每个平台上报的契约。
 
-物理观测可由 VLA 和 WAM 复用，模型编码仍由各自 adapter 实现。例如 Cosmos 将 LIBERO 的 xyzw 四元数拼入 9 维状态，Fast-WAM 则转换成轴角后组成 8 维状态。RoboTwin 分开提供控制器关节目标与实测关节位置；Fast-WAM 使用对应原生 ``joint_action.vector`` 的目标值。
+物理观测可由 VLA 和 WAM 复用，模型编码仍由各自的 WAM facade 实现。例如 Cosmos 将 LIBERO 的 xyzw 四元数拼入 9 维状态，Fast-WAM 则转换成轴角后组成 8 维状态。RoboTwin 分开提供控制器关节目标与实测关节位置；Fast-WAM 使用对应原生 ``joint_action.vector`` 的目标值。
 
 平台 ``robot_spec.py`` 通过回调连接各层启动逻辑。WAM worker 的调用链如下：
 
@@ -149,8 +149,8 @@ Cosmos Policy 和 Cosmos3 支持 LIBERO、LIBERO-Pro；Fast-WAM 支持 LIBERO、
 
 ``cosmos-policy`` 使用 NVIDIA 发布的 ``Cosmos-Policy-LIBERO-Predict2-2B`` 权重和官方 LIBERO 推理接口。``cosmos3`` 通过 RLinf 的 ``Cosmos3SGLangAdapter`` 和 HTTP client，连接独立部署的 SGLang ``/v1/actions/generations`` 服务。图像拼接、请求构造、动作反归一化和旋转转换由 RLinf 负责，其 ``prepare_actions_for_libero`` 还负责适配仿真器的夹爪约定。RPent 复用已有 LIBERO client，只在接口边界映射观测与预测。这两个后端需要不同的 checkpoint。
 
-1. 在 ``rpent/components/`` 下创建模型包。``server.py`` 继承 ``BaseWAMFacade`` 并实现 ``predict_native``，必须提供 ``(encode, decode)`` adapter 函数对。
-2. 使用 ``rpent/components/models/facade.py`` 中的 ``WAMAdapterSpec`` 在模型的 ``ADAPTERS`` 中注册支持的平台。模型元数据工厂声明 checkpoint 身份、相机与状态要求、原生控制约定及可执行 chunk 长度。需要已执行关节目标历史的模型声明 ``joint_target_history_shape``，并在启动时校验 checkpoint 的历史配置。encode 将物理观测转换为模型输入，decode 将预测还原为声明的平台动作格式。
+1. 在 ``components/models/`` 下创建模型包。``server.py`` 继承 ``BaseWAMFacade``，基类按 ``encode``、``predict_native``、``decode`` 的顺序调用；实现这三个方法，并把它们需要的 checkpoint 状态保存在实例上。
+2. 在模型的 ``ADAPTERS`` 中注册支持的平台。每个条目声明 checkpoint 身份、相机与状态要求、原生控制约定及可执行 chunk 长度。需要已执行关节目标历史的模型声明 ``joint_target_history_shape``，并在启动时校验 checkpoint 的历史配置。encode 将物理观测转换为模型输入，decode 将预测还原为声明的平台动作格式。
 3. 观测和控制契约匹配时，复用平台的 ``wam_client.py``。``BaseWAMClient`` 在初始化时调用一次 ``wam.get_model_meta``，将结果保存在 ``model_meta``；平台在执行预测前检查控制兼容性。
 4. 在 ``runtime_config.py`` 中补充部署参数，并在 ``rpent.components.models.backends.WAM_BACKENDS`` 注册后端；模型专属启动逻辑留在模型包内。在模型包中声明是否使用会话；推理保留会话历史时实现 ``reset_native``。
 5. 在平台运行时与工具执行中接入所选后端。回合边界重置模型历史，结束后关闭客户端。每个 toolkit 都必须持有 ``MemoryManager``。
@@ -175,7 +175,7 @@ RPC 路由为 ``wam.get_model_meta``、``wam.predict`` 和 ``wam.reset``。请�
 添加平台与检查兼容性
 ~~~~~~~~~~~~~~~~~~~~
 
-增加平台时，提供物理观测、原生控制定义、平台 client 及工具和运行时接线。每个模型仍需匹配的 checkpoint 和配对转换；注册本身不能证明权重兼容。RoboTwin 已定义 EEF16 控制方式，但当前 Fast-WAM adapter 使用 qpos14。Cosmos Policy 尚无 RoboTwin adapter。
+增加平台时，提供物理观测、原生控制定义、平台 client 及工具和运行时接线。每个模型仍需匹配的 checkpoint 和自己的转换；注册本身不能证明权重兼容。RoboTwin 已定义 EEF16 控制方式，但 Fast-WAM 的 RoboTwin facade 使用 qpos14。Cosmos Policy 不提供 RoboTwin 契约。
 
 ``future_observation`` 和 ``value`` 为模型预测预留字段，独立的预测与规划 RPC 以及规划器使用预测结果尚未实现。每个 toolkit 必须持有 ``MemoryManager``，并注册记忆文件工具。可通过 ``--memory-dir`` 指定记忆目录。
 

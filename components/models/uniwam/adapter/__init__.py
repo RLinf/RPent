@@ -12,43 +12,31 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Paired UniWAM RoboTwin transforms and control metadata."""
+"""UniWAM's supported platforms and the contract each one declares."""
 
-from functools import partial
-
-from components.sim.robotwin.control import ROBOTWIN_QPOS
-from rpent.components.models.contracts import WAMModelMeta
-from rpent.components.models.facade import WAMAdapter, WAMAdapterSpec
 from components.models.uniwam import (
     ACTION_CHUNK_SIZE,
     HISTORY_LENGTH,
     USES_SESSIONS,
 )
-from components.models.uniwam.adapter.decode import decode_robotwin
-from components.models.uniwam.adapter.encode import encode_robotwin
-
-ADAPTERS = {
-    "robotwin": WAMAdapterSpec(
-        encode_robotwin,
-        decode_robotwin,
-        partial(
-            WAMModelMeta,
-            control=ROBOTWIN_QPOS,
-            camera_roles=("head", "left_wrist", "right_wrist"),
-            state_schema={"joint_targets": 14},
-            joint_target_history_shape=(HISTORY_LENGTH, 14),
-        ),
-    ),
-}
+from rpent.components.models.contracts import WAMModelMeta
+from rpent.components.models.platforms import ROBOTWIN_QPOS
 
 
-def make_adapter(platform: str, checkpoint: str) -> tuple[WAMModelMeta, WAMAdapter]:
+def robotwin_model_meta(*, checkpoint: str) -> WAMModelMeta:
     """Declare the fixed history-flow checkpoint contract."""
-    spec = ADAPTERS[platform]
-    return spec.model_meta(
+    return WAMModelMeta(
         backend="uniwam",
         checkpoint=checkpoint,
+        control=ROBOTWIN_QPOS,
+        camera_roles=("head", "left_wrist", "right_wrist"),
+        state_schema={"joint_targets": 14},
+        joint_target_history_shape=(HISTORY_LENGTH, 14),
         chunk_size=ACTION_CHUNK_SIZE,
         uses_sessions=USES_SESSIONS,
         prediction_timeout_s=600.0,
-    ), (spec.encode, spec.decode)
+    )
+
+
+#: Platform -> the checkpoint contract this model serves on it.
+ADAPTERS = {"robotwin": robotwin_model_meta}

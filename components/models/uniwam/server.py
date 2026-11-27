@@ -22,9 +22,10 @@ from typing import Any
 
 import numpy as np
 
-from rpent.components.models.facade import BaseWAMFacade
-from components.models.uniwam.adapter import make_adapter
+from components.models.uniwam.adapter import ADAPTERS
 from components.models.uniwam.runtime_config import validate_options
+from rpent.components.models.contracts import WAMPrediction, WAMRequest
+from rpent.components.models.facade import BaseWAMFacade
 
 
 class UniWAMFacade(BaseWAMFacade):
@@ -40,8 +41,27 @@ class UniWAMFacade(BaseWAMFacade):
     ):
         self._policy = policy
         self._reset_policy = reset_policy
-        metadata, adapter = make_adapter(platform, checkpoint)
-        super().__init__(metadata, adapter=adapter)
+        super().__init__(ADAPTERS[platform](checkpoint=checkpoint))
+
+    def encode(self, request: WAMRequest) -> dict[str, Any]:
+        """Keep native images and rebuild history from executed controller targets."""
+        return {
+            "observation": {
+                camera: {"rgb": request["images"][role]}
+                for camera, role in (
+                    ("head_camera", "head"),
+                    ("left_camera", "left_wrist"),
+                    ("right_camera", "right_wrist"),
+                )
+            },
+            "joint_action": {"vector": request["state"]["joint_targets"]},
+            "instruction": request["instruction"],
+            "history": np.asarray(request["joint_target_history"], dtype=np.float32),
+        }
+
+    def decode(self, actions: np.ndarray) -> WAMPrediction:
+        """Return native qpos14 actions; the shared client validates the contract."""
+        return WAMPrediction(actions=np.asarray(actions, dtype=np.float64))
 
     def predict_native(
         self, obs: dict[str, Any], *, session_id: str | None = None

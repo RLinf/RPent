@@ -164,9 +164,9 @@ def main() -> None:
     parser.add_argument("--molmo-endpoint", required=True)
     parser.add_argument("--destination", required=True, type=Path)
     args = parser.parse_args()
+    from components.models.molmo.client import MolmoClient
     from robots.franka.flash.replay import ask_human
     from robots.franka.runtime_config import set_robot_config_path
-    from components.models.molmo.client import MolmoClient
     from rpent.utils.rpc import make_rpc_client
 
     if args.destination.exists():

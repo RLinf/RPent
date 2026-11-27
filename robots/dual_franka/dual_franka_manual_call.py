@@ -38,6 +38,8 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
+from components.models.openpi.client import Pi05VLAClient
+from components.models.sam3.client import Sam3Client
 from robots.dual_franka import perception as dual_franka_perception
 from robots.dual_franka.robot_spec import _add_runtime_cli_args
 from robots.dual_franka.runtime_config import DEFAULT_CONFIG
@@ -55,8 +57,6 @@ from robots.franka.runtime_config import (
 from robots.franka.tools import view_camera_meta
 from rpent.dashboard.events import NullDashboardEventSink
 from rpent.memory.manager import MemoryManager
-from components.models.openpi.client import Pi05VLAClient
-from components.models.sam3.client import Sam3Client
 from rpent.session import EnvState
 from rpent.utils.config import get_repo_root
 from rpent.utils.rpc import make_rpc_client, wait_for_ready

@@ -32,10 +32,10 @@ import time
 from typing import Any
 
 import numpy as np
-import torch
-from omegaconf import OmegaConf
 
 from rpent.components.models.facade import BaseVLAFacade
+from rpent.components.models.platforms import YAM_VLA_CONTRACT
+from rpent.install import require
 from rpent.utils.config import get_pi05_checkpoint_path
 from rpent.utils.logging import get_logger
 
@@ -188,6 +188,13 @@ def build_model_cfg(model_path: str, emb_cfg: dict) -> Any:
         else:
             cfg[k] = v
 
+    # The OpenPI policy runtime owns OmegaConf; loading it through the
+    # component guard keeps the failure actionable when the model starts
+    # outside its profile, and leaves the module importable in an environment
+    # that only holds Torch.
+    OmegaConf = require(
+        "infra-rlinf", "omegaconf", alternatives=("sim-robodojo",)
+    ).OmegaConf
     return OmegaConf.create(cfg)
 
 
@@ -225,8 +232,13 @@ class Pi05VLAFacade(BaseVLAFacade):
         self._embodiment = embodiment
         super().__init__()
 
-        from rlinf.models.embodiment.openpi import get_model
+        get_model = require(
+            "infra-rlinf",
+            "rlinf.models.embodiment.openpi",
+            alternatives=("sim-robodojo",),
+        ).get_model
 
+        self._torch = require("model-openpi", "torch")
         platform = PI05_ROBOT_PLATFORMS.get(embodiment)
         if platform is not None:
             os.environ.setdefault("ROBOT_PLATFORM", platform)
@@ -262,9 +274,7 @@ class Pi05VLAFacade(BaseVLAFacade):
 
     def get_model_meta(self) -> dict:
         """Return YAM policy identity separately from framework readiness."""
-        from robots.yam.contracts import vla_runtime_contract
-
-        return vla_runtime_contract()
+        return dict(YAM_VLA_CONTRACT)
 
     # ---- inference ----
 
@@ -275,7 +285,7 @@ class Pi05VLAFacade(BaseVLAFacade):
         the openpi wire format (see ``Pi05VLAClient.encode_obs``).
         """
         mode = (options or {}).get("mode", "eval")
-        with torch.no_grad():
+        with self._torch.no_grad():
             actions, _ = self._model.predict_action_batch(obs, mode=mode)
         return (
             actions.detach().cpu().numpy()

@@ -24,10 +24,10 @@ from robots.yam.contracts import (
 from robots.yam.evaluation import finalize_run
 from robots.yam.prompt_bundle import system_prompt, user_prompt
 from robots.yam.tasks import TASK_INSTRUCTIONS, resolve_task_language
+from rpent.components.models.backends import add_am_args, select_am
 from rpent.dashboard.events import DashboardEventSink
 from rpent.dashboard.spec import DashboardSpec
 from rpent.memory import MemoryManager
-from rpent.components.models.backends import add_am_args, select_am
 from rpent.robots.prompt_bundle import PromptBundle
 from rpent.robots.robot_spec import RobotSpec, RunConfig
 from rpent.robots.runtime import try_wait_server
@@ -320,11 +320,11 @@ def _build_vla_runtime_kwargs(vla_rpc: Any) -> dict[str, Any]:
     from components.models.openpi.client import Pi05VLAClient
 
     expected_meta = vla_runtime_contract()
-    actual_meta = vla_rpc.call("vla.get_model_meta", timeout_s=30.0)
-    if actual_meta != expected_meta:
+    model = Pi05VLAClient(vla_rpc, embodiment="yam")
+    if model.model_meta != expected_meta:
         raise RuntimeError(
             "YAM VLA metadata mismatch: "
-            f"expected={expected_meta!r} actual={actual_meta!r}. "
+            f"expected={expected_meta!r} actual={model.model_meta!r}. "
             "Connect to the Pi0.5 YAM qpos14 VLA server."
         )
-    return {"model": Pi05VLAClient(vla_rpc, embodiment="yam")}
+    return {"model": model}

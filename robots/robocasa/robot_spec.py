@@ -37,13 +37,13 @@ from robots.robocasa.prompt_bundle import (
     system_prompt,
     user_prompt,
 )
-from rpent.dashboard.events import DashboardEventSink
-from rpent.dashboard.spec import DashboardSpec
-from rpent.memory import MemoryManager
 from rpent.components.models.backends import (
     add_am_args,
     select_am,
 )
+from rpent.dashboard.events import DashboardEventSink
+from rpent.dashboard.spec import DashboardSpec
+from rpent.memory import MemoryManager
 from rpent.robots.prompt_bundle import PromptBundle
 from rpent.robots.robot_spec import RobotSpec, RunConfig
 from rpent.robots.runtime import try_spawn_server, try_wait_server
@@ -491,8 +491,8 @@ def _init_runtime(
     endpoint to attach, or leave it unset to spawn a local subprocess.
     """
     select_am(args, "robocasa")
-    from robots.robocasa.env_client import RoboCasaEnvClient
     from components.models.rldx.client import RoboCasaVLAClient
+    from robots.robocasa.env_client import RoboCasaEnvClient
 
     starters = {
         "env": lambda: _spawn_env_server(args, output_dir),

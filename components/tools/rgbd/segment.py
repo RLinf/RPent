@@ -23,8 +23,6 @@ from uuid import uuid4
 import numpy as np
 from pydantic import Field, ValidationError
 
-from rpent.session import EnvState
-from rpent.tools import ToolResult, tool
 from components.tools.rgbd.observation import (
     GeometryObservation,
     ImageSelection,
@@ -32,6 +30,8 @@ from components.tools.rgbd.observation import (
     ObservationProvider,
     Size,
 )
+from rpent.session import EnvState
+from rpent.tools import ToolResult, tool
 
 if TYPE_CHECKING:
     from components.models.sam3.client import Sam3Result

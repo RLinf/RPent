@@ -12,7 +12,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""RoboTwin action layouts for native qpos and end-effector execution."""
+"""RoboTwin action layouts for native qpos and end-effector execution.
+
+The capability-side copy in ``rpent/components/models/platforms.py`` states what a
+model adapter expects; keep the two equal.
+"""
 
 from rpent.components.models.contracts import AMControlSpec
 
@@ -43,3 +47,5 @@ ROBOTWIN_EEF = AMControlSpec(
 ROBOTWIN_CONTROLLERS = {
     spec["action_space"]: spec for spec in (ROBOTWIN_QPOS, ROBOTWIN_EEF)
 }
+
+__all__ = ["ROBOTWIN_CONTROLLERS", "ROBOTWIN_EEF", "ROBOTWIN_QPOS"]

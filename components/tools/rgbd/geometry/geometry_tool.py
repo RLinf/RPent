@@ -25,15 +25,18 @@ from typing import TYPE_CHECKING, Annotated, Any, Literal
 import numpy as np
 from pydantic import Field
 
+from components.tools.rgbd.geometry import object_features
+from components.tools.rgbd.geometry.geometry import FitOptions
+from components.tools.rgbd.geometry.multiview import observe_with_alternatives
+from components.tools.rgbd.observation import (
+    GeometryObservation,
+    ObservationProvider,
+)
+from components.tools.rgbd.segment import Segmenter, SegmentTool
 from rpent.session import EnvState
 from rpent.tools import ToolResult, tool
 from rpent.tools.toolkit import ToolCancelled
 from rpent.utils.logging import get_logger
-from components.tools.rgbd.geometry import object_features
-from components.tools.rgbd.geometry.geometry import FitOptions
-from components.tools.rgbd.geometry.multiview import observe_with_alternatives
-from components.tools.rgbd.observation import GeometryObservation, ObservationProvider
-from components.tools.rgbd.segment import Segmenter, SegmentTool
 
 if TYPE_CHECKING:
     from components.tools.rgbd.geometry.local_point_agent import VisualGrounder

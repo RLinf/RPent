@@ -108,7 +108,9 @@ def _isolated_contour(cc, areas, jump, optical, valid, world, up):
             if not _rectangular_top(world[roi], valid[roi], mask, up):
                 continue
             if not isolated:
-                from components.tools.rgbd.geometry.depth_foreground import nearby_support_height
+                from components.tools.rgbd.geometry.depth_foreground import (
+                    nearby_support_height,
+                )
 
                 region = cc == component
                 low, top = np.quantile(world[region] @ up, [0.002, 0.998])
@@ -314,7 +316,9 @@ def unique_colored_box(observation, color, *, cube):
         if complete and not cube:
             # A colored stripe on a fixture may intersect a horizontal plane.
             # A freestanding block either occludes its surround or rises from support.
-            from components.tools.rgbd.geometry.depth_foreground import nearby_support_height
+            from components.tools.rgbd.geometry.depth_foreground import (
+                nearby_support_height,
+            )
 
             isolated = outer.any() and np.quantile(optical[roi][outer], 0.25) > (
                 np.quantile(optical[roi][local], 0.75) + 0.012

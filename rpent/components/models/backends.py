@@ -47,16 +47,35 @@ PLATFORM_VLA_BACKENDS = {
 REMOTE_ONLY_PLATFORMS = {"franka", "yam"}
 
 
+def _maybe_runtime_config(backend: str) -> ModuleType | None:
+    package = f"components.models.{WAM_BACKENDS[backend]}"
+    module_name = f"{package}.runtime_config"
+    try:
+        return importlib.import_module(module_name)
+    except ModuleNotFoundError as exc:
+        if exc.name in ("components", "components.models", package, module_name):
+            return None
+        raise
+
+
 def _runtime_config(backend: str) -> ModuleType:
-    return importlib.import_module(
-        f"rpent.components.{WAM_BACKENDS[backend]}.runtime_config"
-    )
+    module = _maybe_runtime_config(backend)
+    if module is None:
+        raise RuntimeError(
+            f"WAM backend '{backend}' is unavailable in a core-only installation; "
+            "run from an RPent source checkout with components installed."
+        )
+    return module
 
 
 def _supported_backends(platform: str) -> tuple[str, ...]:
-    return PLATFORM_VLA_BACKENDS[platform] + tuple(
-        name for name in WAM_BACKENDS if platform in _runtime_config(name).ADAPTERS
-    )
+    wam = [
+        name
+        for name in WAM_BACKENDS
+        if (config := _maybe_runtime_config(name)) is not None
+        and platform in config.ADAPTERS
+    ]
+    return PLATFORM_VLA_BACKENDS[platform] + tuple(wam)
 
 
 def _show_model_options(parser: argparse.ArgumentParser, backend: str) -> None:
@@ -257,11 +276,14 @@ def select_am(args: argparse.Namespace, platform: str) -> AMConfig:
         field: getattr(args, "am_" + field, None)
         for field in ("checkpoint", "python", "root", "cuda_device")
     }
-    model_fields = {
-        **{name: _runtime_config(name).OPTION_FIELDS for name in WAM_BACKENDS},
+    model_fields: dict[str, tuple[str, ...]] = {
         "lingbot": ("lingbot_robot_config",),
         "pi05": ("pi05_repo_id", "pi05_norm_stats_path"),
     }
+    for name in WAM_BACKENDS:
+        config = _maybe_runtime_config(name)
+        if config is not None:
+            model_fields[name] = config.OPTION_FIELDS
     for name, fields in model_fields.items():
         for field in fields:
             if (
@@ -358,7 +380,7 @@ def start_wam_service(
     port = pick_free_port()
     command = [
         "-m",
-        f"rpent.components.{WAM_BACKENDS[config.backend]}.server",
+        f"components.models.{WAM_BACKENDS[config.backend]}.server",
         "--platform",
         config.platform,
         "--checkpoint",

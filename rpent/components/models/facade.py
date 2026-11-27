@@ -17,8 +17,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import dataclass
-from typing import Any, Callable
+from typing import Any
 
 import numpy as np
 
@@ -83,26 +82,15 @@ class BaseVLAFacade(BaseAMFacade):
     MODEL_META_METHOD = "vla.get_model_meta"
 
 
-# --- WAM: paired adapters, physical observations and native actions ---
-
-
-WAMAdapter = tuple[
-    Callable[[dict[str, Any]], dict[str, Any]],
-    Callable[[Any], WAMPrediction],
-]
-
-
-@dataclass(frozen=True)
-class WAMAdapterSpec:
-    """Register paired transforms and a checkpoint metadata factory."""
-
-    encode: Callable[..., dict[str, Any]]
-    decode: Callable[..., WAMPrediction]
-    model_meta: Callable[..., WAMModelMeta]
+# --- WAM: paired transforms, physical observations and native actions ---
 
 
 class BaseWAMFacade(BaseAMFacade):
-    """Own the common ``wam.*`` routes, independent of model and simulator."""
+    """Own the common ``wam.*`` routes, independent of model and simulator.
+
+    Subclasses supply the paired transforms as ``encode`` and ``decode``, and
+    carry whatever checkpoint state those transforms need.
+    """
 
     PREDICT_METHOD = "wam.predict"
     MODEL_META_METHOD = "wam.get_model_meta"
@@ -112,10 +100,8 @@ class BaseWAMFacade(BaseAMFacade):
         self,
         model_meta: WAMModelMeta,
         *,
-        adapter: WAMAdapter,
         session_timeout_s: float = DEFAULT_SESSION_TIMEOUT_S,
     ) -> None:
-        self._adapter = adapter
         super().__init__(
             model_meta=model_meta,
             enable_sessions=model_meta["uses_sessions"],
@@ -172,14 +158,20 @@ class BaseWAMFacade(BaseAMFacade):
                 raise ValueError(
                     f"joint_target_history is required with shape [1..{length}, {width}] and finite numeric values"
                 )
-        model_input = self._adapter[0](request)
+        model_input = self.encode(request)
         result = self.predict_native(model_input, session_id=session_id)
-        return self._adapter[1](result)
+        return self.decode(result)
 
-    def predict_native(
-        self, request: dict[str, Any], *, session_id: str | None = None
-    ) -> Any:
-        """Infer from encoded input; a configured adapter decodes the native result."""
+    def encode(self, request: WAMRequest) -> Any:
+        """Build this checkpoint's input from validated physical observations."""
+        raise NotImplementedError
+
+    def predict_native(self, request: Any, *, session_id: str | None = None) -> Any:
+        """Run inference on the encoded input and return the model's own result."""
+        raise NotImplementedError
+
+    def decode(self, result: Any) -> WAMPrediction:
+        """Restore the platform's declared action format from a native result."""
         raise NotImplementedError
 
     def reset(self, *, session_id: str | None = None) -> dict[str, bool]:

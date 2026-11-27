@@ -26,10 +26,16 @@ from scipy.ndimage import (
 )
 
 from components.tools.rgbd.geometry.chromatic_region import HUES
-from components.tools.rgbd.geometry.depth_foreground import foreground, local_depth_range
+from components.tools.rgbd.geometry.depth_foreground import (
+    foreground,
+    local_depth_range,
+)
 from components.tools.rgbd.geometry.measured_rectangle import observed_face
 from components.tools.rgbd.geometry.rgbd_parts import object_points
-from components.tools.rgbd.geometry.target_identity import _isolated_view, _name_terms
+from components.tools.rgbd.geometry.target_identity import (
+    _isolated_view,
+    _name_terms,
+)
 
 
 def package_description(query):

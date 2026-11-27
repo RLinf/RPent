@@ -12,28 +12,14 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Shared robot components (base classes, pi05 VLA servers/clients, SAM3)."""
+"""Core-side contracts for the two service families a slice talks to.
 
-from rpent.components.models.client import (
-    BaseAMClient,
-    BaseVLAClient,
-    BaseWAMClient,
-)
-from rpent.components.models.facade import (
-    BaseAMFacade,
-    BaseVLAFacade,
-    BaseWAMFacade,
-)
-from rpent.components.env.client import BaseEnvClient
-from rpent.components.env.facade import BaseEnvFacade
-
-__all__ = [
-    "BaseAMClient",
-    "BaseAMFacade",
-    "BaseEnvClient",
-    "BaseEnvFacade",
-    "BaseVLAClient",
-    "BaseVLAFacade",
-    "BaseWAMClient",
-    "BaseWAMFacade",
-]
+``env/`` holds the environment RPC ends and the action-spec validation that
+robot adapters and simulator servers share; ``models/`` holds the action-model
+client, facade, backend and platform contracts that robot adapters and model
+services share. Each mirrors a group of concrete services under the top-level
+``components/``; the core defines what a service must expose and never imports
+one statically. The backend launcher loads a component's runtime configuration
+only when a selected backend needs it. Import the concrete modules rather than
+re-exporting from here, so a process only loads the side it uses.
+"""

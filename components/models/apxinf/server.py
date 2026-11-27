@@ -36,6 +36,7 @@ from typing import Any
 import numpy as np
 
 from rpent.components.models.facade import BaseVLAFacade
+from rpent.components.models.platforms import YAM_VLA_CONTRACT
 from rpent.utils.logging import get_logger
 from rpent.utils.rpc.main_thread_serve import MainThreadServeMixin
 
@@ -253,9 +254,7 @@ class ApxInfVLAFacade(MainThreadServeMixin, BaseVLAFacade):
 
     def get_model_meta(self) -> dict:
         """Return the YAM contract required by its existing runtime."""
-        from robots.yam.contracts import vla_runtime_contract
-
-        return vla_runtime_contract()
+        return dict(YAM_VLA_CONTRACT)
 
     def get_status(self) -> dict:
         """Return the executable chunk length, as the Pi0.5 server does."""

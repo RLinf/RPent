@@ -85,9 +85,11 @@ from omegaconf import OmegaConf  # noqa: E402
 from robotwin.assets import validate_root  # noqa: E402
 from robotwin.config import load_task_config  # noqa: E402
 
-from components.sim.robotwin.reward_compat import install_native_reward_compat  # noqa: E402
+from components.sim.robotwin.contracts import RoboTwinActionType  # noqa: E402
+from components.sim.robotwin.reward_compat import (  # noqa: E402
+    install_native_reward_compat,
+)
 from components.sim.robotwin.rlinf_env import RoboTwinAgentEnv  # noqa: E402
-from robots.robotwin.robot_spec import RoboTwinActionType  # noqa: E402
 
 
 class RoboTwinEnvFacade(BaseEnvFacade):
@@ -345,7 +347,7 @@ def make_env(
 
 
 def main() -> None:
-    from robots.robotwin.robot_spec import ROBOTWIN_TASK_CONFIGS
+    from components.sim.robotwin.contracts import ROBOTWIN_TASK_CONFIGS
 
     parser = argparse.ArgumentParser()
     parser.add_argument("--transport", choices=["socket", "http"], default="http")
@@ -375,7 +377,7 @@ def main() -> None:
         args.assets_path,
         args.max_episode_steps,
     )
-    from robots.robotwin.robot_spec import env_runtime_contract
+    from components.sim.robotwin.contracts import env_runtime_contract
 
     facade = RoboTwinEnvFacade(
         env,

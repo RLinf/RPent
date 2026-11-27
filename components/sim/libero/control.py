@@ -18,6 +18,8 @@ from rpent.components.models.contracts import AMControlSpec
 
 # Values use LIBERO's native OSC scaling and gripper convention. Model
 # adapters restore this representation before handing actions to the env.
+# The capability-side copy in ``rpent/components/models/platforms.py`` states what
+# a model adapter expects; keep the two equal.
 LIBERO_OSC = AMControlSpec(
     embodiment="libero_7d",
     action_space="libero.osc_pose.delta.v1",
@@ -32,3 +34,5 @@ LIBERO_OSC = AMControlSpec(
     ],
     action_type=None,
 )
+
+__all__ = ["LIBERO_OSC"]

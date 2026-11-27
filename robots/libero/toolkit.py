@@ -39,9 +39,9 @@ from rpent.tools.toolkit import Toolkit
 from rpent.utils.logging import get_logger, get_output_dir
 
 if TYPE_CHECKING:
+    from components.tools.rgbd.geometry.local_point_agent import VisualGrounder
     from robots.libero.env_client import LiberoEnvClient
     from rpent.memory.manager import MemoryManager
-    from components.tools.rgbd.geometry.local_point_agent import VisualGrounder
 
 logger = get_logger("libero_toolkit")
 
@@ -87,9 +87,9 @@ class LiberoToolkit(Toolkit):
         self._register_libero_tools(generic_tools=generic_tools)
         self._geometry = None
         if generic_tools:
-            from robots.libero.observations import LiberoGeometryObservations
             from components.tools.rgbd.back_project import back_project
             from components.tools.rgbd.segment import SegmentTool
+            from robots.libero.observations import LiberoGeometryObservations
 
             observations = LiberoGeometryObservations(state)
             self.add_tool(

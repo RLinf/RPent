@@ -16,6 +16,7 @@
 
 from __future__ import annotations
 
+from functools import cached_property
 from typing import Any
 
 import numpy as np
@@ -30,13 +31,19 @@ from rpent.utils.rpc import RpcClient
 
 
 class BaseAMClient:
-    """Hold an RPC-compatible transport; subclasses own prediction contracts."""
+    """Hold an RPC transport plus the connection's one-time metadata lookup."""
 
     PREDICT_METHOD: str
+    MODEL_META_METHOD: str
 
     def __init__(self, client: Any, *, timeout_s: float) -> None:
         self._client = client
         self._timeout_s = float(timeout_s)
+
+    @cached_property
+    def model_meta(self) -> Any:
+        """Query the worker once and reuse the answer for this connection."""
+        return self._client.call(self.MODEL_META_METHOD, timeout_s=30.0)
 
     def _predict(self, *args: Any) -> Any:
         """Forward the subclass's prediction arguments without conversion."""
@@ -44,11 +51,16 @@ class BaseAMClient:
             self.PREDICT_METHOD, args=args, timeout_s=self._timeout_s
         )
 
+    def close(self) -> None:
+        """Release the transport session and the model state behind it."""
+        self._client.close()
+
 
 class BaseVLAClient(BaseAMClient):
     """Preserve the VLA RPC contract for existing model clients."""
 
     PREDICT_METHOD = "vla.predict"
+    MODEL_META_METHOD = "vla.get_model_meta"
     _TIMEOUT_S: dict[str, float] = {"default": 30.0, "predict": 120.0}
 
     def __init__(self, client: Any) -> None:
@@ -63,6 +75,10 @@ class BaseWAMClient(BaseAMClient):
     """Client for ``wam.*`` RPCs, with metadata fetched once on connection."""
 
     PREDICT_METHOD = "wam.predict"
+    MODEL_META_METHOD = "wam.get_model_meta"
+    PREDICTION_TIMEOUT_S = 300.0
+
+    model_meta: WAMModelMeta
 
     def __init__(
         self,
@@ -70,15 +86,16 @@ class BaseWAMClient(BaseAMClient):
         *,
         timeout_s: float | None = None,
     ) -> None:
-        self.model_meta: WAMModelMeta = client.call(
-            "wam.get_model_meta", timeout_s=30.0
-        )
         super().__init__(
             client,
-            timeout_s=timeout_s
-            if timeout_s is not None
-            else self.model_meta.get("prediction_timeout_s", 300.0),
+            timeout_s=timeout_s if timeout_s is not None else self.PREDICTION_TIMEOUT_S,
         )
+        # Reading the property connects immediately, and a worker may declare a
+        # longer budget than the default. A pinned timeout still wins over it.
+        if timeout_s is None:
+            self._timeout_s = float(
+                self.model_meta.get("prediction_timeout_s", self.PREDICTION_TIMEOUT_S)
+            )
 
     def validate_contract(self, expected: AMControlSpec) -> None:
         """Require the platform's native control contract in cached metadata."""
@@ -109,7 +126,3 @@ class BaseWAMClient(BaseAMClient):
     def reset(self) -> None:
         """Clear this session's model history before a new episode."""
         self._client.call("wam.reset", timeout_s=self._timeout_s)
-
-    def close(self) -> None:
-        """Release the transport session and its model state."""
-        self._client.close()

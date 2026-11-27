@@ -1,0 +1,18 @@
+include README.md README.zh-CN.md LICENSE CONTRIBUTING.md CONTRIBUTING_zh.md
+include pyproject.toml setup.py
+# The dashboard reads these files from the installed package, and the sdist is
+# the supported source install as well as the input of the core wheel.
+recursive-include rpent *.py *.toml *.html *.css *.js
+recursive-include robots *.py *.toml *.md *.yaml *.yml *.json *.txt *.cpp *.html
+recursive-include components *.py *.toml *.md *.yaml *.yml *.json *.txt
+# The test suite stays out: it reads repository files outside the packages
+# (workflows, skills), so it runs from a checkout rather than the sdist.
+# The bootstrap launcher the installation guide tells a fresh checkout to run.
+include rpent-install.sh
+# The docs tree ships with the sdist, so its Sphinx inputs go with it: the
+# leaderboard extension renders an HTML template and reads a JSON result file.
+recursive-include docs *.rst *.md *.py *.txt *.yaml *.yml *.svg *.png *.css *.js *.html *.json *.sh
+include docs/Makefile
+# The leaderboard notice points at this license file, and it has no extension
+# for the patterns above to match.
+include docs/_static/leaderboard/assets/LUCIDE-LICENSE

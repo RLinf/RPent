@@ -26,16 +26,20 @@ from components.sim.libero.observation import physical_observation
 from rpent.components.models.client import BaseWAMClient
 from rpent.components.models.contracts import (
     AMControlSpec,
+    AMRequest,
     WAMPrediction,
-    WAMRequest,
 )
 from rpent.utils.rpc import RpcClient
 
 ACTION_SPACE = LIBERO_OSC["action_space"]
 
 
-def libero_request(raw_obs: dict[str, Any]) -> WAMRequest:
-    """Attach the WAM execution contract to model-independent observations."""
+def libero_request(raw_obs: dict[str, Any]) -> AMRequest:
+    """Attach LIBERO's native execution identity to physical observations.
+
+    LIBERO declares no joint-target history, so the request stays at the AM
+    layer; the WAM client adds nothing before sending it.
+    """
     return {
         **physical_observation(raw_obs),
         "embodiment": LIBERO_OSC["embodiment"],
@@ -44,7 +48,7 @@ def libero_request(raw_obs: dict[str, Any]) -> WAMRequest:
 
 
 class LiberoWAMClient:
-    """Adapt raw LIBERO observations to the model-independent WAM client."""
+    """Return LIBERO's native OSC chunks through the shared WAM client."""
 
     def __init__(self, client: RpcClient) -> None:
         self.wam = BaseWAMClient(client)

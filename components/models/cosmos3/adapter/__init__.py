@@ -12,46 +12,29 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Pair Cosmos3's RLinf transforms with the LIBERO control contract."""
+"""Cosmos3's supported platforms and the contract each one declares."""
 
-from functools import partial
 from typing import Any
 
-from components.sim.libero.control import LIBERO_OSC
-from rpent.components.models.contracts import WAMModelMeta
-from rpent.components.models.facade import WAMAdapter, WAMAdapterSpec
 from components.models.cosmos3 import USES_SESSIONS
-from components.models.cosmos3.adapter.decode import decode_libero
-from components.models.cosmos3.adapter.encode import encode_libero
-
-ADAPTERS = {
-    "libero": WAMAdapterSpec(
-        encode_libero,
-        decode_libero,
-        partial(
-            WAMModelMeta,
-            control=LIBERO_OSC,
-            camera_roles=("primary", "wrist"),
-            state_schema={},
-        ),
-    ),
-}
+from rpent.components.models.contracts import WAMModelMeta
+from rpent.components.models.platforms import LIBERO_OSC
 
 
-def make_adapter(
-    platform: str, checkpoint: str, *, policy: Any
-) -> tuple[WAMModelMeta, WAMAdapter]:
-    """Bind RLinf's existing adapter to the selected platform."""
-    spec = ADAPTERS[platform]
-    meta = spec.model_meta(
+def libero_model_meta(*, checkpoint: str, policy: Any) -> WAMModelMeta:
+    """Take the executable chunk length from RLinf's already-validated config."""
+    return WAMModelMeta(
         backend="cosmos3",
         checkpoint=checkpoint,
+        control=LIBERO_OSC,
+        camera_roles=("primary", "wrist"),
+        state_schema={},
         chunk_size=int(policy.model_cfg.num_action_chunks),
         uses_sessions=USES_SESSIONS,
         returns_future_observation=False,
         returns_value=False,
     )
-    return meta, (
-        partial(spec.encode, policy=policy),
-        partial(spec.decode, policy=policy),
-    )
+
+
+#: Platform -> the checkpoint contract this model serves on it.
+ADAPTERS = {"libero": libero_model_meta}

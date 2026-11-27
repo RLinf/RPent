@@ -26,7 +26,32 @@ classifiers = [
     "Programming Language :: Python :: 3",
 ]
 
+# The runtime layer: environment and model contracts, RPC, model clients, and
+# the installer. It holds only what those modules import at import time, so a
+# simulator or model environment can install it without the planner stack.
 dependencies = [
+    "numpy",
+    # `NotRequired` in the model contracts.
+    "typing-extensions>=4",
+    # `rpent-install` parses requirement strings, which the core layer
+    # needs without the planner extra.
+    "packaging",
+    "tomli>=2; python_version < '3.11'",
+    # Frame encoding in the model clients, which the runtime layer ships.
+    "imageio>=2.0",
+    # The tool contracts declare their input schemas with pydantic. The
+    # planner-side ``pydantic_ai`` schema builder is imported lazily.
+    "pydantic>=2",
+    # The memory manager parses layered prompt files, and robot specs import it
+    # when the runtime layer loads a robot without the planner stack.
+    "PyYAML>=6.0",
+]
+
+[project.optional-dependencies]
+# `rpent[planner]` is the core's own dependency split, not a component: planner
+# adapters, execution sessions, tools, prompts, and the dashboard. Components
+# that import it say so with `planner = true` in their manifest.
+planner = [
     # Upgrade together after validating request budgets and failed-request accounting.
     # The MCP client comes from `mcp` below: pydantic-ai's `mcp` extra pulls
     # fastmcp, which requires beartype>=0.20 and cannot coexist with the
@@ -39,33 +64,28 @@ dependencies = [
     # Remove after upgrading Pydantic AI to a release fixing:
     # https://github.com/pydantic/pydantic-ai/issues/10923
     "anthropic<2",
-    "pydantic>=2",
-    "tomli>=2; python_version < '3.11'",
     "fastapi>=0.110",
     "uvicorn>=0.27",
     "httpx>=0.27",
     "jsonschema>=4.18",
     "claude-agent-sdk>=0.2.154",
-    "packaging",
     "openai-codex>=0.163.0",
     "agent-client-protocol>=0.12.1,<0.13",
     "mcp>=1.23.0,<2.0.0",
     "huggingface_hub>=0.24",
     "prompt-toolkit>=3.0.48",
-    "numpy",
     "scipy",
-    "imageio>=2.0",
-    "PyYAML>=6.0",
     # `--mcp-config` is a core CLI flag and resolves `${oc.env:...}` with
-    # OmegaConf, so this is no longer only a robot/test extra.
+    # OmegaConf, so the planner layer carries it rather than a robot component.
     "omegaconf>=2.3,<3",
 ]
 
 [project.scripts]
 rpent = "rpent.cli.main:main"
+rpent-install = "rpent.cli.install:main"
 rpent-memory = "rpent.cli.memory:main"
 rpent-check-llm = "rpent.cli.check_llm:main"
-rpent-flywheel = "components.tools.flywheel.cli:main"
+rpent-flywheel = "rpent.cli.flywheel:main"
 
 [project.urls]
 Homepage = "https://github.com/RLinf/RPent"
@@ -73,219 +93,8 @@ Repository = "https://github.com/RLinf/RPent"
 Documentation = "https://rpent.readthedocs.io/en/latest/"
 "Bug Report" = "https://github.com/RLinf/RPent/issues"
 
-[project.optional-dependencies]
-test = [
-    "coverage",
-    "docutils",
-    "pytest",
-    "pytest-timeout",
-    "gymnasium",
-]
-rlinf = [
-    "rlinf @ git+https://github.com/RLinf/RLinf.git@release/v0.4",
-]
-sam3 = [
-    "sam3 @ git+https://github.com/RLinf/sam3.git@main",
-    "einops>=0.8.0",
-    "pycocotools",
-    "torch",
-    "torchvision",
-    "pillow>=10",
-]
-molmo = [
-    # Molmo's remote code uses transformers' video-processing API, which the
-    # LIBERO extra cannot supply: OpenPI pins transformers==4.53.2 exactly, and
-    # 4.53.2 has no transformers.video_utils.make_batched_metadata. Install this
-    # into its own environment and point the grounder at it over RPC.
-    "transformers>=4.57",
-    "torch",
-    "torchvision",
-    "pillow>=10",
-]
-libero = [
-    "rpent[rlinf,sam3]",
-    "rpent-openpi @ git+https://github.com/RLinf/openpi.git@rpent",
-    "rpent-libero @ git+https://github.com/RLinf/LIBERO.git@rpent",
-    # MuJoCo 3.4+ changes LIBERO settling, misplacing objects and reducing task success; see https://github.com/RLinf/RLinf/issues/1460.
-    "mujoco==3.3.0",
-]
-libero-pro = [
-    "rpent[libero]",
-    "rpent-liberopro @ git+https://github.com/RLinf/LIBERO-PRO.git@rpent",
-]
-libero-plus = [
-    # LIBERO-plus requires robosuite<1.5, so it cannot inherit the standard LIBERO extra.
-    "rpent[rlinf,sam3]",
-    "rpent-openpi @ git+https://github.com/RLinf/openpi.git@rpent",
-    "rlinf-liberoplus",
-    "mujoco==3.3.0",
-    "h5py",
-]
-franka = [
-    "rpent[rlinf]",
-    # Keep this list aligned with requirements/embodied/envs/franka.txt at the
-    # RLinf revision pinned by the rlinf extra.
-    "pyyaml",
-    "rospkg",
-    "pyrealsense2; sys_platform == 'linux' and platform_machine == 'x86_64'",
-    "empy==3.3.4",
-    "gymnasium==0.29.1",
-    "pyquaternion",
-    "opencv-python",
-    "defusedxml",
-    "pyspacemouse>=2.0.0",
-    "pymodbus>=3.0,<4.0",
-    "pyserial",
-    "imageio[ffmpeg]",
-    "evdev",
-    "numpy<2",
-    # PyArrow 26 requires NumPy >=2 at import time, incompatible with Franka.
-    "pyarrow<26.0.0",
-    "pyzmq",
-    "websockets",
-    "rpent-openpi @ git+https://github.com/RLinf/openpi.git@rpent",
-    "franky-control @ https://github.com/Brunch-Life/franky/releases/download/wheels-libfranka-0.19.0/franky_control-1.1.3-cp310-cp310-manylinux_2_28_x86_64.whl ; python_version == '3.10' and sys_platform == 'linux' and platform_machine == 'x86_64'",
-    "franky-control @ https://github.com/Brunch-Life/franky/releases/download/wheels-libfranka-0.19.0/franky_control-1.1.3-cp311-cp311-manylinux_2_28_x86_64.whl ; python_version == '3.11' and sys_platform == 'linux' and platform_machine == 'x86_64'",
-    "franky-control @ https://github.com/Brunch-Life/franky/releases/download/wheels-libfranka-0.19.0/franky_control-1.1.3-cp312-cp312-manylinux_2_28_x86_64.whl ; python_version == '3.12' and sys_platform == 'linux' and platform_machine == 'x86_64'",
-    "matplotlib>=3.8",
-    "pillow>=10",
-]
-robocasa = [
-    "rpent[rlinf]",
-    "rpent-robocasa365 @ git+https://github.com/RLinf/robocasa.git@rpent",
-    "rlinf-rldx @ git+https://github.com/RLinf/RLDX-1.git@rpent",
-    "robosuite @ git+https://github.com/RLinf/robosuite.git@rpent",
-]
-flywheel = [
-    "lerobot>=0.3.3,<0.4",
-    # LeRobot 0.3.x expects Fraction frame rates; PyAV 19 returns AVRational.
-    "av<19",
-    # OpenPI requires NumPy 1.x; PyArrow 26 requires NumPy 2 at import time.
-    "pyarrow<26",
-]
-yam = [
-    # Install the fixed RLinf YAM revision and i2rt SDK from the YAM guide.
-    # i2rt 1.1.2 requires click<8.2; huggingface-hub 2.x requires click>=8.4.
-    "huggingface_hub>=0.24,<1",
-    "mujoco>=3.2,<4",
-    "pyrealsense2>=2.55,<3",
-    "imageio-ffmpeg",
-]
-robotwin = [
-    "rpent[rlinf]",
-    "rlinf-robotwin-runtime==0.1.3",
-    "rlinf-lingbotvla==0.1.3",
-    "nvidia-curobo @ git+https://github.com/NVlabs/curobo.git@v0.7.8",
-]
-
-robodojo = [
-    "rpent[robodojo-sim,sam3]",
-    "rpent-openpi @ git+https://github.com/RLinf/openpi.git@rpent",
-]
-robodojo-sim = [
-    # Supplies both the simulator adapter and the OpenPI policy configuration.
-    "rlinf @ git+https://github.com/littleZ05/RLinf.git@rpent/robodojo",
-    "rlinf-robodojo-runtime @ git+https://github.com/RLinf/RoboDojo.git@rpent",
-    # datasets 5 requires PyArrow >=21; PyArrow 26 needs NumPy >=2,
-    # incompatible with RoboDojo's NumPy 1 simulator stack.
-    "pyarrow>=21.0.0,<26.0.0",
-]
-robolab = [
-    "rpent[rlinf]",
-    "rpent-openpi @ git+https://github.com/RLinf/openpi.git@rpent",
-    # OpenPI uses NumPy 1.x. PyArrow 26 requires NumPy 2 at import time.
-    "pyarrow<26",
-]
-
 [tool.uv]
 prerelease = "allow"
-
-# `robodojo-sim` needs eight overrides for its simulator stack; they live in
-# components/sim/robodojo/requirements/robodojo-override.txt so every other robot keeps resolving the
-# versions it was validated against. Pass them explicitly:
-#
-#   uv pip install -e ".[robodojo]" --override components/sim/robodojo/requirements/robodojo-override.txt
-
-# Each robot extra pulls a separately pinned VLA runtime whose Torch,
-# Transformers, Tokenizers, or Diffusers versions are mutually incompatible.
-conflicts = [
-    [
-        { extra = "robolab" },
-        { extra = "robotwin" },
-    ],
-    [
-        { extra = "robolab" },
-        { extra = "molmo" },
-    ],
-    [
-        { extra = "robolab" },
-        { extra = "robodojo" },
-    ],
-    [
-        { extra = "robolab" },
-        { extra = "robodojo-sim" },
-    ],
-    [
-        { extra = "franka" },
-        { extra = "libero" },
-    ],
-    [
-        { extra = "franka" },
-        { extra = "libero-pro" },
-    ],
-    [
-        { extra = "franka" },
-        { extra = "libero-plus" },
-    ],
-    [
-        { extra = "franka" },
-        { extra = "robocasa" },
-    ],
-    [
-        { extra = "franka" },
-        { extra = "robotwin" },
-    ],
-    [
-        { extra = "franka" },
-        { extra = "robodojo" },
-    ],
-    [
-        { extra = "franka" },
-        { extra = "robodojo-sim" },
-    ],
-    [
-        { extra = "robocasa" },
-        { extra = "robotwin" },
-    ],
-    [
-        { extra = "robotwin" },
-        { extra = "libero" },
-    ],
-    [
-        { extra = "robotwin" },
-        { extra = "libero-pro" },
-    ],
-    [
-        { extra = "robotwin" },
-        { extra = "libero-plus" },
-    ],
-    [
-        { extra = "robotwin" },
-        { extra = "molmo" },
-    ],
-    [
-        { extra = "robotwin" },
-        { extra = "flywheel" },
-    ],
-    [
-        { extra = "robotwin" },
-        { extra = "robodojo" },
-    ],
-    [
-        { extra = "robotwin" },
-        { extra = "robodojo-sim" },
-    ],
-]
 
 [tool.uv.extra-build-dependencies]
 # Build RoboTwin's Torch extensions against its runtime Torch version.
@@ -294,18 +103,28 @@ nvidia-curobo = ["torch==2.8.0"]
 
 [tool.setuptools]
 include-package-data = true
-
-[tool.setuptools.packages.find]
-where = ["."]
-# robots is a top-level package; without it, non-editable installations
-# leave the CLI unable to import any backend. The globs also cover every
-# per-robot subpackage (robots.yam.*, robots.robodojo.*, ...), as well as the
-# shared RGB-D tools.
-include = ["rpent*", "robots", "robots.*", "toolkits", "components.tools.rgbd.*"]
-exclude = ["tests*", "docs*", "examples*", "docker*"]
+# Package discovery lives in setup.py because the published wheel and a
+# source install intentionally differ: the wheel contains only rpent/, while
+# editable and sdist builds also include robots/ and components/.
 
 [tool.setuptools.package-data]
+# Component manifests are runtime data: discovery reads them from installed
+# packages, so a component that ships code must ship its component.toml with it,
+# and an override the manifest names ships with it too. Components that only
+# declare dependencies (`components/infra/*`, `sim-libero_plus`,
+# `robot-libero_plus`) hold no package and exist only in a checkout. The other
+# entries are files the installed
+# package opens by path: the dashboard frontend, the robot defaults, the
+# evaluation manifests, and RoboDojo's uv override.
+"*" = ["component.toml"]
+"components.sim.robodojo" = ["requirements/*.txt"]
+"components.sim.robotwin" = ["eval/*.json"]
+"robots.dual_franka" = ["config/*.yaml"]
+"robots.franka" = ["config/*.yaml"]
+"robots.libero" = ["guides/*.md"]
+"robots.robocasa" = ["eval/*.json"]
 "robots.robodojo" = ["guides/*.md"]
+"robots.robotwin" = ["guides/*.md"]
 "rpent.dashboard" = ["*.html", "static/*.css", "static/*.js"]
 "robots.yam" = ["config/*.yaml", "config/*.json", "guides/*.md"]
 

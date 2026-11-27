@@ -15,12 +15,12 @@
 
 Run manually with::
 
-    MOLMO_CHECKPOINT_PATH=/path/to/molmo PYTHONPATH=/path/to/RPent \
-        python -m components.models.molmo.server \
+    MOLMO_CHECKPOINT_PATH=/path/to/molmo \
+        .venv-molmo/bin/python -m components.models.molmo.server \
         --transport http --host 127.0.0.1 --port 8115
 
-Runs under the ``molmo`` extra's own interpreter, which does not have RPent
-installed -- hence the explicit ``PYTHONPATH``.
+``rpent-install install model-molmo`` installs the core checkout editable, so
+the interpreter it creates imports both ``rpent`` and ``components``.
 
 The ``molmo.ground`` RPC selects an open-vocabulary point over HTTP or socket.
 Flash uses the manipulation prompt. Geometry requests a single native point and
@@ -41,6 +41,7 @@ from typing import Any, Literal
 
 from PIL import Image
 
+from rpent.install import require
 from rpent.utils.logging import get_logger
 from rpent.utils.rpc import RpcFacade
 
@@ -120,14 +121,10 @@ class MolmoFacade(RpcFacade):
         self._register_rpc()
 
     def _load(self, checkpoint: str) -> None:
-        try:
-            import torch
-            from transformers import AutoModelForImageTextToText, AutoProcessor
-        except ImportError as exc:
-            raise RuntimeError(
-                "local Molmo dependencies are missing; install RPent with "
-                '`pip install -e ".[molmo]"`'
-            ) from exc
+        torch = require("model-molmo", "torch")
+        transformers = require("model-molmo", "transformers")
+        AutoModelForImageTextToText = transformers.AutoModelForImageTextToText
+        AutoProcessor = transformers.AutoProcessor
 
         if not torch.cuda.is_available():
             raise RuntimeError("local Molmo requires a CUDA-capable GPU")

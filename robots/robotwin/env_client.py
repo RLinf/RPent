@@ -21,13 +21,15 @@ from typing import Any
 
 import numpy as np
 
+from components.sim.robotwin.contracts import (
+    ROBOTWIN_CAMERA_NAMES,
+    RoboTwinActionType,
+)
 from components.sim.robotwin.control import QPOS_HISTORY_CAPACITY
 from robots.robotwin.robot_spec import (
-    ROBOTWIN_CAMERA_NAMES,
     ROBOTWIN_READ_TIMEOUT_S,
     ROBOTWIN_STATE_CHANGE_TIMEOUT_S,
     ROBOTWIN_STATUS_KEYS,
-    RoboTwinActionType,
 )
 from rpent.components.env.client import BaseEnvClient
 from rpent.utils.rpc import RpcClient

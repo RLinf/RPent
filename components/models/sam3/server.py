@@ -41,6 +41,7 @@ from typing import Any
 import numpy as np
 from PIL import Image
 
+from rpent.install import require
 from rpent.utils.logging import get_logger
 from rpent.utils.rpc import RpcFacade
 
@@ -79,15 +80,13 @@ class Sam3Facade(RpcFacade):
 
     def _load(self, checkpoint: str) -> None:
         """Load the official SAM 3.0 model and interactive point head."""
-        try:
-            import torch
-            from sam3.model.sam3_image_processor import Sam3Processor
-            from sam3.model_builder import build_sam3_image_model
-        except ImportError as exc:
-            raise RuntimeError(
-                "local SAM3 dependencies are missing; install RPent with "
-                '`pip install -e ".[sam3]"` or a LIBERO variant'
-            ) from exc
+        torch = require("model-sam3", "torch")
+        Sam3Processor = require(
+            "model-sam3", "sam3.model.sam3_image_processor"
+        ).Sam3Processor
+        build_sam3_image_model = require(
+            "model-sam3", "sam3.model_builder"
+        ).build_sam3_image_model
 
         if not torch.cuda.is_available():
             raise RuntimeError("local SAM3 requires a CUDA-capable GPU")

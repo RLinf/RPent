@@ -36,6 +36,8 @@ from rpent.utils.logging import get_logger
 logger = get_logger("robots")
 
 if TYPE_CHECKING:
+    # The toolkit lives in the planner layer, so discovery must import it only
+    # for type checking: a core-only environment still enumerates robots.
     from rpent.tools.toolkit import Toolkit
 
 # Robot packages live under ``<repo>/robots/``, which is not part of the installed
@@ -54,12 +56,28 @@ def _resolve_robot(name: str) -> Any:
     try:
         return importlib.import_module(f"robots.{robot_name}")
     except ModuleNotFoundError as e:
-        raise ValueError(f"unknown robot: {robot_name!r}") from e
+        # Only a missing robot package is an unknown name. A robot whose own
+        # dependency is missing keeps that error, which names the package to
+        # install instead of blaming the robot name.
+        if e.name == f"robots.{robot_name}":
+            raise ValueError(f"unknown robot: {robot_name!r}") from e
+        raise
 
 
 def enumerate_robots() -> tuple[str, ...]:
-    """Return the names of importable robot packages under ``robots``."""
-    import robots
+    """Return the names of importable robot packages under ``robots``.
+
+    A core-only wheel ships no ``robots`` package, so discovery finds nothing;
+    the CLI then explains that robot packages come from a checkout.
+    """
+    try:
+        import robots
+    except ModuleNotFoundError as exc:
+        if exc.name == "robots":
+            return ()
+        # The package is present but a dependency it imports is not; keep that
+        # error, which names what to install.
+        raise
 
     return tuple(
         sorted(

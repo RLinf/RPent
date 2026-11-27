@@ -22,8 +22,14 @@ import os
 from pathlib import Path
 from typing import Any
 
+import numpy as np
+
+from components.models.cosmos_policy.adapter import (
+    ADAPTERS,
+    STATE_SCHEMA,
+)
+from rpent.components.models.contracts import WAMPrediction
 from rpent.components.models.facade import BaseWAMFacade
-from components.models.cosmos_policy.adapter import make_adapter
 from rpent.utils.logging import get_logger
 
 logger = get_logger("cosmos_policy_server")
@@ -59,8 +65,8 @@ class CosmosPolicyFacade(BaseWAMFacade):
         if denoising_steps <= 0:
             raise ValueError("denoising_steps must be positive")
         checkpoint = resolve_cosmos_checkpoint(checkpoint)
-        model_meta, adapter = make_adapter(
-            platform, checkpoint, predict_future=predict_future
+        contract = ADAPTERS[platform](
+            checkpoint=checkpoint, predict_future=predict_future
         )
         # Cosmos pins its own Torch/Transformers stack. Keep imports in its worker.
         from cosmos_policy.experiments.robot import cosmos_utils
@@ -92,8 +98,31 @@ class CosmosPolicyFacade(BaseWAMFacade):
         if config.dataloader_train.dataset.chunk_size != self._cfg.chunk_size:
             raise ValueError("Cosmos Policy checkpoint must use 16-action chunks")
         self._get_action = cosmos_utils.get_action
-        model_meta["metadata"]["cached_instructions_only"] = cached_instructions_only
-        super().__init__(model_meta, adapter=adapter)
+        contract["metadata"]["cached_instructions_only"] = cached_instructions_only
+        super().__init__(contract)
+
+    def encode(self, request: dict[str, Any]) -> dict[str, Any]:
+        """Pack the official two 256px images and gripper/position/quaternion state."""
+        observation = {}
+        for source, target in (("primary", "primary_image"), ("wrist", "wrist_image")):
+            image = request["images"][source]
+            if image.shape != (256, 256, 3):
+                raise ValueError(f"{source} must be an RGB image shaped [256, 256, 3]")
+            observation[target] = np.ascontiguousarray(image)
+        observation["proprio"] = np.concatenate(
+            [request["state"][name] for name in STATE_SCHEMA]
+        )
+        return {"observation": observation, "instruction": request["instruction"]}
+
+    def decode(self, result: dict[str, Any]) -> WAMPrediction:
+        """The official ``get_action`` already unnormalizes LIBERO actions."""
+        return WAMPrediction(
+            actions=np.asarray(result["actions"], dtype=np.float32),
+            future_observation=result.get("future_image_predictions")
+            if self._predict_future
+            else None,
+            value=result.get("value_prediction") if self._predict_future else None,
+        )
 
     def predict_native(
         self, request: dict, *, session_id: str | None = None

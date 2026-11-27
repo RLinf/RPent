@@ -32,14 +32,14 @@ from robots.franka.runtime_config import (
     set_robot_config_path,
     validate_calibration_sources,
 )
-from rpent.dashboard.events import DashboardEventSink, RuntimeStatusEvent
-from rpent.dashboard.spec import DashboardSpec
-from rpent.memory import MemoryManager
 from rpent.components.models.backends import (
     AMConfig,
     add_am_args,
     select_am,
 )
+from rpent.dashboard.events import DashboardEventSink, RuntimeStatusEvent
+from rpent.dashboard.spec import DashboardSpec
+from rpent.memory import MemoryManager
 from rpent.robots.prompt_bundle import PromptBundle
 from rpent.robots.robot_spec import RobotSpec, RunConfig
 from rpent.robots.runtime import try_spawn_server, try_wait_server
@@ -420,9 +420,9 @@ def _init_runtime(
     supply descriptions directly instead of selecting a registered task.
     """
     select_am(args, "dual_franka")
-    from robots.dual_franka.env_client import DualFrankaEnvClient
     from components.models.openpi.client import Pi05VLAClient
     from components.models.sam3.client import Sam3Client
+    from robots.dual_franka.env_client import DualFrankaEnvClient
 
     available = {"env", "vla", "sam3"}
     selected = available if components is None else components

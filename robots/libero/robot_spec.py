@@ -24,11 +24,8 @@ from functools import partial
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from robots.libero.prompt_bundle import system_prompt, user_prompt
 from components.sim.libero.suites import LIBERO_SUITE_NAMES, resolve_libero_type
-from rpent.dashboard.events import DashboardEventSink
-from rpent.dashboard.spec import DashboardSpec
-from rpent.memory import MemoryManager
+from robots.libero.prompt_bundle import system_prompt, user_prompt
 from rpent.components.models.backends import (
     WAM_BACKENDS,
     AMConfig,
@@ -36,6 +33,9 @@ from rpent.components.models.backends import (
     select_am,
     start_wam_service,
 )
+from rpent.dashboard.events import DashboardEventSink
+from rpent.dashboard.spec import DashboardSpec
+from rpent.memory import MemoryManager
 from rpent.robots.prompt_bundle import PromptBundle
 from rpent.robots.robot_spec import RobotSpec, RunConfig
 from rpent.robots.runtime import try_spawn_server, try_wait_server
@@ -606,8 +606,8 @@ def _init_runtime(
     components: set[str] | None,
 ) -> tuple[list[ProcessDaemon], dict[str, Any]]:
     """Initialize every LIBERO component, or only ``components`` when given."""
-    from robots.libero.env_client import LiberoEnvClient
     from components.models.sam3.client import Sam3Client
+    from robots.libero.env_client import LiberoEnvClient
 
     am = select_am(args, "libero")
     wam = am if am.is_wam else None
