@@ -26,6 +26,24 @@ from rpent.dashboard.state import DashboardState
 from rpent.memory import MemoryManager
 
 
+@pytest.mark.parametrize("supported", [False, True])
+def test_dashboard_resolver_errors_are_reported_before_runtime(supported, capsys):
+    args = argparse.Namespace(mode="unsupported")
+
+    def resolve(options):
+        assert options is args
+        raise ValueError(f"unsupported mode: {options.mode}")
+
+    spec = SimpleNamespace(
+        name="custom", resolve_dashboard=resolve if supported else None
+    )
+    with pytest.raises(SystemExit) as exc:
+        dashboard.run_dashboard_session(args, spec, parser=argparse.ArgumentParser())
+    assert exc.value.code == 2
+    expected = "unsupported mode" if supported else "does not support Dashboard"
+    assert expected in capsys.readouterr().err
+
+
 @pytest.mark.parametrize(
     ("robot", "profile", "sync_before_shared", "explicit_repo"),
     [

@@ -1,0 +1,25 @@
+# Example LeKiwi configuration. `python -m robots.lekiwi.detect` writes a
+# filled-in copy of this file; edit the result and pass it with --robot-config.
+
+robot:
+  # Serial bus of the Feetech STS3215 servo board.
+  serial_port: /dev/ttyACM0
+  wheel_radius: 0.05
+  base_radius: 0.125
+  max_raw: 3000
+
+cameras:
+  devices:
+    front:
+      # UVC serial of the front camera (ls /dev/v4l/by-id).
+      serial: "<front-camera-serial>"
+      type: uvc
+      main: true
+
+drive:
+  step_frequency: 10.0
+  # Maximum age in seconds of a cached frame reused by an Agent control step.
+  camera_max_age: 0.05
+  max_linear_velocity: 0.3
+  max_angular_velocity: 60.0
+  frame_size: [128, 128]
