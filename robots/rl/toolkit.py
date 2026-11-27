@@ -229,6 +229,34 @@ class ActionBatch:
         )
 
 
+class PositionMoveAction(BaseModel):
+    """Translate the TCP with a fixed wrist orientation."""
+
+    model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
+    action: Literal["move_to"]
+    xyz: Vector3 = Field(
+        description="Absolute grasp TCP xyz in the selected world frame, metres."
+    )
+
+
+PositionAction = Annotated[
+    PositionMoveAction | GripperAction, Field(discriminator="action")
+]
+
+
+class PositionActionBatch(ActionBatch):
+    @tool
+    def execute_actions(
+        self, actions: Annotated[list[PositionAction], Field(min_length=1)]
+    ) -> ToolResult:
+        """Execute 1..K move_to/set_gripper actions strictly in list order. The entire list is validated before any movement. Each item finishes and is measured before the next begins. Stop immediately on native success, truncation, error or partial; remaining items are not executed. Returns every executed result and pose, executed_count, zero-based stopped_at, stop_reason and final_state. Use view_env to see the scene after motion. Example: {"actions":[{"action":"move_to","xyz":[0.1,0,0.3]},{"action":"set_gripper","opening":0}]}.
+
+        Args:
+            actions: Ordered list, at most the configured K; each item is move_to with xyz only (fixed wrist orientation) or set_gripper with opening from 0 to 1. The list contains only physical actions.
+        """
+        return self._execute_actions(actions)
+
+
 class DualArmBatch(ActionBatch):
     @tool
     def execute_actions(
@@ -298,6 +326,7 @@ def episode_tools(
     owner = RecordedPerception if perception is None else perception
     batch_type = {
         "libero": ActionBatch,
+        "metaworld": PositionActionBatch,
         "robocasa": MobileBatch,
         "robotwin": DualArmBatch,
         "robodojo": DualArmBatch,
@@ -334,7 +363,7 @@ def openai_tool_schemas(tools: Sequence[Tool]) -> list[dict[str, Any]]:
 
 
 class RLToolkit(Toolkit):
-    """Unified toolkit over any of the 4 simulators (fast in-memory or disk-audited)."""
+    """Unified toolkit over the supported simulators (fast in-memory or disk-audited)."""
 
     planner_builtin_tools = False
     api_environment_context = False
@@ -376,7 +405,10 @@ class RLToolkit(Toolkit):
             record_artifacts=self.record_artifacts,
             **runtime_kwargs,
         )
-        if environment in {"libero", "robocasa"} and image_size != NATIVE_SIZE:
+        if (
+            environment in {"libero", "robocasa", "metaworld"}
+            and image_size != NATIVE_SIZE
+        ):
             self._primitives.display_size = image_size
         self._task = self._primitives.env.get_task_language()
         record = self._primitives.record_observation()
@@ -414,11 +446,13 @@ class RLToolkit(Toolkit):
                 "terminated": bool(env.terminated),
                 "truncated": bool(env.truncated),
             }
+        state = self._primitives.robot_state()
+        terminated = self._primitives.native_success()
         return {
-            **self._primitives.robot_state(),
-            "terminated": self._primitives.native_success(),
-            "truncated": self._primitives.env_steps
-            >= self._primitives._max_episode_steps,
+            **state,
+            "terminated": terminated,
+            "truncated": (not terminated)
+            and self._primitives.env_steps >= self._primitives._max_episode_steps,
         }
 
     def initial_observation(self) -> ToolResult:

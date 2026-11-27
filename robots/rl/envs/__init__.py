@@ -19,6 +19,10 @@ from __future__ import annotations
 
 def primitive_owner(environment: str):
     """Return the primitive adapter class for ``environment``."""
+    if environment == "metaworld":
+        from robots.rl.envs.metaworld import MetaWorldRLPrimitives
+
+        return MetaWorldRLPrimitives
     if environment == "libero":
         from robots.rl.envs.libero import LiberoRLPrimitives
 

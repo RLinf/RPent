@@ -161,7 +161,9 @@ class RecordedPerception:
         """Capture robot state and RGB-D views; persist to disk only if requested."""
         state = self.robot_state()
         terminated = self.native_success()
-        truncated = self.env_steps >= self._max_episode_steps
+        truncated = (not terminated) and bool(
+            state.get("truncated", self.env_steps >= self._max_episode_steps)
+        )
         step_idx = len(self._steps)
         frame_version = getattr(getattr(self, "coordinates", None), "version", 0)
         captures: dict[str, CameraCapture] = {}

@@ -33,7 +33,14 @@ from robots.rl.geometry import (
     surface_geometry,
     world_from_depth,
 )
-from robots.rl.toolkit import ActionBatch, DualArmBatch, MobileBatch, render_prompts
+from robots.rl.toolkit import (
+    ActionBatch,
+    DualArmBatch,
+    MobileBatch,
+    PositionActionBatch,
+    episode_tools,
+    render_prompts,
+)
 from robots.rl.units import Centimeters, validate_relations
 
 
@@ -48,6 +55,17 @@ def test_centimeters_roundtrip():
     out = cm.payload({"xyz": [0.1234, -0.5678, 0.9012], "step": 1}, to_model=True)
     assert out["xyz"] == pytest.approx([12.34, -56.78, 90.12])
     assert out["step"] == 1
+    exact = cm.payload(
+        {
+            "xyz": [0.6014, -0.0044, 0.1501],
+            "position_error_m": 0.0034,
+            "finger_gap_m": 0.10034,
+        },
+        to_model=True,
+    )
+    assert exact["xyz"] == [60.14, -0.44, 15.01]
+    assert exact["position_error_cm"] == 0.34
+    assert exact["finger_gap_cm"] == 10.034
     with pytest.raises(ValueError):
         validate_relations("back_project", {"box": [50, 10, 20, 40]})
 
@@ -77,16 +95,37 @@ def test_geometry_backproject_and_png():
     assert geom["world_xyz"][2] == pytest.approx(1.5, abs=1e-3)
 
 
-@pytest.mark.parametrize("env", ["libero", "robotwin", "robocasa", "robodojo"])
-def test_prompts_all_four_envs(env: str):
+@pytest.mark.parametrize(
+    "env", ["libero", "robotwin", "robocasa", "robodojo", "metaworld"]
+)
+def test_prompts_all_envs(env: str):
     sys_p, usr_m = render_prompts(env, reasoning=True, max_actions_per_call=3)
     assert sys_p.strip()
     assert usr_m.strip()
 
 
 def test_action_batch_declarations():
-    for cls in (ActionBatch, DualArmBatch, MobileBatch):
+    for cls in (ActionBatch, DualArmBatch, MobileBatch, PositionActionBatch):
         assert hasattr(cls(None), "execute_actions")
+
+
+def test_metaworld_tool_declarations():
+    tools = {t.name: t for t in episode_tools(None, "metaworld")}
+    assert tools["view_env"].input_schema["properties"]["camera"]["enum"] == [
+        "corner2",
+        "gripperPOV",
+        "all",
+    ]
+    desc = tools["execute_actions"].description
+    assert "validated before any movement" in desc
+    assert "Stop immediately" in desc
+    assert "view_env" in desc
+    action = {"action": "move_to", "xyz": [1, 2, 3]}
+    tools["execute_actions"].validate_arguments({"actions": [action]})
+    with pytest.raises(ValueError):
+        tools["execute_actions"].validate_arguments(
+            {"actions": [{**action, "orientation_rpy": [0, 0, 0]}]}
+        )
 
 
 def test_conversation_validation_retry_and_compaction():

@@ -145,7 +145,7 @@ async def _async_recv(reader: asyncio.StreamReader) -> Any:
 def _configure_worker_gpu(environment: str, gpu: int | None) -> None:
     if gpu is None:
         return
-    if environment in {"libero", "robocasa"}:
+    if environment in {"libero", "robocasa", "metaworld"}:
         os.environ.setdefault("MUJOCO_GL", "egl")
         os.environ.setdefault("PYOPENGL_PLATFORM", "egl")
         os.environ.pop("CUDA_VISIBLE_DEVICES", None)
@@ -165,6 +165,13 @@ def _preload_simulator(environment: str, assets_path: str | None) -> None:
         import torch  # noqa: F401
 
         from robots.rl.envs import libero  # noqa: F401
+    elif environment == "metaworld":
+        os.environ.setdefault("MUJOCO_GL", "egl")
+        os.environ.setdefault("PYOPENGL_PLATFORM", "egl")
+        import metaworld  # noqa: F401
+        import mujoco  # noqa: F401
+
+        import robots.rl.envs.metaworld  # noqa: F401
     elif environment == "robotwin":
         import torch
 
@@ -217,6 +224,18 @@ class _WorkerSessionHost:
         record_artifacts: bool = False,
     ):
         env_name = self.environment
+        if env_name == "metaworld":
+            from robots.rl.envs.metaworld import LocalMetaWorldEnv
+
+            seed = int(
+                task.get("seed", task.get("task_index", task.get("init_state_id", 0)))
+            )
+            return LocalMetaWorldEnv(
+                task_name=str(task["task_name"]),
+                index=seed,
+                max_episode_steps=max_episode_steps,
+                task_language=task.get("task_language"),
+            )
         if env_name == "libero":
             from robots.rl.envs.libero import LocalLiberoEnv
 
@@ -1258,7 +1277,9 @@ def main() -> None:
 
     p_serve = sub.add_parser("serve", help="Run the HTTP warm worker pool server")
     p_serve.add_argument(
-        "--env", choices=("libero", "robotwin", "robocasa", "robodojo"), required=True
+        "--env",
+        choices=("libero", "robotwin", "robocasa", "robodojo", "metaworld"),
+        required=True,
     )
     p_serve.add_argument("--host", default="127.0.0.1")
     p_serve.add_argument("--port", type=int, required=True)
@@ -1278,7 +1299,9 @@ def main() -> None:
         "router", help="Run a multi-host SimPoolRouter over remote SimPoolManagers"
     )
     p_router.add_argument(
-        "--env", choices=("libero", "robotwin", "robocasa", "robodojo"), required=True
+        "--env",
+        choices=("libero", "robotwin", "robocasa", "robodojo", "metaworld"),
+        required=True,
     )
     p_router.add_argument("--host", default="127.0.0.1")
     p_router.add_argument("--port", type=int, required=True)
@@ -1287,7 +1310,9 @@ def main() -> None:
 
     p_worker = sub.add_parser("worker", help="Internal persistent GPU worker process")
     p_worker.add_argument(
-        "--env", choices=("libero", "robotwin", "robocasa", "robodojo"), required=True
+        "--env",
+        choices=("libero", "robotwin", "robocasa", "robodojo", "metaworld"),
+        required=True,
     )
     p_worker.add_argument("--socket", required=True)
     p_worker.add_argument("--worker-id", type=int, default=0)

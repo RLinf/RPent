@@ -20,6 +20,7 @@ import math
 import re
 from copy import deepcopy
 from dataclasses import replace
+from decimal import Decimal
 from typing import Any
 
 from pydantic import ConfigDict, create_model
@@ -29,6 +30,7 @@ from rpent.tools import Tool
 EPISODE_CONTRACT_VERSION = 3
 CAMERAS: dict[str, tuple[str, ...]] = {
     "libero": ("agentview", "wrist"),
+    "metaworld": ("corner2", "gripperPOV"),
     "robocasa": ("agentview", "agentview_right", "wrist"),
     "robotwin": ("head", "left_wrist", "right_wrist"),
     "robodojo": ("cam_head", "cam_left_wrist", "cam_right_wrist"),
@@ -38,6 +40,9 @@ _LENGTH_FIELDS = frozenset({"xyz", "world_xyz", "tcp_xyz", "base_xyz", "vx", "vy
 _LINEAR_BOUNDS = frozenset(
     {"minimum", "maximum", "exclusiveMinimum", "exclusiveMaximum", "multipleOf"}
 )
+
+
+_SCALE_FACTOR = Decimal(100)
 
 
 def _scale(value: Any, to_model: bool) -> Any:
@@ -51,7 +56,11 @@ def _scale(value: Any, to_model: bool) -> Any:
         or not math.isfinite(value)
     ):
         raise ValueError("A linear quantity must contain finite numbers")
-    return value * 100.0 if to_model else value / 100.0
+    decimal_value = Decimal(str(float(value)))
+    scaled = (
+        decimal_value * _SCALE_FACTOR if to_model else decimal_value / _SCALE_FACTOR
+    )
+    return 0.0 if scaled == 0 else float(scaled)
 
 
 class Centimeters:
@@ -123,7 +132,7 @@ class Centimeters:
                 elif key == "description":
                     result[key] = self.description(value)
                 elif linear and key in _LINEAR_BOUNDS:
-                    result[key] = value * self.factor
+                    result[key] = _scale(value, True)
                 else:
                     result[key] = walk(value, linear)
             return result
@@ -337,6 +346,12 @@ def validate_relations(name: str, arguments: dict[str, Any]) -> None:
 
 def argument_hint(name: str, environment: str = "libero") -> str:
     """Short actionable model feedback on invalid tool arguments."""
+    if environment == "metaworld" and name in {
+        "execute_actions",
+        "move_to",
+        "set_gripper",
+    }:
+        return "Use move_to with xyz only (fixed wrist orientation) or set_gripper with opening 0..1 in execute_actions."
     if environment == "robotwin" and name in {"move_to", "set_gripper"}:
         return "Follow the declared native action fields and orientation convention; include the selected arm where required."
     if environment == "robocasa" and name in {"move_to", "set_gripper"}:
