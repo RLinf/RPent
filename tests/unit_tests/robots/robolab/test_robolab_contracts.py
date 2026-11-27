@@ -26,15 +26,15 @@ import numpy as np
 import pytest
 
 import robots.robolab.robot_spec as robolab_spec
+from components.models.openpi.client import Pi05VLAClient
 from robots.robolab.env_server import RoboLabEnvFacade
 from robots.robolab.toolkit import RoboLabToolkit
+from rpent.components.env.action_spec import box_action_spec, validate_action
+from rpent.components.models import backends as am_runtime
 from rpent.dashboard.events import NullDashboardEventSink
 from rpent.evaluation import RunFinalizationContext
 from rpent.memory import MemoryManager
 from rpent.robots.base import get_robot_spec
-from rpent.components.models import backends as am_runtime
-from rpent.components.env.action_spec import box_action_spec, validate_action
-from components.models.openpi.client import Pi05VLAClient
 
 
 def test_robolab_registers_and_parses_without_simulator(tmp_path):

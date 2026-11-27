@@ -15,13 +15,13 @@
 import numpy as np
 import pytest
 
-from rpent.components.models.facade import BaseVLAFacade
 from components.models.openpi.client import Pi05VLAClient
 from components.models.openpi.server import (
     PI05_EMBODIMENTS,
     Pi05VLAFacade,
     build_model_cfg,
 )
+from rpent.components.models.facade import BaseVLAFacade
 
 
 @pytest.mark.parametrize("embodiment", ["dual_franka", "yam"])

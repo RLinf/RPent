@@ -50,27 +50,18 @@ plan used for the task.
 Configure Molmo
 ---------------
 
-Run Molmo in a separate Python environment:
+Molmo runs in its own Python environment because it requires
+``transformers>=4.57``, whereas OpenPI/Pi0.5 pins ``4.53.2`` and the RoboTwin
+stack pins ``4.51.3``.
+
+Install ``model-molmo`` into a separate environment (pass
+``--torch-backend <CUDA_TAG>``, such as ``cu126`` or ``cu128``, if your GPU
+driver needs a specific PyTorch CUDA build; see
+:doc:`../get_started/installation`):
 
 .. code-block:: bash
 
-   uv venv --python 3.11 /path/to/molmo-venv
-
-Next, install PyTorch and matching torchvision in this environment using the
-command below. Replace ``<CUDA_TAG>`` with a build compatible with your GPU and
-NVIDIA driver (for example, ``cu126`` or ``cu128``); see the
-`PyTorch installation guide <https://pytorch.org/get-started/locally/>`_:
-
-.. code-block:: bash
-
-   uv pip install --python /path/to/molmo-venv/bin/python \
-     torch torchvision --index-url "https://download.pytorch.org/whl/<CUDA_TAG>/"
-
-Once PyTorch is installed, install the Molmo extra:
-
-.. code-block:: bash
-
-   uv pip install --python /path/to/molmo-venv/bin/python -e ".[molmo]"
+   ./rpent-install.sh install model-molmo --venv .venv-molmo
 
 Download ``allenai/Molmo2-8B`` from `Hugging Face
 <https://huggingface.co/allenai/Molmo2-8B>`_ or `ModelScope
@@ -79,8 +70,7 @@ Download ``allenai/Molmo2-8B`` from `Hugging Face
 .. code-block:: bash
 
    export MOLMO_CHECKPOINT_PATH=/path/to/Molmo2-8B
-   PYTHONPATH=/path/to/RPent /path/to/molmo-venv/bin/python \
-     components/models/molmo/server.py \
+   .venv-molmo/bin/python -m components.models.molmo.server \
      --transport http --host 127.0.0.1 --port 20703
 
 Run a Plan

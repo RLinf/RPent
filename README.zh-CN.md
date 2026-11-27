@@ -131,29 +131,17 @@ RPent 面向以下四类用户：
 ```bash
 git clone https://github.com/RLinf/RPent rpent && cd rpent
 # 默认推荐（LIBERO-PRO）：
-pip install -e ".[libero-pro]"
+./rpent-install.sh install robot-libero --venv .venv-libero
+source .venv-libero/bin/activate
 
-# 其他环境配置：
-pip install -e ".[robocasa]"    # RoboCasa
-pip install -e ".[robotwin]"    # RoboTwin
-pip install -e ".[robolab]"     # RoboLab 策略环境
-pip install -e ".[franka]"      # Franka / 双臂 Franka
+# 其他机器人用同样方式安装到各自环境（按需取消注释一条）：
+# ./rpent-install.sh install robot-robocasa --venv .venv-robocasa
+# ./rpent-install.sh install robot-robotwin --venv .venv-robotwin
+# ./rpent-install.sh install robot-robolab --venv .venv-robolab-policy
+# ./rpent-install.sh install robot-franka --venv .venv-franka-real
 ```
 
-`.[libero-pro]` 是默认推荐配置。其他环境见
-[安装文档](https://rpent.readthedocs.io/zh-cn/latest/rst_source/get_started/quickstart.html)。
-
-RoboLab 仿真环境安装、模型权重与单任务运行示例参见
-[RoboLab 指南](https://rpent.readthedocs.io/zh-cn/latest/rst_source/simulators/robolab.html)。
-
-RoboCasa 安装、任务 memory 与 Target50 协议参见
-[RoboCasa 指南](https://rpent.readthedocs.io/zh-cn/latest/rst_source/simulators/robocasa.html)。
-
-RoboCasa 同时使用
-[RPent-memory](https://huggingface.co/datasets/RLinf/RPent-memory/tree/main/robocasa)
-中 `robocasa/task-specific/` 下的当前任务文件和 `robocasa/global/GLOBAL_MEMORY.md`。
-CLI 与 Dashboard 均提供这两层记忆供规划器按需读取，不要求动作前完整读取全部文件。
-HF memory 跟随当前分支，不锁定数据版本。
+`robot-libero` 是默认推荐。全部组件与诊断方法见 [安装文档](https://rpent.readthedocs.io/zh-cn/latest/rst_source/get_started/installation.html)，其他仿真平台可直接查看 [RoboLab 指南](https://rpent.readthedocs.io/zh-cn/latest/rst_source/simulators/robolab.html) 与 [RoboCasa 指南](https://rpent.readthedocs.io/zh-cn/latest/rst_source/simulators/robocasa.html)（含 [RPent-memory](https://huggingface.co/datasets/RLinf/RPent-memory/tree/main/robocasa) 与 Target50 说明）。
 
 下面的示例继续使用 LIBERO-PRO。
 
@@ -165,7 +153,7 @@ liberopro-download-assets --skip-existing
 
 > 💡 访问 Hugging Face 较慢时，可走镜像加速：`HF_ENDPOINT=https://hf-mirror.com liberopro-download-assets --skip-existing`。
 
-其他仿真器见[安装文档](https://rpent.readthedocs.io/zh-cn/latest/rst_source/get_started/quickstart.html)。
+其他仿真器见[安装文档](https://rpent.readthedocs.io/zh-cn/latest/rst_source/get_started/installation.html)。
 
 **3. 配置密钥与 checkpoint，然后运行。**
 
@@ -183,7 +171,7 @@ export PI05_CHECKPOINT_PATH=$PWD/checkpoints/RLinf-Pi05-LIBERO-130-fullshot-SFT
 
 # SAM 3.0 checkpoint —— 从以下地址下载：
 # https://modelscope.cn/models/facebook/sam3
-pip install -U modelscope
+uv pip install -U modelscope
 
 modelscope download facebook/sam3 \
   --local-dir ./checkpoints/sam3

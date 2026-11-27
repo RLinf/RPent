@@ -235,7 +235,7 @@ def test_check_writing_scans_toolkits_json_keys_sphinx_roles_and_allows_cli_entr
 ):
     assert writing["page_type"]("docs/source-en/rst_source/toolkits/mcp.rst") == "guide"
 
-    # Synthetic tree verifies components/tools/rgbd/ Python definitions and *.json keys.
+    # Synthetic tree verifies toolkits/ Python definitions and *.json keys.
     (tmp_path / "toolkits").mkdir()
     (tmp_path / "toolkits" / "internal_helper.py").write_text(
         "class InternalGeometryHelper:\n    pass\n\ndef json_config_key():\n    pass\n",
@@ -257,10 +257,10 @@ def test_check_writing_scans_toolkits_json_keys_sphinx_roles_and_allows_cli_entr
     page = tmp_path / "mcp.rst"
     page.write_text(
         "MCP Tools\n=========\n\n"
-        "See ``components/tools/rgbd/back_project.py``, ``InternalGeometryHelper``, "
+        "See ``toolkits/back_project.py``, ``InternalGeometryHelper``, "
         ":class:`rpent.tools.toolkit.Toolkit`, "
         ":meth:`~robots.libero.toolkit.get_toolkit`, "
-        ":mod:`Label <components.tools.rgbd.segment>`, "
+        ":mod:`Label <toolkits.segment>`, "
         "and ``RPentEfeAgent`` with ``history_length``.\n",
         encoding="utf-8",
     )
@@ -268,11 +268,11 @@ def test_check_writing_scans_toolkits_json_keys_sphinx_roles_and_allows_cli_entr
         page, "docs/source-en/rst_source/toolkits/mcp.rst", names, False
     )
     hits = [f.message for f in findings if f.rule == "docs/code-name"]
-    assert any("components/tools/rgbd/back_project.py" in m for m in hits)
+    assert any("toolkits/back_project.py" in m for m in hits)
     assert any("InternalGeometryHelper" in m for m in hits)
     assert any("rpent.tools.toolkit.Toolkit" in m for m in hits)
     assert any("robots.libero.toolkit.get_toolkit" in m for m in hits)
-    assert any("components.tools.rgbd.segment" in m for m in hits)
+    assert any("toolkits.segment" in m for m in hits)
     assert not any("RPentEfeAgent" in m or "history_length" in m for m in hits)
 
 

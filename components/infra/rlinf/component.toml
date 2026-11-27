@@ -1,0 +1,13 @@
+schema = 2
+name = "infra-rlinf"
+probe = "rlinf"
+python = ">=3.10,<3.13"
+# The RLinf release runtime is imported by the LIBERO, RoboCasa,
+# RoboTwin, and Franka slices. It has no code of its own, so it is an
+# infra component that installs into every environment that requires
+# it. The YAM guide installs its own RLinf checkout, whose revision
+# carries the YAM modules.
+
+dependencies = [
+  "rlinf @ git+https://github.com/RLinf/RLinf.git@release/v0.4",
+]

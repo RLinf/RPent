@@ -47,7 +47,7 @@ Coding agents repeat a small set of mistakes in RPent, and reviewers send them b
 
 | Mistake | Fix | Rule |
 |---|---|---|
-| Dumping a new `test_*.py` directly under `tests/unit_tests/` | Place it under `tests/unit_tests/{rpent,robots/<robot>,components,skills}/` | tests/README.md § Placement rules |
+| Dumping a new `test_*.py` directly under `tests/unit_tests/` | Place it under `tests/unit_tests/{rpent,robots/<robot>,components,installs,tooling,skills}/` | [Testing and CI](https://rpent.readthedocs.io/en/latest/rst_source/development/testing.html) |
 | Unit tests that require GPUs, network access, model checkpoints, or simulator extras | Keep `tests/unit_tests/` offline on CPU with local loopback or edge fakes; put GPU checks under `tests/e2e_tests/` | AGENTS.md § Tests |
 | Tests that mostly assert mocks were called or mirror internal implementation details | Test observable behavior through the public contract | patterns.md § Tests |
 | Weakening an assertion or skipping a failing test so CI goes green | Fix the underlying bug, or explain to the user why the contract changed | CONTRIBUTING.md § Project red lines |

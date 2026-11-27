@@ -31,32 +31,20 @@
 配置 Molmo
 ------------
 
-在独立 Python 环境中运行 Molmo：
+Molmo 需要 ``transformers>=4.57``，与 OpenPI/Pi0.5\ （锁定 ``4.53.2``）及 RoboTwin\ （锁定 ``4.51.3``）不兼容，因此运行在独立的 Python 环境中。
+
+将 ``model-molmo`` 安装到独立环境（若 GPU 驱动需要指定 PyTorch CUDA 构建，可加 ``--torch-backend <CUDA_TAG>``，例如 ``cu126`` 或 ``cu128``，详见 :doc:`../get_started/installation`）：
 
 .. code-block:: bash
 
-   uv venv --python 3.11 /path/to/molmo-venv
-
-接着在该环境中安装 PyTorch 和匹配的 torchvision。按 `PyTorch 安装指南 <https://pytorch.org/get-started/locally/>`_ 选择兼容 GPU 和 NVIDIA 驱动的构建，将下方 ``<CUDA_TAG>`` 替换为所选构建（如 ``cu126`` 或 ``cu128``）。此命令使用 `上海交大 PyTorch 镜像 <https://mirror.sjtu.edu.cn/docs/pytorch-wheels>`_：
-
-.. code-block:: bash
-
-   uv pip install --python /path/to/molmo-venv/bin/python \
-     torch torchvision --index-url "https://mirror.sjtu.edu.cn/pytorch-wheels/<CUDA_TAG>/"
-
-PyTorch 安装完成后，再安装 Molmo extra：
-
-.. code-block:: bash
-
-   uv pip install --python /path/to/molmo-venv/bin/python -e ".[molmo]"
+   ./rpent-install.sh install model-molmo --venv .venv-molmo
 
 从 `Hugging Face <https://huggingface.co/allenai/Molmo2-8B>`_ 或 `ModelScope <https://modelscope.cn/models/allenai/Molmo2-8B>`_ 下载 ``allenai/Molmo2-8B``，然后启动服务：
 
 .. code-block:: bash
 
    export MOLMO_CHECKPOINT_PATH=/path/to/Molmo2-8B
-   PYTHONPATH=/path/to/RPent /path/to/molmo-venv/bin/python \
-     components/models/molmo/server.py \
+   .venv-molmo/bin/python -m components.models.molmo.server \
      --transport http --host 127.0.0.1 --port 20703
 
 运行计划

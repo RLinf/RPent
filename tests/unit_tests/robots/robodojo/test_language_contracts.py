@@ -17,9 +17,9 @@ from types import SimpleNamespace
 import pytest
 
 from components.sim.robodojo import agent_support
-from robots.robodojo import tools
 from components.sim.robodojo.access import public_observation
 from components.sim.robodojo.tasks import resolve_instruction, validate_instruction
+from robots.robodojo import tools
 
 
 def environment(description=None):

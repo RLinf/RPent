@@ -51,26 +51,52 @@ RPent 将任务规划、工具执行和环境运行分开：规划器选择工�
 代码目录
 ------------
 
-共享执行逻辑和接口位于 ``rpent/`` 中，各环境的具体实现位于 ``robots/`` 下的独立包中。
+共享执行逻辑、接口和模型基类位于 ``rpent/``，各机器人的具体实现位于 ``robots/`` 下的独立包。可安装的共享仿真器、模型服务、工具和基础设施组件放在 ``components/``：每个组件各自独立成目录并包含 ``component.toml``，其中 ``components/infra/`` 下的基础设施组件仅提供清单、不含源码。
+
+``tests/tooling/layout.py`` 按 ``robots/`` → ``components/models/`` → ``components/sim/`` → ``rpent/`` 的依赖方向检查导入边界：
+
+- 核心 ``rpent/`` 按名称动态发现组件，不静态导入具体机器人、仿真器、模型或工具；唯一例外是 ``rpent/cli/flywheel.py`` 导入 ``components/tools``。
+- ``components/sim/`` 仅依赖 ``rpent/``；``components/models/`` 仅依赖 ``rpent/`` 与 ``components/sim/``；``components/tools/`` 仅依赖 ``rpent/`` 与 ``components/models/`` 中的模型 client。
+- 仿真器、模型和工具各自禁止同层互导；机器人包之间的跨包导入必须在 ``component.toml`` 的 ``imports`` 中显式声明。
+
+打包上，PyPI wheel（``RPENT_WHEEL_SCOPE=core``）仅包含 ``rpent/``\ （核心运行时与可选扩展 ``rpent[planner]``），而源码仓库通过各目录的 ``component.toml`` 清单配合 ``rpent-install`` 为 ``robots/`` 与 ``components/`` 创建隔离环境。
 
 .. code-block:: text
 
-   rpent/
-     cli/          # CLI, Dashboard launcher, memory commands
-     planner/      # Model backends and Planner protocol
-     prompt/       # Shared prompt construction
-     session/      # Session and task lifecycle
-     dashboard/    # Web UI and event delivery
-     robots/       # Discovery, descriptors, runtime components
-     tools/        # Toolkit and shared tool behavior
-     memory/       # Memory permissions, merge, and indexing
-     evaluation/   # Evaluation result support
-   robots/
+   rpent/            # 核心：契约、调度、模型基类
+     components/     # 机器人包所对接服务的核心契约
+       env/          # 环境契约、client、facade、动作规格
+       models/       # 模型契约、client、facade、后端注册、平台助手
+     cli/            # CLI、Dashboard 启动器、记忆与安装命令
+     planner/        # 模型后端与 Planner 基类
+     prompt/         # 共享提示词拼装
+     session/        # Session 与任务生命周期
+     dashboard/      # Web UI 与事件投递
+     robots/         # 发现、描述符、运行时组件
+     tools/          # Toolkit 与共享工具行为
+     memory/         # 记忆权限、合并与索引
+     evaluation/     # 评测结果支持
+     utils/          # 日志、配置、RPC 传输与共享工具
+     install/        # 清单、解析与指纹
+   robots/<name>/    # 机器人包：原生接口适配与差异化功能
      libero/
+     libero_plus/
      robocasa/
      robotwin/
+     robolab/
      franka/
      dual_franka/
+     robodojo/
+     yam/
+     efe/
+   components/
+     sim/            # 仿真器服务，每个子目录一个可安装组件
+     models/         # 模型服务，每个子目录一个可安装组件
+     tools/          # 只依赖 rpent 与模型 client 的工具
+     infra/          # 基础设施组件：只有清单，没有代码
+   rpent-install.sh  # 在干净源码目录中引导安装器
+   tests/
+     tooling/        # 仓库结构与导入边界检查
 
 环境发现与接入
 ---------------------

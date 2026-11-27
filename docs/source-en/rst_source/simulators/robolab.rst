@@ -73,9 +73,8 @@ From the RPent repository root, run:
 
 .. code-block:: bash
 
-   uv venv --python 3.11 .venv-robolab-policy
+   ./rpent-install.sh install robot-robolab --venv .venv-robolab-policy
    source .venv-robolab-policy/bin/activate
-   uv pip install -e ".[robolab]"
 
 Reuse an existing simulator
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~

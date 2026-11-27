@@ -81,35 +81,16 @@ Target50 包含以下任务类别，完整任务、seed 和运行限制见本页
 安装与资源准备
 ---------------------
 
-需要 Linux、NVIDIA GPU、可用的 CUDA/EGL，以及 ``git`` 和 `uv <https://docs.astral.sh/uv/getting-started/installation/>`_。使用独立的 Python 3.10 环境；已有仓库请先进入该目录，再从第三行开始：
+需要 Linux、NVIDIA GPU、可用的 CUDA/EGL，以及 ``git`` 和 `uv <https://docs.astral.sh/uv/getting-started/installation/>`_。RoboCasa 使用 Python 3.10，``rpent-install`` 会按组件声明的版本范围选用：
 
 .. code-block:: bash
 
-   git clone https://github.com/RLinf/RPent.git
-   cd RPent
-   uv venv --python 3.10 .venv-robocasa
+   ./rpent-install.sh install robot-robocasa --venv .venv-robocasa
    source .venv-robocasa/bin/activate
 
-先按 `PyTorch 安装说明 <https://pytorch.org/get-started/locally/>`_ 选择与 GPU 和驱动兼容的 CUDA 构建。RLDX 要求 Torch >= 2.7、torchvision >= 0.22，且两者版本匹配。国内可使用 `上海交大 PyTorch 镜像 <https://mirror.sjtu.edu.cn/docs/pytorch-wheels>`_；将下方 ``<CUDA_TAG>`` 替换为所选构建（如 ``cu126`` 或 ``cu128``）：
+该命令会安装一组成对的 CUDA Torch 与 torchvision；RLDX 要求 Torch >= 2.7、torchvision >= 0.22。若驱动需要其他构建，可在安装时传入 ``--torch-backend``\ （见 :doc:`../get_started/installation`），或按 `PyTorch 安装说明 <https://pytorch.org/get-started/locally/>`_ 用 ``uv pip install`` 重新安装匹配的版本；国内可使用 `上海交大 PyTorch 镜像 <https://mirror.sjtu.edu.cn/docs/pytorch-wheels>`_。
 
-.. code-block:: bash
-
-   uv pip install "torch>=2.7" "torchvision>=0.22" \
-     --index-url "https://mirror.sjtu.edu.cn/pytorch-wheels/<CUDA_TAG>/"
-
-PyTorch 安装完成后，再安装 RoboCasa：
-
-.. list-table::
-   :header-rows: 1
-
-   * - 环境
-     - 安装命令
-     - 资源下载
-   * - RoboCasa365
-     - ``uv pip install -e ".[robocasa]"``
-     - ``robocasa-download-assets`` （见下方命令）
-
-依赖以 ``pyproject.toml`` 为准，包含 RoboCasa、RLDX 和 Robosuite 的 ``rpent`` 分支源码。不要另装提供同一导入包的 ``rlinf-robocasa365``。
+该命令会安装 RoboCasa、RLDX 和 Robosuite 的 ``rpent_v0.2`` 分支源码。不要另装提供同一导入包的 ``rlinf-robocasa365``。
 
 检查依赖后，将约 10 GB 的厨房资源放到 Python 包目录之外，并在启动 RPent 的终端设置资源路径：
 
@@ -125,7 +106,7 @@ Target50 不需要数据集或遥操作配置，使用 ``--no-macros`` 即可。
 
    ``flash-attn`` 可选，未安装时使用 PyTorch SDPA。如需安装，参见 `FlashAttention 官方说明 <https://github.com/Dao-AILab/flash-attention#installation-and-features>`_。
 
-   参考实验使用 Torch 2.7.0、torchvision 0.22.0、CUDA 12.6；实际安装应与本机兼容。源码分支可能更新，复现时保存依赖和代码版本：
+   参考实验使用 Torch 2.7.0、torchvision 0.22.0、CUDA 12.6；实际安装应与本机兼容。复现时保存解析后的依赖与源码版本：
 
    .. code-block:: bash
 
@@ -403,14 +384,14 @@ Target50 包含 50 个厨房任务，共运行 340 次。以下使用 Codex、GP
    .. _robocasa-protocol-history:
    .. _robocasa-evaluation-protocol:
 
-   当前评测同时使用 task-specific 与 global memory。``target50.json`` 使用 ``robocasa-harness-vla-v2`` 协议和 ``1.1`` 结果格式，参考配置为 GPT-5.5。软件依赖由 ``pyproject.toml`` 管理。自定义任务、seed 或规划器配置时，将当前协议的清单传给校验器：
+   本评测同时使用 task-specific 与 global memory。``target50.json`` 使用 ``robocasa-harness-vla-v2`` 协议和 ``1.1`` 结果格式，参考配置为 GPT-5.5。软件依赖由 RoboCasa 相关组件清单（``robot-robocasa``、``sim-robocasa``、``model-rldx``）管理。自定义任务、seed 或规划器配置时，将当前协议的清单传给校验器：
 
    .. code-block:: bash
 
       python -m robots.robocasa.eval.validate_target50 /path/to/results \
          --manifest /path/to/manifest.json
 
-   比较实验时保留同一份记忆，并在本地记录 HF commit 或文件哈希，以及源码依赖 ``rpent`` 分支实际安装的提交。程序不锁定 memory 版本，校验器也不比较各次运行的记忆正文。
+   比较实验时保留同一份记忆，并在本地记录 HF commit 或文件哈希，以及源码依赖 ``rpent_v0.2`` 分支实际安装的提交。程序不锁定 memory 版本，校验器也不比较各次运行的记忆正文。
 
 .. dropdown:: Target50 公开成绩
 
@@ -495,9 +476,9 @@ VLA 推理检查
 启动与推理
 ~~~~~~~~~~~~
 
-- **旧环境缺少 RLDX 接口：** 重新安装 ``.[robocasa]``，并加 ``--reinstall-package rlinf-rldx``。旧 PyPI wheel 即使版本号相同，也可能缺少所需接口。
-- **缺少导航相机：** 若报错包含 ``mobilebase0_navview``，重新安装 ``.[robocasa]`` 以更新 Robosuite，不要手改 XML。
-- **目录权限错误：** 使用 ``.[robocasa]`` 指定的源码依赖，XML 转换应写入临时目录。将 ``NUMBA_CACHE_DIR`` 指向可写目录，无需修改包权限。
+- **旧环境缺少 RLDX 接口：** 执行 ``./rpent-install.sh install robot-robocasa --venv .venv-robocasa --force`` 重建环境以重新安装当前分支的 ``rlinf-rldx``。旧 PyPI wheel 即使版本号相同，也可能缺少所需接口。
+- **缺少导航相机：** 若报错包含 ``mobilebase0_navview``，执行 ``./rpent-install.sh install robot-robocasa --venv .venv-robocasa --force`` 重建环境以更新 Robosuite，不要手改 XML。
+- **目录权限错误：** 使用 ``robot-robocasa`` 安装的源码依赖，XML 转换应写入临时目录。将 ``NUMBA_CACHE_DIR`` 指向可写目录，无需修改包权限。
 - **CUDA/EGL 不可用：** 按本机配置选择 Torch/torchvision，再运行 :ref:`环境自检 <environment-smoke-tests>` 验证 GPU 运算和渲染；仅查看驱动版本不足以确认可用。
 - **离线找不到模型文件：** 核对 :ref:`支持文件和缓存路径 <robocasa-vla-configuration>`。``NO_ALBUMENTATIONS_UPDATE=1`` 只关闭更新检查，无需因此修改图像处理或 geometry fallback 参数。
 - **RPC 连接受代理影响：** ``127.0.0.1`` 和 ``localhost`` 自动直连。其他服务若也需直连，将其准确主机名加入 ``NO_PROXY`` 和 ``no_proxy``，保留远程规划器的代理设置。

@@ -40,13 +40,14 @@ Expect each component to live in its own module:
 | Component | Home |
 |---|---|
 | Robot integration (spec, toolkit, env/VLA adapters, prompts) | `robots/<robot>/` |
-| Shared robot discovery, spec, runtime, RPC components | `rpent/robots/` |
+| Shared robot discovery, spec, runtime, RPC components | `rpent/robots/`, `rpent/components/` |
+| Simulator and model services | `components/sim/<name>/`, `components/models/<name>/` |
 | Planner adapter | `rpent/planner/<name>.py` |
 | Tool container, common/HIL/world-coordinate tools | `rpent/tools/` |
-| Opt-in RGB-D perception tools | `components/tools/rgbd/` |
+| Opt-in RGB-D perception and data flywheel tools | `components/tools/rgbd/`, `components/tools/flywheel/` |
 | Session, observation capture, prompt building, memory | `rpent/session/`, `rpent/prompt/`, `rpent/memory/` |
-| CLI, Dashboard, evaluation, data flywheel | `rpent/cli/`, `rpent/dashboard/`, `rpent/evaluation/`, `components/tools/flywheel/` |
-| Robot packaging extra and conflict rules | `pyproject.toml`, `requirements/` |
+| CLI, Dashboard, evaluation, installer | `rpent/cli/`, `rpent/dashboard/`, `rpent/evaluation/`, `rpent/install/` |
+| Component dependencies, overrides, and conflict rules | `component.toml` manifests (`robots/`, `components/`) |
 
 Flag robot-specific prompt text, simulator assumptions, or coordinate transforms placed in `rpent/cli/`, `rpent/planner/`, or `rpent/utils/`.
 
@@ -114,7 +115,7 @@ Prompts and tool descriptions are model inputs, not developer prose:
 
 ## Tests
 
-- Mirror production layout: `tests/unit_tests/rpent/`, `tests/unit_tests/robots/<robot>/`, `tests/unit_tests/components/tools/`, `tests/unit_tests/robots/dual_franka/`, `tests/unit_tests/skills/`.
+- Mirror production layout: `tests/unit_tests/rpent/`, `tests/unit_tests/robots/<robot>/`, `tests/unit_tests/components/`, `tests/unit_tests/installs/`, `tests/unit_tests/tooling/`, `tests/unit_tests/skills/`.
 - Unit tests run offline on CPU. Use real objects, real local loopback transports (HTTP/socket/MCP), or fakes at external edges (LLM APIs, simulators, hardware SDKs).
 - Flag tests that are mostly mock setup, tests that only assert a mock was called, tests that mirror internal implementation details rather than observable contracts, and tests that still pass without the change.
 - Never weaken or delete a failing test to make CI pass.

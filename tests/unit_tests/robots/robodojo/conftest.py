@@ -23,8 +23,8 @@ import numpy as np
 import pytest
 
 from components.sim.robodojo.access import ARX_X5_JOINT_FIELDS, CAMERAS
-from robots.robodojo.env_client import RoboDojoEnvClient
 from components.sim.robodojo.env_facade import RoboDojoEnvFacade
+from robots.robodojo.env_client import RoboDojoEnvClient
 
 
 @pytest.fixture

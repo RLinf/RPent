@@ -1,0 +1,9 @@
+schema = 2
+name = "model-xpolicylab"
+probe = "components.models.xpolicylab"
+python = ">=3.10,<3.13"
+# The XPolicyLab policy environment and its model dependencies follow the
+# upstream Awomo05 instructions and are installed separately from this adapter.
+requires = []
+
+dependencies = []

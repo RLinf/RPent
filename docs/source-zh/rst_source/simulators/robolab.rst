@@ -69,9 +69,8 @@ RoboLab
 
 .. code-block:: bash
 
-   uv venv --python 3.11 .venv-robolab-policy
+   ./rpent-install.sh install robot-robolab --venv .venv-robolab-policy
    source .venv-robolab-policy/bin/activate
-   uv pip install -e ".[robolab]"
 
 复用已有仿真环境
 ~~~~~~~~~~~~~~~~~~~~~~~~

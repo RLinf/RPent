@@ -112,8 +112,9 @@ Add a VLA
 Because the model runs in its own process, adding a model-based
 primitive requires a few additional components:
 
-1. **Write ``vla_server.py``.** This process owns only the model weights
-   and CUDA context. Use
+1. **Implement the model server** (``components/models/<name>/server.py``). This process owns only
+   the model weights and CUDA context. Give the package a
+   ``component.toml`` manifest alongside it. Use
    :class:`rpent.components.models.facade.BaseVLAFacade` as the base
    class, implement ``predict``, and register any additional model RPCs by
    extending ``_register_rpc``:
@@ -230,7 +231,8 @@ request construction, action denormalization and rotation conversion; its
 RPent reuses its existing LIBERO client and maps observations and predictions
 at that boundary. These backends require different checkpoints.
 
-1. Create a model package under ``components/models/``. Its
+1. Create a model package under ``components/models/`` with a
+   ``component.toml`` manifest. Its
    ``server.py`` subclasses ``BaseWAMFacade``, which calls ``encode``,
    ``predict_native`` and ``decode`` in that order. Implement the three methods
    and keep whatever checkpoint state they need on the instance.

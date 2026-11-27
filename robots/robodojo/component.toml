@@ -1,0 +1,10 @@
+schema = 2
+name = "robot-robodojo"
+probe = "robots.robodojo"
+planner = true
+python = ">=3.11,<3.12"
+# sim-robodojo owns the RoboDojo RLinf fork, runtime, and override constraints.
+requires = ["sim-robodojo", "model-sam3", "model-openpi", "model-awomo05", "model-vpp2"]
+env_conflicts = ["robot-franka", "robot-dual_franka", "robot-robotwin"]
+
+dependencies = []

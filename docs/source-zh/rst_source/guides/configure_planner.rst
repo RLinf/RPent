@@ -178,7 +178,7 @@ Codex 独立配置与登录
 .. code-block:: bash
 
    cd /path/to/RPent
-   source .venv/bin/activate
+   source .venv-libero/bin/activate
    export CODEX_HOME="$PWD/.codex-rpent-live"
    export CODEX_SQLITE_HOME="$CODEX_HOME"
    export CODEX_BIN="$(python -c 'from codex_cli_bin import bundled_codex_path; print(bundled_codex_path())')"

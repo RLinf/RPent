@@ -1,0 +1,8 @@
+schema = 2
+name = "model-uniwam"
+probe = "components.models.uniwam"
+python = ">=3.10,<3.13"
+# The official UniWAM deployment and its weights are supplied by the
+# operator; the RPent worker owns only request translation.
+
+dependencies = []

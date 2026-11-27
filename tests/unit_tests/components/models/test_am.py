@@ -72,6 +72,21 @@ def test_vla_dispatch_preserves_options_and_model_extensions(model_meta):
         facade.close()
 
 
+class _EchoFacade(BaseWAMFacade):
+    """Encode nothing and return the model's own result unchanged."""
+
+    def __init__(self, model_meta):
+        self.encoded = []
+        super().__init__(model_meta)
+
+    def encode(self, request):
+        self.encoded.append(request)
+        return request
+
+    def decode(self, result):
+        return result
+
+
 @pytest.fixture
 def worker():
     control = {
@@ -80,7 +95,7 @@ def worker():
         "action_schema": ["x", "y"],
         "action_type": None,
     }
-    facade = BaseWAMFacade(
+    facade = _EchoFacade(
         {
             "backend": "test",
             "checkpoint": "test",
@@ -89,8 +104,7 @@ def worker():
             "state_schema": {"joints": 2},
             "chunk_size": 3,
             "uses_sessions": False,
-        },
-        adapter=(lambda request: request, lambda result: result),
+        }
     )
     facade.predict_native = Mock(
         return_value={
@@ -205,13 +219,11 @@ def test_wrong_control_is_rejected_before_prediction(worker):
 def test_required_history_is_checked_before_encoding(worker, history):
     facade, client, _, request = worker
     facade.get_model_meta()["joint_target_history_shape"] = (4, 2)
-    encode = Mock()
-    facade._adapter = (encode, lambda result: result)
     if history is not None:
         request["joint_target_history"] = history
     with pytest.raises(ValueError, match="joint_target_history"):
         client.predict(request)
-    encode.assert_not_called()
+    assert facade.encoded == []
     facade.predict_native.assert_not_called()
 
 
@@ -354,7 +366,7 @@ def test_worker_launch_and_external_options(
     assert command[:3] == [
         str(tmp_path / "python"),
         "-m",
-        f"rpent.components.{runtime.WAM_BACKENDS[backend]}.server",
+        f"components.models.{runtime.WAM_BACKENDS[backend]}.server",
     ]
     assert command.count("--platform") == command.count("--checkpoint") == 1
     assert command[command.index("--checkpoint") + 1] == args.am_checkpoint

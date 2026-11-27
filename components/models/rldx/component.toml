@@ -1,0 +1,8 @@
+schema = 2
+name = "model-rldx"
+probe = "components.models.rldx"
+python = ">=3.10,<3.11"
+
+dependencies = [
+  "rlinf-rldx @ git+https://github.com/RLinf/RLDX-1.git@rpent_v0.2",
+]

@@ -20,8 +20,8 @@ import numpy as np
 import pytest
 
 from components.sim.robodojo import env_server
-from robots.robodojo import robot_spec
 from components.sim.robodojo.access import public_observation
+from robots.robodojo import robot_spec
 from robots.robodojo.env_client import RoboDojoEnvClient
 from robots.robodojo.flash.generate import generate_plan
 from robots.robodojo.flash.grounding import ANCHOR_METHOD, mask_geometry

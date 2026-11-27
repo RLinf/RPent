@@ -108,6 +108,54 @@ def _run_cli_help(*args: str) -> subprocess.CompletedProcess[str]:
     )
 
 
+# Packages that only the planner layer installs. Blocking them in a subprocess
+# reproduces an environment that installed ``rpent`` without ``rpent[planner]``.
+PLANNER_ONLY_PACKAGES = (
+    "anthropic",
+    "fastapi",
+    "google",
+    "huggingface_hub",
+    "httpx",
+    "jsonschema",
+    "mcp",
+    "openai_codex",
+    "prompt_toolkit",
+    "pydantic_ai",
+    "pydantic_ai_harness",
+    "scipy",
+    "uvicorn",
+)
+
+
+def _run_core_only_cli(*args: str) -> subprocess.CompletedProcess[str]:
+    env = os.environ.copy()
+    env["PYTHONPATH"] = os.pathsep.join(
+        [str(REPO_ROOT), env.get("PYTHONPATH", "")]
+    ).rstrip(os.pathsep)
+    script = (
+        "import sys\n"
+        f"BLOCKED = {set(PLANNER_ONLY_PACKAGES)!r}\n"
+        "class Blocker:\n"
+        "    def find_spec(self, name, path=None, target=None):\n"
+        "        if name.split('.')[0] in BLOCKED:\n"
+        "            raise ModuleNotFoundError(f'No module named {name!r}', name=name)\n"
+        "        return None\n"
+        "sys.meta_path.insert(0, Blocker())\n"
+        "from rpent.cli.main import main\n"
+        "sys.argv = ['rpent', *sys.argv[1:]]\n"
+        "raise SystemExit(main())\n"
+    )
+    return subprocess.run(
+        [sys.executable, "-c", script, *args],
+        cwd=REPO_ROOT,
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=15,
+        check=False,
+    )
+
+
 def _capture_validated_args(
     monkeypatch: pytest.MonkeyPatch,
     argv: list[str],
@@ -153,9 +201,134 @@ def _capture_validated_args(
     return captured["robot_name"], captured["args"]
 
 
+def test_a_core_only_environment_reports_the_missing_planner_layer(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    cli = _cli_module()
+    monkeypatch.setattr(sys, "argv", ["rpent", "--robot", "libero"])
+    monkeypatch.setattr(
+        cli, "_missing_planner_module", lambda: cli._PLANNER_CORE_MODULE
+    )
+
+    assert cli.main() == 1
+
+    message = capsys.readouterr().err
+    assert "needs the planner layer" in message
+    assert cli._PLANNER_CORE_MODULE in message
+    assert 'pip install "rpent[planner]"' in message
+
+
+def test_optional_planner_packages_do_not_block_a_run(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A run without ``--tui`` or MCP needs only the planner core."""
+
+    cli = _cli_module()
+
+    def find_spec(name: str, *args: Any) -> object | None:
+        return object() if name == cli._PLANNER_CORE_MODULE else None
+
+    monkeypatch.setattr(cli, "find_spec", find_spec)
+
+    assert cli._missing_planner_module() is None
+
+
+def test_a_checkout_less_install_reports_the_missing_layer_before_argparse(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    cli = _cli_module()
+    monkeypatch.setattr(sys, "argv", ["rpent", "--robot", "libero"])
+    # A wheel install carries no ``robots`` package, so discovery finds none and
+    # ``--robot`` names a value outside the choice list.
+    monkeypatch.setattr(cli, "enumerate_robots", lambda: ())
+    monkeypatch.setattr(cli, "_missing_planner_module", lambda: "pydantic_ai")
+
+    assert cli.main() == 1
+
+    message = capsys.readouterr().err
+    assert "needs the planner layer" in message
+    assert "invalid choice" not in message
+
+
+def test_a_planner_install_without_a_checkout_reports_the_missing_robots(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    cli = _cli_module()
+    monkeypatch.setattr(sys, "argv", ["rpent", "--robot", "libero"])
+    monkeypatch.setattr(cli, "enumerate_robots", lambda: ())
+    # With the planner layer installed the layer guard passes, so the missing
+    # ``robots`` package is what ``--robot`` must explain.
+    monkeypatch.setattr(cli, "_missing_planner_module", lambda: None)
+
+    assert cli.main() == 1
+
+    message = capsys.readouterr().err
+    assert "found no robot components" in message
+    # The remedy is the installer that builds a robot environment, not an
+    # editable install of the core package.
+    assert "rpent-install.sh" in message
+    assert "RPENT_REPO_ROOT" in message
+    assert "invalid choice" not in message
+
+
+@pytest.mark.parametrize(
+    "argv",
+    [
+        ["rpent", "--robot", "libero", "--help"],
+        ["rpent", "--robot=libero", "-h"],
+    ],
+)
+def test_robot_help_without_a_checkout_reports_missing_robots_instead_of_invalid_choice(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    argv: list[str],
+) -> None:
+    cli = _cli_module()
+    monkeypatch.setattr(sys, "argv", argv)
+    monkeypatch.setattr(cli, "enumerate_robots", lambda: ())
+    monkeypatch.setattr(cli, "_missing_planner_module", lambda: "pydantic_ai")
+
+    assert cli.main() == 1
+
+    message = capsys.readouterr().err
+    assert "found no robot components" in message
+    assert "rpent-install.sh" in message
+    assert "invalid choice" not in message
+
+
+def test_help_names_the_robot_dependency_that_is_missing(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    cli = _cli_module()
+    monkeypatch.setattr(sys, "argv", ["rpent", "--robot", "robocasa", "--help"])
+
+    def missing(_name):
+        raise ModuleNotFoundError("No module named 'robosuite'", name="robosuite")
+
+    monkeypatch.setattr(cli, "get_robot_spec", missing)
+
+    assert cli.main() == 1
+
+    message = capsys.readouterr().err
+    assert "cannot load robot 'robocasa'" in message
+    assert "robosuite" in message
+
+
+def test_core_only_environment_keeps_help_working() -> None:
+    result = _run_core_only_cli("--help")
+
+    assert result.returncode == 0, result.stderr
+    assert "RPent: Agentic Infrastructure for the Physical World" in result.stdout
+
+    result = _run_core_only_cli("--robot", "libero")
+
+    assert result.returncode == 1
+    assert "needs the planner layer" in result.stderr
+    assert 'pip install "rpent[planner]"' in result.stderr
+
+
 def test_public_cli_help_runs_from_source_checkout_without_a_robot_runtime() -> None:
     result = _run_cli_help("--help")
-
     assert result.returncode == 0, result.stderr
     assert "RPent: Agentic Infrastructure for the Physical World" in result.stdout
     assert "with api, claude_code, or codex" in " ".join(result.stdout.split())
@@ -757,8 +930,7 @@ def test_full_cli_exploration_finalizes_memory_without_starting_gpu_runtime(
     monkeypatch.setattr(cli, "get_toolkit", get_toolkit)
     monkeypatch.setattr(sys.stdin, "isatty", lambda: True)
     monkeypatch.setattr(
-        cli,
-        "start_interactive_reader",
+        "rpent.cli.tui.start_interactive_reader",
         lambda *args, **kwargs: pytest.fail("API mode must use the native CLI"),
     )
     monkeypatch.setattr("rpent.memory.MemoryManager.sync", reject_memory_sync)

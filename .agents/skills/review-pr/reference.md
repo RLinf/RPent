@@ -35,7 +35,7 @@ A mismatch with RPent conventions, bloated workaround, or dead boilerplate is a 
 
 Area scripts and checklists run in step 6 ([code § Check](../code/SKILL.md#check), [robots § Check](../robots/SKILL.md#check), [docs § Check](../docs/SKILL.md#check)). Review these PR-wide checks alongside them:
 
-- [ ] **Coverage and completeness**: user-facing changes include offline CPU tests that fail without the change; new robot integrations ship `pyproject.toml` extras/conflicts, offline unit tests, real-component/policy-chain e2e tests, paired EN/ZH docs, and README highlights.
+- [ ] **Coverage and completeness**: user-facing changes include offline CPU tests that fail without the change; new robot integrations ship `component.toml` manifests, offline unit tests, declarative GPU e2e suites, paired EN/ZH docs, and README highlights.
 - [ ] **Docs readability (fresh agent)**: run a fresh-agent pass (no `rpent/`, `robots/`, or `components/` context) following [docs § Check](../docs/SKILL.md#check) and `docs/rules/` for plain human prose, native Chinese, concise main paths, no internal code citations or developer internals leaking into user guides, no non-runnable placeholder examples (`example.com`), and no negative-contrast restatement.
 - [ ] **Sibling alignment**: compare new simulator/robot guides against the closest current sibling on `main` and check `conf.py` redirects for moved pages.
 

@@ -7,9 +7,9 @@ from types import ModuleType, SimpleNamespace
 import numpy as np
 import pytest
 
+from components.models.vpp2.client import VPP2Client
 from robots.robodojo.env_client import ExecutionSyncError, RoboDojoEnvClient
 from robots.robodojo.primitives import RoboDojoPrimitives
-from components.models.vpp2.client import VPP2Client
 from rpent.tools.toolkit import ToolCancelled
 
 

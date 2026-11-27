@@ -34,7 +34,7 @@ LIBERO
 
    .. grid-item-card:: 硬件
 
-      Linux、NVIDIA GPU；Python 3.11；CUDA 与 EGL。
+      Linux、NVIDIA GPU；Python 3.12；CUDA 与 EGL。
 
 .. _libero-pro:
 
@@ -95,27 +95,25 @@ LIBERO
 
 首次使用 LIBERO-PRO，请先完成 :doc:`../get_started/quickstart` 的安装、资源下载和模型配置。本页用于选择更多任务与复现实验。
 
-其他 LIBERO 版本请在独立环境中安装对应 extra，再下载资源；每个 Python 环境只安装一种 LIBERO 版本：
+``robot-libero`` 同时安装 standard LIBERO 与 LIBERO-PRO；LIBERO-plus 需要 ``robosuite<1.5``，请安装独立环境 ``robot-libero_plus``。运行时用 ``--libero-type`` 选择版本，并下载对应资源：
 
 .. list-table::
    :header-rows: 1
 
-   * - 版本
+   * - ``--libero-type``
      - 安装命令
      - 资源下载
    * - ``standard``
-     - ``uv pip install -e ".[libero]"``
+     - ``./rpent-install.sh install robot-libero --venv .venv-libero``
      - ``libero-download-assets --skip-existing``
    * - ``pro``
-     - ``uv pip install -e ".[libero-pro]"``
+     - ``./rpent-install.sh install robot-libero --venv .venv-libero``
      - ``liberopro-download-assets --skip-existing``
    * - ``plus``
-     - ``uv pip install -e ".[libero-plus]"``
+     - ``./rpent-install.sh install robot-libero_plus --venv .venv-libero-plus``
      - ``liberoplus-download-assets --skip-existing``
 
-以上各组依赖均包含 Pi0.5（``rpent-openpi``）、SAM3 和 RLinf 运行时（``rpent-rlinf``）。模型权重需按下文单独下载。
-
-运行时通过 ``--libero-type`` 选择与安装包一致的版本。
+上述环境均已包含 Pi0.5（``rpent-openpi``）、SAM3 与 RLinf 运行时（``infra-rlinf``）。模型权重需按下文单独下载。
 
 VLA 配置
 --------

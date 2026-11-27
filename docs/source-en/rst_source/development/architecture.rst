@@ -56,27 +56,67 @@ In LIBERO, the environment, Pi0.5, and SAM3 run in separate service processes. A
 Repository Layout
 -----------------
 
-Shared execution and interfaces live under ``rpent/``. Each package under
-``robots/`` supplies the environment-specific implementation described above.
+Shared execution, contracts, and model bases live under ``rpent/``. Each
+package under ``robots/`` supplies the environment-specific implementation
+described above. Shared installable simulators, model services, tools, and
+infrastructure manifests live under ``components/``: each component is a
+self-contained directory with a ``component.toml`` manifest, and components
+under ``components/infra/`` provide only that manifest without source code.
+
+Import boundaries are enforced by ``tests/tooling/layout.py`` along the layer
+order ``robots/`` → ``components/models/`` → ``components/sim/`` → ``rpent/``:
+
+- Core ``rpent/`` discovers components dynamically and never imports concrete
+  robots, simulators, models, or tools statically; the only exception is
+  ``rpent/cli/flywheel.py``, which imports ``components/tools``.
+- ``components/sim/`` imports only ``rpent/``; ``components/models/`` imports
+  only ``rpent/`` and ``components/sim/``; ``components/tools/`` imports only
+  ``rpent/`` and model clients under ``components/models/``.
+- Sibling imports across simulators, models, or tools are forbidden;
+  cross-robot imports require an explicit ``imports`` entry in
+  ``component.toml``.
+
+For packaging, the PyPI wheel (``RPENT_WHEEL_SCOPE=core``) ships only
+``rpent/`` (the core runtime plus the optional ``rpent[planner]`` extra), while
+a source checkout builds isolated environments for ``robots/`` and
+``components/`` from their ``component.toml`` manifests via ``rpent-install``.
 
 .. code-block:: text
 
-   rpent/
-     cli/          # CLI, Dashboard launcher, memory commands
-     planner/      # Model backends and Planner base class
-     prompt/       # Shared prompt construction
-     session/      # Session and task lifecycle
-     dashboard/    # Web UI and event delivery
-     robots/       # Discovery, descriptors, runtime components
-     tools/        # Toolkit and shared tool behavior
-     memory/       # Memory permissions, merge, and indexing
-     evaluation/   # Evaluation result support
-   robots/
+   rpent/            # Core: contracts, scheduling, model bases
+     components/     # Core contracts for services used by robot packages
+       env/          # Environment contracts, client, facade, action spec
+       models/       # Model contracts, client, facade, backends, platforms
+     cli/            # CLI, Dashboard launcher, memory and install commands
+     planner/        # Model backends and Planner base class
+     prompt/         # Shared prompt construction
+     session/        # Session and task lifecycle
+     dashboard/      # Web UI and event delivery
+     robots/         # Discovery, descriptors, runtime components
+     tools/          # Toolkit and shared tool behavior
+     memory/         # Memory permissions, merge, and indexing
+     evaluation/     # Evaluation result support
+     utils/          # Logging, config, RPC transport, and shared helpers
+     install/        # Manifests, resolution, fingerprints
+   robots/<name>/    # Robot package: native adapters and robot-specific features
      libero/
+     libero_plus/
      robocasa/
      robotwin/
+     robolab/
      franka/
      dual_franka/
+     robodojo/
+     yam/
+     efe/
+   components/
+     sim/            # Simulator services, one installable component each
+     models/         # Model services, one installable component each
+     tools/          # Tools that depend only on rpent and model clients
+     infra/          # Infrastructure components: a manifest and no code
+   rpent-install.sh  # Bootstrap the installer from a fresh checkout
+   tests/
+     tooling/        # Repository layout and import-boundary checks
 
 Environment Discovery
 ---------------------

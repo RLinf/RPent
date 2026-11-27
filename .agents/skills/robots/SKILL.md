@@ -1,18 +1,19 @@
 ---
 name: robots
-description: "RPent robot integrations, packaging extras, and GPU e2e (robots/, rpent/robots/, pyproject.toml, requirements/, tests/e2e_tests/, .github/workflows/embodied-gpu-e2e*.yml): add or extend a robot integration's RobotSpec, Env/VLA, toolkit, prompt, runtime, pyproject extra, and GPU e2e tests, then check and verify them. Use before editing any robot package, shared robot contract, packaging extra, or e2e suite."
+description: "RPent robot integrations, component manifests, and GPU e2e (robots/, components/, rpent/robots/, rpent/components/, pyproject.toml, tests/e2e_tests/, .github/workflows/embodied-gpu-e2e*.yml): add or extend a robot integration's RobotSpec, Env/VLA, toolkit, prompt, runtime, component.toml manifest, and GPU e2e tests, then check and verify them. Use before editing any robot package, component manifest, shared robot contract, or e2e suite."
 paths:
   - robots/**
+  - components/**
   - rpent/robots/**
+  - rpent/components/**
   - pyproject.toml
-  - requirements/**
   - tests/e2e_tests/**
   - ".github/workflows/embodied-gpu-e2e*.yml"
 ---
 
-# Robots, Packaging, and E2E
+# Robots, Component Manifests, and E2E
 
-Each concrete robot integration lives under `robots/<robot>/` and plugs into RPent through `RobotSpec`, `Toolkit`, shared RPC facades (`rpent/components/`), and shared daemon helpers (`rpent/robots/runtime.py`). Dependencies live in `pyproject.toml` optional extras (plus `requirements/*-override.txt` when overrides must stay isolated), and GPU suites run through `tests/e2e_tests/run_gpu_suite.sh` and `.github/workflows/embodied-gpu-e2e*.yml`. Concrete code and packaging shapes are in [reference.md](reference.md).
+Each concrete robot integration lives under `robots/<robot>/` and plugs into RPent through `RobotSpec`, `Toolkit`, shared RPC facades (`rpent/components/`), and shared daemon helpers (`rpent/robots/runtime.py`). Component dependencies, overrides, and conflicts live in `component.toml` manifests under `robots/` and `components/{sim,models,tools,infra}/` (installed via `./rpent-install.sh`), and GPU suites run through `tests/e2e_tests/run_gpu_suite.sh` and `.github/workflows/embodied-gpu-e2e*.yml`. Concrete code and manifest shapes are in [reference.md](reference.md).
 
 ## Conventions
 
@@ -20,8 +21,8 @@ Each concrete robot integration lives under `robots/<robot>/` and plugs into RPe
 2. **Contain robot-specific policy in `robots/<robot>/`.** Never add robot-name branches to `rpent/cli/`, `rpent/dashboard/`, `rpent/planner/`, or `rpent/session/`. Use `RobotSpec` hooks and capability flags (`validate_args`, `prepare_memory`, `prepare_prompt_vars`, `resolve_dashboard`, `finalize_run`, `run_flash`, `flywheel`, `is_real_robot`, `supports_exploration`, `supports_human_interactive_exploration`).
 3. **Keep package imports lazy.** `robots/<robot>/__init__.py` and `robot_spec.py` must not import simulator, VLA, perception, or hardware SDK packages (`torch`, `mujoco`, `robosuite`, `libero`, `openpi`, `rlinf`, `sam3`, `isaacsim`, `curobo`, `pyrealsense2`, `franky_control`, `cv2`, `transformers`) at module top level. `import rpent`, `enumerate_robots()`, and `rpent --help` must work with only base dependencies.
 4. **Make daemon ownership explicit.** Spawn and wait for owned subprocesses through `try_spawn_server` and `try_wait_server`, roll back earlier daemons on startup failure via `stop_owned_daemons`, handle Dashboard component subsets when supported, and never terminate borrowed external endpoints.
-5. **Pin optional dependencies cleanly.** Put integration-only dependencies in a `[project.optional-dependencies]` extra in `pyproject.toml`. Pin git dependencies to an explicit ref (`@<commit|tag|branch>`). Declare mutually incompatible extras in `[tool.uv] conflicts`, and keep per-robot resolver overrides in `requirements/<robot>-override.txt` so other extras stay unaffected.
-6. **Keep E2E targets aligned.** Adding a directory under `tests/e2e_tests/<robot>/` does not wire it into GPU CI. When adding a new CI target, update `tests/e2e_tests/run_gpu_suite.sh`, `.github/workflows/embodied-gpu-e2e.yml` (`options` and `/ci-*`), and `.github/workflows/embodied-gpu-e2e-run.yml` together, and document opt-in prerequisites in [tests/README.md](../../../tests/README.md).
+5. **Pin component dependencies cleanly.** Put integration-only dependencies in `component.toml` (`schema = 2`) under `robots/<robot>/` or `components/{sim,models,tools,infra}/<name>/`. Pin git dependencies to an explicit commit SHA, version tag, or integration/release branch (`@<ref>`). Declare mutually incompatible components in `env_conflicts`, and keep component-local resolver overrides in `overrides` (e.g. `components/sim/robodojo/requirements/robodojo-override.txt`). Verify with `rpent-install check --all` and `tests/tooling/run.sh layout`.
+6. **Declare E2E suites in `tests/e2e_tests/suites/<name>.toml`.** GPU CI (`run_gpu_suite.sh`, `ci_targets.py`, and `.github/workflows/embodied-gpu-e2e.yml`) auto-discovers every `suites/*.toml` file. Add one `[[cases]]` entry per action-model backend, and document prerequisites in the simulator guide.
 
 ## Write
 
@@ -33,7 +34,7 @@ Each concrete robot integration lives under `robots/<robot>/` and plugs into RPe
 4. **Toolkit and primitives.** Connect tool schemas, handlers, primitives, and state capture. Reuse `components/tools/rgbd/` for opt-in RGB-D perception when applicable. Keep large observations out of tool-result text, and check tool exposure across supported planners.
 5. **Prompts.** Build `PromptBundle` from robot-owned templates. Verify rendered variables, tool names, and concise instructions, following [docs](../docs/SKILL.md) for prose quality.
 6. **Runtime lifecycle.** Implement `init_runtime` with `rpent/robots/runtime.py` helpers for both complete CLI startup and selected Dashboard component subsets. Keep robot-specific result schemas in `finalize_run`.
-7. **Packaging, tests, and docs.** Add or update the `pyproject.toml` extra and `conflicts`, add offline unit tests under `tests/unit_tests/robots/<robot>/`, add real-component/policy-chain e2e tests under `tests/e2e_tests/<robot>/` reusing `tests/e2e_tests/common.py`, and update paired EN/ZH docs and README highlights ([docs](../docs/SKILL.md)).
+7. **Manifests, tests, and docs.** Add or update `component.toml` (and `requires`/`env_conflicts`/`overrides`), add offline unit tests under `tests/unit_tests/robots/<robot>/`, add a declarative GPU e2e suite under `tests/e2e_tests/suites/<robot>.toml`, and update paired EN/ZH docs and README highlights ([docs](../docs/SKILL.md)).
 
 ## Check
 
@@ -50,7 +51,7 @@ Findings use the shared format of [README.md](../README.md#findings):
 | `robots/lazy-import` | major | a top-level import of an optional simulator, VLA, perception, or hardware SDK package in `robots/<name>/__init__.py` or `robot_spec.py` |
 | `robots/packaging` | major | `pyproject.toml` issues: `[tool.uv] conflicts` referencing an unknown extra, unpinned git dependencies in extras, or missing `robots`/`robots.*` package discovery |
 | `robots/e2e-syntax` | critical | a changed shell script under `tests/e2e_tests/` that fails `bash -n` |
-| `robots/e2e-targets` | major | drift between targets in `.github/workflows/embodied-gpu-e2e.yml` (`options` / `/ci-*`) and `case "$target"` in `tests/e2e_tests/run_gpu_suite.sh` |
+| `robots/e2e-targets` | major | invalid or incomplete declarative suite TOML under `tests/e2e_tests/suites/` |
 
 Then judge what the script cannot:
 
@@ -58,7 +59,7 @@ Then judge what the script cannot:
 - [ ] Startup failure tears down every earlier owned daemon and leaves borrowed endpoints running.
 - [ ] Tool schemas, handlers, and rendered prompts agree on every tool name and placeholder across supported planners.
 - [ ] Offline unit tests cover config, CLI args, dispatch, prompts, and lifecycle without requiring the robot extra; real-component and policy-chain checks exist for simulator integrations.
-- [ ] Paired EN/ZH simulator or real-world robot guides and `tests/README.md` match actual install extras, env vars, and commands.
+- [ ] Paired EN/ZH simulator or real-world robot guides and the [Testing and CI](https://rpent.readthedocs.io/en/latest/rst_source/development/testing.html) guide match actual install extras, env vars, and commands.
 
 ## Verify
 
@@ -80,10 +81,10 @@ Then judge what the script cannot:
      /path/to/new-venv-root
    ```
 
-   Inspect JUnit XML, server logs, and `*-daemon-cleanup.txt` in the output directory. For opt-in simulator suites not wired into `run_gpu_suite.sh` (such as RoboDojo, EFE, or external WAM endpoints) or operator-controlled real-robot diagnostics (`dual_franka`), follow the exact prerequisites and commands in [tests/README.md](../../../tests/README.md).
+   Inspect JUnit XML, server logs, and `*-daemon-cleanup.txt` in the output directory. For opt-in suites such as [EFE](../../../tests/e2e_tests/efe/) and [dual Franka](../../../tests/e2e_tests/dual_franka/), check the prerequisites in the suite before running it.
 
 3. **Distinguish integration from task success.** A bounded policy-chain test proves action execution, recorded `finish`, saved state/observation artifacts, and owned-daemon cleanup; report native environment success (`terminated` or benchmark verifier reward) separately.
 
 ## When to stop and ask
 
-Stop and ask the user when an integration dependency conflicts with a core RPent pin (`pydantic`, `fastapi`, `numpy`, `pyarrow`, `huggingface_hub`) and neither an isolated extra conflict nor a `requirements/<robot>-override.txt` is clearly right; when required simulator assets or checkpoints are unavailable for requested GPU verification; or when physical robot hardware requires operator supervision.
+Stop and ask the user when an integration dependency conflicts with a core RPent pin (`pydantic`, `fastapi`, `numpy`, `pyarrow`, `huggingface_hub`) and neither `env_conflicts` nor a component-local `overrides` file is clearly right; when required simulator assets or checkpoints are unavailable for requested GPU verification; or when physical robot hardware requires operator supervision.

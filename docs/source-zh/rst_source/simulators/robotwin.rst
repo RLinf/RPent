@@ -78,33 +78,24 @@ C2R 使用干净场景中的成功轨迹作为经验，在随机场景中评测�
 安装
 ----
 
-RoboTwin 要求 Python 3.11。宿主机需预先具备兼容的 CUDA toolkit/NVCC、编译工具链以及 SAPIEN 依赖的系统级 GL/EGL/Vulkan 库。创建虚拟环境并安装 RoboTwin 所需依赖：
+RoboTwin 要求 Python 3.11。宿主机需预先具备兼容的 CUDA toolkit/NVCC、编译工具链以及 SAPIEN 依赖的系统级 GL/EGL/Vulkan 库。安装 ``robot-robotwin`` 即可，无需运行 RLinf 安装器，也无需单独克隆 RoboTwin：
 
 .. code-block:: bash
 
-   git clone https://github.com/RLinf/RPent.git
-   cd RPent
-   uv venv --python 3.11 .venv-robotwin
+   ./rpent-install.sh install robot-robotwin --venv .venv-robotwin
    source .venv-robotwin/bin/activate
-   uv pip install -e ".[robotwin]"
 
-用户不需要运行 RLinf 安装器，也不需要单独克隆 RoboTwin。
-
-国内网络可使用 PyPI 镜像加速：
+国内网络可通过 ``--index-url`` 指定 PyPI 镜像（更多镜像与 CUDA 后端参数见 :doc:`../get_started/installation`）：
 
 .. code-block:: bash
 
-   uv pip install -e ".[robotwin]" \
-      --default-index https://mirrors.aliyun.com/pypi/simple \
-      --index https://pypi.tuna.tsinghua.edu.cn/simple
+   ./rpent-install.sh install robot-robotwin --venv .venv-robotwin \
+     --index-url https://mirrors.aliyun.com/pypi/simple
 
 .. note::
 
-   ``.[robotwin]`` 使用 SAPIEN 3.0.0b1。其他版本可能改变仿真观测，导致模型效果下降。
-
-.. note::
-
-   ``.[robotwin]`` 的 RoboTwin 与 LingBot 运行时已作为发布包安装到 PyPI； cuRobo 仍从 GitHub 官方 tag 源码构建，因此即使配置了 PyPI 镜像，安装时仍需能访问 GitHub。
+   - ``sim-robotwin`` 固定使用 SAPIEN 3.0.0b1，其他版本可能改变仿真观测并导致模型效果下降。
+   - RoboTwin 与 LingBot 运行时已上架 PyPI，但 cuRobo 仍从 GitHub 官方 tag 源码构建，因此即使配置了 PyPI 镜像，安装时仍需能访问 GitHub。
 
 下载仿真资源
 ------------
@@ -143,12 +134,7 @@ UniWAM 后端
 支持 RoboTwin 的评估、探索和记忆配置。
 不传 ``prompt`` 时使用原生任务指令，也可以通过该参数指定本次调用的子任务指令。
 
-在独立的 Python 3.11 模型环境中，按
-`UniWAM 官方 RoboTwin 部署说明 <https://github.com/UniWAM/UniWAM/tree/8dcd3401bccda8c002fc558e356b975b1789eecd/inference/robotwin/uniwam>`_
-安装策略依赖，再安装 RPent：``pip install -e /path/to/RPent``。
-已验证的依赖组合为 Torch 2.6.0+cu124、torchvision 0.21.0+cu124、
-FlashAttention 2.7.4.post1、Transformers 4.57.3、Diffusers 0.35.1、
-DeepSpeed 0.16.9 和 NumPy 1.26.4。
+在独立的 Python 3.11 模型环境中，按 `UniWAM 官方 RoboTwin 部署说明 <https://github.com/UniWAM/UniWAM/tree/8dcd3401bccda8c002fc558e356b975b1789eecd/inference/robotwin/uniwam>`_ 安装策略依赖，再安装 RPent：``pip install -e /path/to/RPent``。该环境由 UniWAM 部署维护，不由 ``rpent-install`` 组件管理，``rpent-install doctor`` 不覆盖它。已验证的依赖组合为 Torch 2.6.0+cu124、torchvision 0.21.0+cu124、FlashAttention 2.7.4.post1、Transformers 4.57.3、Diffusers 0.35.1、DeepSpeed 0.16.9 和 NumPy 1.26.4。
 
 从 `UniWAM 模型集合 <https://huggingface.co/collections/chenpyyy/uniwam>`_
 获取 RoboTwin-clean history-flow checkpoint，并准备

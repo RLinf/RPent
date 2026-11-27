@@ -21,12 +21,12 @@ import pytest
 
 from components.models.molmo.client import MolmoResult
 from components.models.sam3.client import Sam3Result
-from rpent.session import EnvState
-from rpent.tools import ToolResult
 from components.tools.rgbd.geometry.geometry_tool import GeometryTool
 from components.tools.rgbd.geometry.local_point_agent import LocalPointAgent
 from components.tools.rgbd.geometry.multiview import observe_with_alternatives
 from components.tools.rgbd.observation import GeometryObservation
+from rpent.session import EnvState
+from rpent.tools import ToolResult
 
 
 def test_back_project_measures_declared_raster_without_claiming_identity():

@@ -207,7 +207,7 @@ first set that directory and locate the Codex executable bundled with the SDK:
 .. code-block:: bash
 
    cd /path/to/RPent
-   source .venv/bin/activate
+   source .venv-libero/bin/activate
    export CODEX_HOME="$PWD/.codex-rpent-live"
    export CODEX_SQLITE_HOME="$CODEX_HOME"
    export CODEX_BIN="$(python -c 'from codex_cli_bin import bundled_codex_path; print(bundled_codex_path())')"

@@ -29,7 +29,7 @@ extension points required to add a robot. Complete them in the following
 order:
 
 1. Register the ``RobotSpec`` and toolkit factory in the
-   :ref:`entry point <add-robot-entry>`.
+   :ref:`entry point <add-robot-entry>` and declare ``component.toml``.
 2. Implement :ref:`env_client and env_server <add-robot-env-rpc>`. To
    integrate a VLA service and model client, see :ref:`Add a VLA (or other
    model-based primitive) <add-primitive-model-based>`.
@@ -45,31 +45,112 @@ order:
 
 .. _add-robot-entry:
 
-Entry Point
------------
+Entry Point and Component Manifest
+----------------------------------
 
-For a new robot named ``myrobot``, use the following directory layout:
+A robot is a component: a directory under ``robots/`` plus a ``component.toml``
+that tells ``rpent-install`` how to install it. For a new robot named
+``myrobot``, use this directory layout:
 
 .. code-block:: text
 
    robots/myrobot/
-       __init__.py            # package entry point; re-exports the factories
-       robot_spec.py          # RobotSpec, factories, Dashboard spec, runtime hooks
-       env_client.py          # MyEnvClient — agent-side RPC stub (§1)
-       prompt_bundle.py       # system()/user() prompt factories         (§2)
-       toolkit.py             # MyRobotToolkit + primitives + tool definitions (§3)
-       env_server.py          # server-side facade + RPC server (§1)
-       vla_server.py          # (optional) VLA model server
+       component.toml          # name, probe, python, requires, dependencies
+       __init__.py             # lazy package entry point
+       robot_spec.py           # RobotSpec, factories, Dashboard spec, runtime hooks
+       env_client.py           # MyEnvClient — agent-side RPC stub (§1)
+       prompt_bundle.py        # system_prompt()/user_prompt() factories (§2)
+       toolkit.py              # MyRobotToolkit + primitives + tool definitions (§3)
 
-``__init__.py`` is the robot package's entry point. Keep it small and
-re-export the factories implemented in ``robot_spec.py``. The registry in
-``rpent/robots/base.py`` lazily imports ``robots.<name>`` on demand and calls
-these two functions:
+   components/sim/mysim/       # shared simulator component (when adding a simulator)
+       component.toml          # name = "sim-mysim", simulator dependencies
+       env_server.py           # server-side facade + RPC server (§1)
+
+``robots/myrobot/component.toml`` declares what ``rpent-install`` reads:
+
+.. code-block:: toml
+
+   schema = 2
+   name = "robot-myrobot"
+   probe = "robots.myrobot"
+   planner = true
+   python = ">=3.10,<3.13"
+   requires = ["sim-mysim", "model-mymodel"]
+
+   dependencies = []
+
+Simulator packages (such as ``dependencies = ["my-simulator==1.2"]``) and
+``env_server.py`` belong in ``components/sim/<name>/`` so the simulator can be
+shared across robots; place ``env_server.py`` and hardware-specific
+``dependencies`` directly in ``robots/<name>/`` only for real-robot drivers
+that have no shared simulator component.
+
+Every environment targets Linux ``x86_64``, so manifests omit any platform
+field. The supported manifest fields are listed below:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 18 82
+
+   * - Field
+     - Purpose
+   * - ``schema``
+     - Manifest format version (``2``).
+   * - ``name``
+     - Must be ``robot-<dir>`` so the prefix identifies the component kind and
+       its directory location.
+   * - ``probe``
+     - Importable package checked by ``rpent-install install`` and ``doctor``
+       along with the robot's role modules (``robot_spec``, ``env_client``) to
+       verify that runtime dependencies are present.
+   * - ``planner``
+     - Set ``planner = true`` when the robot imports the planner layer so the
+       environment installs ``rpent[planner]`` on top of ``rpent``; omit it for
+       simulator or model services that run without the planner stack.
+   * - ``python``
+     - Supported Python version range (for example ``">=3.10,<3.13"``);
+       ``rpent-install`` selects the newest minor accepted by all components in
+       the environment.
+   * - ``requires``
+     - Other components installed into the same environment (typically the
+       robot's simulator, model services, and tools).
+   * - ``dependencies``
+     - Python requirements specific to this robot. Dependencies shared by
+       multiple components belong in ``components/infra/``.
+   * - ``imports``
+     - Optional list of sibling robots whose code this robot imports directly.
+       One of the two must declare the other in ``requires`` so both are
+       installed together. Toolkits and model services share a contract rather
+       than importing each other.
+
+``__init__.py`` is the package entry point and must stay lazy. Importing
+``robots.<name>`` during CLI argument parsing (``rpent --robot <name> --help``),
+component probing (``rpent-install doctor``), or layout checks must not eagerly
+pull in optional simulator or model packages. Export the factories through
+``__getattr__``:
 
 .. code-block:: python
 
    # robots/myrobot/__init__.py
-   from robots.myrobot.robot_spec import get_robot_spec, get_toolkit
+   from typing import TYPE_CHECKING, Any
+
+   if TYPE_CHECKING:
+       from robots.myrobot.robot_spec import get_robot_spec, get_toolkit
+
+   __all__ = ["get_robot_spec", "get_toolkit"]
+
+
+   def __getattr__(name: str) -> Any:
+       if name in __all__:
+           from robots.myrobot import robot_spec
+
+           return getattr(robot_spec, name)
+       raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
+The registry in ``rpent/robots/base.py`` imports ``robots.<name>`` on demand
+and calls these two functions:
+
+.. code-block:: python
 
    # robots/myrobot/robot_spec.py
    from rpent.dashboard.events import DashboardEventSink

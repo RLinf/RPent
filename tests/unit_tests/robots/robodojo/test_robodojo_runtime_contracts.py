@@ -109,9 +109,7 @@ def test_explicit_paths_do_not_read_workspace_or_mutate_parent(monkeypatch, tmp_
     assert str(tmp_path / "policy") in env["PYTHONPATH"].split(os.pathsep)
     assert dict(os.environ) == before
     assert (
-        args.sim_python
-        == runtime.select_am(args, "robodojo").python
-        == sys.executable
+        args.sim_python == runtime.select_am(args, "robodojo").python == sys.executable
     )
 
 
@@ -820,7 +818,6 @@ def test_backends_accept_shared_sam3_endpoint(runtime_services, tmp_path, backen
 def test_resource_root_uses_selected_backend_environment(
     monkeypatch, backend, variable
 ):
-
     monkeypatch.setenv("VPP2_MODEL_PATH", "/models/vpp2")
     monkeypatch.setenv("AWOMO05_MODEL_PATH", "/models/awomo")
     config = _args("--vla-backend", backend)

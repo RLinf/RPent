@@ -295,8 +295,8 @@ def test_codex_cannot_attach_an_image_outside_grounding_directory(
 def test_inherited_mcp_stops_before_model_request(monkeypatch, image, tmp_path):
     import openai_codex
 
-    import rpent.planner.codex as codex
     import components.models.molmo.grounding_agent as grounding
+    import rpent.planner.codex as codex
 
     monkeypatch.setattr(
         codex,

@@ -130,29 +130,18 @@ RPent is built for four kinds of users:
 
 ```bash
 git clone https://github.com/RLinf/RPent rpent && cd rpent
-pip install -e ".[libero-pro]"  # Recommended default (LIBERO-PRO)
+# Recommended default (LIBERO-PRO):
+./rpent-install.sh install robot-libero --venv .venv-libero
+source .venv-libero/bin/activate
 
-# Other environment configurations:
-pip install -e ".[robocasa]"    # RoboCasa
-pip install -e ".[robotwin]"    # RoboTwin
-pip install -e ".[robolab]"     # RoboLab policy environment
-pip install -e ".[franka]"      # Franka and dual Franka
+# Other robots install the same way, each into its own environment (uncomment one):
+# ./rpent-install.sh install robot-robocasa --venv .venv-robocasa
+# ./rpent-install.sh install robot-robotwin --venv .venv-robotwin
+# ./rpent-install.sh install robot-robolab --venv .venv-robolab-policy
+# ./rpent-install.sh install robot-franka --venv .venv-franka-real
 ```
 
-`.[libero-pro]` is the recommended default. See the [installation docs](https://rpent.readthedocs.io/en/latest/rst_source/get_started/quickstart.html) for other environments.
-
-For RoboLab simulator setup, model checkpoints, and a single-task example, see the
-[RoboLab guide](https://rpent.readthedocs.io/en/latest/rst_source/simulators/robolab.html).
-
-For RoboCasa setup, task memory, and the Target50 protocol, see the
-[RoboCasa guide](https://rpent.readthedocs.io/en/latest/rst_source/simulators/robocasa.html).
-
-RoboCasa uses current-task files in `robocasa/task-specific/` together with
-`robocasa/global/GLOBAL_MEMORY.md` from
-[RPent-memory](https://huggingface.co/datasets/RLinf/RPent-memory/tree/main/robocasa).
-The CLI and Dashboard provide both layers for on-demand reading, with no
-full-read requirement before actions. HF memory follows the current branch
-without a fixed data revision.
+`robot-libero` is the recommended default. See the [installation docs](https://rpent.readthedocs.io/en/latest/rst_source/get_started/installation.html) for all components and diagnostics, or jump directly to the [RoboLab guide](https://rpent.readthedocs.io/en/latest/rst_source/simulators/robolab.html) and [RoboCasa guide](https://rpent.readthedocs.io/en/latest/rst_source/simulators/robocasa.html) (including [RPent-memory](https://huggingface.co/datasets/RLinf/RPent-memory/tree/main/robocasa) and Target50 setup).
 
 The example below continues with LIBERO-PRO.
 
@@ -164,7 +153,7 @@ liberopro-download-assets --skip-existing
 
 > 💡 Slow connection to Hugging Face? Download through the mirror: `HF_ENDPOINT=https://hf-mirror.com liberopro-download-assets --skip-existing`.
 
-See the [installation docs](https://rpent.readthedocs.io/en/latest/rst_source/get_started/quickstart.html) for other simulators.
+See the [installation docs](https://rpent.readthedocs.io/en/latest/rst_source/get_started/installation.html) for other simulators.
 
 **3. Configure keys and checkpoints, then run.**
 
@@ -182,7 +171,7 @@ export PI05_CHECKPOINT_PATH=$PWD/checkpoints/RLinf-Pi05-LIBERO-130-fullshot-SFT
 
 # SAM 3.0 checkpoint — download from
 # https://modelscope.cn/models/facebook/sam3
-pip install -U modelscope
+uv pip install -U modelscope
 
 modelscope download facebook/sam3 \
   --local-dir ./checkpoints/sam3

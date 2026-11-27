@@ -34,7 +34,7 @@ Check the model, task, and runtime requirements before following the installatio
 
    .. grid-item-card:: Hardware
 
-      Linux, NVIDIA GPU; Python 3.11; CUDA and EGL.
+      Linux, NVIDIA GPU; Python 3.12; CUDA and EGL.
 
 .. _core-libero-pro-suites:
 
@@ -98,28 +98,29 @@ Installation and Resources
 
 For a first LIBERO-PRO run, complete the installation, asset downloads, and model setup in :doc:`../get_started/quickstart`. Continue here to select tasks and reproduce experiments.
 
-For another variant, install the matching extra in an isolated environment and download its assets. Install only one LIBERO variant per Python environment:
+``robot-libero`` installs the standard LIBERO and LIBERO-PRO packages together.
+For LIBERO-plus (which requires ``robosuite<1.5``), install ``robot-libero_plus``
+in its own virtual environment. Choose the variant at runtime with
+``--libero-type`` and download the matching assets:
 
 .. list-table::
    :header-rows: 1
 
-   * - Variant
+   * - ``--libero-type``
      - Install
      - Assets
    * - ``standard``
-     - ``uv pip install -e ".[libero]"``
+     - ``./rpent-install.sh install robot-libero --venv .venv-libero``
      - ``libero-download-assets --skip-existing``
    * - ``pro``
-     - ``uv pip install -e ".[libero-pro]"``
+     - ``./rpent-install.sh install robot-libero --venv .venv-libero``
      - ``liberopro-download-assets --skip-existing``
    * - ``plus``
-     - ``uv pip install -e ".[libero-plus]"``
+     - ``./rpent-install.sh install robot-libero_plus --venv .venv-libero-plus``
      - ``liberoplus-download-assets --skip-existing``
 
-Each extra includes Pi0.5 (``rpent-openpi``), SAM3, and the RLinf runtime
-(``rpent-rlinf``). Download model weights separately as described below.
-
-At runtime, set ``--libero-type`` to match the installed variant.
+Each environment includes Pi0.5 (``rpent-openpi``), SAM3, and the RLinf runtime
+(``infra-rlinf``). Download model weights separately as described below.
 
 VLA Configuration
 -----------------

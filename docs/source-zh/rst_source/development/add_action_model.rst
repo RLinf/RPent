@@ -83,7 +83,7 @@ VLA 启动函数也使用 ``AMConfig.spawn_worker()``。平台保留各自的服
 
 由于模型运行在独立进程中，添加基于模型的原语还需要以下组件：
 
-1. **编写 ``vla_server.py``。** 该进程只持有模型权重和 CUDA 上下文。继承 :class:`rpent.components.models.facade.BaseVLAFacade`，实现 ``predict``，并通过扩展 ``_register_rpc`` 注册其他模型 RPC：
+1. **编写模型服务端**\ （``components/models/<name>/server.py``）：该进程只持有模型权重和 CUDA 上下文。模型包同时需要 ``component.toml`` 清单。继承 :class:`rpent.components.models.facade.BaseVLAFacade`，实现 ``predict``，并通过扩展 ``_register_rpc`` 注册其他模型 RPC：
 
    - 默认传输方式为 **HTTP**，通过 ``POST /call`` 传输 JSON，适合
      LIBERO/Pi0.5 使用的扁平 ``image + state`` 数据。
@@ -149,7 +149,7 @@ Cosmos Policy 和 Cosmos3 支持 LIBERO、LIBERO-Pro；Fast-WAM 支持 LIBERO、
 
 ``cosmos-policy`` 使用 NVIDIA 发布的 ``Cosmos-Policy-LIBERO-Predict2-2B`` 权重和官方 LIBERO 推理接口。``cosmos3`` 通过 RLinf 的 ``Cosmos3SGLangAdapter`` 和 HTTP client，连接独立部署的 SGLang ``/v1/actions/generations`` 服务。图像拼接、请求构造、动作反归一化和旋转转换由 RLinf 负责，其 ``prepare_actions_for_libero`` 还负责适配仿真器的夹爪约定。RPent 复用已有 LIBERO client，只在接口边界映射观测与预测。这两个后端需要不同的 checkpoint。
 
-1. 在 ``components/models/`` 下创建模型包。``server.py`` 继承 ``BaseWAMFacade``，基类按 ``encode``、``predict_native``、``decode`` 的顺序调用；实现这三个方法，并把它们需要的 checkpoint 状态保存在实例上。
+1. 在 ``components/models/`` 下创建模型包，并提供 ``component.toml`` 清单。``server.py`` 继承 ``BaseWAMFacade``，基类按 ``encode``、``predict_native``、``decode`` 的顺序调用；实现这三个方法，并把它们需要的 checkpoint 状态保存在实例上。
 2. 在模型的 ``ADAPTERS`` 中注册支持的平台。每个条目声明 checkpoint 身份、相机与状态要求、原生控制约定及可执行 chunk 长度。需要已执行关节目标历史的模型声明 ``joint_target_history_shape``，并在启动时校验 checkpoint 的历史配置。encode 将物理观测转换为模型输入，decode 将预测还原为声明的平台动作格式。
 3. 观测和控制契约匹配时，复用平台的 ``wam_client.py``。``BaseWAMClient`` 在初始化时调用一次 ``wam.get_model_meta``，将结果保存在 ``model_meta``；平台在执行预测前检查控制兼容性。
 4. 在 ``runtime_config.py`` 中补充部署参数，并在 ``rpent.components.models.backends.WAM_BACKENDS`` 注册后端；模型专属启动逻辑留在模型包内。在模型包中声明是否使用会话；推理保留会话历史时实现 ``reset_native``。

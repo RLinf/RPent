@@ -42,9 +42,14 @@ class _JointWAM(BaseWAMFacade):
                 state_schema={"joint_position": 7, "gripper_position": 1},
                 uses_sessions=True,
                 chunk_size=None,
-            ),
-            adapter=(lambda request: request, lambda result: result),
+            )
         )
+
+    def encode(self, request):
+        return request
+
+    def decode(self, result):
+        return result
 
     def predict_native(self, request, *, session_id=None):
         count = self.history.get(session_id, 0) + 1

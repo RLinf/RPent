@@ -43,7 +43,8 @@ import route  # noqa: E402
 
 PYPROJECT = "pyproject.toml"
 GPU_RUNNER = "tests/e2e_tests/run_gpu_suite.sh"
-GPU_WORKFLOW = ".github/workflows/embodied-gpu-e2e.yml"
+GPU_TARGETS = "tests/tooling/ci_targets.py"
+GPU_SUITES_PREFIX = "tests/e2e_tests/suites/"
 
 REQUIRED_EXPORTS = ("get_robot_spec", "get_toolkit")
 
@@ -159,9 +160,16 @@ def _exported_names(tree: ast.Module) -> set[str]:
 def check_exports(robot_dir: str, root: Path | None = None) -> list[route.Finding]:
     """Check that robots/<name>/__init__.py exposes get_robot_spec and get_toolkit."""
     base = root or route.REPO_ROOT
+    robot_path = base / robot_dir
     init_rel = f"{robot_dir}/__init__.py"
     init_path = base / init_rel
     if not init_path.is_file():
+        # Manifest-only robot components (e.g. robots/libero_plus) declare
+        # dependencies without owning a Python package.
+        if (robot_path / "component.toml").is_file() and not any(
+            robot_path.glob("*.py")
+        ):
+            return []
         return [
             route.Finding(
                 "major",
@@ -263,24 +271,22 @@ def check_packaging(root: Path | None = None) -> list[route.Finding]:
                     )
                 )
 
-    includes = set(
-        data.get("tool", {})
-        .get("setuptools", {})
-        .get("packages", {})
-        .get("find", {})
-        .get("include", [])
+    find_section = (
+        data.get("tool", {}).get("setuptools", {}).get("packages", {}).get("find")
     )
-    for required in ("rpent*", "robots", "robots.*"):
-        if required not in includes:
-            findings.append(
-                route.Finding(
-                    "major",
-                    PYPROJECT,
-                    None,
-                    "robots/packaging",
-                    f"[tool.setuptools.packages.find] include is missing {required!r}",
+    if find_section is not None or not (base / "setup.py").is_file():
+        includes = set((find_section or {}).get("include", []))
+        for required in ("rpent*", "robots", "robots.*"):
+            if required not in includes:
+                findings.append(
+                    route.Finding(
+                        "major",
+                        PYPROJECT,
+                        None,
+                        "robots/packaging",
+                        f"[tool.setuptools.packages.find] include is missing {required!r}",
+                    )
                 )
-            )
     return findings
 
 
@@ -297,60 +303,57 @@ def check_e2e_syntax(rel: str, root: Path | None = None) -> list[route.Finding]:
 
 
 def check_e2e_targets(root: Path | None = None) -> list[route.Finding]:
-    """Ensure embodied-gpu-e2e.yml targets match run_gpu_suite.sh case branches."""
+    """Validate declarative E2E suite TOMLs under tests/e2e_tests/suites/."""
+    if tomllib is None:
+        return []
     base = root or route.REPO_ROOT
-    runner_path = base / GPU_RUNNER
-    workflow_path = base / GPU_WORKFLOW
-    if not (runner_path.is_file() and workflow_path.is_file()):
+    suites_dir = base / "tests/e2e_tests/suites"
+    if not suites_dir.is_dir():
         return []
 
-    runner_text = runner_path.read_text(encoding="utf-8")
-    case_block = runner_text.split('case "$target" in', 1)
-    runner_targets = (
-        set(
-            re.findall(
-                r"^\s{2}([a-z0-9][a-z0-9_-]*)\)\s*$", case_block[1], re.MULTILINE
-            )
-        )
-        if len(case_block) == 2
-        else set()
-    )
-
-    workflow_text = workflow_path.read_text(encoding="utf-8")
-    comment_targets = set(re.findall(r'"/ci-([a-z0-9][a-z0-9_-]*)"', workflow_text))
-
-    options_match = re.search(
-        r"options:\s*\n((?:\s+-\s+[a-z0-9][a-z0-9_-]*\s*\n)+)", workflow_text
-    )
-    dispatch_targets = (
-        set(re.findall(r"-\s+([a-z0-9][a-z0-9_-]*)", options_match.group(1)))
-        if options_match
-        else set()
-    )
-
     findings: list[route.Finding] = []
-    if dispatch_targets and dispatch_targets != runner_targets:
+    toml_files = sorted(suites_dir.glob("*.toml"))
+    if not toml_files:
         findings.append(
             route.Finding(
                 "major",
-                GPU_WORKFLOW,
+                "tests/e2e_tests/suites",
                 None,
                 "robots/e2e-targets",
-                f"workflow_dispatch options {sorted(dispatch_targets)} differ from "
-                f"{GPU_RUNNER} targets {sorted(runner_targets)}",
+                "no declarative E2E suite *.toml files found",
             )
         )
-    if comment_targets and comment_targets != runner_targets:
-        findings.append(
-            route.Finding(
-                "major",
-                GPU_WORKFLOW,
-                None,
-                "robots/e2e-targets",
-                f"/ci-* comment targets {sorted(comment_targets)} differ from "
-                f"{GPU_RUNNER} targets {sorted(runner_targets)}",
+        return findings
+
+    for path in toml_files:
+        rel = path.relative_to(base).as_posix()
+        try:
+            data = tomllib.loads(path.read_text(encoding="utf-8"))
+        except Exception as exc:  # noqa: BLE001
+            findings.append(
+                route.Finding("critical", rel, None, "robots/e2e-targets", str(exc))
             )
-        )
+            continue
+        if not data.get("component"):
+            findings.append(
+                route.Finding(
+                    "major",
+                    rel,
+                    None,
+                    "robots/e2e-targets",
+                    "suite TOML is missing required 'component' field",
+                )
+            )
+        if not data.get("cases"):
+            findings.append(
+                route.Finding(
+                    "major",
+                    rel,
+                    None,
+                    "robots/e2e-targets",
+                    "suite TOML must define at least one [[cases]] entry",
+                )
+            )
     return findings
 
 
@@ -390,7 +393,11 @@ def main(argv: list[str] | None = None) -> int:
     changed_paths = {c.path for c in selection.changes}
     if selection.all_lines or PYPROJECT in changed_paths:
         findings += check_packaging()
-    if selection.all_lines or {GPU_RUNNER, GPU_WORKFLOW} & changed_paths:
+    if (
+        selection.all_lines
+        or {GPU_RUNNER, GPU_TARGETS} & changed_paths
+        or any(path.startswith(GPU_SUITES_PREFIX) for path in changed_paths)
+    ):
         findings += check_e2e_targets()
 
     return route.report("robots", findings)

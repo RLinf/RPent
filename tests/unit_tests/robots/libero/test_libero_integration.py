@@ -22,15 +22,15 @@ import numpy as np
 import pytest
 from pydantic_ai.models.function import DeltaToolCall, FunctionModel
 
+from components.tools.flywheel.flywheel import select_vla_segments
+from components.tools.flywheel.reader import iter_trajectories
 from robots.libero import robot_spec
 from robots.libero import toolkit as libero_toolkit
 from robots.libero.tools import LiberoPrimitives
+from rpent.components.env.action_spec import validate_action
 from rpent.dashboard.events import NullDashboardEventSink
-from components.tools.flywheel.flywheel import select_vla_segments
-from components.tools.flywheel.reader import iter_trajectories
 from rpent.memory import MemoryManager
 from rpent.planner.api_loop import ApiAgentLoop
-from rpent.components.env.action_spec import validate_action
 from rpent.session import EnvState, Payload
 from rpent.session.env_capture import CapturingEnvClient, ToolCallCapture
 from rpent.tools import ToolResult
@@ -653,9 +653,9 @@ class _LiberoBackend:
 def test_libero_client_facade_capture_and_raw_trajectory_roundtrip(
     make_server_and_client, tmp_path, all_frames, default_all_frames, record
 ):
-    from robots.libero.env_client import LiberoEnvClient
     from components.sim.libero.env_server import LiberoEnvFacade
     from components.tools.flywheel.reader import read_array
+    from robots.libero.env_client import LiberoEnvClient
 
     backend = _LiberoBackend()
     state = EnvState(tmp_path)
@@ -734,8 +734,8 @@ def test_libero_client_facade_capture_and_raw_trajectory_roundtrip(
 def test_libero_failed_chunk_discards_unconfirmed_actions(
     make_server_and_client, tmp_path
 ):
-    from robots.libero.env_client import LiberoEnvClient
     from components.sim.libero.env_server import LiberoEnvFacade
+    from robots.libero.env_client import LiberoEnvClient
 
     state = EnvState(tmp_path)
     state.start_task(

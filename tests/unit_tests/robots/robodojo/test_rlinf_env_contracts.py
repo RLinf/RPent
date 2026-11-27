@@ -20,16 +20,16 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
-from components.sim.robodojo import env_server
 from components.models.awomo05.client import Awomo05Client
-from robots.robodojo.env_client import RoboDojoEnvClient
-from components.sim.robodojo.env_facade import RoboDojoEnvFacade
-from robots.robodojo.robot_spec import FLYWHEEL_CONFIG
-from robots.robodojo.toolkit import RoboDojoToolkit, _capture_robodojo_call
 from components.models.vpp2.client import VPP2Client
-from rpent.dashboard.events import NullDashboardEventSink
+from components.sim.robodojo import env_server
+from components.sim.robodojo.env_facade import RoboDojoEnvFacade
 from components.tools.flywheel.flywheel import read_frame, resolve_action_config
 from components.tools.flywheel.reader import iter_trajectories
+from robots.robodojo.env_client import RoboDojoEnvClient
+from robots.robodojo.robot_spec import FLYWHEEL_CONFIG
+from robots.robodojo.toolkit import RoboDojoToolkit, _capture_robodojo_call
+from rpent.dashboard.events import NullDashboardEventSink
 from rpent.memory import MemoryManager
 from rpent.session import Payload
 from rpent.session.env_capture import ToolCallCapture

@@ -793,8 +793,8 @@ def test_exploration_memory_can_be_published_and_read_by_evaluation(
 def test_score_uses_native_cache_without_advancing_reward_state(
     make_agent, success, partial, expected
 ):
-    from robots.robodojo.env_client import RoboDojoEnvClient
     from components.sim.robodojo.env_facade import RoboDojoEnvFacade
+    from robots.robodojo.env_client import RoboDojoEnvClient
 
     checks = []
 

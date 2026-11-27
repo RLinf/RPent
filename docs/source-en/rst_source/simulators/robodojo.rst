@@ -85,31 +85,37 @@ Installation and Resources
 For NVIDIA driver recommendations, see the `Isaac Sim 5.1 system requirements
 <https://docs.isaacsim.omniverse.nvidia.com/5.1.0/installation/requirements.html>`_.
 The host also needs the CUDA toolkit/NVCC and a compiler toolchain to build
-cuRobo. From the RPent root, create an environment and install the dependencies:
+cuRobo. Create the ``robot-robodojo`` environment:
 
 .. code-block:: bash
 
-   uv venv --python 3.11 .venv-robodojo
+   ./rpent-install.sh install robot-robodojo --venv .venv-robodojo
    source .venv-robodojo/bin/activate
-   uv pip install -e ".[robodojo-sim,sam3]" --extra-index-url https://pypi.nvidia.com \
-     --override components/sim/robodojo/requirements/robodojo-override.txt
+
+This command installs the RoboDojo simulator runtime, SAM3, and the action-model
+client dependencies (including VPP2 and Awomo05 clients and Pi0.5 VLA support).
 
 .. dropdown:: Blackwell GPU installation
 
-   For Blackwell GPUs, install the CUDA 12.8 build of PyTorch 2.7.0.
-   Use the following command for initial installation or reinstallation;
-   ``--torch-backend=cu128`` selects the CUDA 12.8 build:
+   Blackwell GPUs need the CUDA 12.8 build of PyTorch. The pinned PyTorch 2.7.0
+   also has a CUDA 12.6 build, but that build does not support Blackwell. For an
+   initial install on these GPUs, pass ``--torch-backend cu128`` (or export
+   ``UV_TORCH_BACKEND=cu128``):
 
    .. code-block:: bash
 
-      uv pip install -e ".[robodojo-sim,sam3]" --extra-index-url https://pypi.nvidia.com \
-        --override components/sim/robodojo/requirements/robodojo-override.txt \
-        --torch-backend=cu128
+      ./rpent-install.sh install robot-robodojo --venv .venv-robodojo --torch-backend cu128
 
    If ``torch==2.7.0+cu126`` is already installed, uv considers it compatible
-   with the version requirement and keeps it. Append
-   ``--reinstall-package torch --reinstall-package torchvision`` to the command
-   above to replace it with the CUDA 12.8 build.
+   with the version requirement and keeps it. In that case, replace it in the
+   environment explicitly:
+
+   .. code-block:: bash
+
+      UV_TORCH_BACKEND=cu128 uv pip install --python .venv-robodojo/bin/python \
+        --override components/sim/robodojo/requirements/robodojo-override.txt \
+        --reinstall-package torch --reinstall-package torchvision \
+        torch==2.7.0 torchvision
 
 The pinned IsaacLab revision needs an editable installation to locate its
 extension configuration. Clone it into a writable directory and install it

@@ -16,7 +16,7 @@
 
 RPent 的整体进程划分、服务职责和通信方式见 :doc:`系统说明 <architecture>`。接入机器人或仿真环境时，按以下顺序实现扩展点：
 
-1. 在 :ref:`入口 <add-robot-entry>` 中注册 ``RobotSpec`` 和 toolkit 工厂。
+1. 在 :ref:`入口 <add-robot-entry>` 中注册 ``RobotSpec`` 和 toolkit 工厂，并声明 ``component.toml``。
 2. 实现 :ref:`env_client 和 env_server <add-robot-env-rpc>`。如需接入 VLA 服务和 model client，参见
    :ref:`添加一个 VLA（或其他基于模型的原语）<add-primitive-model-based>`。
 3. :ref:`定义 prompt <add-robot-prompts>`。
@@ -27,28 +27,88 @@ RPent 的整体进程划分、服务职责和通信方式见 :doc:`系统说明 
 
 .. _add-robot-entry:
 
-入口
-----
+入口与组件清单
+--------------
 
-新增名为 ``myrobot`` 的机器人时，目录结构如下：
+每个机器人对应 ``robots/`` 下的一个组件目录，并配有一份 ``component.toml`` 清单声明安装方式。以新机器人 ``myrobot`` 为例，目录结构如下：
 
 .. code-block:: text
 
    robots/myrobot/
-       __init__.py            # 包入口，仅重导出两个工厂
-       robot_spec.py          # RobotSpec、工厂、Dashboard 描述和 runtime 钩子
-       env_client.py          # MyEnvClient —— agent 侧 RPC client (§1)
-       prompt_bundle.py       # system()/user() prompt 工厂              (§2)
-       toolkit.py             # MyRobotToolkit + primitives + 工具定义     (§3)
-       env_server.py          # 环境侧 facade + RPC 服务                 (§1)
-       vla_server.py          # （可选）VLA 模型服务
+       component.toml          # name、probe、python、requires、dependencies
+       __init__.py             # 惰性包入口
+       robot_spec.py           # RobotSpec、工厂、Dashboard 描述和 runtime 钩子
+       env_client.py           # MyEnvClient —— agent 侧 RPC 客户端（第 1 节）
+       prompt_bundle.py        # system_prompt()/user_prompt() prompt 工厂（第 2 节）
+       toolkit.py              # MyRobotToolkit、primitives 与工具定义（第 3 节）
 
-``__init__.py`` 是机器人包入口，应保持精简，仅重导出 ``robot_spec.py`` 中实现的工厂。``rpent/robots/base.py`` 中的注册表会按需导入 ``robots.<name>``，并调用这两个函数：
+   components/sim/mysim/       # 共享仿真器组件（接入仿真环境时）
+       component.toml          # name = "sim-mysim" 及仿真器依赖
+       env_server.py           # 服务端 facade 与 RPC 服务（第 1 节）
+
+``robots/myrobot/component.toml`` 声明 ``rpent-install`` 读取的清单字段：
+
+.. code-block:: toml
+
+   schema = 2
+   name = "robot-myrobot"
+   probe = "robots.myrobot"
+   planner = true
+   python = ">=3.10,<3.13"
+   requires = ["sim-mysim", "model-mymodel"]
+
+   dependencies = []
+
+仿真器包依赖（例如 ``dependencies = ["my-simulator==1.2"]``）与 ``env_server.py`` 放在 ``components/sim/<name>/`` 中，以便多个机器人复用；只有真机驱动没有共享仿真器组件时，才把 ``env_server.py`` 与硬件专属的 ``dependencies`` 直接放在 ``robots/<name>/`` 下。
+
+所有环境均面向 Linux ``x86_64``，因此清单无需声明平台字段；核心字段说明如下：
+
+.. list-table::
+   :header-rows: 1
+   :widths: 18 82
+
+   * - 字段
+     - 说明
+   * - ``schema``
+     - 清单格式版本（``2``）。
+   * - ``name``
+     - 必须为 ``robot-<目录名>``，前缀决定组件类型与代码位置。
+   * - ``probe``
+     - 可导入的包路径。``rpent-install install`` 与 ``doctor`` 会导入该包及其包含的入口模块（``robot_spec``、``env_client``），确认真实依赖已就绪。
+   * - ``planner``
+     - 设为 ``true`` 时，在运行时层 ``rpent`` 之上额外安装 ``rpent[planner]``；仅提供模型服务或仿真器的组件可省略此字段。
+   * - ``python``
+     - 支持的 Python 版本范围（例如 ``">=3.10,<3.13"``）；``rpent-install`` 会选择环境内所有组件共同支持的最新版本。
+   * - ``requires``
+     - 需安装到同一环境中的其他组件（通常是对应的仿真器、模型服务和工具）。
+   * - ``dependencies``
+     - 仅限本机器人独有的 Python 依赖；多个组件共用的依赖应放到 ``components/infra/`` 下的基础设施组件中。
+   * - ``imports``
+     - 只有本机器人直接复用另一个机器人的代码时填写对方名称，且两者之一须在 ``requires`` 中声明对方以确保一同安装。工具包与模型服务通过契约解耦，不互相 import。
+
+``__init__.py`` 是包入口，必须保持惰性。CLI 参数解析（``rpent --robot <name> --help``）、组件探针（``rpent-install doctor``）和布局检查导入 ``robots.<name>`` 时，不得提前拉起可选的仿真器或模型依赖。通过 ``__getattr__`` 暴露工厂：
 
 .. code-block:: python
 
    # robots/myrobot/__init__.py
-   from robots.myrobot.robot_spec import get_robot_spec, get_toolkit
+   from typing import TYPE_CHECKING, Any
+
+   if TYPE_CHECKING:
+       from robots.myrobot.robot_spec import get_robot_spec, get_toolkit
+
+   __all__ = ["get_robot_spec", "get_toolkit"]
+
+
+   def __getattr__(name: str) -> Any:
+       if name in __all__:
+           from robots.myrobot import robot_spec
+
+           return getattr(robot_spec, name)
+       raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
+``rpent/robots/base.py`` 中的注册表会按需导入 ``robots.<name>``，并调用这两个函数：
+
+.. code-block:: python
 
    # robots/myrobot/robot_spec.py
    from rpent.dashboard.events import DashboardEventSink

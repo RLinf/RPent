@@ -1,0 +1,12 @@
+schema = 2
+name = "model-openpi"
+# The probe names the upstream distribution because the server loads OpenPI
+# lazily. Standalone server installs must pair this component with infra-rlinf
+# (e.g. `./rpent-install.sh install model-openpi infra-rlinf --venv .venv-openpi`);
+# robot-robodojo supplies its own RLinf fork through sim-robodojo instead.
+probe = "openpi"
+python = ">=3.10,<3.13"
+
+dependencies = [
+  "rpent-openpi @ git+https://github.com/RLinf/openpi.git@rpent",
+]

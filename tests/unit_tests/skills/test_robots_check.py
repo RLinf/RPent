@@ -104,29 +104,10 @@ include = ["rpent*"]
     assert any("missing 'robots'" in m for m in messages)
 
 
-def test_check_e2e_targets_catches_workflow_runner_drift(tmp_path):
-    runner = tmp_path / "tests" / "e2e_tests" / "run_gpu_suite.sh"
-    runner.parent.mkdir(parents=True)
-    runner.write_text(
-        'case "$target" in\n  libero-pro)\n    ;;\n  robocasa)\n    ;;\nesac\n',
-        encoding="utf-8",
-    )
-    workflow = tmp_path / ".github" / "workflows" / "embodied-gpu-e2e.yml"
-    workflow.parent.mkdir(parents=True)
-    workflow.write_text(
-        """
-on:
-  workflow_dispatch:
-    inputs:
-      target:
-        options:
-          - libero-pro
-jobs:
-  comment-request:
-    if: contains(fromJSON('["/ci-libero-pro", "/ci-robotwin"]'), body)
-""",
-        encoding="utf-8",
-    )
+def test_check_e2e_targets_validates_declarative_suite_tomls(tmp_path):
+    suites_dir = tmp_path / "tests" / "e2e_tests" / "suites"
+    suites_dir.mkdir(parents=True)
+    (suites_dir / "broken.toml").write_text('robot = "broken"\n', encoding="utf-8")
     findings = robots_check["check_e2e_targets"](tmp_path)
     assert len(findings) == 2
     assert all(f.rule == "robots/e2e-targets" for f in findings)

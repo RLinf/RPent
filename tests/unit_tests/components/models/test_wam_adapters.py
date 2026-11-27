@@ -22,12 +22,18 @@ from unittest.mock import Mock
 import numpy as np
 import pytest
 
+from components.models.fast_wam.server import (
+    FastWAMLiberoFacade,
+    FastWAMRoboTwinFacade,
+    load_libero_policy,
+)
+from components.models.uniwam.server import UniWAMFacade
 from components.sim.libero.observation import physical_observation
 from components.sim.libero.wam_client import LiberoWAMClient
-from components.sim.robotwin.observation import physical_observation as robotwin_observation
+from components.sim.robotwin.observation import (
+    physical_observation as robotwin_observation,
+)
 from components.sim.robotwin.wam_client import RoboTwinWAMClient, robotwin_request
-from components.models.fast_wam.server import FastWAMFacade, load_libero_policy
-from components.models.uniwam.server import UniWAMFacade
 
 torch = pytest.importorskip("torch")
 
@@ -160,6 +166,8 @@ def _facade(platform="libero", **overrides):
             return_value=(np.full((1, 3, 7), 0.25, np.float32), {})
         ),
     )
+    if platform == "libero":
+        return FastWAMLiberoFacade(model, checkpoint="test")
     options = {
         "action_horizon": 4,
         "execute_steps": 3,
@@ -167,12 +175,11 @@ def _facade(platform="libero", **overrides):
         "concat": "robotwin",
         **overrides,
     }
-    return FastWAMFacade(
+    return FastWAMRoboTwinFacade(
         model,
         checkpoint="test",
-        platform=platform,
-        processor=_processor(3) if platform == "robotwin" else None,
-        config=OmegaConf.create(options) if platform == "robotwin" else None,
+        processor=_processor(3),
+        config=OmegaConf.create(options),
         prompt_template="Task: {task}",
     )
 
@@ -288,15 +295,8 @@ def test_robotwin_rejects_incompatible_config_at_startup(options):
     ],
 )
 def test_robotwin_rejects_invalid_native_output_before_prefix_selection(bad_actions):
-    from components.models.fast_wam.adapter.decode import decode_robotwin
-
     with pytest.raises(ValueError):
-        decode_robotwin(
-            {"action": bad_actions},
-            normalizer=_processor(3).normalizer.normalizers["action"]["default"],
-            horizon=4,
-            execute_steps=3,
-        )
+        _facade("robotwin").decode({"action": bad_actions})
 
 
 class UniWAMPolicy:
@@ -357,7 +357,7 @@ def test_uniwam_client_maps_cameras_and_native_state():
 
     def call(method, args=(), kwargs=None, **unused):
         if method == "wam.predict":
-            captured.append(facade._adapter[0](args[0]))
+            captured.append(facade.encode(args[0]))
         return facade._dispatch(method, args, kwargs or {})
 
     client = RoboTwinWAMClient(SimpleNamespace(call=call))

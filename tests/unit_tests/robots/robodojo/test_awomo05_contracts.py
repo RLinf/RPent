@@ -8,8 +8,8 @@ import numpy as np
 import pytest
 
 from components.models.awomo05 import server
-from components.sim.robodojo.access import ARX_X5_JOINT_FIELDS, CAMERAS
 from components.models.awomo05.client import Awomo05Client
+from components.sim.robodojo.access import ARX_X5_JOINT_FIELDS, CAMERAS
 from robots.robodojo.primitives import RoboDojoPrimitives
 from rpent.tools.toolkit import ToolCancelled
 
