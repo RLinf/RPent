@@ -120,15 +120,18 @@ class ClaudeCodePlanner(Planner):
                 "input_queue and dashboard_interaction cannot be used together"
             )
         prompt = f"{system_prompt}\n\n{user_message}" if system_prompt else user_message
-        return asyncio.run(
-            self._solve_async(
-                prompt,
-                toolkit=toolkit,
-                max_turns=max_turns,
-                input_queue=input_queue,
-                dashboard_interaction=dashboard_interaction,
+        try:
+            return asyncio.run(
+                self._solve_async(
+                    prompt,
+                    toolkit=toolkit,
+                    max_turns=max_turns,
+                    input_queue=input_queue,
+                    dashboard_interaction=dashboard_interaction,
+                )
             )
-        )
+        finally:
+            toolkit.set_tool_budget(None)
 
     # -- internal lifecycle -------------------------------------------------
 
@@ -143,10 +146,9 @@ class ClaudeCodePlanner(Planner):
     ) -> PlannerResult:
         import claude_agent_sdk
 
+        toolkit.set_tool_budget(max_turns)
         artifacts = AgentArtifacts("claude_agent_sdk", self._output_path)
-        recorder = _Recorder(
-            max_turns=max_turns, dashboard_events=self._dashboard_events
-        )
+        recorder = _Recorder(dashboard_events=self._dashboard_events)
         terminal = TerminalInteraction(input_queue) if input_queue is not None else None
         interaction = terminal if terminal is not None else dashboard_interaction
         init_output_dir(self._output_dir)
@@ -200,8 +202,9 @@ class ClaudeCodePlanner(Planner):
                 options = self._build_options(
                     claude_agent_sdk,
                     toolkit=toolkit,
-                    max_turns=max_turns,
-                    on_tool_result=recorder.observe_tool_result,
+                    on_tool_result=lambda name, result: driver.observe_tool_result(
+                        name, result
+                    ),
                     run_id=run_id,
                 )
                 if run_id is not None:
@@ -224,6 +227,8 @@ class ClaudeCodePlanner(Planner):
                 error = recorder.error or driver.error
                 if error:
                     write_jsonl(raw, {"type": "error", "message": error})
+                if toolkit.tool_limit_reached:
+                    artifacts.stop_reason = "tool_limit"
             except asyncio.TimeoutError:
                 error = f"Claude Agent SDK timed out after {self._timeout_s}s"
                 write_jsonl(raw, {"type": "timeout", "message": error})
@@ -246,6 +251,7 @@ class ClaudeCodePlanner(Planner):
             final_response=None,
             stats={
                 **recorder.stats(),
+                "turns_used": toolkit.tool_calls_used,
                 **({"claude_trace": capture.stats} if capture else {}),
             },
             error=error or recorder.error,
@@ -258,7 +264,6 @@ class ClaudeCodePlanner(Planner):
         sdk: Any,
         *,
         toolkit: Toolkit,
-        max_turns: int,
         on_tool_result: Callable[[str, ToolResult], None] | None = None,
         run_id: str | None = None,
     ) -> Any:
@@ -275,7 +280,6 @@ class ClaudeCodePlanner(Planner):
         return sdk.ClaudeAgentOptions(
             cwd=self._repo_root,
             model=self._model,
-            max_turns=max_turns,
             max_budget_usd=self._max_budget_usd,
             max_buffer_size=_MAX_STREAM_BUFFER_BYTES,
             tools=builtins or None,
@@ -325,7 +329,14 @@ class _ClaudeSessionDriver:
         self._turn_done = asyncio.Event()
         self._turn_done.set()
         self._interrupting = False
+        self._finished = asyncio.Event()
         self.error: str | None = None
+
+    def observe_tool_result(self, name: str, result: ToolResult) -> None:
+        """Record the tool verdict before ending a budget-limited session."""
+        self._recorder.observe_tool_result(name, result)
+        if self._toolkit.tool_limit_reached:
+            self._finished.set()
 
     async def run(self, prompt: str) -> None:
         """Run one turn without input, or keep the same client for queued turns."""
@@ -341,11 +352,14 @@ class _ClaudeSessionDriver:
                 if self._control is not None:
                     await self._control.start()
                 tasks.append(asyncio.create_task(self._consume()))
+                tasks.append(asyncio.create_task(self._finished.wait()))
                 if self._control is not None:
                     tasks.append(asyncio.create_task(self._control.run(self)))
                 done, _ = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
                 for task in done:
                     await task
+                if self._finished.is_set():
+                    await asyncio.to_thread(self._toolkit.wait_for_calls)
             finally:
                 if self._control is not None:
                     self._control.end()
@@ -421,7 +435,6 @@ class _Recorder:
     ``recorder.error``; transport-level errors are written beside the transcript.
     """
 
-    max_turns: int
     dashboard_events: DashboardEventSink
     turns: int = 0
     _seen_assistant_ids: set[str] = field(default_factory=set)
@@ -447,7 +460,6 @@ class _Recorder:
 
     def stats(self) -> dict[str, int | float | None]:
         return {
-            "turns_used": self.turns,
             "tool_calls": self.tool_calls,
             "total_cost_usd": self.total_cost_usd,
             **self.usage,
@@ -506,7 +518,7 @@ class _Recorder:
                 if assistant_id:
                     self._seen_assistant_ids.add(str(assistant_id))
                 self.turns += 1
-                lines.append(f"\n[agent] === turn {self.turns}/{self.max_turns} ===\n")
+                lines.append(f"\n[agent] === model response {self.turns} ===\n")
         for block in get_field(message, "content", []) or []:
             block_kind = _kind(block)
             if block_kind == "TextBlock":

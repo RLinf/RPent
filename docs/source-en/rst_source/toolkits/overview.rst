@@ -3,7 +3,7 @@
 Action Primitives and Tools
 ===========================
 
-Planners observe the environment and control the robot through tools registered on the robot's toolkit. All online planners (``api``, ``claude_code``, ``codex``, and ``gemini_cli``) read schemas from the same toolkit and dispatch through the same execution layer.
+Planners observe the environment and control the robot through tools registered on the robot's toolkit. All online planners (``api``, ``claude_code``, ``codex``, ``gemini_cli``, and ``opencode``) can use these tools.
 
 Tool Families
 -------------

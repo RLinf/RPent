@@ -21,8 +21,87 @@ import pytest
 
 from rpent.dashboard.events import NullDashboardEventSink
 from rpent.planner.base import execute_tool
+from rpent.planner.utils import agent_session
+from rpent.planner.utils.agent_runtime import AgentArtifacts
 from rpent.session import EnvState
 from rpent.tools import Toolkit, ToolResult, tool
+
+
+@pytest.mark.parametrize("timeout", [False, True])
+def test_budget_drain_preserves_active_calls_but_timeout_cancels(
+    tmp_path, monkeypatch, timeout
+):
+    started, release = threading.Event(), threading.Event()
+    completed = []
+
+    class TestToolkit(Toolkit):
+        def _register_common_tools(self):
+            self.add_tool(self.inspect_scene)
+
+        @tool(readonly=True)
+        def inspect_scene(self) -> ToolResult:
+            started.set()
+            while not release.wait(0.005):
+                self.raise_if_cancelled()
+            completed.append(True)
+            return ToolResult(data={})
+
+    toolkit = TestToolkit(
+        dashboard_events=NullDashboardEventSink(), memory=SimpleNamespace()
+    )
+    observers = []
+
+    class Server:
+        def __init__(self, toolkit, *, on_tool_result):
+            observers.append(on_tool_result)
+
+        def start(self):
+            return "http://127.0.0.1/mcp/"
+
+        def stop(self):
+            pass
+
+    class Session:
+        error = None
+
+        async def run(self, prompt):
+            self.active = asyncio.create_task(
+                execute_tool(toolkit, "inspect_scene", {})
+            )
+            assert await asyncio.to_thread(started.wait, 2)
+            if not timeout:
+                rejected = await execute_tool(toolkit, "inspect_scene", {})
+                assert rejected.data["code"] == "tool_limit"
+                observers[0]("inspect_scene", {}, rejected)
+                asyncio.get_running_loop().call_later(0.05, release.set)
+            result = await asyncio.shield(self.active)
+            observers[0]("inspect_scene", {}, result)
+            await asyncio.Event().wait()
+
+        async def close(self):
+            await self.active
+
+    monkeypatch.setattr(agent_session, "HttpMcpServer", Server)
+    artifacts = AgentArtifacts("test", tmp_path / "agent.out")
+    error = asyncio.run(
+        agent_session.run_agent(
+            prompt="task",
+            toolkit=toolkit,
+            max_turns=1,
+            artifacts=artifacts,
+            recorder=SimpleNamespace(finish_result=None),
+            events=NullDashboardEventSink(),
+            create_session=lambda *args: Session(),
+            timeout_s=0.1 if timeout else 2,
+            label="test agent",
+            input_queue=None,
+            interaction=None,
+        )
+    )
+    assert bool(error) == timeout
+    assert artifacts.stop_reason == ("timeout" if timeout else "tool_limit")
+    assert completed == ([] if timeout else [True])
+    assert toolkit.tool_calls_used == 1
 
 
 @pytest.mark.parametrize("cancel_queued", [False, True])

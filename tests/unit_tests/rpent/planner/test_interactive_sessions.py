@@ -24,11 +24,20 @@ from acp.schema import PromptResponse
 
 from rpent.dashboard.events import NullDashboardEventSink, RunStartedEvent
 from rpent.dashboard.state import DashboardState
-from rpent.planner import claude_code, codex, gemini_cli
+from rpent.memory import MemoryManager
+from rpent.planner import claude_code, codex, gemini_cli, opencode
 from rpent.planner.utils import agent_session as interactive
+from rpent.planner.utils.acp import AcpRecorder
 from rpent.planner.utils.agent_runtime import AgentArtifacts
-from rpent.tools import ToolResult
+from rpent.tools import Toolkit as BaseToolkit
+from rpent.tools import ToolResult, tool
 from rpent.tools.common import CommonTools
+from rpent.utils.logging import init_output_dir
+
+
+@pytest.fixture(autouse=True)
+def logging_directory(tmp_path):
+    init_output_dir(tmp_path)
 
 
 @pytest.fixture
@@ -79,7 +88,7 @@ def test_repeated_terminal_shutdown_does_not_stop_the_next_session():
     asyncio.run(scenario())
 
 
-@pytest.mark.parametrize("backend", ["codex", "gemini_cli", "claude_code"])
+@pytest.mark.parametrize("backend", ["codex", "gemini_cli", "claude_code", "opencode"])
 @pytest.mark.parametrize("channel", ["terminal", "dashboard"])
 def test_queue_interrupt_and_continuation_share_one_session(
     tmp_path, monkeypatch, backend, channel, dashboard
@@ -89,19 +98,25 @@ def test_queue_interrupt_and_continuation_share_one_session(
     sessions = []
     input_queue = queue.Queue()
 
-    class Toolkit:
-        @property
-        def state(self):
-            raise RuntimeError("toolkit has no environment state")
+    class Toolkit(BaseToolkit):
+        def __init__(self):
+            super().__init__(
+                dashboard_events=NullDashboardEventSink(),
+                memory=MemoryManager(tmp_path / "memory"),
+            )
 
-        def list_tools(self):
-            return []
+        def _register_common_tools(self):
+            self.add_tool(
+                tool(name="inspect_scene", readonly=True)(lambda: ToolResult(data={}))
+            )
 
         def cancel_active_and_wait(self):
             events.append("cancel_tools")
+            super().cancel_active_and_wait()
 
         def resume_calls(self):
             events.append("resume_tools")
+            super().resume_calls()
 
     class Server:
         def __init__(self, toolkit, **kwargs):
@@ -117,6 +132,7 @@ def test_queue_interrupt_and_continuation_share_one_session(
     class Turn:
         def __init__(self, text):
             self.text = text
+            assert not toolkit.execute_tool("inspect_scene", {}).is_error
             self.result = asyncio.get_running_loop().create_future()
             turns.append(self)
             events.append(f"submit:{text}")
@@ -150,11 +166,16 @@ def test_queue_interrupt_and_continuation_share_one_session(
 
     class Connection:
         async def initialize(self, **kwargs):
-            pass
+            return acp.schema.InitializeResponse(
+                protocol_version=acp.PROTOCOL_VERSION,
+                agent_capabilities=acp.schema.AgentCapabilities(
+                    mcp_capabilities=acp.schema.McpCapabilities(http=True)
+                ),
+            )
 
         async def new_session(self, **kwargs):
             sessions.append("gemini-session")
-            return SimpleNamespace(session_id="gemini-session")
+            return acp.schema.NewSessionResponse(session_id="gemini-session")
 
         async def prompt(self, session_id, prompt):
             assert session_id == "gemini-session"
@@ -198,7 +219,7 @@ def test_queue_interrupt_and_continuation_share_one_session(
 
     @asynccontextmanager
     async def spawn(client, binary, *args, **kwargs):
-        assert "--acp" in args
+        assert "acp" in args if backend == "opencode" else "--acp" in args
         stderr = asyncio.StreamReader()
         stderr.feed_eof()
         try:
@@ -211,10 +232,12 @@ def test_queue_interrupt_and_continuation_share_one_session(
     monkeypatch.setattr(acp, "spawn_agent_process", spawn)
     monkeypatch.setattr(claude_agent_sdk, "ClaudeSDKClient", ClaudeClient)
     monkeypatch.setenv("GEMINI_BIN", "/fake/gemini")
+    monkeypatch.setenv("OPENCODE_BIN", "/fake/opencode")
     cls = {
         "codex": codex.CodexPlanner,
         "gemini_cli": gemini_cli.GeminiCliPlanner,
         "claude_code": claude_code.ClaudeCodePlanner,
+        "opencode": opencode.OpenCodePlanner,
     }[backend]
     planner = cls(
         output_dir=str(tmp_path),
@@ -230,20 +253,22 @@ def test_queue_interrupt_and_continuation_share_one_session(
 
         await asyncio.wait_for(poll(), timeout=2)
 
+    toolkit = Toolkit()
+
     async def scenario():
         solve = (
             planner._solve_async(
                 "initial",
-                toolkit=Toolkit(),
-                max_turns=20,
+                toolkit=toolkit,
+                max_turns=5,
                 input_queue=input_queue if channel == "terminal" else None,
                 dashboard_interaction=dashboard if channel == "dashboard" else None,
             )
             if backend == "claude_code"
             else planner._solve(
                 prompt="initial",
-                toolkit=Toolkit(),
-                max_turns=20,
+                toolkit=toolkit,
+                max_turns=5,
                 input_queue=input_queue if channel == "terminal" else None,
                 interaction=dashboard if channel == "dashboard" else None,
             )
@@ -287,6 +312,7 @@ def test_queue_interrupt_and_continuation_share_one_session(
                 dashboard.seal_interaction()
             result = await asyncio.wait_for(task, timeout=3)
         assert result.error is None
+        assert result.stats["turns_used"] == 4
         assert len(sessions) == 1
         assert events[-1] == ("agent_close" if backend == "claude_code" else "mcp_stop")
         if backend == "claude_code":
@@ -307,22 +333,14 @@ def test_claude_confirmed_finish_does_not_send_pending_input(
     queries = []
     verdict = {"_finish": True, "status": "failure", "summary": "operator aborted"}
 
-    class Toolkit:
-        @property
-        def state(self):
-            raise RuntimeError("toolkit has no environment state")
-
-        def list_tools(self):
-            return [CommonTools.finish]
-
-        def execute_tool(self, name, args):
-            return ToolResult(data=verdict)
-
-        def cancel_active_and_wait(self):
-            pass
-
-        def resume_calls(self):
-            pass
+    toolkit = BaseToolkit(
+        dashboard_events=NullDashboardEventSink(),
+        memory=MemoryManager(tmp_path / "memory"),
+    )
+    toolkit.add_tool(
+        CommonTools.finish.with_handler(lambda **kwargs: ToolResult(data=verdict)),
+        replace=True,
+    )
 
     class Client:
         def __init__(self, *, options):
@@ -366,7 +384,7 @@ def test_claude_confirmed_finish_does_not_send_pending_input(
     result = planner.solve(
         system_prompt="",
         user_message="initial",
-        toolkit=Toolkit(),
+        toolkit=toolkit,
         max_turns=3,
         input_queue=input_queue if channel == "terminal" else None,
         dashboard_interaction=dashboard if channel == "dashboard" else None,
@@ -396,7 +414,7 @@ def test_interactive_cleanup_and_finish_preserve_unsent_input(
     events = []
 
     class Server:
-        def __init__(self, toolkit):
+        def __init__(self, toolkit, **kwargs):
             pass
 
         def start(self):
@@ -441,20 +459,23 @@ def test_interactive_cleanup_and_finish_preserve_unsent_input(
 
     monkeypatch.setattr(interactive, "HttpMcpServer", Server)
     artifacts = AgentArtifacts("test", tmp_path / "agent.out")
-    recorder = gemini_cli._Recorder(NullDashboardEventSink())
+    recorder = AcpRecorder(NullDashboardEventSink())
 
     def cancel():
         events.append("cancel_tools")
         if outcome in {"cleanup_error", "both_errors"}:
             raise RuntimeError("private-key-value")
 
+    toolkit = BaseToolkit(
+        dashboard_events=NullDashboardEventSink(),
+        memory=MemoryManager(tmp_path / "memory"),
+    )
+    toolkit.cancel_active_and_wait = cancel
     error = asyncio.run(
         interactive.run_agent(
             prompt="initial",
-            toolkit=SimpleNamespace(
-                cancel_active_and_wait=cancel,
-                resume_calls=lambda: events.append("resume_tools"),
-            ),
+            toolkit=toolkit,
+            max_turns=3,
             artifacts=artifacts,
             recorder=recorder,
             events=NullDashboardEventSink(),

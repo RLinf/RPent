@@ -27,31 +27,31 @@
      - 选择已发现的机器人或仿真环境。
    * - ``--planner``
      - ``api``
-     - 可选 ``api``、``claude_code``、``codex``、``gemini_cli`` 或 ``flash``。见 :doc:`configure_planner`。
+     - 可选 ``api``、``claude_code``、``codex``、``gemini_cli``、``opencode`` 或 ``flash``。见 :doc:`configure_planner`。
    * - ``--model``
      - ``—``
-     - ``api`` 要求服务提供方前缀；``claude_code``、``codex`` 和 ``gemini_cli`` 未显式指定时使用各自默认值。
+     - ``api`` 要求服务提供方前缀；``claude_code``、``codex``、``gemini_cli`` 和 ``opencode`` 未显式指定时使用各自默认值。
    * - ``--max-turns``
      - ``100``
-     - 规划器轮数上限；``api`` 按整段对话的模型请求次数计算，包括重试和后续输入。
+     - 整个任务的 RPent 工具调用上限，追加消息和中断均不重置额度。见 :ref:`planner-limits`。
    * - ``--max-tokens``
      - ``8192``
      - 仅 ``api``：每次模型回复的 Token 上限。
    * - ``--reasoning-effort``
-     - ``api``：``high``；``claude_code``、``codex``、``gemini_cli``：``none``
-     - ``api``、``claude_code`` 与 ``codex`` 的推理强度：``none``、``low``、``medium``、``high`` 或 ``xhigh``。在我们的 LIBERO Pro Long 评测中，关闭 reasoning 将平均运行时间从约 13.2 分钟缩短至 7.9 分钟（约 40%）。较高强度可能提升任务成功率；实际支持的档位取决于所选模型。``gemini_cli`` 仅接受 ``none``。
+     - ``api``：``high``；``claude_code``、``codex``、``gemini_cli``、``opencode``：``none``
+     - 在线规划器的推理强度：``none``、``low``、``medium``、``high`` 或 ``xhigh``，实际支持取决于后端和模型。在我们的 LIBERO Pro Long 评测中，关闭 reasoning 将平均运行时间从约 13.2 分钟缩短至 7.9 分钟（约 40%）。较高强度可能提升任务成功率，但也有可能增大任务完成时间。
    * - ``--planner-timeout-s``
      - ``—``
-     - 优先使用 ``CODEX_TIMEOUT_S`` （Codex）或 ``GEMINI_CLI_TIMEOUT_S`` （Gemini CLI），再依次使用 ``CELL_TIMEOUT_S`` 或 1200 秒；终端交互式 API/Claude 会话不受此限。
+     - 超时值（秒）优先使用显式传入的值；未传入时按优先级取默认值，具体顺序见代码。
    * - ``--codex-sandbox``
      - ``full-access``
      - Codex Shell 沙箱，可选 ``read-only``、``workspace-write`` 或 ``full-access``。其他规划器会忽略此参数。
    * - ``--base-url``
      - ``—``
-     - 仅 ``api``：覆盖模型服务地址。``claude_code``、``codex`` 和 ``gemini_cli`` 使用各自已有的后端配置，并拒绝此参数。
+     - 仅 ``api``：覆盖模型服务地址。``claude_code``、``codex``、``gemini_cli`` 和 ``opencode`` 使用各自已有的后端配置，并拒绝此参数。
    * - ``--mcp-config``
      - ``—``
-     - 外部 MCP 配置文件（YAML）路径，其中的 ``mcp_servers`` 会自动注册到当前机器人的 ``toolkit`` 中；支持 ``api``、``claude_code``、``codex`` 和 ``gemini_cli``\ （``flash`` 会拒绝此参数）。参见 :ref:`external-mcp-servers`。
+     - 外部 MCP 配置文件（YAML）路径，其中的 ``mcp_servers`` 会自动注册到当前机器人的 ``toolkit`` 中；支持在线规划器，``flash`` 会拒绝此参数。参见 :ref:`external-mcp-servers`。
    * - ``--no-images``
      - ``false``
      - 仅 ``api``：不向模型发送图像。
@@ -134,7 +134,7 @@ RPent CLI 保留原有 ``--cuda-device`` 作为本地服务的共享默认值；
      - HF 记忆版本：``auto``、``GPT_5.5_xhigh`` 或 ``GPT_6_astra_low``。详见 :doc:`memory`；显式版本不能与本地记忆或探索模式同时使用。
    * - ``--max-episode-steps``
      - ``10000``
-     - 环境步数上限，与规划器的 ``--max-turns`` 分开计算。
+     - 环境步数上限，与 ``--max-turns`` 的工具调用额度分开计算。
 
 动作模型参数兼容
 ~~~~~~~~~~~~~~~~
@@ -195,7 +195,7 @@ RPent CLI 保留原有 ``--cuda-device`` 作为本地服务的共享默认值；
      - ``CODEX_API_KEY``
      - ``CODEX_BASE_URL``
 
-Claude Code 和 Codex 也可复用已有的 CLI 认证。Gemini CLI 使用自身的认证和地址配置。模型选择、地址优先级和本地服务示例见 :doc:`configure_planner`。连接检查使用 ``rpent-check-llm``；记忆管理使用 ``rpent-memory``，操作方法见 :doc:`memory`。
+模型选择、地址优先级和本地服务示例见 :doc:`configure_planner`。连接检查使用 ``rpent-check-llm``；记忆管理使用 ``rpent-memory``，操作方法见 :doc:`memory`。
 
 模型与资源路径由各环境读取，例如 LIBERO 的 ``PI05_CHECKPOINT_PATH``、``SAM3_CHECKPOINT_PATH``，RoboCasa365 的 ``ROBOCASA_ASSETS_PATH``，以及 RoboTwin 的 ``ROBOTWIN_ASSETS_PATH``、``LINGBOT_MODEL_PATH``。
 

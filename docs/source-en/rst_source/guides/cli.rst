@@ -27,36 +27,36 @@ These options control the planner, memory, output directory, and Dashboard.
      - Select a discovered robot or simulator.
    * - ``--planner``
      - ``api``
-     - Choose ``api``, ``claude_code``, ``codex``, ``gemini_cli``, or ``flash``. See :doc:`configure_planner`.
+     - Choose ``api``, ``claude_code``, ``codex``, ``gemini_cli``, ``opencode``, or ``flash``. See :doc:`configure_planner`.
    * - ``--model``
      - ``—``
-     - ``api`` requires a provider prefix; ``claude_code``, ``codex``, and ``gemini_cli`` use their backend defaults unless overridden.
+     - ``api`` requires a provider prefix; ``claude_code``, ``codex``, ``gemini_cli``, and ``opencode`` use their backend defaults unless overridden.
    * - ``--max-turns``
      - ``100``
-     - Planner turn limit. For ``api``, counts model requests across the conversation, including retries and follow-ups.
+     - RPent tool-call budget for the whole task. Follow-up messages and interrupts do not reset it; see :ref:`planner-limits`.
    * - ``--max-tokens``
      - ``8192``
      - ``api`` only: token limit per model response.
    * - ``--reasoning-effort``
-     - ``api``: ``high``; ``claude_code``, ``codex``, ``gemini_cli``: ``none``
-     - Reasoning effort for ``api``, ``claude_code``, and ``codex``:
-       ``none``, ``low``, ``medium``, ``high``, or ``xhigh``. Disabling
-       reasoning reduced the average runtime from approximately 13.2 to
-       7.9 minutes (about 40%) in our LIBERO Pro Long evaluations.
-       Higher effort may improve task success rate. Supported levels
-       ultimately depend on the selected model. ``gemini_cli`` accepts only ``none``.
+     - ``api``: ``high``; ``claude_code``, ``codex``, ``gemini_cli``, ``opencode``: ``none``
+     - Reasoning effort for online planners:
+       ``none``, ``low``, ``medium``, ``high``, or ``xhigh``, subject to backend
+       and model support. Disabling reasoning reduced the
+       average runtime from approximately 13.2 to 7.9 minutes (about 40%) in our
+       LIBERO Pro Long evaluations. Higher effort may improve task success rate
+       but can also increase task duration.
    * - ``--planner-timeout-s``
      - ``—``
-     - Defaults to ``CODEX_TIMEOUT_S`` (Codex) or ``GEMINI_CLI_TIMEOUT_S`` (Gemini CLI), then ``CELL_TIMEOUT_S``, then 1200 seconds; terminal interactive API/Claude sessions are exempt.
+     - An explicit timeout value in seconds takes precedence. Otherwise, defaults are resolved in priority order; see the code for that order.
    * - ``--codex-sandbox``
      - ``full-access``
      - Codex shell sandbox: ``read-only``, ``workspace-write``, or ``full-access``. Other planners ignore this flag.
    * - ``--base-url``
      - ``—``
-     - ``api`` only: override the model endpoint. ``claude_code``, ``codex``, and ``gemini_cli`` use their existing backend configuration and reject this flag.
+     - ``api`` only: override the model endpoint. ``claude_code``, ``codex``, ``gemini_cli``, and ``opencode`` use their existing backend configuration and reject this flag.
    * - ``--mcp-config``
      - ``—``
-     - Path to an external MCP YAML file whose ``mcp_servers`` section is registered on the robot's toolkit for every run; supported by ``api``, ``claude_code``, ``codex``, and ``gemini_cli`` (rejected by ``flash``). See :ref:`external-mcp-servers`.
+     - Path to an external MCP YAML file whose ``mcp_servers`` section is registered on the robot's toolkit for every run; supported by online planners (rejected by ``flash``). See :ref:`external-mcp-servers`.
    * - ``--no-images``
      - ``false``
      - ``api`` only: omit images from model requests.
@@ -167,7 +167,7 @@ The following defaults apply to LIBERO; check each other environment’s ``--hel
      - HF corpus: ``auto``, ``GPT_5.5_xhigh``, or ``GPT_6_astra_low``. See :doc:`memory`; explicit versions cannot be combined with local memory or exploration.
    * - ``--max-episode-steps``
      - ``10000``
-     - Environment step limit, separate from planner turns (``--max-turns``).
+     - Environment step limit, separate from the tool-call budget (``--max-turns``).
 
 Action-Model Compatibility
 ~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -233,7 +233,7 @@ Set the credentials and endpoint for your chosen planner in the launch shell.
      - ``CODEX_API_KEY``
      - ``CODEX_BASE_URL``
 
-Claude Code and Codex can also reuse existing CLI authentication. Gemini CLI uses its own authentication and endpoint configuration. See :doc:`configure_planner` for model selection, endpoint precedence, and local server examples. Use ``rpent-check-llm`` for connectivity checks and ``rpent-memory`` for the operations in :doc:`memory`.
+See :doc:`configure_planner` for model selection, endpoint precedence, and local server examples. Use ``rpent-check-llm`` for connectivity checks and ``rpent-memory`` for the operations in :doc:`memory`.
 
 Each environment reads its own resource variables, including LIBERO’s ``PI05_CHECKPOINT_PATH`` and ``SAM3_CHECKPOINT_PATH``, RoboCasa365’s ``ROBOCASA_ASSETS_PATH``, and RoboTwin’s ``ROBOTWIN_ASSETS_PATH`` and ``LINGBOT_MODEL_PATH``.
 

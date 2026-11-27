@@ -19,11 +19,11 @@ terminal. Use a terminal with interactive input (TTY).
    rpent --robot libero --suite libero_10_task --task 0 --seed 1 \
      --planner claude_code --model claude-opus-4-8 --tui
 
-With ``claude_code``, ``codex``, or ``gemini_cli``, the first prompt contains the
+With ``claude_code``, ``codex``, ``gemini_cli``, or ``opencode``, the first prompt contains the
 task instruction. Edit it or submit it with Enter. Use ``/help`` to see commands
 and ``/quit``, ``/exit``, or ``/q`` to end the session.
 
-For example, while Claude Code, Codex, or Gemini CLI is running a task, you
+For example, while Claude Code, Codex, Gemini CLI, or OpenCode is running a task, you
 want it to check the cup's position. Choose an input below and press Enter:
 
 .. list-table::
@@ -68,7 +68,7 @@ For physical robot setup and human confirmation, see the
 Dashboard
 ---------
 
-The Dashboard supports the ``api``, ``claude_code``, ``codex``, and ``gemini_cli`` planners.
+The Dashboard supports the ``api``, ``claude_code``, ``codex``, ``gemini_cli``, and ``opencode`` planners.
 Configure ``--planner`` and ``--model`` on the command line as for a normal
 run; see :doc:`configure_planner`.
 
@@ -95,7 +95,7 @@ reused by the Session. Submit a new ``/rpent-task`` to start or switch tasks;
 during a run, submit follow-up messages or press Esc to request an interruption.
 Press Ctrl+C in the terminal to stop the Session.
 
-With Claude Code, Codex, and Gemini CLI, ordinary messages queue until the
+With Claude Code, Codex, Gemini CLI, and OpenCode, ordinary messages queue until the
 current agent turn ends. For example, to ask the planner to check the cup's
 position during a task:
 

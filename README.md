@@ -76,8 +76,10 @@ RPent is built for four kinds of users:
     <tr>
       <td>
         <ul style="margin-left: 0; padding-left: 16px;">
-          <li><a href="https://rpent.readthedocs.io/en/latest/rst_source/guides/configure_planner.html#the-claude-code-planner">Claude Code</a> ✅</li>
-          <li><a href="https://rpent.readthedocs.io/en/latest/rst_source/guides/configure_planner.html#the-codex-planner">Codex</a> ✅</li>
+          <li><a href="https://rpent.readthedocs.io/en/latest/rst_source/guides/configure_planner.html#planner-claude-code">Claude Code</a> ✅</li>
+          <li><a href="https://rpent.readthedocs.io/en/latest/rst_source/guides/configure_planner.html#planner-codex">Codex</a> ✅</li>
+          <li><a href="https://rpent.readthedocs.io/en/latest/rst_source/guides/configure_planner.html#planner-gemini-cli">Gemini CLI</a> ✅</li>
+          <li><a href="https://rpent.readthedocs.io/en/latest/rst_source/guides/configure_planner.html#planner-opencode">OpenCode</a> ✅</li>
           <li><a href="https://rpent.readthedocs.io/en/latest/rst_source/development/add_planner.html">Custom Planner</a> ✅</li>
         </ul>
       </td>
@@ -195,12 +197,12 @@ rpent --robot libero --suite libero_object_swap --task 2 --seed 0 \
   --planner claude_code --model claude-opus-4-8
 ```
 
-See the [planner docs](https://rpent.readthedocs.io/en/latest/rst_source/guides/configure_planner.html) to configure other planners (`api`, `codex`, `gemini_cli`) and model providers.
+See the [planner docs](https://rpent.readthedocs.io/en/latest/rst_source/guides/configure_planner.html) to configure other planners (`api`, `codex`, `gemini_cli`, `opencode`) and model providers.
 For the exploration workflow and local-memory evaluation, see [LIBERO exploration mode](https://rpent.readthedocs.io/en/latest/rst_source/simulators/libero.html#exploration-and-local-memory-evaluation).
 
 ### Interactive CLI mode
 
-With `claude_code`, `codex`, or `gemini_cli`, add `--tui` (`-t`) for terminal interaction. The built-in task is pre-filled at the `you>` prompt; edit it or press Enter to submit. Follow-up messages queue until the current turn completes. Use `/interrupt [message]` to interrupt; an attached message goes ahead of the queue. `/help` lists commands; `/quit` or Ctrl-D ends the session. Requires a TTY. The `api` planner uses a native CLI that runs the preset task first and accepts follow-ups between runs; use `/exit` to close it.
+With `claude_code`, `codex`, `gemini_cli`, or `opencode`, add `--tui` (`-t`) for terminal interaction. The built-in task is pre-filled at the `you>` prompt; edit it or press Enter to submit. Follow-up messages queue until the current turn completes. Use `/interrupt [message]` to interrupt; an attached message goes ahead of the queue. `/help` lists commands; `/quit` or Ctrl-D ends the session. Requires a TTY. The `api` planner uses a native CLI that runs the preset task first and accepts follow-ups between runs; use `/exit` to close it.
 
 ```bash
 rpent --robot libero --suite libero_object_swap --task 2 --seed 0 \
