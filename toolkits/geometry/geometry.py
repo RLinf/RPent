@@ -263,21 +263,42 @@ def ray_plane_radius(
     return np.where(np.isfinite(radius), radius, np.inf)
 
 
-def opening_covers_center(below: np.ndarray, offsets_xy: np.ndarray) -> bool:
-    """Check whether adjacent deeper rays enclose the center on the fitted plane."""
-    if len(offsets_xy) < 4:
+def opening_covers_center(
+    below: np.ndarray, valid: np.ndarray, offsets_xy: np.ndarray
+) -> bool:
+    """Check whether a region bounded by measured deeper rays encloses the center."""
+    from scipy.ndimage import binary_propagation
+
+    if len(offsets_xy) < 4 or min(below.shape) < 2:
         return False
-    # Only a cell with four measured depths behind the plane establishes an
-    # opening. Its projected corners retain the local pixel spacing and tilt.
+    opening = below[:-1, :-1] & below[1:, :-1] & below[1:, 1:] & below[:-1, 1:]
+    if not opening.any():
+        return False
+    if not valid.all():
+        # Keep a dropout inside an observed opening only when deeper rays
+        # separate it from every measured surface and from the image border.
+        surface = valid & ~below
+        exposed = (
+            surface[:-1, :-1] | surface[1:, :-1] | surface[1:, 1:] | surface[:-1, 1:]
+        )
+        exposed[[0, -1]] |= ~opening[[0, -1]]
+        exposed[:, [0, -1]] |= ~opening[:, [0, -1]]
+        opening = ~binary_propagation(exposed, mask=~opening)
+
+    # Cross the projected perimeter with a half-line from the requested center.
+    # Its edges join measured rays even when the enclosed depths have dropouts.
     xy = np.full((*below.shape, 2), np.nan)
     xy[below] = offsets_xy
-    x, y = xy[..., 0], xy[..., 1]
-    right = x[:, :-1] * y[:, 1:] - y[:, :-1] * x[:, 1:]
-    down = x[:-1] * y[1:] - y[:-1] * x[1:]
-    # The origin lies inside a convex cell if all four edges wind the same way.
-    edges = (right[:-1], down[:, 1:], -right[1:], -down[:, :-1])
-    low, high = np.minimum.reduce(edges), np.maximum.reduce(edges)
-    return bool(np.any(((low >= 0) & (high > 0)) | ((high <= 0) & (low < 0))))
+    horizontal = np.diff(opening, axis=0, prepend=False, append=False)
+    vertical = np.diff(opening, axis=1, prepend=False, append=False)
+    a = np.concatenate((xy[:, :-1][horizontal], xy[:-1][vertical]))
+    b = np.concatenate((xy[:, 1:][horizontal], xy[1:][vertical]))
+    cross = a[:, 0] * b[:, 1] - a[:, 1] * b[:, 0]
+    if ((cross == 0) & ((a * b).sum(axis=1) <= 0)).any():
+        return True
+    straddles = (a[:, 1] > 0) != (b[:, 1] > 0)
+    crosses_right = np.where(b[:, 1] > a[:, 1], cross > 0, cross < 0)
+    return bool(np.count_nonzero(straddles & crosses_right) % 2)
 
 
 def observed_silhouette(mask: np.ndarray, valid: np.ndarray) -> np.ndarray:

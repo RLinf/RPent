@@ -71,11 +71,10 @@ def _measure_sides(
     step = np.where(coplanar[:, opposite, None], -step[:, opposite], step)
     transition = valid[neighbors] & (height < -PLANE_TOLERANCE_M)
     foreground = valid[neighbors] & (height > PLANE_TOLERANCE_M)
-    if not clipped:
-        # An internal step can bound a recessed face. At the object silhouette
-        # only a ray reaching a farther surface establishes an edge.
-        transition |= foreground & object_mask[neighbors]
-        foreground &= ~object_mask[neighbors]
+    # An internal step can bound a recessed face. At the object silhouette
+    # only a ray reaching a farther surface establishes an edge.
+    transition |= foreground & object_mask[neighbors]
+    foreground &= ~object_mask[neighbors]
 
     refined = bounds.copy()
     supported = np.zeros((2, 2), dtype=bool)
@@ -193,7 +192,11 @@ def observed_face(observation, region, *, object_mask, plane):
     )
     near = distance_transform_edt(~roof, return_distances=False, return_indices=True)
     outside = binary_dilation(roof, iterations=3) & ~roof & valid
-    foreground = outside & (optical[tuple(near)] - optical > max(0.009, 5 * pitch))
+    foreground = (
+        outside
+        & ~object_mask[sl]
+        & (optical[tuple(near)] - optical > max(0.009, 5 * pitch))
+    )
     # A side needs an observed transition off the face. A depth dropout leaves it unknown.
     transition = (h < -PLANE_TOLERANCE_M) | (~aligned & object_mask[sl])
     physical = roof & in_frame & binary_dilation(outside & transition)
@@ -243,7 +246,7 @@ def observed_face(observation, region, *, object_mask, plane):
             axis=1
         )
         large_cutout = np.count_nonzero(inside) > max(5, 0.15 * roof.sum())
-        if large_cutout or opening_covers_center(below, crossings):
+        if large_cutout or opening_covers_center(below, valid[extent], crossings):
             return None
     return {
         "supported": supported,

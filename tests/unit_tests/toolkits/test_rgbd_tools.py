@@ -650,21 +650,24 @@ def test_upper_feature_rejects_an_underside_seen_from_below(
 
 
 @pytest.mark.parametrize(
-    ("feature", "interior_z", "radius_m"),
+    ("feature", "interior_z", "include_bottom", "radius_m"),
     [
-        ("upper_inner_ring", 0.03, 0.038),
-        ("upper_outer_ring", 0.03, 0.040),
-        ("upper_inner_ring", np.nan, None),
+        ("upper_inner_ring", 0.03, False, 0.038),
+        ("upper_inner_ring", 0.03, True, 0.038),
+        ("upper_outer_ring", 0.03, False, 0.040),
+        ("upper_inner_ring", np.nan, False, None),
     ],
 )
 def test_thin_ring_uses_the_requested_measured_edge(
-    tmp_path, feature, interior_z, radius_m
+    tmp_path, feature, interior_z, include_bottom, radius_m
 ):
     rows, cols = np.indices((101, 101))
     x, y = (cols - 50) * 0.001, (50 - rows) * 0.001
     radius = np.hypot(x, y)
     mask = (0.038 <= radius) & (radius <= 0.040)
     z = np.select([mask, radius < 0.038], [0.05, interior_z], default=0.03)
+    if include_bottom:
+        mask |= radius < 0.038
     result, saved = _measure_mask(tmp_path, mask, x, y, z, "ring_center", feature)
     if radius_m is None:
         assert result["status"] == "insufficient_evidence"
@@ -692,7 +695,15 @@ def test_inner_rim_can_cross_the_image_border(tmp_path):
 
 @pytest.mark.parametrize(
     ("raised", "top_z"),
-    [("tab", 0.065), ("competing_rim", 0.065), ("neck", 0.065), ("neck", 0.055)],
+    [
+        ("tab", 0.065),
+        ("competing_rim", 0.065),
+        ("neck", 0.065),
+        ("neck", 0.055),
+        ("taper", 0.060),
+        ("rounded_taper", 0.060),
+        ("dome", 0.060),
+    ],
 )
 def test_outer_rim_checks_height_around_its_circumference(tmp_path, raised, top_z):
     rows, cols = np.indices((111, 111))
@@ -707,6 +718,15 @@ def test_outer_rim_checks_height_around_its_circumference(tmp_path, raised, top_
     if raised == "neck":
         top = (radius >= 0.012) & (radius <= 0.015)
     z = np.select([top, mask], [top_z, 0.05], default=0.01)
+    center_x = 0.0
+    if raised == "taper":
+        z[mask] = np.interp(radius[mask], [0.015, 0.045], [top_z, 0.05])
+    elif raised == "rounded_taper":
+        center_x = 0.0035
+        rise = np.clip((0.045 - np.hypot(x[mask] - center_x, y[mask])) / 0.030, 0, 1)
+        z[mask] = 0.05 + (top_z - 0.05) * rise**2 * (3 - 2 * rise)
+    elif raised == "dome":
+        z[mask] = top_z - (top_z - 0.05) * (radius[mask] / 0.045) ** 2
     result, saved = _measure_mask(
         tmp_path, mask, x, y, z, "ring_center", "upper_outer_ring"
     )
@@ -714,9 +734,12 @@ def test_outer_rim_checks_height_around_its_circumference(tmp_path, raised, top_
         assert result["status"] == "usable"
         np.testing.assert_allclose(saved["value"], [0, 0, 0.05], atol=0.001)
         assert saved["radius_m"] == pytest.approx(0.045, abs=0.001)
-    elif raised == "neck":
+    elif raised == "dome":
+        assert result["status"] == "insufficient_evidence"
+        assert saved["value"] is None
+    elif raised in ("neck", "taper", "rounded_taper"):
         assert result["status"] == "usable"
-        np.testing.assert_allclose(saved["value"], [0, 0, top_z], atol=0.001)
+        np.testing.assert_allclose(saved["value"], [center_x, 0, top_z], atol=0.001)
         assert saved["radius_m"] == pytest.approx(0.015, abs=0.001)
     else:
         assert saved["value"] is None or saved["value"][2] == pytest.approx(
@@ -767,10 +790,18 @@ def test_disk_center_uses_the_observed_face_and_its_own_edges(scene):
         np.testing.assert_allclose(fit.parameters["center"], expected, atol=0.001)
 
 
-@pytest.mark.parametrize("opening_z", [0.05, np.nan])
-@pytest.mark.parametrize("central", [False, True])
+@pytest.mark.parametrize(
+    ("central", "opening_z", "dropout"),
+    [
+        (False, 0.05, False),
+        (False, np.nan, False),
+        (True, 0.05, False),
+        (True, np.nan, False),
+        (True, 0.05, True),
+    ],
+)
 def test_rectangular_face_distinguishes_a_measured_cutout_from_missing_depth(
-    central, opening_z
+    central, opening_z, dropout
 ):
     rows, cols = np.indices((121, 141))
     x, y = (cols - 70) * 0.001, (60 - rows) * 0.001
@@ -781,6 +812,8 @@ def test_rectangular_face_distinguishes_a_measured_cutout_from_missing_depth(
         opening = (abs(cols - 78) <= 5) & (abs(rows - 60) <= 5)
     height = np.select([upper, plate], [0.07, 0.05], default=0.01)
     height[opening] = opening_z
+    if dropout:
+        height[60, 78] = np.nan
 
     fit = _fit_face_center(plate, x, y, height, "rectangle_center", "upper_face")
     assert fit.accepted
@@ -798,13 +831,19 @@ def test_rectangle_requires_an_outward_depth_drop_at_a_window(background_z):
     assert fit.accepted == (background_z < 0.050)
 
 
-@pytest.mark.parametrize("center_z", [0.0, 0.08, np.nan])
-def test_disk_center_distinguishes_an_opening_at_coarse_pixel_spacing(center_z):
+@pytest.mark.parametrize(
+    ("center_z", "dropout"), [(0.0, False), (0.0, True), (0.08, False), (np.nan, False)]
+)
+def test_disk_center_distinguishes_an_opening_at_coarse_pixel_spacing(
+    center_z, dropout
+):
     rows, cols = np.indices((53, 53))
     x, y = (cols - 25.5) * 0.005, (26.5 - rows) * 0.005
     radius = np.hypot(x, y)
     material = (radius <= 0.1) & (radius >= 0.020)
     z = np.select([material, radius < 0.020], [0.05, center_z], default=0.0)
+    if dropout:
+        z[26, 25] = np.nan
     scale = (1 - z) / (1 - 0.05)
     fit = _fit_face_center(
         material, x * scale, y * scale, z, "disk_center", "upper_face"
@@ -858,6 +897,57 @@ def test_rectangle_measures_all_four_edges_of_an_inset_mask(inset):
             fit.parameters["side_lengths_m"], [0.070, 0.044], atol=0.0008
         )
         assert fit.quality["adjacent_edge_samples"] > 0
+
+
+@pytest.mark.parametrize(
+    ("quantity", "feature"),
+    [("disk_center", "upper_face"), ("ring_center", "upper_outer_ring")],
+)
+@pytest.mark.parametrize(("inset", "outside_z"), [(1, 0.02), (1, 0.07), (2, 0.02)])
+def test_circular_edge_one_pixel_outside_mask_needs_a_measured_drop(
+    quantity, feature, inset, outside_z
+):
+    from scipy.ndimage import binary_erosion
+
+    rows, cols = np.indices((95, 105))
+    x, y = (cols - 55) * 0.001, (45 - rows) * 0.001
+    face = np.hypot(x, y) <= 0.035
+    mask = binary_erosion(face, iterations=inset)
+    fit = _fit_face_center(
+        mask, x, y, np.where(face, 0.05, outside_z), quantity, feature
+    )
+    assert fit.accepted == (inset == 1 and outside_z < 0.05)
+    if fit.accepted:
+        np.testing.assert_allclose(fit.parameters["center"], [0, 0, 0.05], atol=0.001)
+        assert fit.parameters["radius"] == pytest.approx(0.035, abs=0.0008)
+
+
+def test_rectangle_in_a_deep_tray_pocket():
+    rows, cols = np.indices((115, 115))
+    x, y = (cols - 57) * 0.001, (57 - rows) * 0.001
+    tray = np.hypot(x, y) <= 0.050
+    pocket = (abs(x - 0.008) <= 0.022) & (abs(y) <= 0.014)
+    z = np.select([pocket, tray], [0.05, 0.07], default=0.01)
+    fit = _fit_face_center(tray, x, y, z, "rectangle_center", "upper_face")
+    assert fit.accepted, fit.reason
+    np.testing.assert_allclose(fit.parameters["center"], [0.008, 0, 0.05], atol=0.001)
+
+
+@pytest.mark.parametrize("quantity", ["rectangle_center", "disk_center"])
+def test_upper_face_ranks_coplanar_pads_by_center_height(quantity):
+    rows, cols = np.indices((95, 201))
+    x, y = (cols - 100) * 0.001, (47 - rows) * 0.001
+    if quantity == "rectangle_center":
+        lower = (abs(x + 0.060) <= 0.027) & (abs(y) <= 0.020)
+        upper = (abs(x - 0.060) <= 0.015) & (abs(y) <= 0.012)
+    else:
+        lower = np.hypot((x + 0.060) * np.hypot(1, 0.2), y) <= 0.026
+        upper = np.hypot((x - 0.060) * np.hypot(1, 0.2), y) <= 0.016
+    bridge = (abs(x) <= 0.060) & (abs(y) <= 0.004)
+    z = np.select([lower | upper, bridge], [0.060 + 0.2 * x, 0.030], default=0.01)
+    fit = _fit_face_center(lower | upper | bridge, x, y, z, quantity, "upper_face")
+    assert fit.accepted, fit.reason
+    np.testing.assert_allclose(fit.parameters["center"], [0.060, 0, 0.072], atol=0.001)
 
 
 @pytest.mark.parametrize("quantity", ["rectangle_center", "disk_center"])
