@@ -10,7 +10,7 @@ An area skill owns part of the repository. It tells an agent what to read before
 |---|---|
 | [code](code/SKILL.md) | code, tests, tools, and CI: `rpent/`, `robots/`, `components/`, `tests/`, `.github/`, `pyproject.toml`, any `.py` file |
 | [docs](docs/SKILL.md) | `docs/`, `README.md`, `README.zh-CN.md`, `CONTRIBUTING.md`, `CONTRIBUTING_zh.md` |
-| [robots](robots/SKILL.md) | robot integrations, component manifests, and GPU e2e: `robots/`, `components/`, `rpent/robots/`, `rpent/components/`, `pyproject.toml`, `tests/e2e_tests/`, `.github/workflows/embodied-gpu-e2e*.yml` |
+| [robots](robots/SKILL.md) | robot integrations, component manifests, and GPU e2e: `robots/`, `components/`, `rpent/robots/`, `rpent/components/`, `pyproject.toml`, `tests/e2e_tests/`, `tests/tooling/ci_targets.py`, `.github/workflows/embodied-gpu-e2e*.yml` |
 
 A workflow skill acts on a pull request and uses the area skills.
 

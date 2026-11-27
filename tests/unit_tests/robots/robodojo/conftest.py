@@ -52,11 +52,12 @@ def agent_module(monkeypatch):
 
 @pytest.fixture
 def make_agent(agent_module):
-    def create(native, *, meta=None, slot=None, recorder=None):
+    def create(native, *, meta=None, slot=None, recorder=None, fresh_reset=False):
         agent = object.__new__(agent_module.RoboDojoAgentEnv)
         agent.meta = meta or {}
         agent.eval_fair = agent.meta.get("mode") == "eval-fair"
         agent._closed = False
+        agent._fresh_reset = fresh_reset
         agent.recorder = recorder or SimpleNamespace(
             record=lambda obs: None, close=lambda: []
         )

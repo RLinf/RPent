@@ -328,4 +328,4 @@ Cosmos3 需要 ``--cosmos3-config`` 和 ``--cosmos3-sglang-endpoint``；该方�
 测试
 ----
 
-新增模型与平台组合时，扩展已有的适配器、RPC 和平台测试。测试位置、GPU 环境要求、运行命令，以及集成检查与任务成功率评测的区别，统一见 ``tests/README.md``。
+新增模型与平台组合时，扩展已有的适配器、RPC 和平台测试。测试目录、GPU 环境要求和运行命令见 :doc:`testing`。

@@ -525,6 +525,4 @@ Tests
 -----
 
 Extend the existing adapter, RPC and platform tests for each new model/platform
-pair. Test locations, GPU prerequisites, commands and the distinction between
-integration checks and task-success benchmarks are documented in
-``tests/README.md``.
+pair. See :doc:`testing` for test locations, GPU prerequisites and commands.

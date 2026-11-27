@@ -36,10 +36,10 @@ pytest tests/unit_tests -v
 pytest tests/unit_tests/rpent/cli/test_main_contracts.py -k xxx -x
 ```
 
-Supported GPU end-to-end suites run through `tests/e2e_tests/run_gpu_suite.sh` on a host with a dedicated NVIDIA GPU, EGL, and the target's assets/checkpoints (see [tests/README.md](tests/README.md)):
+Supported GPU end-to-end suites run through `tests/e2e_tests/run_gpu_suite.sh` on a host with a dedicated NVIDIA GPU, EGL, and the target's assets/checkpoints (see [Testing and CI](https://rpent.readthedocs.io/en/latest/rst_source/development/testing.html)):
 
 ```bash
-bash tests/e2e_tests/run_gpu_suite.sh <libero-pro|robocasa|robotwin> /path/to/new-output-dir /path/to/new-venv-root
+bash tests/e2e_tests/run_gpu_suite.sh <target> /path/to/new-output-dir /path/to/new-venv-root
 ```
 
 Docs must build in both languages with no warnings. The docs check builds both trees the way Read the Docs does and checks the changed pages:
@@ -84,7 +84,7 @@ Plug into an existing contract instead of adding robot- or planner-name branches
 
 ## Tests
 
-- Mirror production layout under `tests/unit_tests/rpent/`, `tests/unit_tests/robots/<robot>/`, `tests/unit_tests/components/`, and `tests/unit_tests/skills/` (see [tests/README.md](tests/README.md)).
+- Mirror production layout under `tests/unit_tests/rpent/`, `tests/unit_tests/robots/<robot>/`, `tests/unit_tests/components/`, `tests/unit_tests/installs/`, `tests/unit_tests/tooling/`, and `tests/unit_tests/skills/` (see [Testing and CI](https://rpent.readthedocs.io/en/latest/rst_source/development/testing.html)).
 - Test observable contracts and concrete regressions offline on CPU; use real local loopback transports or fakes at external edges (LLM APIs, simulators, hardware SDKs).
 - Never weaken product code (for example replacing direct member access with `getattr`/`hasattr` or adding guard branches) so an incomplete mock or stub test passes; construct the real object or satisfy its contract in the test.
 - Never weaken or delete a failing test to make CI pass. Delete a test when you cannot name the change that would make it fail.
@@ -110,7 +110,7 @@ Skills live in `.agents/skills/<name>/SKILL.md` ([.agents/skills/README.md](.age
 |---|---|
 | Code, tests, tools, and CI: `rpent/`, `robots/`, `components/`, `tests/`, `.github/`, `pyproject.toml`, `setup.py`, any `.py` file | `code` |
 | Docs: `docs/`, `README.md`, `README.zh-CN.md`, `CONTRIBUTING.md`, `CONTRIBUTING_zh.md` | `docs` |
-| Robots, component manifests, and GPU e2e: `robots/`, `components/`, `rpent/robots/`, `rpent/components/`, `pyproject.toml`, `tests/e2e_tests/`, `.github/workflows/embodied-gpu-e2e*.yml` | `robots` |
+| Robots, component manifests, and GPU e2e: `robots/`, `components/`, `rpent/robots/`, `rpent/components/`, `pyproject.toml`, `tests/e2e_tests/`, `tests/tooling/ci_targets.py`, `.github/workflows/embodied-gpu-e2e*.yml` | `robots` |
 
 | Task | Skill |
 |---|---|

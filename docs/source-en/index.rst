@@ -147,6 +147,7 @@ See :doc:`Installation <rst_source/get_started/installation>` for component setu
    Add an Action Primitive <rst_source/development/add_primitive>
    Add an Action Model <rst_source/development/add_action_model>
    Add a Planner <rst_source/development/add_planner>
+   Testing and CI <rst_source/development/testing>
 
 .. toctree::
    :maxdepth: 2

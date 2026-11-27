@@ -567,3 +567,30 @@ def test_server_terminal_guard_never_updates_controller_targets(
         if eval_fair:
             assert "success" not in info.get("status", info.get("episode_status"))
     assert not b.applied
+
+
+def test_reset_episode_elides_only_initial_constructor_reset(make_agent, make_native):
+    native, _ = make_native()
+    agent = make_agent(
+        native,
+        meta={"task": "pick_bottle", "layout": 7},
+        fresh_reset=True,
+    )
+    resets: list[list[int]] = []
+    agent.venv.reset = lambda *, env_seeds: resets.append(list(env_seeds))
+    agent.get_native_obs = lambda: {"step": native.take_action_cnt[0]}
+
+    # First step-0 reset after __init__ elides the redundant simulator reset.
+    assert agent.reset_episode() == {"step": 0}
+    assert resets == []
+    assert agent._fresh_reset is False
+
+    # A second explicit reset at step 0 must actually invoke venv.reset.
+    assert agent.reset_episode() == {"step": 0}
+    assert resets == [[7]]
+    assert agent._fresh_reset is False
+
+    # Subsequent reset after advancing steps also invokes venv.reset.
+    native.take_action_cnt[0] = 3
+    assert agent.reset_episode() == {"step": 3}
+    assert resets == [[7], [7]]

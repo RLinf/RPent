@@ -534,50 +534,35 @@ Expand the details below for task names, evaluation settings and score reference
 Environment Checks
 ------------------
 
-Check the simulator first, then VLA inference. Both need working GPU/EGL.
-Skipped tests are not passes, and these checks do not produce leaderboard scores.
+Run the end-to-end GPU check to verify both the simulator and VLA inference. It
+needs test tools from ``infra-dev`` and working GPU/EGL; create
+``.venv-robocasa-dev`` once with
+``./rpent-install.sh install robot-robocasa infra-dev --venv .venv-robocasa-dev``
+and activate it before running the command below. Skipped tests are not passes,
+and this check does not produce leaderboard scores.
 
-Simulator Check
-~~~~~~~~~~~~~~~
+End-to-End GPU Check
+~~~~~~~~~~~~~~~~~~~~
 
-Run after installing dependencies and kitchen assets. No planner credentials or
-model weights are needed:
-
-.. code-block:: bash
-
-   uv pip install pytest pytest-timeout
-   RPENT_RUN_ROBOCASA_INTEGRATION=1 \
-      pytest tests/e2e_tests/robocasa/test_environment_smoke.py -v
-
-Expect four passes: three tasks (``OpenDrawer``, ``NavigateKitchen`` and
-``PickPlaceCounterToCabinet`` at seed 1) plus a mobile-camera check.
-
-.. dropdown:: Simulator Check Coverage
-
-   Task checks cover environment creation/reset, 12D actions, operation cameras,
-   navigation RGB-D/world map, the success predicate and clean shutdown. The
-   camera check verifies pose and image changes after eight base steps. These
-   use the real simulator and run separately from offline CPU unit tests.
-
-VLA Inference Check
-~~~~~~~~~~~~~~~~~~~
-
-Complete :ref:`VLA configuration <robocasa-vla-configuration>`, then select an
-available GPU and a fresh output directory. Install ``.[test]`` if you need the
-test dependencies:
+After installing dependencies, kitchen assets, and the RLDX-1 checkpoint, select
+an available GPU and a fresh output directory, then run the declarative RoboCasa
+suite (which exercises every advertised tool through the public CLI without a
+planner API key):
 
 .. code-block:: bash
 
    CUDA_VISIBLE_DEVICES=0 \
-   RLDX_MODEL_PATH="$PWD/checkpoints/rldx-1-ft-rc365" \
+   MUJOCO_GL=egl \
+   PYOPENGL_PLATFORM=egl \
+   ROBOCASA_ASSETS_PATH=~/.robocasa/assets \
+   RLDX_CHECKPOINT_PATH="$PWD/checkpoints/rldx-1-ft-rc365" \
+   RPENT_E2E_SUITE=robocasa \
    RPENT_E2E_OUTPUT_DIR="$PWD/e2e-robocasa" \
-   HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 NO_ALBUMENTATIONS_UPDATE=1 \
-   MUJOCO_GL=egl python -m pytest -q \
-      tests/e2e_tests/robocasa/test_components.py::test_rldx_component --timeout=300
+   python -m pytest tests/e2e_tests/test_suites.py -v
 
-This checks VLA startup, RPC communication and first inference without a planner.
-Offline variables apply only to this command; normal HF memory sync still needs
-network access.
+To run the same check in a clean virtual environment created from scratch, use
+``bash tests/e2e_tests/run_gpu_suite.sh robocasa /path/to/new-output-dir /path/to/new-venv-root``.
+See :doc:`../development/testing` for suite configuration and :ref:`add-robot-testing` for ``tool-coverage.json`` output.
 
 .. _robocasa-troubleshooting:
 

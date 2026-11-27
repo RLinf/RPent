@@ -76,12 +76,14 @@ class RoboDojoAgentEnv(RoboDojoEnv):
         self.eval_fair = meta.get("mode", "dev") == "eval-fair"
         self.recorder = _VideoRecorder(video_dir)
         self.bottle_mon = _SafetyMonitor(self.meta.get("task", ""))
+        self._fresh_reset = False
         super().__init__(cfg, 1, 0, 1, None, record_metrics=False)
         try:
             seed_manager = self.env.seed_manager
             seed_manager.config["seed"] = meta.get("seed", 0)
             seed_manager.init_eval()
             self.venv.reset(env_seeds=[meta["layout"]])
+            self._fresh_reset = True
         except BaseException:
             self.close()
             raise
@@ -170,7 +172,12 @@ class RoboDojoAgentEnv(RoboDojoEnv):
     def reset_episode(self) -> dict[str, Any]:
         if self.eval_fair:
             raise RuntimeError("eval-fair does not allow episode reset")
+        if self._fresh_reset and int(self.env.take_action_cnt[0]) == 0:
+            self._fresh_reset = False
+            self.bottle_mon = _SafetyMonitor(self.meta.get("task", ""))
+            return self.get_native_obs()
         self.venv.reset(env_seeds=[self.meta["layout"]])
+        self._fresh_reset = False
         self.bottle_mon = _SafetyMonitor(self.meta.get("task", ""))
         return self.get_native_obs()
 
@@ -250,6 +257,7 @@ class RoboDojoAgentEnv(RoboDojoEnv):
             # Flush the previous camera frame before reading each captured observation.
             self.env.get_obs(env_idx=0)
             before_observation = deepcopy(self._observation(capture=False))
+        self._fresh_reset = False
         self._sub_env(0).apply_action(
             flat_action, action_type, eval_fair=self.eval_fair
         )

@@ -8,6 +8,7 @@ paths:
   - rpent/components/**
   - pyproject.toml
   - tests/e2e_tests/**
+  - tests/tooling/ci_targets.py
   - ".github/workflows/embodied-gpu-e2e*.yml"
 ---
 

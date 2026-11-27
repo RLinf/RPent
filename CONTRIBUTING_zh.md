@@ -81,7 +81,7 @@ pre-commit install
 
 ### 第 4 步：运行检查并更新文档
 
-创建 Pull Request 前，请运行与 CI 相同的必需检查：
+如何配置测试环境、运行 GPU 测试，见[测试与 CI](docs/source-zh/rst_source/development/testing.rst)。创建 Pull Request 前，请运行与 CI 相同的必需检查：
 
 ```bash
 # 格式化并检查整个仓库。

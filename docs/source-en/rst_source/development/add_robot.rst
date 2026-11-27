@@ -601,11 +601,8 @@ logic in the robot package rather than the shared CLI.
 6. Tests to Add
 ---------------
 
-When adding a robot, test each runtime component it uses separately, then run
-one complete policy chain. For example, a robot using Env, Pi0.5, and SAM3
-needs an Env test, a Pi0.5 inference test, a SAM3 segmentation test, and a
-policy-chain test. Each component test must make a real request and check the
-result, beyond importing the module or checking server health.
+When adding a robot, provide offline CPU unit tests and a declarative GPU
+end-to-end suite that exercises every advertised tool through the public CLI.
 
 Test Locations
 ~~~~~~~~~~~~~~
@@ -615,49 +612,29 @@ Use ``myrobot`` below for the new robot's package name:
 - ``tests/unit_tests/robots/myrobot/``: offline tests for configuration,
   client argument handling, tool dispatch, and runtime startup/cleanup logic.
   Use fakes for simulators and models so these tests run on CPU.
-- ``tests/e2e_tests/myrobot/test_components.py``: one named test per real
-  component, such as ``test_environment_component``, ``test_pi05_component``,
-  and ``test_sam3_component``. Include only the components the robot uses.
-- ``tests/e2e_tests/myrobot/test_policy_chain.py``: one test connecting the
-  planner, toolkit, model, and environment.
-- Keep fixtures in the same directory's ``conftest.py`` and reusable scenario
-  setup/calls in ``scenario.py``. Reuse lifecycle and assertion helpers from
-  ``tests/e2e_tests/common.py``. See ``tests/e2e_tests/libero/`` for an example.
+- ``tests/e2e_tests/suites/myrobot.toml``: declarative GPU E2E suite listing
+  the install component, shared asset/model paths, sample tool arguments, and
+  one or more ``[[cases]]`` entries (one per action-model backend). See
+  ``tests/e2e_tests/suites/libero.toml`` for an example.
 
-What Each Component Test Should Check
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+What the GPU Suite Checks
+~~~~~~~~~~~~~~~~~~~~~~~~~
 
-- **Env:** start the real environment, reset a fixed task/seed, and read an
-  observation. Check required camera images and state fields, including their
-  shapes and dtypes. Execute at least one valid action and check the next
-  observation and termination/success information.
-- **VLA or other action model:** load a real checkpoint and perform one
-  prediction using an observation and instruction in the robot's input format.
-  Check that the returned actions are nonempty, finite, and have the expected
-  dimensions for this environment.
-- **Perception or other services:** call each service with a known input and
-  validate its output. For example, ask SAM3 to segment a known object and
-  check that the mask matches the image dimensions and contains foreground.
+The shared E2E runner (``tests/e2e_tests/runner.py`` and
+``tests/e2e_tests/test_suites.py``) drives the public CLI with an offline
+tool-traversing ``FunctionModel`` against the real simulator and model
+services:
 
-Start each component through the supported runtime interface, and verify that
-its owned daemons exit after the test. Existing tests may cover a reused
-component; identify that coverage and test any new input/output adaptation.
+- Every advertised tool is called at least once without error, followed by
+  ``finish``; ``tool-coverage.json`` records executed, missing, and failed
+  calls.
+- At least one real environment action is executed and recorded in
+  ``states.json`` without errors, expected observation artifacts exist, and
+  owned daemons exit cleanly after the test.
+- Task success is not required for this bounded integration check. Missing
+  optional model checkpoints, interpreters, or endpoints automatically skip
+  only the affected case.
 
-Complete Policy-chain Test
-~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-After component tests pass, use ``run_scripted_policy_chain`` from
-``tests/e2e_tests/common.py`` to run the public CLI with a fixed task/seed and
-bounded action count. Its local ``OfflinePlannerServer`` requests a real
-action primitive followed by ``finish``, without an external LLM API. Keep the
-environment and model services real; do not monkeypatch CLI or runtime internals.
-
-Check that at least one environment action was executed, ``finish`` was
-recorded in the transcript, ``states.json`` contains the action without
-errors, expected observation artifacts exist, and owned daemons have exited.
-Task success is not required for this bounded integration check.
-
-Run offline tests with ``pytest tests/unit_tests/robots/myrobot -v``. After
-installing the robot extra and preparing its GPU/checkpoint/assets resources,
-run ``pytest tests/e2e_tests/myrobot -v``. See ``tests/README.md`` and
-``tests/e2e_tests/run_gpu_suite.sh`` for running GPU suites in clean environments.
+Run offline tests with ``pytest tests/unit_tests/robots/myrobot -v``. See
+:doc:`testing` and ``tests/e2e_tests/run_gpu_suite.sh`` for running GPU suites
+in clean environments.

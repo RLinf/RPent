@@ -5,6 +5,12 @@ on:
     types: [opened, synchronize, reopened, ready_for_review, converted_to_draft]
   push:
     branches: [main]
+  workflow_call:
+    inputs:
+      skip_package:
+        description: Skip the nested package job when the caller builds distributions itself.
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -14,48 +20,76 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
+  static:
+    name: Layout, manifests, and minimal imports
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+      - name: Check repository layout
+        run: ./tests/tooling/run.sh layout
+      - name: Check component manifests
+        run: ./rpent-install.sh check --all
+      - name: Check minimal environment imports
+        run: |
+          uv python install 3.11
+          ./rpent-install.sh install infra-minimal --venv .venv-minimal
+          .venv-minimal/bin/python -c "
+          import rpent
+          from rpent.robots import enumerate_robots
+          robots = enumerate_robots()
+          assert robots, 'robot discovery returned no entries'
+          print(rpent.__version__, sorted(robots))
+          "
+          .venv-minimal/bin/rpent --help >/dev/null
+          .venv-minimal/bin/rpent-install list >/dev/null
+          ./rpent-install.sh doctor --venv .venv-minimal
+
   test:
     name: Unit tests (${{ matrix.python-version }})
     if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
         python-version: ["3.10", "3.11", "3.12"]
-
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/setup-python@v7
-        with:
-          python-version: ${{ matrix.python-version }}
       - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
-      - name: Install test dependencies
-        run: uv pip install --system -e ".[test]"
-      - name: Install calibration test dependencies
-        run: uv pip install --system "opencv-python-headless==4.10.0.84"
-      - name: Install Flywheel export dependencies
-        run: uv pip install --system -e ".[flywheel]" --torch-backend cpu
+      - name: Install unit test environment (Python ${{ matrix.python-version }})
+        run: ./rpent-install.sh install infra-unit_cpu --python ${{ matrix.python-version }} --venv .venv
       - name: Run unit tests with coverage
-        run: coverage run --source=rpent,robots,components -m pytest tests/unit_tests -v
-      - name: Generate coverage report
-        run: coverage report -m
+        run: |
+          .venv/bin/python -m coverage run --source=rpent,robots,components \
+            -m pytest tests/unit_tests -v -rs
+          .venv/bin/python -m coverage report -m
 
-  # Single stable status check for branch rulesets: the matrix job above reports
-  # one check per Python version (test (3.10), ...), which a ruleset cannot match
-  # against a single required check.
+  package:
+    name: Package
+    if: (github.event_name != 'pull_request' || github.event.pull_request.draft == false) && inputs.skip_package != true
+    uses: ./.github/workflows/package.yml
+
+  # Single stable status check for branch rulesets.
   unittest:
     name: unittest
     if: always()
-    needs: [test]
+    needs: [static, test, package]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - name: Require all matrix legs to pass
+      - name: Require all checks to pass
         run: |
-          result='${{ needs.test.result }}'
-          echo "matrix result: $result"
-          case "$result" in
-            success|skipped) exit 0 ;;
-            *) echo "::error::unit test matrix did not succeed ($result)"; exit 1 ;;
-          esac
+          failed=0
+          for result in 'static:${{ needs.static.result }}' \
+                        'test:${{ needs.test.result }}' \
+                        'package:${{ needs.package.result }}'; do
+            echo "check result: $result"
+            case "${result#*:}" in
+              success|skipped) ;;
+              *) echo "::error::$result did not succeed"; failed=1 ;;
+            esac
+          done
+          exit "$failed"

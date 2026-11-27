@@ -1,0 +1,11 @@
+component = "robot-robolab"
+env = { ROBOLAB_ASSETS_PATH = "assets/robolab" }
+
+[[cases]]
+name = "pi05"
+models = ["model-openpi"]
+args = ["--task", "BananaInBowlTask", "--seed", "0", "--sim-python", "venvs/robolab-sim/bin/python"]
+env = { PI05_CHECKPOINT_PATH = "models/RLinf-Pi05-RoboLab-droid-jointpos" }
+action_tool = "pi05_act"
+action_count_field = "executed_steps"
+require_post_action_image = true

@@ -1,123 +1,229 @@
-name: Embodied GPU E2E
+name: Simulator CI
 
 on:
-  issue_comment:
-    types: [created]
-  workflow_dispatch:
-    inputs:
-      target:
-        description: Robot stack to test
-        required: true
-        type: choice
-        options:
-          - libero-pro
-          - robocasa
-          - robotwin
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review, converted_to_draft, labeled]
+  push:
+    branches: [main]
 
 permissions:
   contents: read
-  pull-requests: read
+
+concurrency:
+  group: simulator-ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  # Shared resource root consumed by tests/e2e_tests/suites/*.toml
+  RPENT_SHARED_ROOT: /mnt/public/rpent_shared
+  E2E_RUN_ID: ${{ github.run_id }}
+  MUJOCO_GL: egl
+  PYOPENGL_PLATFORM: egl
+
+  # Shared dependency and model caches
+  UV_CACHE_DIR: /mnt/public/rpent_shared/cache/uv
+  UV_LOCK_TIMEOUT: "5400"  # Allow a concurrent cold download the full install budget.
+  UV_LINK_MODE: symlink
+  UV_PYTHON_INSTALL_DIR: /mnt/public/rpent_shared/python
+  UV_TORCH_BACKEND: auto
+  HF_HUB_CACHE: /mnt/public/rpent_shared/models/huggingface/hub
+  OPENPI_DATA_HOME: /mnt/public/rpent_shared/models/openpi
 
 jobs:
-  manual:
-    if: github.event_name == 'workflow_dispatch'
-    uses: ./.github/workflows/embodied-gpu-e2e-run.yml
-    with:
-      repository: ${{ github.repository }}
-      revision: ${{ github.sha }}
-      scope: manual-${{ github.sha }}
-      target: ${{ inputs.target }}
-
-  comment-request:
-    if: >-
-      github.event_name == 'issue_comment' &&
-      github.event.issue.pull_request &&
-      contains(fromJSON('["OWNER", "MEMBER", "COLLABORATOR"]'), github.event.comment.author_association) &&
-      contains(fromJSON('["/ci-libero-pro", "/ci-robocasa", "/ci-robotwin"]'), github.event.comment.body)
+  select:
+    name: Select affected install & eval targets
     runs-on: ubuntu-latest
-    timeout-minutes: 5
-    permissions:
-      pull-requests: write
     outputs:
-      repository: ${{ steps.resolve.outputs.repository }}
-      revision: ${{ steps.resolve.outputs.revision }}
-      scope: ${{ steps.resolve.outputs.scope }}
-      target: ${{ steps.resolve.outputs.target }}
-      comment_id: ${{ steps.reply.outputs.comment_id }}
+      suites: ${{ steps.targets.outputs.suites }}
+      install_jobs: ${{ steps.targets.outputs.install_jobs }}
+      eval_jobs: ${{ steps.targets.outputs.eval_jobs }}
+      has_install: ${{ steps.targets.outputs.has_install }}
+      has_eval: ${{ steps.targets.outputs.has_eval }}
     steps:
-      - name: Resolve pull request head
-        id: resolve
+      - name: Require 'run-ci' label on pull requests
+        if: github.event_name == 'pull_request' && !contains(github.event.pull_request.labels.*.name, 'run-ci')
+        run: |
+          echo "This pull request does not have the 'run-ci' label. Add 'run-ci' when ready to run Simulator CI."
+          exit 1
+
+      - name: Require non-draft pull request
+        if: github.event_name == 'pull_request' && github.event.pull_request.draft == true
+        run: |
+          echo "This pull request is a draft. Mark it ready for review before running Simulator CI."
+          exit 1
+
+      - name: Require fresh 'run-ci' approval for fork pull requests
+        if: >-
+          github.event_name == 'pull_request' &&
+          github.event.pull_request.head.repo.full_name != github.repository &&
+          !(github.event.action == 'labeled' && github.event.label.name == 'run-ci')
+        run: |
+          echo "Fork pull request changed. Re-apply the 'run-ci' label after reviewing the new commit."
+          exit 1
+
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Map changed files to install and eval jobs
+        id: targets
+        env:
+          BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: python3 tests/tooling/ci_targets.py "$BASE" "$GITHUB_SHA"
+
+  install:
+    name: Install / ${{ matrix.job.component }}
+    needs: select
+    if: needs.select.outputs.has_install == 'true'
+    runs-on: rpent-gpu
+    timeout-minutes: 95
+    strategy:
+      fail-fast: false
+      matrix:
+        job: ${{ fromJson(needs.select.outputs.install_jobs) }}
+    steps:
+      - name: Checkout selected revision
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      - name: Install component into shared run venv
+        timeout-minutes: 90
         shell: bash
         env:
-          COMMENT_BODY: ${{ github.event.comment.body }}
-          GH_TOKEN: ${{ github.token }}
-          PR_NUMBER: ${{ github.event.issue.number }}
+          RPENT_INSTALL_TIMEOUT: 90m
+          RPENT_CI_PORTABLE_VENV: "1"
         run: |
           set -euo pipefail
+          out_dir="$RUNNER_TEMP/rpent-install-$E2E_RUN_ID-${{ matrix.job.component }}"
+          run_venvs="$RPENT_SHARED_ROOT/ci-venvs/$E2E_RUN_ID"
+          venv_dir="$run_venvs/${{ matrix.job.component }}"
+          # Opportunistically reap abandoned run venvs older than 6 hours.
+          if [[ -d "$RPENT_SHARED_ROOT/ci-venvs" ]]; then
+            find "$RPENT_SHARED_ROOT/ci-venvs" -mindepth 1 -maxdepth 1 -type d \
+              ! -name "cached" ! -name "$E2E_RUN_ID" -mmin +360 -exec rm -rf {} + 2>/dev/null || true
+          fi
+          python3 tests/tooling/gpu_slots.py --kind install --slots 1 -- \
+            bash tests/e2e_tests/run_gpu_suite.sh install \
+              "${{ matrix.job.component }}" "$out_dir" "$venv_dir" --portable
 
-          mapfile -t head < <(
-            gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER" \
-              --jq '.head.repo.full_name, .head.sha'
-          )
-          [[ ${#head[@]} -eq 2 && -n "${head[0]}" && -n "${head[1]}" ]]
+      - name: Upload install diagnostics
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: install-${{ matrix.job.component }}-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/rpent-install-${{ env.E2E_RUN_ID }}-${{ matrix.job.component }}/*
+          if-no-files-found: ignore
 
-          {
-            echo "repository=${head[0]}"
-            echo "revision=${head[1]}"
-            echo "scope=pr-$PR_NUMBER"
-            echo "target=${COMMENT_BODY#/ci-}"
-          } >> "$GITHUB_OUTPUT"
+  eval:
+    name: Eval / ${{ matrix.job.id }} (${{ matrix.job.gpus }} GPU)
+    needs: [select, install]
+    if: >-
+      !cancelled() &&
+      needs.select.result == 'success' &&
+      needs.install.result != 'cancelled' &&
+      needs.select.outputs.has_eval == 'true'
+    runs-on: rpent-gpu
+    timeout-minutes: 150
+    strategy:
+      fail-fast: false
+      matrix:
+        job: ${{ fromJson(needs.select.outputs.eval_jobs) }}
+    steps:
+      - name: Checkout selected revision
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
 
-      - name: Reply with run link
-        id: reply
-        continue-on-error: true
+      - name: Run GPU eval case with slot allocation
+        timeout-minutes: 135
         shell: bash
         env:
-          GH_TOKEN: ${{ github.token }}
-          PR_NUMBER: ${{ github.event.issue.number }}
-          TARGET: ${{ steps.resolve.outputs.target }}
-          REVISION: ${{ steps.resolve.outputs.revision }}
+          RPENT_INSTALL_TIMEOUT: 90m
+          RPENT_TEST_TIMEOUT: 120m
+          RPENT_GPU_PYTEST_TIMEOUT_SECONDS: "2400"
+          RPENT_VENV_MODE: ${{ matrix.job.venv_mode }}
         run: |
-          body_file=$(mktemp "$RUNNER_TEMP/rpent-ci-reply.XXXXXX")
-          trap 'rm -f "$body_file"' EXIT
-          run_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/attempts/$GITHUB_RUN_ATTEMPT"
-          printf 'Accepted **%s GPU E2E** for commit `%s`.\n\n[View status and logs](%s)\n' \
-            "$TARGET" "$REVISION" "$run_url" > "$body_file"
-          comment_id=$(gh api --method POST "repos/$GITHUB_REPOSITORY/issues/$PR_NUMBER/comments" \
-            --field "body=@$body_file" --jq '.id')
-          echo "comment_id=$comment_id" >> "$GITHUB_OUTPUT"
+          set -euo pipefail
+          out_dir="$RUNNER_TEMP/rpent-eval-$E2E_RUN_ID-${{ matrix.job.suite }}-${{ matrix.job.case }}"
+          if [[ "$RPENT_VENV_MODE" == "cached" ]]; then
+            venv_arg="$RPENT_SHARED_ROOT/ci-venvs/cached"
+            # Warm cached venv before acquiring GPU slots so GPUs are never held idle.
+            bash tests/e2e_tests/run_gpu_suite.sh prepare-cache \
+              "${{ matrix.job.component }}" "$out_dir/cache-install" "$venv_arg"
+          else
+            venv_arg="$RPENT_SHARED_ROOT/ci-venvs/$E2E_RUN_ID/${{ matrix.job.component }}"
+          fi
+          python3 tests/tooling/gpu_slots.py --kind gpu --slots "${{ matrix.job.gpus }}" -- \
+            bash tests/e2e_tests/run_gpu_suite.sh eval \
+              "${{ matrix.job.suite }}" \
+              "${{ matrix.job.case }}" \
+              "$out_dir" \
+              "$venv_arg"
 
-  comment:
-    needs: comment-request
-    uses: ./.github/workflows/embodied-gpu-e2e-run.yml
-    with:
-      repository: ${{ needs.comment-request.outputs.repository }}
-      revision: ${{ needs.comment-request.outputs.revision }}
-      scope: ${{ needs.comment-request.outputs.scope }}
-      target: ${{ needs.comment-request.outputs.target }}
+      - name: Upload eval diagnostics
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: eval-${{ matrix.job.suite }}-${{ matrix.job.case }}-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/rpent-eval-${{ env.E2E_RUN_ID }}-${{ matrix.job.suite }}-${{ matrix.job.case }}/**/*-junit.xml
+            ${{ runner.temp }}/rpent-eval-${{ env.E2E_RUN_ID }}-${{ matrix.job.suite }}-${{ matrix.job.case }}/**/*server.log
+            ${{ runner.temp }}/rpent-eval-${{ env.E2E_RUN_ID }}-${{ matrix.job.suite }}-${{ matrix.job.case }}/**/tool-coverage.json
+            ${{ runner.temp }}/rpent-eval-${{ env.E2E_RUN_ID }}-${{ matrix.job.suite }}-${{ matrix.job.case }}/**/*-daemon-cleanup.txt
+          if-no-files-found: ignore
 
-  comment-result:
-    needs: [comment-request, comment]
-    if: always() && needs.comment-request.outputs.comment_id != ''
+      - name: Clean up runner temp
+        if: always()
+        shell: bash
+        run: |
+          out_dir="$RUNNER_TEMP/rpent-eval-$E2E_RUN_ID-${{ matrix.job.suite }}-${{ matrix.job.case }}"
+          if [[ -d "$out_dir" ]]; then
+            find "$out_dir" -depth -delete
+          fi
+
+  cleanup:
+    name: Clean up shared run venvs
+    # Keep per-run venvs on failure so "Re-run failed jobs" can reuse already-built
+    # venvs under the same run_id; abandoned directories are reaped after 6 hours.
+    if: >-
+      needs.select.outputs.has_install == 'true' &&
+      (needs.install.result == 'success' || needs.install.result == 'skipped') &&
+      (needs.eval.result == 'success' || needs.eval.result == 'skipped')
+    needs: [select, install, eval]
+    runs-on: rpent-gpu
+    timeout-minutes: 15
+    steps:
+      - name: Remove per-run shared venv directory
+        shell: bash
+        run: |
+          run_venvs="$RPENT_SHARED_ROOT/ci-venvs/$E2E_RUN_ID"
+          if [[ -d "$run_venvs" ]]; then
+            rm -rf "$run_venvs"
+          fi
+
+  # Single stable status check for branch rulesets.
+  simulator-ci:
+    name: simulator-ci
+    if: always()
+    needs: [select, install, eval, cleanup]
     runs-on: ubuntu-latest
     timeout-minutes: 5
-    permissions:
-      pull-requests: write
     steps:
-      - name: Update reply with result
-        continue-on-error: true
-        shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
-          COMMENT_ID: ${{ needs.comment-request.outputs.comment_id }}
-          TARGET: ${{ needs.comment-request.outputs.target }}
-          REVISION: ${{ needs.comment-request.outputs.revision }}
-          RESULT: ${{ needs.comment.result }}
+      - name: Require simulator checks to pass
         run: |
-          body_file=$(mktemp "$RUNNER_TEMP/rpent-ci-reply.XXXXXX")
-          trap 'rm -f "$body_file"' EXIT
-          run_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/attempts/$GITHUB_RUN_ATTEMPT"
-          printf '**%s GPU E2E: %s** for commit `%s`.\n\n[View status and logs](%s)\n' \
-            "$TARGET" "$RESULT" "$REVISION" "$run_url" > "$body_file"
-          gh api --method PATCH "repos/$GITHUB_REPOSITORY/issues/comments/$COMMENT_ID" \
-            --field "body=@$body_file" --silent
+          failed=0
+          for result in 'select:${{ needs.select.result }}' \
+                        'install:${{ needs.install.result }}' \
+                        'eval:${{ needs.eval.result }}'; do
+            echo "check result: $result"
+            case "${result#*:}" in
+              success|skipped) ;;
+              *) echo "::error::$result did not succeed"; failed=1 ;;
+            esac
+          done
+          exit "$failed"

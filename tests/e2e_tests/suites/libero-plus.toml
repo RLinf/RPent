@@ -1,0 +1,23 @@
+robot = "libero"
+component = "robot-libero_plus"
+base_args = ["--suite", "libero_object", "--task", "0", "--seed", "0", "--max-episode-steps", "1024", "--libero-type", "plus"]
+env = { LIBERO_CONFIG_PATH = "{output_dir}/libero-config", SAM3_CHECKPOINT_PATH = "models/sam3/sam3.pt" }
+
+[setup]
+reinstall_copy_pkg = "rlinf-liberoplus"
+post_install_cmd = ["liberoplus-download-assets", "--link", "assets/libero-plus"]
+
+[tool_args]
+segment = { prompt = "basket", step = 0 }
+back_project = { camera = "agentview", row_range = [120, 140], col_range = [120, 140], resolution = "low" }
+rotate_wrist = { delta_yaw = 0.05, max_steps = 1 }
+rotate_pitch = { delta_pitch = 0.05, max_steps = 1 }
+
+[[cases]]
+name = "pi05"
+models = ["model-openpi", "model-sam3"]
+args = ["--env-cuda-device", "{gpu}", "--vla-cuda-device", "{gpu}", "--sam3-cuda-device", "{gpu}"]
+env = { PI05_CHECKPOINT_PATH = "models/RLinf-Pi05-LIBERO-SFT" }
+action_tool = "pi0_doubled"
+action_count_field = "chunks_used"
+tool_args = { pi0_doubled = { prompt = "perform one bounded action chunk for the current task", max_chunks = 1 } }

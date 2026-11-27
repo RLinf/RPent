@@ -115,7 +115,7 @@ Follow these conventions while developing:
 
 ### Step 4. Run checks and update documentation
 
-Before opening a pull request, run the same required checks as CI:
+For test setup and GPU suites, see [Testing and CI](docs/source-en/rst_source/development/testing.rst). Before opening a pull request, run the same required checks as CI:
 
 ```bash
 # Format and lint the complete repository.

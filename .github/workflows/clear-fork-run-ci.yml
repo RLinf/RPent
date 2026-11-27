@@ -1,0 +1,25 @@
+name: Clear fork run-ci label
+
+on:
+  pull_request_target:
+    types: [synchronize]
+
+permissions:
+  pull-requests: write
+
+jobs:
+  clear-label:
+    name: Clear stale run-ci label on fork push
+    if: >-
+      github.event.pull_request.head.repo.full_name != github.repository &&
+      contains(github.event.pull_request.labels.*.name, 'run-ci')
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Remove run-ci label
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          gh api --method DELETE \
+            "repos/$GITHUB_REPOSITORY/issues/$PR_NUMBER/labels/run-ci" || true

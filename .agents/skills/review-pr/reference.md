@@ -28,7 +28,7 @@ A mismatch with RPent conventions, bloated workaround, or dead boilerplate is a 
 
 ## reuse
 
-- [ ] **Duplication**: reuses existing RPent and RLinf helpers (`rpent/components/`, `rpent/robots/runtime.py`, `rpent/utils/rpc/`, `rpent/utils/daemon.py`, `components/tools/rgbd/`, `tests/e2e_tests/common.py`, and shared docs guides/partials).
+- [ ] **Duplication**: reuses existing RPent and RLinf helpers (`rpent/components/`, `rpent/robots/runtime.py`, `rpent/utils/rpc/`, `rpent/utils/daemon.py`, `components/tools/rgbd/`, `tests/e2e_tests/runner.py`, and shared docs guides/partials).
 - [ ] **Citation**: cite the existing helper as `main:<path>:<line>` when flagging reuse; name the closest comparison when nothing applies.
 
 ## tests, docs, and docs-style

@@ -406,40 +406,25 @@ Target50 包含 50 个厨房任务，共运行 340 次。以下使用 Codex、GP
 环境自检
 ------------
 
-先检查仿真器，再检查 VLA 推理。两项均需可用的 GPU/EGL；跳过的测试不算通过，自检也不产生榜单成绩。
+通过端到端 GPU 检查同时验证仿真器与 VLA 推理。该检查需要 ``infra-dev`` 提供的测试工具与可用的 GPU/EGL；先运行 ``./rpent-install.sh install robot-robocasa infra-dev --venv .venv-robocasa-dev`` 创建环境并激活（``source .venv-robocasa-dev/bin/activate``），再执行下方命令。跳过的测试不算通过，自检也不产生榜单成绩。
 
-仿真器检查
-~~~~~~~~~~~~
+端到端 GPU 检查
+~~~~~~~~~~~~~~~
 
-安装依赖和厨房资源后运行，无需规划器授权或模型权重：
-
-.. code-block:: bash
-
-   uv pip install pytest pytest-timeout
-   RPENT_RUN_ROBOCASA_INTEGRATION=1 \
-      pytest tests/e2e_tests/robocasa/test_environment_smoke.py -v
-
-预期四项通过：三个任务（``OpenDrawer``、``NavigateKitchen``、``PickPlaceCounterToCabinet``，seed 1）和移动相机检查。
-
-.. dropdown:: 仿真器检查覆盖范围
-
-   任务测试检查环境创建与复位、12D 动作、操作相机、导航 RGB-D/world map、成功判定和关闭流程。相机测试检查底盘执行八步后的相机位姿与画面变化。这些测试使用真实仿真器，与离线 CPU 单元测试分开执行。
-
-VLA 推理检查
-~~~~~~~~~~~~
-
-完成 :ref:`VLA 配置 <robocasa-vla-configuration>` 后，选择空闲 GPU 和新的输出目录运行。需要测试依赖时安装 ``.[test]``：
+安装依赖、厨房资源并下载 RLDX-1 权重后，选择一张空闲 GPU 和新的输出目录，运行声明式 RoboCasa 套件（无需规划器 API Key，通过公开 CLI 覆盖全部工具并验证动作执行）：
 
 .. code-block:: bash
 
    CUDA_VISIBLE_DEVICES=0 \
-   RLDX_MODEL_PATH="$PWD/checkpoints/rldx-1-ft-rc365" \
+   MUJOCO_GL=egl \
+   PYOPENGL_PLATFORM=egl \
+   ROBOCASA_ASSETS_PATH=~/.robocasa/assets \
+   RLDX_CHECKPOINT_PATH="$PWD/checkpoints/rldx-1-ft-rc365" \
+   RPENT_E2E_SUITE=robocasa \
    RPENT_E2E_OUTPUT_DIR="$PWD/e2e-robocasa" \
-   HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 NO_ALBUMENTATIONS_UPDATE=1 \
-   MUJOCO_GL=egl python -m pytest -q \
-      tests/e2e_tests/robocasa/test_components.py::test_rldx_component --timeout=300
+   python -m pytest tests/e2e_tests/test_suites.py -v
 
-此项检查 VLA 服务启动、RPC 通信和首次推理，不启动规划器。离线变量仅用于这条命令；正常运行时，HF 记忆同步仍需联网。
+如需在干净虚拟环境中执行，运行 ``bash tests/e2e_tests/run_gpu_suite.sh robocasa /path/to/new-output-dir /path/to/new-venv-root``。套件配置见 :doc:`../development/testing`，``tool-coverage.json`` 覆盖率说明见 :ref:`add-robot-testing`。
 
 .. _robocasa-troubleshooting:
 

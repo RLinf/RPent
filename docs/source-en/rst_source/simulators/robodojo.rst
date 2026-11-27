@@ -595,3 +595,16 @@ prepare local assets as described below. Skip this if scenes load normally.
    version and configure local loading separately. See the
    `NVIDIA local asset instructions
    <https://docs.isaacsim.omniverse.nvidia.com/5.1.0/installation/install_faq.html#isaac-sim-setup-assets-content-pack>`_.
+
+Missing libXt.so.6 in Minimal Linux Containers
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+In minimal Ubuntu or Docker containers, ``robodojo_env_server.log`` may report
+``libXt.so.6: cannot open shared object file`` when loading Isaac Sim MaterialX
+plugins (``libMaterialXRenderHw.so``, ``libMaterialXRenderGlsl.so``,
+``libusd_usdBakeMtlx.so``). Install ``libxt6`` on the host or container image
+before starting the environment server:
+
+.. code-block:: bash
+
+   apt-get update && apt-get install -y libxt6

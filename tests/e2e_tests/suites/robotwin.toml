@@ -1,0 +1,34 @@
+component = "robot-robotwin"
+optional_models = ["fast_wam", "uniwam"]
+base_args = [
+  "--task-name", "beat_block_hammer", "--seed", "100000", "--task-config", "demo_randomized",
+  "--max-episode-steps", "1024", "--robotwin-assets-path", "assets/robotwin",
+]
+
+[tool_args]
+sample_world_xyz = { view = "head", pixels = [[120, 160]] }
+rotate_wrist = { arm = "left", delta_yaw_deg = 1 }
+set_gripper = { arm = "left", val = 0.5, steps = 1 }
+release = { arm = "left", steps = 1 }
+query_world_map = { view = "head", bbox = [110, 150, 130, 170] }
+
+[[cases]]
+name = "lingbot"
+models = ["model-lingbot"]
+args = ["--am-checkpoint", "models/LingBot-VLA-RoboTwin-EEF-ckpt1500", "--env-cuda-device", "{gpu}", "--vla-cuda-device", "{gpu}"]
+action_tool = "lingbot_act"
+action_count_field = "executed_steps"
+tool_args = { lingbot_act = { chunks = 1, use_length = 50 } }
+
+[[cases]]
+name = "fast-wam"
+models = ["model-fast_wam"]
+args = [
+  "--am-backend", "fast-wam",
+  "--am-checkpoint", "models/fastwam/robotwin_uncond_3cam_384.pt",
+  "--am-python", "venvs/fastwam/bin/python",
+  "--fast-wam-config", "models/fastwam/robotwin_config.yaml",
+  "--fast-wam-dataset-stats", "models/fastwam/robotwin_uncond_3cam_384_dataset_stats.json",
+]
+action_tool = "wam_act"
+action_count_field = "executed_steps"

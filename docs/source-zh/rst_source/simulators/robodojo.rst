@@ -464,3 +464,12 @@ SAM3 用于物体分割。先在 `facebook/sam3 模型页面 <https://huggingfac
    这会将 RoboDojo 匹配的 5.0 在线资源地址改为本地路径。它并不代表所有 Isaac Sim 资源均可离线使用；\
    若仍有其他在线资源加载失败（例如 ``Assets/Isaac/5.1`` 路径），需另外准备对应版本的资产并配置本地加载，\
    见 `NVIDIA 本地资产说明 <https://docs.isaacsim.omniverse.nvidia.com/5.1.0/installation/install_faq.html#isaac-sim-setup-assets-content-pack>`_。
+
+精简 Linux 容器缺少 libXt.so.6
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+在精简版 Ubuntu 或 Docker 容器中，``robodojo_env_server.log`` 可能在加载 Isaac Sim MaterialX 插件（``libMaterialXRenderHw.so``、``libMaterialXRenderGlsl.so``、``libusd_usdBakeMtlx.so``）时报错 ``libXt.so.6: cannot open shared object file``。在宿主机或容器镜像中安装 ``libxt6`` 即可解决：
+
+.. code-block:: bash
+
+   apt-get update && apt-get install -y libxt6
