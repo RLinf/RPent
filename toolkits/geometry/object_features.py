@@ -34,7 +34,9 @@ from toolkits.geometry.geometry import (
     ShapeFit,
     _basis,
     fit_circle,
+    opening_covers_center,
     outer_boundary,
+    ray_plane_offsets,
     ray_plane_radius,
 )
 from toolkits.geometry.measured_rectangle import PLANE_TOLERANCE_M, observed_face
@@ -119,7 +121,7 @@ def _raised_outer_rim(world, valid, mask, up, camera, seed, options, cancel):
     )
     steps = material & (elevation > neighbor + band)
     if seed is not None:
-        steps &= elevation > seed[0] @ normal + 2 * band
+        steps &= elevation > seed[0] @ normal + band
     components, _ = label(steps, structure=np.ones((3, 3)))
     boxes = find_objects(components)
     counts = np.bincount(components.ravel())[1:]
@@ -172,7 +174,8 @@ def _ring_center(world, valid, mask, cloud, up, camera, feature, options, cancel
         silhouette = outer_boundary(mask, valid)
         points = world[silhouette]
     else:
-        points = cloud
+        # Depth cleanup can erode the entire lip of a thin annulus.
+        points = cloud if len(cloud) >= 25 else world[mask & valid]
     seed = rim(points, up, outer=outer) if len(points) >= 7 else None
     if outer:
         higher = _raised_outer_rim(
@@ -196,7 +199,7 @@ def _ring_center(world, valid, mask, cloud, up, camera, feature, options, cancel
             return ShapeFit(reason="upper_ring_not_observed")
     if outer:
         # Higher material competes with the rim only if it follows its circumference.
-        high = delta[mask & valid & (height > 2 * band)]
+        high = delta[mask & valid & (height > band)]
         if _follows_circumference(high, normal, radius, 2 * band, options):
             return ShapeFit(reason="upper_ring_not_observed")
         edge = _visible_outer_edge(on_plane, valid, mask, height, view, band)
@@ -253,16 +256,11 @@ def _disk_center(world, valid, mask, on_face, face, camera, options):
         if central < max(options.min_points // 3, len(support) / 8):
             fit.warn("disk_interior_not_observed")
         elif fit.accepted:
-            # Rays through a visible hole reach a surface behind the fitted face.
-            # Missing depth and material in front of it do not establish a hole.
-            near_center = ray_plane_radius(world[valid], camera, center, normal) <= min(
-                band, 0.2 * radius
-            )
-            behind = (
-                np.sign(camera_height) * ((world[valid][near_center] - center) @ normal)
-                < -band
-            )
-            if behind.sum() >= max(3, 0.75 * len(behind)):
+            below = valid & (height < -band)
+            crossings = ray_plane_offsets(
+                world[below], camera, center, normal
+            ) @ np.column_stack(_basis(normal))
+            if opening_covers_center(below, crossings):
                 fit.warn("disk_center_over_opening")
     return fit
 
@@ -345,7 +343,7 @@ def fit_features(
     cancel: Callable[[], None],
 ) -> Iterator[tuple[GeometryQuantity, ShapeFit]]:
     """Fit each requested center on the selected object feature."""
-    if len(cloud) < 25 and (feature != "upper_outer_ring" or not mask.any()):
+    if len(cloud) < 25 and (feature not in RING_FEATURES or not mask.any()):
         for name in names:
             yield name, ShapeFit(reason="too_few_valid_object_points")
         return

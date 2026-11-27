@@ -489,6 +489,10 @@ def test_rgbd_menu_preserves_the_planners_task_and_memory_instructions(settings)
     variables = {**rgbd, "geometry": True}
     actual = prompts.system(variables)
     user = prompts.user(variables)
+    localization = next(
+        value for key, value in actual.items() if key.startswith("LOCALIZATION")
+    )
+    assert "coarse localization" in localization and "samples_xyz" in localization
     for key in original_user.keys() - {"MODE"}:
         assert user[key] == original_user[key]
     if settings.get("policy_kind") == "wam":
@@ -504,6 +508,7 @@ def test_rgbd_menu_preserves_the_planners_task_and_memory_instructions(settings)
     assert "agentview" in algorithm and "wrist" not in algorithm
     assert "`geometry`" in user["MODE"]
     assert "Leave missing centers unresolved" in user["MODE"]
+    assert "samples_xyz" in algorithm and "samples_xyz" in user["MODE"]
     rules = actual["RULES (NON-NEGOTIABLE)"]
     assert "`geometry`, `back_project` or `segment`" in rules
     assert "you get object positions ONLY by camera images, depth, and" not in rules

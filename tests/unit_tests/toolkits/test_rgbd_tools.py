@@ -649,18 +649,30 @@ def test_upper_feature_rejects_an_underside_seen_from_below(
     assert saved["value"] is None
 
 
-def test_thin_outer_ring_uses_the_measured_perimeter(tmp_path):
+@pytest.mark.parametrize(
+    ("feature", "interior_z", "radius_m"),
+    [
+        ("upper_inner_ring", 0.03, 0.038),
+        ("upper_outer_ring", 0.03, 0.040),
+        ("upper_inner_ring", np.nan, None),
+    ],
+)
+def test_thin_ring_uses_the_requested_measured_edge(
+    tmp_path, feature, interior_z, radius_m
+):
     rows, cols = np.indices((101, 101))
     x, y = (cols - 50) * 0.001, (50 - rows) * 0.001
     radius = np.hypot(x, y)
     mask = (0.038 <= radius) & (radius <= 0.040)
-    z = np.where(mask, 0.05, 0.03)
-    result, saved = _measure_mask(
-        tmp_path, mask, x, y, z, "ring_center", "upper_outer_ring"
-    )
+    z = np.select([mask, radius < 0.038], [0.05, interior_z], default=0.03)
+    result, saved = _measure_mask(tmp_path, mask, x, y, z, "ring_center", feature)
+    if radius_m is None:
+        assert result["status"] == "insufficient_evidence"
+        assert saved["value"] is None
+        return
     assert result["status"] == "usable"
     np.testing.assert_allclose(saved["value"], [0, 0, 0.05], atol=0.001)
-    assert saved["radius_m"] == pytest.approx(0.040, abs=0.001)
+    assert saved["radius_m"] == pytest.approx(radius_m, abs=0.0008)
 
 
 def test_inner_rim_can_cross_the_image_border(tmp_path):
@@ -678,8 +690,11 @@ def test_inner_rim_can_cross_the_image_border(tmp_path):
     assert saved["quality"]["angular_coverage_deg"] > 300
 
 
-@pytest.mark.parametrize("raised", ["tab", "competing_rim", "neck"])
-def test_outer_rim_checks_height_around_its_circumference(tmp_path, raised):
+@pytest.mark.parametrize(
+    ("raised", "top_z"),
+    [("tab", 0.065), ("competing_rim", 0.065), ("neck", 0.065), ("neck", 0.055)],
+)
+def test_outer_rim_checks_height_around_its_circumference(tmp_path, raised, top_z):
     rows, cols = np.indices((111, 111))
     x, y = (cols - 55) * 0.001, (55 - rows) * 0.001
     radius = np.hypot(x, y)
@@ -691,7 +706,7 @@ def test_outer_rim_checks_height_around_its_circumference(tmp_path, raised):
     )
     if raised == "neck":
         top = (radius >= 0.012) & (radius <= 0.015)
-    z = np.select([top, mask], [0.065, 0.05], default=0.01)
+    z = np.select([top, mask], [top_z, 0.05], default=0.01)
     result, saved = _measure_mask(
         tmp_path, mask, x, y, z, "ring_center", "upper_outer_ring"
     )
@@ -701,7 +716,7 @@ def test_outer_rim_checks_height_around_its_circumference(tmp_path, raised):
         assert saved["radius_m"] == pytest.approx(0.045, abs=0.001)
     elif raised == "neck":
         assert result["status"] == "usable"
-        np.testing.assert_allclose(saved["value"], [0, 0, 0.065], atol=0.001)
+        np.testing.assert_allclose(saved["value"], [0, 0, top_z], atol=0.001)
         assert saved["radius_m"] == pytest.approx(0.015, abs=0.001)
     else:
         assert saved["value"] is None or saved["value"][2] == pytest.approx(
@@ -752,20 +767,51 @@ def test_disk_center_uses_the_observed_face_and_its_own_edges(scene):
         np.testing.assert_allclose(fit.parameters["center"], expected, atol=0.001)
 
 
-@pytest.mark.parametrize("cutout", ["measured", "missing"])
-def test_rectangular_face_distinguishes_a_measured_cutout_from_missing_depth(cutout):
+@pytest.mark.parametrize("opening_z", [0.05, np.nan])
+@pytest.mark.parametrize("central", [False, True])
+def test_rectangular_face_distinguishes_a_measured_cutout_from_missing_depth(
+    central, opening_z
+):
     rows, cols = np.indices((121, 141))
     x, y = (cols - 70) * 0.001, (60 - rows) * 0.001
     plate = (abs(x) <= 0.055) & (abs(y) <= 0.045)
     upper = (abs(x - 0.008) <= 0.030) & (abs(y) <= 0.025)
     opening = upper & (x > -0.004) & (y > -0.010)
+    if central:
+        opening = (abs(cols - 78) <= 5) & (abs(rows - 60) <= 5)
     height = np.select([upper, plate], [0.07, 0.05], default=0.01)
-    height[opening] = 0.05 if cutout == "measured" else np.nan
+    height[opening] = opening_z
 
     fit = _fit_face_center(plate, x, y, height, "rectangle_center", "upper_face")
     assert fit.accepted
-    expected = [0, 0, 0.05] if cutout == "measured" else [0.008, 0, 0.07]
+    expected = [0, 0, 0.05] if np.isfinite(opening_z) else [0.008, 0, 0.07]
     np.testing.assert_allclose(fit.parameters["center"], expected, atol=0.001)
+
+
+@pytest.mark.parametrize("background_z", [0.055, 0.045])
+def test_rectangle_requires_an_outward_depth_drop_at_a_window(background_z):
+    rows, cols = np.indices((85, 105))
+    x, y = (cols - 49) * 0.001, (42 - rows) * 0.001
+    visible = (abs(cols - 60) <= 30) & (abs(rows - 38) <= 20)
+    height = np.where(visible, 0.050, background_z)
+    fit = _fit_face_center(visible, x, y, height, "rectangle_center", "upper_face")
+    assert fit.accepted == (background_z < 0.050)
+
+
+@pytest.mark.parametrize("center_z", [0.0, 0.08, np.nan])
+def test_disk_center_distinguishes_an_opening_at_coarse_pixel_spacing(center_z):
+    rows, cols = np.indices((53, 53))
+    x, y = (cols - 25.5) * 0.005, (26.5 - rows) * 0.005
+    radius = np.hypot(x, y)
+    material = (radius <= 0.1) & (radius >= 0.020)
+    z = np.select([material, radius < 0.020], [0.05, center_z], default=0.0)
+    scale = (1 - z) / (1 - 0.05)
+    fit = _fit_face_center(
+        material, x * scale, y * scale, z, "disk_center", "upper_face"
+    )
+    assert fit.accepted == (center_z != 0.0)
+    if center_z == 0.0:
+        assert fit.reason == "disk_center_over_opening"
 
 
 @pytest.mark.parametrize("missing_cols, clipped", [(1, False), (2, False), (0, True)])
@@ -1228,7 +1274,16 @@ def test_fitter_selects_the_upper_face_even_when_the_lower_face_is_larger(quanti
 
 
 @pytest.mark.parametrize(
-    "view", ["supported", "cutout", "floating", "short_arc", "no_support"]
+    "view",
+    [
+        "supported",
+        "narrow_tray_edge",
+        "cutout",
+        "asymmetric_cutout",
+        "floating",
+        "short_arc",
+        "no_support",
+    ],
 )
 def test_cylindrical_base_uses_the_sidewall_and_its_support(tmp_path, view):
     # Orthographic oblique rays see a handled cylindrical body on a raised tray.
@@ -1245,9 +1300,14 @@ def test_cylindrical_base_uses_the_sidewall_and_its_support(tmp_path, view):
         return origin + ((z - origin[:, :, 2]) / forward[2])[:, :, None] * forward
 
     plane = at_height(0.02)
-    tray = np.hypot(plane[:, :, 0], plane[:, :, 1]) < 0.052
-    if view == "cutout":
-        tray &= np.hypot(plane[:, :, 0], plane[:, :, 1]) >= 0.035
+    tray_radius = np.hypot(plane[:, :, 0], plane[:, :, 1])
+    front_arc = (abs(x) < 0.010) & (plane[:, :, 1] < 0)
+    tray = tray_radius < np.where(
+        (view == "narrow_tray_edge") & front_arc, 0.031, 0.052
+    )
+    if view in ("cutout", "asymmetric_cutout"):
+        inner_radius = np.where((view == "asymmetric_cutout") & front_arc, 0.032, 0.035)
+        tray &= tray_radius >= inner_radius
     world = np.where(tray[:, :, None], plane, at_height(0.0))
     radius = 0.03
     gap = 0.025 if view == "floating" else 0.0
@@ -1304,7 +1364,7 @@ def test_cylindrical_base_uses_the_sidewall_and_its_support(tmp_path, view):
         feature="supported_round_base",
     ).data
     field = result["geometry"]["base_center"]
-    if view == "supported":
+    if view in ("supported", "narrow_tray_edge"):
         assert result["status"] == "usable", field
         np.testing.assert_allclose(field["value"], rotate @ [0, 0, 0.02], atol=0.002)
         assert field["evidence_status"] == "inferred"
@@ -1314,6 +1374,8 @@ def test_cylindrical_base_uses_the_sidewall_and_its_support(tmp_path, view):
         assert "radius_m" not in raw
     else:
         assert result["status"] == "insufficient_evidence" and "value" not in field
+        if view in ("cutout", "asymmetric_cutout"):
+            assert field["reason"] == "base_support_gap_observed"
 
 
 @pytest.mark.parametrize(

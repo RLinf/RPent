@@ -29,7 +29,9 @@ MODE = """Inspect `agentview_high.png` returned by `view_env_state`, then use
 
 GEOMETRY_MODE = """Identify the target in the recorded agentview image. Use each accepted
 center from `geometry`. Leave missing centers unresolved until a later agentview
-frame shows new evidence. Use `back_project` or `segment` for visible surface positions."""
+frame shows new evidence. Use the mask median from `segment` for coarse localization.
+For surface contact, pick a pixel on the material and use its valid `samples_xyz`
+entry from `back_project`."""
 
 
 BEGIN = """Read the guides, then call `view_env_state({"step": 0})` and inspect

@@ -27,7 +27,7 @@ from scipy.ndimage import (
 from scipy.spatial import ConvexHull, QhullError
 
 from toolkits.geometry.depth_foreground import local_depth_range
-from toolkits.geometry.geometry import _basis, ray_plane_offsets
+from toolkits.geometry.geometry import _basis, opening_covers_center, ray_plane_offsets
 
 PLANE_TOLERANCE_M = 0.0013
 
@@ -49,53 +49,61 @@ def _directions(xy):
     )
 
 
-def _clipped_bounds(roof, contour, valid, world, plane, camera, axes, bounds, pitch):
-    """Locate each clipped face side using a continuous, in-frame depth transition."""
+def _measure_sides(
+    object_mask, contour, valid, world, plane, camera, axes, bounds, pitch, *, clipped
+):
+    """Locate the four sides using outward, in-frame depth transitions."""
     origin, normal = plane
     # Leave room for all four neighbors, even at the boundary of the working crop.
     rows, cols = np.nonzero(contour[1:-1, 1:-1])
     rows, cols = rows + 1, cols + 1
     uv = (world[rows, cols] - origin) @ axes
     neighbors = (rows[:, None] + [-1, 1, 0, 0], cols[:, None] + [0, 0, -1, 1])
-    rays = np.where(valid[neighbors][..., None], world[neighbors] - camera, 0.0)
     # Compare pixel positions on the fitted plane. A depth jump alone can also
     # come from an occluder or a neighbor on the inward side of the contour.
-    plane_distance = (origin - camera) @ normal
-    denominator = rays @ normal
-    scale = np.divide(
-        plane_distance,
-        denominator,
-        out=np.zeros_like(denominator),
-        where=abs(denominator) > 1e-9,
-    )
-    step = (camera - origin + rays * scale[..., None]) @ axes - uv[:, None, :]
-    measured = valid[neighbors] & (scale > 0)
-    neighbor_height = denominator - plane_distance
-    below = measured & (neighbor_height < -PLANE_TOLERANCE_M)
-    above = measured & (neighbor_height > PLANE_TOLERANCE_M)
+    xyz = world[neighbors]
+    step = ray_plane_offsets(xyz, camera, origin, normal) @ axes - uv[:, None, :]
+    height = (xyz - origin) @ normal
+    # A row or column projects to a line on the plane. When the opposite pixel
+    # lies on the face, it directly measures the outward direction and pitch.
+    opposite = [1, 0, 3, 2]
+    coplanar = valid[neighbors] & (abs(height) <= PLANE_TOLERANCE_M)
+    step = np.where(coplanar[:, opposite, None], -step[:, opposite], step)
+    transition = valid[neighbors] & (height < -PLANE_TOLERANCE_M)
+    foreground = valid[neighbors] & (height > PLANE_TOLERANCE_M)
+    if not clipped:
+        # An internal step can bound a recessed face. At the object silhouette
+        # only a ray reaching a farther surface establishes an edge.
+        transition |= foreground & object_mask[neighbors]
+        foreground &= ~object_mask[neighbors]
 
     refined = bounds.copy()
     supported = np.zeros((2, 2), dtype=bool)
     used = np.zeros(len(rows), dtype=bool)
     size = bounds[1] - bounds[0]
-    if min(size) < 10 * pitch:
+    if clipped and min(size) < 10 * pitch:
         return refined, supported, 0
+    tolerance = np.maximum((4 if clipped else 1.8) * pitch, 0.012 * size)
     for axis in range(2):
         tangent = 1 - axis
         along = uv[:, tangent] - bounds[0, tangent]
-        interior = (along > 3 * pitch) & (along < size[tangent] - 3 * pitch)
+        margin = 3 * pitch if clipped else tolerance[tangent]
+        interior = (along > margin) & (along < size[tangent] - margin)
         for end, sign in enumerate((-1, 1)):
             outward = sign * step[:, :, axis] > 0.15 * pitch
-            near = abs(uv[:, axis] - bounds[end, axis]) < max(
-                4 * pitch, 0.012 * size[axis]
-            )
+            near = abs(uv[:, axis] - bounds[end, axis]) < tolerance[axis]
             side = (
                 interior
                 & near
-                & (outward & below).any(axis=1)
-                & ~(outward & above).any(axis=1)
+                & (outward & transition).any(axis=1)
+                & ~(outward & foreground).any(axis=1)
             )
             if not side.any():
+                continue
+            if not clipped:
+                if side.sum() >= 3 and _span(along[side]) >= 0.17 * size[tangent]:
+                    supported[end, axis] = True
+                    used |= side
                 continue
             offset = np.median(uv[side, axis])
             side &= abs(uv[:, axis] - offset) <= max(1.5 * pitch, 0.003 * size[axis])
@@ -107,7 +115,7 @@ def _clipped_bounds(roof, contour, valid, world, plane, camera, axes, bounds, pi
                 supported[end, axis] = True
                 refined[end, axis] = np.median(uv[side, axis])
                 used |= side
-    return refined, supported, int((used & ~roof[rows, cols]).sum())
+    return refined, supported, int((used & ~object_mask[rows, cols]).sum())
 
 
 def observed_face(observation, region, *, object_mask, plane):
@@ -187,7 +195,8 @@ def observed_face(observation, region, *, object_mask, plane):
     outside = binary_dilation(roof, iterations=3) & ~roof & valid
     foreground = outside & (optical[tuple(near)] - optical > max(0.009, 5 * pitch))
     # A side needs an observed transition off the face. A depth dropout leaves it unknown.
-    physical = roof & in_frame & binary_dilation(outside & ~aligned)
+    transition = (h < -PLANE_TOLERANCE_M) | (~aligned & object_mask[sl])
+    physical = roof & in_frame & binary_dilation(outside & transition)
     physical &= ~binary_dilation(foreground, iterations=3)
     edge = uv[physical]
     edge_tolerance = np.maximum(1.8 * pitch, 0.012 * size)
@@ -209,49 +218,33 @@ def observed_face(observation, region, *, object_mask, plane):
         )
         if reached
     ]
-    adjacent = int(np.count_nonzero(physical & ~object_mask[sl]))
-    if image_borders:
-        contour = roof & ~binary_erosion(roof) & in_frame
-        bounds, supported, adjacent = _clipped_bounds(
-            object_mask[sl],
-            contour,
-            valid,
-            world,
-            plane,
-            observation.camera_to_world[:3, 3],
-            axes,
-            bounds,
-            pitch,
-        )
-    else:
-        supported = np.zeros((2, 2), dtype=bool)
-        for d in range(2):
-            tangent = 1 - d
-            # Corners alone can belong to either of their adjoining sides.
-            side = (edge[:, tangent] > bounds[0, tangent] + edge_tolerance[tangent]) & (
-                edge[:, tangent] < bounds[1, tangent] - edge_tolerance[tangent]
-            )
-            for j in range(2):
-                sel = side & (abs(edge[:, d] - bounds[j, d]) < edge_tolerance[d])
-                supported[j, d] = (
-                    sel.sum() >= 3 and _span(edge[sel, tangent]) >= 0.17 * size[tangent]
-                )
+    camera = observation.camera_to_world[:3, 3]
+    contour = roof & ~binary_erosion(roof) & in_frame if image_borders else physical
+    bounds, supported, adjacent = _measure_sides(
+        object_mask[sl],
+        contour,
+        valid,
+        world,
+        plane,
+        camera,
+        axes,
+        bounds,
+        pitch,
+        clipped=bool(image_borders),
+    )
+    center = origin + np.mean(bounds, axis=0) @ axes.T
     if supported.all():
         # A sightline reaching a lower surface inside the four sides disproves
         # material there. Missing depth and foreground occluders cannot do so.
         extent = find_objects(roof, max_label=1)[0]
-        below = world[extent][valid[extent] & (h[extent] < -PLANE_TOLERANCE_M)]
-        crossings = (
-            ray_plane_offsets(below, observation.camera_to_world[:3, 3], origin, n)
-            @ axes
+        below = valid[extent] & (h[extent] < -PLANE_TOLERANCE_M)
+        crossings = ray_plane_offsets(world[extent][below], camera, center, n) @ axes
+        inside = (abs(crossings) < (bounds[1] - bounds[0]) / 2 - edge_tolerance).all(
+            axis=1
         )
-        inside = (
-            (crossings > bounds[0] + edge_tolerance)
-            & (crossings < bounds[1] - edge_tolerance)
-        ).all(axis=1)
-        if np.count_nonzero(inside) > max(5, 0.15 * roof.sum()):
+        large_cutout = np.count_nonzero(inside) > max(5, 0.15 * roof.sum())
+        if large_cutout or opening_covers_center(below, crossings):
             return None
-    center = origin + np.mean(bounds, axis=0) @ axes.T
     return {
         "supported": supported,
         "center": center,

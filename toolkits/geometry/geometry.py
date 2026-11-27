@@ -263,6 +263,23 @@ def ray_plane_radius(
     return np.where(np.isfinite(radius), radius, np.inf)
 
 
+def opening_covers_center(below: np.ndarray, offsets_xy: np.ndarray) -> bool:
+    """Check whether adjacent deeper rays enclose the center on the fitted plane."""
+    if len(offsets_xy) < 4:
+        return False
+    # Only a cell with four measured depths behind the plane establishes an
+    # opening. Its projected corners retain the local pixel spacing and tilt.
+    xy = np.full((*below.shape, 2), np.nan)
+    xy[below] = offsets_xy
+    x, y = xy[..., 0], xy[..., 1]
+    right = x[:, :-1] * y[:, 1:] - y[:, :-1] * x[:, 1:]
+    down = x[:-1] * y[1:] - y[:-1] * x[1:]
+    # The origin lies inside a convex cell if all four edges wind the same way.
+    edges = (right[:-1], down[:, 1:], -right[1:], -down[:, :-1])
+    low, high = np.minimum.reduce(edges), np.maximum.reduce(edges)
+    return bool(np.any(((low >= 0) & (high > 0)) | ((high <= 0) & (low < 0))))
+
+
 def observed_silhouette(mask: np.ndarray, valid: np.ndarray) -> np.ndarray:
     """Select material pixels adjacent to an in-frame, measured non-object pixel."""
     from scipy.ndimage import binary_dilation

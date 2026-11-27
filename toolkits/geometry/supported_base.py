@@ -27,7 +27,6 @@ from toolkits.geometry.geometry import (
     fit_circle,
     outer_boundary,
     ray_plane_offsets,
-    ray_plane_radius,
 )
 from toolkits.geometry.rgbd_parts import _circle, _plane
 from toolkits.observation import GeometryObservation
@@ -167,19 +166,26 @@ def _cylindrical_base(obs, mask, cloud, options):
         if near_wall.sum() < 5 or near_support.sum() < 10:
             return ShapeFit(reason="base_contact_not_observed")
         base_world = origin + basis[:, :2] @ base
-        contact_occluded = (support_radius <= radius + tol).sum() < 5
-        if contact_occluded:
-            # Check where the deeper rays passed the foot, not where they hit the floor.
-            crossing = ray_plane_radius(
-                below, obs.camera_to_world[:3, 3], base_world, normal
-            )
-            if (
-                np.count_nonzero(
-                    (crossing >= radius - tol) & (crossing <= radius + tol)
-                )
-                >= 5
-            ):
-                return ShapeFit(reason="base_support_gap_observed")
+        visible_sectors = np.unique(_azimuth_sectors(bottom[near_wall, :2] - base))
+        half_visible = (len(visible_sectors) + 1) // 2
+        close = support_radius <= radius + tol
+        contact_counts = np.bincount(_azimuth_sectors(contact[close]), minlength=12)[
+            visible_sectors
+        ]
+        contact_occluded = (
+            contact_counts.sum() < 5 or np.count_nonzero(contact_counts) < half_visible
+        )
+        # A nearby support patch can coexist with a visible gap around the foot.
+        crossings = (
+            ray_plane_offsets(below, obs.camera_to_world[:3, 3], base_world, normal)
+            @ basis[:, :2]
+        )
+        gaps = _support_gap_sectors(crossings, contact, radius - tol, radius + tol)
+        gap_counts = np.bincount(gaps, minlength=12)[visible_sectors]
+        # A gap across the visible foot and an overhang confined to one side
+        # give different evidence about support underneath the axis.
+        if gap_counts.sum() >= 5 and np.count_nonzero(gap_counts >= 2) >= half_visible:
+            return ShapeFit(reason="base_support_gap_observed")
         return ShapeFit(
             accepted=True,
             parameters={"center": base_world.tolist()},
@@ -201,6 +207,18 @@ def _cylindrical_base(obs, mask, cloud, options):
 
 def _azimuth_sectors(xy):
     return np.floor(np.arctan2(xy[:, 1], xy[:, 0]) * 6 / np.pi).astype(int) % 12
+
+
+def _support_gap_sectors(crossings, contact, inner_radius, outer_radius):
+    """Find deeper rays that cross the footprint band before its nearest support."""
+    nearest_support = np.full(12, np.inf)
+    np.minimum.at(
+        nearest_support, _azimuth_sectors(contact), np.linalg.norm(contact, axis=1)
+    )
+    radial = np.linalg.norm(crossings, axis=1)
+    near = (radial >= inner_radius) & (radial <= outer_radius)
+    sectors = _azimuth_sectors(crossings[near])
+    return sectors[radial[near] < nearest_support[sectors]]
 
 
 def _rim_base_on_support(obs, mask, cloud, center, axis, axes, radius, tol):
@@ -247,14 +265,7 @@ def _rim_base_on_support(obs, mask, cloud, center, axis, axes, radius, tol):
         @ plane_axes
     )
     contact = (support - base) @ plane_axes
-    nearest_support = np.full(12, np.inf)
-    np.minimum.at(
-        nearest_support, _azimuth_sectors(contact), np.linalg.norm(contact, axis=1)
-    )
-    radial = np.linalg.norm(crossings, axis=1)
-    near = radial <= radius + band
-    sectors = _azimuth_sectors(crossings[near])
-    gap_sectors = sectors[radial[near] < nearest_support[sectors]]
+    gap_sectors = _support_gap_sectors(crossings, contact, 0.0, radius + band)
     if (np.bincount(gap_sectors, minlength=12) >= 3).sum() >= 6:
         return ShapeFit(reason="base_support_gap_observed")
     return ShapeFit(

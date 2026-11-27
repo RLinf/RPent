@@ -456,21 +456,30 @@ In the returned overlay, check that the highlighted object matches the full quer
 including its appearance and spatial relations. If the match is wrong or unclear,
 discard the coordinates and locate the target again. For a confirmed object, use
 geometry.<quantity>.value in world coordinates (metres) when fit_accepted=true.
-For visible surface positions, use back_project for selected pixels or segment
-for the median position of a mask's valid depth samples.
+Use segment.world_xyz for coarse localization. For surface contact, select a pixel
+on the intended material and use its valid samples_xyz entry from back_project.
 An object-selection warning means the point did not identify a unique mask.
 On partial or insufficient_evidence, leave each center in missing_geometry unresolved.
 Retry a missing center only if a later agentview frame shows new evidence."""
 
-SURFACE_SAMPLING = """When sampling pixels manually, each valid point lies on a visible surface.
+
+def surface_sampling(geometry: bool) -> str:
+    """Describe how to use manual samples for the selected localization mode."""
+    samples = (
+        "Record the contact pixel and its measured xyz together."
+        if geometry
+        else "Sample several pixels firmly on the object and take the median world xy. Thin edges\n"
+        "or holes can return background depth metres from the target."
+    )
+    return f"""When sampling pixels manually, each valid point lies on a visible surface.
 For a grasp/place target use its x,y. For z use the object's resting height
 (sample the bare table next to it, or use table z ~0.9 kitchen / ~0.42 table-top).
-Sample several pixels firmly on the object and take the median world xy. Thin edges
-or holes can return background depth metres from the target.
+{samples}
 
 ALWAYS apply the manipulation offsets from memory to the PERCEIVED position
 (e.g. BOWL: eef_y = plate_y + 0.045). Verify visually in `agentview_high.png`
 after moving."""
+
 
 GEOMETRY_PERCEPTION_ALGORITHM = """Before manipulating, build a localization table
 from the recorded agentview image and its depth.
@@ -481,8 +490,8 @@ from the recorded agentview image and its depth.
 2. If a center is needed, request its shape and feature from `geometry` at the
    same step. Record accepted centers after confirming the highlighted object.
    Leave missing centers unresolved.
-   For a visible surface position, sample 3–8 agentview pixels on the material
-   with `back_project` and record their median, or use the mask median from `segment`.
+   For surface contact, select a pixel on the intended material in agentview.
+   Record that pixel and its valid samples_xyz entry from `back_project`.
 3. For each entity, record its role, visual evidence, measurement source and step,
    measured coordinates and any uncertainty. Include the pixels for manual sampling.
    Flag ambiguous identities before acting.
@@ -555,7 +564,11 @@ high-resolution image and call `back_project` yourself. """
 
 GENERIC_SEGMENT_AID = _GENERIC_SEGMENT_GUIDE + _TWO_CAMERA_SEGMENT_RULE
 GEOMETRY_SEGMENT_AID = (
-    _GENERIC_SEGMENT_GUIDE + "Record the result as a\nvisible surface position.\n"
+    _GENERIC_SEGMENT_GUIDE
+    + """Use world_xyz for coarse localization.
+The mask median can fall in a hole. For a contact point, select a material pixel
+in the same image and record its valid samples_xyz entry from `back_project`.
+"""
 )
 
 EXECUTE_PRIMITIVE = """EXECUTE one primitive at a time by calling its structured tool:
@@ -772,7 +785,11 @@ def localization(variables: Mapping[str, object]) -> str:
     """Return localization instructions that match the registered tool schemas."""
     if not (variables.get("generic_tools") or variables.get("geometry")):
         return LOCALIZATION
-    return sampling_instructions(variables) + "\n\n" + SURFACE_SAMPLING
+    return (
+        sampling_instructions(variables)
+        + "\n\n"
+        + surface_sampling(bool(variables.get("geometry")))
+    )
 
 
 def perception_section(
