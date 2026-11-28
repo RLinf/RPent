@@ -280,6 +280,9 @@ class RoboDojoEnvClient(BaseEnvClient):
     def get_motion_state(self) -> dict[str, Any]:
         return self._client.call("env.get_motion_state")
 
+    def coordinate_calibration(self) -> dict[str, Any]:
+        return self._client.call("env.coordinate_calibration")
+
     def plan_arm_path(self, arm: str, target_pose: list[float]) -> dict[str, Any]:
         return self._client.call(
             "env.plan_arm_path",

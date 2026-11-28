@@ -1,0 +1,10 @@
+# RoboLab DROID worker dependencies for Linux x86_64, CPython 3.11.
+# Install the pinned RoboLab source checkout and RPent as documented in robots/rl/README.md.
+--extra-index-url https://pypi.nvidia.com
+--extra-index-url https://download.pytorch.org/whl/cu128
+isaaclab==2.2.0
+isaacsim[all,extscache]==5.0.0.0
+torch==2.7.0+cu128
+numpy==1.26.0
+scipy==1.15.3
+opencv-python==4.11.0.86

@@ -144,6 +144,7 @@ class RoboTwinEnvFacade(BaseEnvFacade):
     def _register_rpc(self) -> None:
         super()._register_rpc()
         self._rpc["env.plan_arm_path"] = self.plan_arm_path
+        self._rpc["env.step_dense_arm"] = self._env.step_dense_arm
 
     def get_action_spec(self) -> dict[str, Any]:
         """Delegate the native action layouts to the active runtime."""

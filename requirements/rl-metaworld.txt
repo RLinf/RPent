@@ -1,0 +1,10 @@
+# Isolated Python 3.11 simulator with EGL rendering.
+-e .
+metaworld==3.0.0
+# Replay hashes, gripper calibration and RGB-D geometry were validated with this version.
+mujoco==3.16.0
+gymnasium>=1.0.0
+numpy>=1.26.4
+scipy>=1.15.0
+pillow>=10.0.0
+imageio[ffmpeg]>=2.0

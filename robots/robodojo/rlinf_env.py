@@ -16,13 +16,13 @@
 
 from __future__ import annotations
 
+import os
 import threading
 from copy import deepcopy
 from typing import Any
 
 import numpy as np
-import torch
-from rlinf.envs.sim.robodojo.robodojo_env import RoboDojoEnv
+from omegaconf import OmegaConf
 
 from robots.robodojo.agent_support import (
     _arm_target,
@@ -68,15 +68,29 @@ def _policy_action(action: Any) -> dict:
     )
 
 
-class RoboDojoAgentEnv(RoboDojoEnv):
-    """Single-scene agent adapter with native RPC observations and diagnostics."""
+class RoboDojoAgentEnv:
+    """Own RLinf's single-scene runtime directly on the RPC server main thread."""
 
     def __init__(self, cfg, *, meta: dict, video_dir: str = "") -> None:
         self.meta = meta
         self.eval_fair = meta.get("mode", "dev") == "eval-fair"
         self.recorder = _VideoRecorder(video_dir)
         self.bottle_mon = _SafetyMonitor(self.meta.get("task", ""))
-        super().__init__(cfg, 1, 0, 1, None, record_metrics=False)
+        from rlinf.envs.sim.robodojo.assets import create_curobo_configs
+        from robodojo_runtime.bridge import VectorEnv
+
+        if threading.current_thread() is not threading.main_thread():
+            raise RuntimeError("Isaac construction must run on the main thread")
+        assets = cfg.get("assets_path") or os.environ.get("ROBODOJO_ASSETS_ROOT")
+        if assets:
+            os.environ["ROBODOJO_ASSETS_ROOT"] = str(assets)
+            create_curobo_configs(str(assets))
+        self._closed = False
+        self.venv = VectorEnv(
+            task_config=OmegaConf.to_container(cfg.task_config, resolve=True),
+            n_envs=1,
+            env_seeds=[meta["layout"]],
+        )
         try:
             seed_manager = self.env.seed_manager
             seed_manager.config["seed"] = meta.get("seed", 0)
@@ -85,10 +99,6 @@ class RoboDojoAgentEnv(RoboDojoEnv):
         except BaseException:
             self.close()
             raise
-
-    def update_reset_state_ids(self, env_idx=None) -> None:
-        """Agent episodes use the requested official layout ID."""
-        self.reset_state_ids = torch.tensor([self.meta["layout"]], dtype=torch.long)
 
     def _sub_env(self, env_id: int = 0) -> Any:
         """Return the local runtime slot; RPC owns exactly one environment."""
@@ -106,7 +116,7 @@ class RoboDojoAgentEnv(RoboDojoEnv):
 
     def reset(self, env_idx=None, env_seeds=None):
         """Reset through RLinf and reinitialize agent episode diagnostics."""
-        result = super().reset(env_idx=env_idx, env_seeds=env_seeds)
+        result = self.venv.reset(env_idx=env_idx, env_seeds=env_seeds)
         self.bottle_mon = _SafetyMonitor(self.meta.get("task", ""))
         return result
 
@@ -285,6 +295,11 @@ class RoboDojoAgentEnv(RoboDojoEnv):
             return {
                 "step": int(self.env.take_action_cnt[0]),
                 "step_limit": int(self.env.step_lim),
+                **(
+                    {"success": self.is_success()}
+                    if self.meta.get("episode_protocol")
+                    else {}
+                ),
             }
         return _status(self.env, self.bottle_mon)
 
@@ -317,7 +332,8 @@ class RoboDojoAgentEnv(RoboDojoEnv):
             paths = self.recorder.close()
             logger.info("[robodojo-env] videos written: %s", paths)
         finally:
-            super().close(clear_cache)
+            self._closed = True
+            self.venv.close(clear_cache)
             logger.info("[robodojo-env] shutdown complete")
 
     def _receipt(self, before, *, rejection=None):
@@ -327,7 +343,7 @@ class RoboDojoAgentEnv(RoboDojoEnv):
             "step_after": status["step"],
             "executed_actions": status["step"] - before,
             "status": status,
-            "terminated": not self.eval_fair and bool(status.get("success")),
+            "terminated": bool(status.get("success")),
             "truncated": status["step"] >= status["step_limit"]
             or bool(self.env.end_flag[0]),
             **({"rejection": rejection} if rejection else {}),

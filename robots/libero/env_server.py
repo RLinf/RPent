@@ -31,9 +31,10 @@ from rpent.utils.serialization import to_numpy_tree
 # MuJoCo env vars must be set BEFORE importing anything that touches MuJoCo.
 os.environ.setdefault("MUJOCO_GL", "egl")
 os.environ.setdefault("PYOPENGL_PLATFORM", "egl")
-assert "mujoco" not in sys.modules, (
-    "mujoco must not be imported before MUJOCO_GL/PYOPENGL_PLATFORM are set"
-)
+assert "mujoco" not in sys.modules or (
+    os.environ.get("MUJOCO_GL") == "egl"
+    and os.environ.get("PYOPENGL_PLATFORM") == "egl"
+), "mujoco must not be imported before MUJOCO_GL/PYOPENGL_PLATFORM are set"
 
 logger = get_logger("libero_env_server")
 
@@ -57,6 +58,8 @@ def build_env_cfg(
     specific_reset_id: int = 0,
     seed: int = 0,
     max_episode_steps: int = 10000,
+    use_camera_obs: bool = True,
+    camera_depths: bool = True,
 ) -> Any:
     from omegaconf import OmegaConf
 
@@ -86,9 +89,10 @@ def build_env_cfg(
             "init_params": {
                 "camera_heights": 256,
                 "camera_widths": 256,
+                "use_camera_obs": use_camera_obs,
                 # Render depth too, so we can back-project pixels to world
                 # from depth + camera calibration
-                "camera_depths": True,
+                "camera_depths": camera_depths and use_camera_obs,
                 "horizon": max_episode_steps,
                 # RLinf counts policy steps after reset settling and owns truncation.
                 # LIBERO replaces robosuite's done flag with task success.
@@ -109,12 +113,15 @@ def make_env(
     seed: int,
     suite_name: str = "libero_spatial",
     max_episode_steps: int = 10000,
+    rl_control_state: bool = False,
+    use_camera_obs: bool = True,
+    camera_depths: bool = True,
 ) -> LiberoEnv:
     """Build a single-env LiberoEnv pinned to ``task_id`` / ``seed``."""
     from rlinf.envs.sim.libero.libero_env import LiberoEnv
-    from rlinf.envs.sim.libero.utils import benchmark as _bench_mod
+    from rlinf.envs.sim.libero.utils import get_benchmark_overridden
 
-    suite = _bench_mod.get_benchmark(suite_name)()
+    suite = get_benchmark_overridden(suite_name)()
     if not 0 <= task_id < suite.n_tasks:
         raise ValueError(
             f"task_id must be in [0, {suite.n_tasks}) for suite {suite_name!r}; got {task_id}"
@@ -129,10 +136,19 @@ def make_env(
         specific_reset_id=rid,
         seed=seed,
         max_episode_steps=max_episode_steps,
+        use_camera_obs=use_camera_obs,
+        camera_depths=camera_depths,
     )
-    return LiberoEnv(
+    env_type = LiberoEnv
+    if rl_control_state:
+        from robots.libero.control import controlled_env_type
+
+        env_type = controlled_env_type()
+    env = env_type(
         cfg=cfg, num_envs=1, seed_offset=0, total_num_processes=1, worker_info=None
     )
+    env.rpent_control_enabled = rl_control_state
+    return env
 
 
 # ---------------------------------------------------------------------------
@@ -169,7 +185,11 @@ class LiberoEnvFacade(BaseEnvFacade):
                 "env.get_task_language": self.get_task_language,
             }
         )
-        self._readonly_methods.add("env.get_task_language")
+        # These queries share the worker's request/reply Pipe with reset and
+        # actions. Read-only simulator operations still need exclusive access.
+        self._readonly_methods.difference_update(
+            {"env.get_action_spec", "env.get_camera_meta", "env.render_camera"}
+        )
 
     # ---- shape helpers ----
 
@@ -184,7 +204,12 @@ class LiberoEnvFacade(BaseEnvFacade):
 
     def _strip_obs(self, obs: dict) -> dict:
         """Strip the leading env dim from every value of a LIBERO obs dict."""
-        return {k: self._strip(v) for k, v in obs.items()}
+        result = {k: self._strip(v) for k, v in obs.items()}
+        if getattr(self._env, "rpent_control_enabled", False):
+            result["control_state"] = self._env.env.workers[self._env_idx].get_env_attr(
+                "rpent_control_state"
+            )
+        return result
 
     def _expand_action(self, action) -> np.ndarray:
         """Inject the env dim onto a single-env action shaped ``[action_dim]``."""
@@ -200,7 +225,10 @@ class LiberoEnvFacade(BaseEnvFacade):
     def reset(self):
         obs, info = self._env.reset()
         obs = self._strip_obs(to_numpy_tree(obs))
-        return obs, to_numpy_tree(info)
+        info = dict(to_numpy_tree(info))
+        info["task_id"] = int(self._env.task_ids[self._env_idx])
+        info["init_state_id"] = int(self._env.trial_ids[self._env_idx])
+        return obs, info
 
     def step(self, action):
         obs, rew, term, trunc, info = self._env.step(self._expand_action(action))
@@ -295,11 +323,12 @@ class LiberoEnvFacade(BaseEnvFacade):
         return dict(self._meta)
 
     def close(self) -> None:
-        """Release the server-owned LIBERO environment once."""
-        if self._closed:
-            return
-        self._env.env.close()
-        self._closed = True
+        """Drain an in-flight native request before closing its shared Pipe."""
+        with self._dispatch_lock.write():
+            if self._closed:
+                return
+            self._env.env.close()
+            self._closed = True
 
     def render_camera(
         self,
@@ -348,6 +377,16 @@ def main():
     p.add_argument("--seed", type=int, default=0)
     p.add_argument("--max-episode-steps", type=int, default=10000)
     p.add_argument(
+        "--rgb-only",
+        action="store_true",
+        help="Disable automatic depth observables for RGB-only control.",
+    )
+    p.add_argument(
+        "--rl-control-state",
+        action="store_true",
+        help="Attach native grip-site/control-frame measurements for RL tools.",
+    )
+    p.add_argument(
         "--parent-watch",
         action="store_true",
         help="watch parent process via stdin pipe and exit when it dies",
@@ -394,6 +433,8 @@ def main():
         args.seed,
         suite_name=args.suite,
         max_episode_steps=args.max_episode_steps,
+        rl_control_state=args.rl_control_state,
+        camera_depths=not args.rgb_only,
     )
     facade = LiberoEnvFacade(
         raw_env,

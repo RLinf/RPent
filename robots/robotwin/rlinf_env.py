@@ -16,6 +16,8 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
+from contextlib import contextmanager
 from copy import deepcopy
 from typing import Any, Literal
 
@@ -61,6 +63,28 @@ def _validate_actions(actions: Any, *, action_type: RoboTwinActionType) -> np.nd
     if not np.isfinite(array).all():
         raise ValueError(f"{action_type} actions must contain only finite values")
     return array
+
+
+@contextmanager
+def _deferred_task_render(task: Any, *, enabled: bool):
+    """Skip per-physics-step Vulkan scene updates when video/display is inactive."""
+    if (
+        not enabled
+        or getattr(task, "eval_video_path", None) is not None
+        or getattr(task, "render_freq", 0)
+        or getattr(task, "crazy_random_light", False)
+    ):
+        yield
+        return
+    orig_update = task._update_render
+    orig_get_obs = task.get_obs
+    task._update_render = lambda: None
+    task.get_obs = lambda: None
+    try:
+        yield
+    finally:
+        task._update_render = orig_update
+        task.get_obs = orig_get_obs
 
 
 def _execution_should_stop(status: dict[str, Any]) -> bool:
@@ -162,6 +186,7 @@ class RoboTwinAgentEnv(RoboTwinEnv):
         action_type: RoboTwinActionType = "qpos",
         env_id: int = 0,
         return_all_frames: bool = False,
+        render_obs: bool = True,
     ) -> tuple[list[Any], np.ndarray, np.ndarray, np.ndarray, list[dict[str, Any]]]:
         """Execute a chunk of native actions, returning a gym-style 5-tuple batched as ``[1, executed]``."""
         array = _validate_actions(actions, action_type=action_type)
@@ -182,7 +207,10 @@ class RoboTwinAgentEnv(RoboTwinEnv):
                 if _execution_should_stop(status):
                     break
                 before = status["take_action_cnt"]
-                sub_env.task.take_action(action, action_type=action_type)
+                with _deferred_task_render(
+                    sub_env.task, enabled=not render_obs and not return_all_frames
+                ):
+                    sub_env.task.take_action(action, action_type=action_type)
                 after = int(getattr(sub_env.task, "take_action_cnt", 0))
                 if after <= before:
                     break
@@ -210,7 +238,11 @@ class RoboTwinAgentEnv(RoboTwinEnv):
             if self.record_metrics:
                 self._elapsed_steps[env_id] = int(episode_status["take_action_cnt"])
         # venv.get_obs() re-acquires sub_env.lock; read it outside the lock.
-        observation = self._extract_obs_image(self.venv.get_obs())
+        observation = (
+            self._extract_obs_image(self.venv.get_obs())
+            if render_obs or return_all_frames
+            else None
+        )
         if return_all_frames:
             observation = {"frames": frames, "final": observation}
         info = {
@@ -230,6 +262,62 @@ class RoboTwinAgentEnv(RoboTwinEnv):
             np.asarray(truncations, dtype=bool).reshape(1, -1),
             [info],
         )
+
+    def step_dense_arm(
+        self,
+        arm: Literal["left", "right"],
+        position: Any,
+        velocity: Any,
+        env_id: int = 0,
+    ) -> dict[str, Any]:
+        """Play a bounded planned-arm chunk and return measured state."""
+        pos = np.asarray(position, dtype=np.float64)
+        vel = np.asarray(velocity, dtype=np.float64)
+        if (
+            arm not in ("left", "right")
+            or pos.ndim != 2
+            or not 1 <= len(pos) <= 64
+            or pos.shape[1] != 6
+            or pos.shape != vel.shape
+            or not np.isfinite(pos).all()
+            or not np.isfinite(vel).all()
+        ):
+            raise ValueError(
+                "Expected left/right with 1 to 64 finite [N,6] positions and velocities"
+            )
+        sub_env = self._sub_env(env_id)
+        path = {"position": pos[:1], "velocity": vel[:1]}
+        controls = dict.fromkeys(
+            ("left_arm", "right_arm", "left_gripper", "right_gripper")
+        )
+        controls[f"{arm}_arm"] = path
+        per_step = []
+        with sub_env.lock:
+            task = sub_env.task
+            for index in range(len(pos)):
+                if _execution_should_stop(self._episode_status(sub_env)):
+                    break
+                path["position"] = pos[index : index + 1]
+                path["velocity"] = vel[index : index + 1]
+                task.take_dense_action(controls, save_freq=None)
+                task.take_action_cnt += 1
+                if task.check_success():
+                    task.eval_success = True
+                per_step.append(
+                    {
+                        "episode_status": self._episode_status(sub_env),
+                        "qpos_target14": self._qpos_target14(sub_env),
+                    }
+                )
+            status = self._episode_status(sub_env)
+            if self.record_metrics:
+                self._elapsed_steps[env_id] = status["take_action_cnt"]
+            return {
+                "executed_actions": len(per_step),
+                "episode_status": status,
+                "robot_state": self._robot_state(sub_env),
+                "per_step": per_step,
+            }
 
     def step(
         self,
@@ -256,9 +344,17 @@ class RoboTwinAgentEnv(RoboTwinEnv):
             info_list[0],
         )
 
-    def reset(self, env_idx=None, env_seeds=None):
+    def reset(self, env_idx=None, env_seeds=None, *, render_obs: bool = True):
         """Reset and seed ``info`` with the initial robot state + episode status."""
-        observation, info = super().reset(env_idx=env_idx, env_seeds=env_seeds)
+        if render_obs:
+            observation, info = super().reset(env_idx=env_idx, env_seeds=env_seeds)
+        else:
+            if self._is_start:
+                self._is_start = False
+            seeds = self.reset_state_ids.tolist() if env_seeds is None else env_seeds
+            self.venv.reset(env_idx=env_idx, env_seeds=seeds)
+            self._reset_metrics(env_idx)
+            observation, info = None, {}
         sub_env = self._sub_env(0)
         with sub_env.lock:
             self._initialize_native_evaluator_state(sub_env.task)
@@ -285,6 +381,28 @@ class RoboTwinAgentEnv(RoboTwinEnv):
                 f"unknown RoboTwin camera {camera_name!r}; available={available}"
             ) from error
 
+    def render_cameras(
+        self,
+        camera_names: Sequence[str],
+        *,
+        depth: bool = False,
+        env_id: int = 0,
+    ) -> dict[str, tuple[Any, dict[str, Any]]]:
+        """Update SAPIEN rendering once and capture all requested cameras + metadata."""
+        sub_env = self._sub_env(env_id)
+        with sub_env.lock:
+            task = sub_env.task
+            task._update_render()
+            task.cameras.update_picture()
+            captured: dict[str, tuple[Any, dict[str, Any]]] = {}
+            for name in camera_names:
+                camera = self._get_camera(sub_env, name)
+                rgba = (camera.get_picture("Color") * 255).clip(0, 255).astype(np.uint8)
+                rgb = rgba[:, :, :3]
+                frame = (rgb, _camera_depth(camera)) if depth else rgb
+                captured[name] = (frame, _camera_meta(camera))
+            return captured
+
     def render_camera(
         self,
         camera_name: str,
@@ -292,19 +410,10 @@ class RoboTwinAgentEnv(RoboTwinEnv):
         depth: bool = False,
         env_id: int = 0,
     ) -> Any:
-        sub_env = self._sub_env(env_id)
-        with sub_env.lock:
-            native_observation = sub_env.task.get_obs()["observation"]
-            camera_keys = {
-                "head": "head_camera",
-                "left_wrist": "left_camera",
-                "right_wrist": "right_camera",
-            }
-            camera = self._get_camera(sub_env, camera_name)
-            rgb = native_observation[camera_keys[camera_name]]["rgb"]
-            if not depth:
-                return rgb
-            return rgb, _camera_depth(camera)
+        frame, _meta = self.render_cameras((camera_name,), depth=depth, env_id=env_id)[
+            camera_name
+        ]
+        return frame
 
     def get_camera_meta(self, camera_name: str, env_id: int = 0) -> dict[str, Any]:
         sub_env = self._sub_env(env_id)

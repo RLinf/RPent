@@ -40,6 +40,7 @@ class RoboDojoEnvFacade(MainThreadServeMixin, BaseEnvFacade):
                 "env.get_safety_status": self.get_safety_status,
                 "env.solve_ik_position": self.solve_ik_position,
                 "env.get_motion_state": self.get_motion_state,
+                "env.coordinate_calibration": self.coordinate_calibration,
                 "env.plan_arm_path": self.plan_arm_path,
                 "env.step_joint_update": self.step_joint_update,
                 "env.is_success": self.is_success,
@@ -60,6 +61,7 @@ class RoboDojoEnvFacade(MainThreadServeMixin, BaseEnvFacade):
                 "env.get_safety_status",
                 "env.solve_ik_position",
                 "env.get_motion_state",
+                "env.coordinate_calibration",
                 "env.plan_arm_path",
             ]
         )
@@ -117,6 +119,11 @@ class RoboDojoEnvFacade(MainThreadServeMixin, BaseEnvFacade):
 
     def get_motion_state(self) -> dict:
         return self.env.get_motion_state()
+
+    def coordinate_calibration(self) -> dict:
+        from robots.robodojo.coordinates import calibrate
+
+        return calibrate(self.env.env)
 
     def plan_arm_path(self, arm: str, target_pose: list[float]) -> dict:
         return self.env.plan_arm_path(arm, target_pose)

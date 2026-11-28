@@ -1,0 +1,137 @@
+# Example multi-node / cross-cluster service configs for 48-GPU embodied RL:
+#   - Dedicated Sim + SAM3 H100 node (8 GPUs):  32 LIBERO + 48 RoboTwin + 16 SAM3 (sleepable: false)
+#   - 4x Collocated RL + Sim H100 nodes (32 GPUs): 40 LIBERO + 16 RoboTwin/node (sleepable: true)
+#   - Dedicated remote A100 node (8 GPUs):       80 RoboTwin + 8 SAM3 (sleepable: false)
+#   - Head node SimPoolRouters:                  192 LIBERO (:28561) + 192 RoboTwin (:28562)
+#
+# Split each section below into its own per-node YAML and launch with:
+#   ulimit -n 1048576
+#   PYTHONPATH=/tmp/rpent_ppo/RPent:/tmp/rpent_ppo/RLinf \
+#     /tmp/rpent_ppo/envs/libero/bin/python /tmp/rpent_ppo/RPent/tools/rl/serve.py \
+#     --config /path/to/<node>_services.yaml
+#
+# Note: On shared BeeGFS/NFS clusters, stage venvs, assets, graphics libraries, and repos
+# into node-local RAM tmpfs (/dev/shm/rpent_ppo, symlinked at /tmp/rpent_ppo) to prevent
+# concurrent short-reads and container root-overlay exhaustion.
+
+# =============================================================================
+# 1. Dedicated Sim + SAM3 Node (e.g. h100: 4 LIBERO + 6 RoboTwin + 2 SAM3 / GPU)
+# =============================================================================
+host: 10.0.0.10
+log_dir: /path/to/rpent_ppo/runs/services/sim_node
+
+env:
+  PYTHONPATH: /tmp/rpent_ppo/RPent:/tmp/rpent_ppo/RLinf
+  CUDA_DEVICE_ORDER: PCI_BUS_ID
+  OMP_NUM_THREADS: "1"
+  OPENBLAS_NUM_THREADS: "1"
+  MKL_NUM_THREADS: "1"
+  HF_HUB_OFFLINE: "1"
+  TRANSFORMERS_OFFLINE: "1"
+  NO_PROXY: 127.0.0.1,localhost,10.0.0.0/16
+  no_proxy: 127.0.0.1,localhost,10.0.0.0/16
+
+sam3:
+  python: /path/to/rpent_ppo/envs/sam3/bin/python
+  checkpoint: /path/to/rpent_ppo/models/sam3/sam3.pt
+  host: 10.0.0.10
+  backend_host: 127.0.0.1
+  gpus: [0, 0, 1, 1, 2, 2, 3, 3, 4, 4, 5, 5, 6, 6, 7, 7]
+  backend_base_port: 28500
+  pool_port: 28520
+  max_pending: 2048
+  timeout_s: 600
+
+simulators:
+  libero:
+    python: /tmp/rpent_ppo/envs/libero/bin/python
+    host: 10.0.0.10
+    port: 28551
+    gpus: [0, 1, 2, 3, 4, 5, 6, 7]
+    workers: 32
+    libero_type: pro
+    sam3_endpoint: http://10.0.0.10:28520
+    sam3_timeout_s: 600
+    max_episodes_per_worker: 30
+    max_concurrent_spawns: 16
+    sleepable: false
+    env:
+      LIBERO_CONFIG_PATH: /tmp/rpent_ppo/assets/libero-config
+      MUJOCO_GL: egl
+      PYOPENGL_PLATFORM: egl
+      LD_LIBRARY_PATH: /tmp/rpent_ppo/runtime/graphics:/usr/lib/x86_64-linux-gnu:/usr/local/cuda/lib64
+      __EGL_VENDOR_LIBRARY_FILENAMES: /tmp/rpent_ppo/runtime/graphics/egl.json
+
+  robotwin:
+    python: /tmp/rpent_ppo/envs/robotwin/bin/python
+    host: 10.0.0.10
+    port: 28552
+    gpus: [0, 1, 2, 3, 4, 5, 6, 7]
+    workers: 48
+    assets_path: /tmp/rpent_ppo/assets/robotwin
+    sam3_endpoint: http://10.0.0.10:28520
+    sam3_timeout_s: 600
+    max_episodes_per_worker: 30
+    max_concurrent_spawns: 16
+    sleepable: false
+    env:
+      ROBOTWIN_ASSETS_PATH: /tmp/rpent_ppo/assets/robotwin
+      MUJOCO_GL: egl
+      PYOPENGL_PLATFORM: egl
+      LD_LIBRARY_PATH: /tmp/rpent_ppo/runtime/graphics:/usr/lib/x86_64-linux-gnu:/usr/local/cuda/lib64
+      VK_ICD_FILENAMES: /tmp/rpent_ppo/runtime/graphics/vulkan.json
+      VK_DRIVER_FILES: /tmp/rpent_ppo/runtime/graphics/vulkan.json
+      __EGL_VENDOR_LIBRARY_FILENAMES: /tmp/rpent_ppo/runtime/graphics/egl.json
+
+# =============================================================================
+# 2. Collocated RL + Sim Node (repeat on each of 4 RL nodes: 5 LIBERO + 2 RoboTwin / GPU)
+#    Set sleepable: true so /pool/sleep frees GPU VRAM before Megatron backward.
+# =============================================================================
+# host: 10.0.0.11
+# log_dir: /path/to/rpent_ppo/runs/services/rl_node_0
+# simulators:
+#   libero:
+#     port: 28551
+#     gpus: [0, 1, 2, 3, 4, 5, 6, 7]
+#     workers: 40
+#     sam3_endpoint: http://10.0.0.10:28520
+#     max_concurrent_spawns: 20
+#     sleepable: true
+#   robotwin:
+#     port: 28552
+#     gpus: [0, 1, 2, 3, 4, 5, 6, 7]
+#     workers: 16
+#     sam3_endpoint: http://10.0.0.10:28520
+#     max_concurrent_spawns: 16
+#     sleepable: true
+
+# =============================================================================
+# 3. Head Node Multi-Backend SimPoolRouters (run on RL head node 10.0.0.11)
+#    http://127.0.0.1:28572 reaches the remote A100 RoboTwin pool via SSH tunnel.
+# =============================================================================
+# host: 10.0.0.11
+# log_dir: /path/to/rpent_ppo/runs/services/routers
+# routers:
+#   libero:
+#     python: /tmp/rpent_ppo/envs/libero/bin/python
+#     host: 10.0.0.11
+#     port: 28561
+#     request_timeout_s: 1800
+#     backends:
+#       - http://10.0.0.10:28551   # dedicated sim node (32)
+#       - http://10.0.0.11:28551   # RL node 0 (40, sleepable)
+#       - http://10.0.0.12:28551   # RL node 1 (40, sleepable)
+#       - http://10.0.0.13:28551   # RL node 2 (40, sleepable)
+#       - http://10.0.0.14:28551   # RL node 3 (40, sleepable)
+#   robotwin:
+#     python: /tmp/rpent_ppo/envs/libero/bin/python
+#     host: 10.0.0.11
+#     port: 28562
+#     request_timeout_s: 1800
+#     backends:
+#       - http://10.0.0.10:28552   # dedicated sim node (48)
+#       - http://10.0.0.11:28552   # RL node 0 (16, sleepable)
+#       - http://10.0.0.12:28552   # RL node 1 (16, sleepable)
+#       - http://10.0.0.13:28552   # RL node 2 (16, sleepable)
+#       - http://10.0.0.14:28552   # RL node 3 (16, sleepable)
+#       - http://127.0.0.1:28572   # remote A100 cluster via jump-host SSH tunnel (80)

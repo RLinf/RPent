@@ -1,0 +1,5 @@
+RoboLab DROID has one fixed-base Franka arm and a Robotiq 2F-85 parallel-jaw gripper. The general frame starts at the measured arm mount, panda_link0. The grasp TCP is the midpoint between the contact pads. Read table_height_above_base_m for the working surface height.
+
+Use over_shoulder_left_camera for workspace layout. Near the table, +x (forward) projects roughly upper-left and +y (robot left) lower-left. Use wrist_cam for close alignment. Its directions change with wrist orientation. Use the current image, camera name, and observation step to measure positions. If a past step was never captured, request a fresh view.
+
+Use opening=0 to close and opening=1 to open. Values below 0.5 command full closure and values at or above 0.5 command full opening. An intermediate request can return partial with reason binary_gripper. On partial/blocked, observe contact before retrying or using a short lift to verify the hold. The TCP servo uses tolerances of 0.004 m and 0.02 rad. Read env_steps and max_episode_steps to budget moves, including placement and release.
