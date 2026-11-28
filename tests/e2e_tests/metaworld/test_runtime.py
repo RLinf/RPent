@@ -275,7 +275,7 @@ def test_external_wam_executes_native_steps_and_releases_session(output, uses_se
         config = spec.parse_config(args)
         spec.prepare_memory(args, config)
         args.cuda_device = selected_cuda_ordinal()
-        with runtime_phase(spec, args, config.output_dir, {"env"}) as runtime:
+        with runtime_phase(spec, args, config.output_dir, {"env", "wam"}) as runtime:
             toolkit = get_toolkit(
                 runtime_kwargs=runtime,
                 dashboard_events=NullDashboardEventSink(),

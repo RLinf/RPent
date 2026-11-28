@@ -44,29 +44,32 @@ class MetaWorldToolkit(Toolkit):
         memory: MemoryManager,
         state_output_dir: Path | str,
     ) -> None:
-        self._wam = None
-        self.env = runtime_kwargs["env_client"]
-        self.obs = self.env.last_obs
-        super().__init__(
-            dashboard_events=dashboard_events,
-            state=EnvState(state_output_dir),
-            memory=memory,
-        )
-        self.add_tools(t for t in iter_tools(self) if t.name != "wam_act")
-        self.add_tool(
-            back_project.with_handler(
-                partial(
-                    back_project,
-                    observations=MetaWorldGeometryObservations(self._state),
+        # The toolkit owns the runtime's WAM session and releases it on close.
+        self._wam = runtime_kwargs.get("wam_client")
+        try:
+            self.env = runtime_kwargs["env_client"]
+            self.obs = self.env.last_obs
+            super().__init__(
+                dashboard_events=dashboard_events,
+                state=EnvState(state_output_dir),
+                memory=memory,
+            )
+            self.add_tools(t for t in iter_tools(self) if t.name != "wam_act")
+            self.add_tool(
+                back_project.with_handler(
+                    partial(
+                        back_project,
+                        observations=MetaWorldGeometryObservations(self._state),
+                    )
                 )
             )
-        )
-        self.get_env_state(command={}, result={}, elapsed_s=0)
-        self._publish_step(self._state.latest_record())
-        if endpoint := runtime_kwargs.get("am_endpoint"):
-            from robots.metaworld.wam_client import MetaWorldWAMClient
-
-            self._wam = MetaWorldWAMClient.connect(endpoint)
+            self.get_env_state(command={}, result={}, elapsed_s=0)
+            self._publish_step(self._state.latest_record())
+        except BaseException:
+            if self._wam is not None:
+                self._wam.close()
+            raise
+        if self._wam is not None:
             self.add_tool(self.wam_act)
 
     @tool(readonly=True)

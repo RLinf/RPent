@@ -25,7 +25,7 @@ from typing import Any
 
 from robots.metaworld.config import CAMERAS, TASKS, validate
 from robots.metaworld.prompt_bundle import system_prompt, user_prompt
-from rpent.dashboard.events import DashboardEventSink
+from rpent.dashboard.events import DashboardEventSink, RuntimeStatusEvent
 from rpent.dashboard.spec import DashboardSpec
 from rpent.evaluation import write_json_atomic
 from rpent.memory import MemoryManager
@@ -133,42 +133,77 @@ def _spawn(args, output_dir):
     return daemon, make_rpc_client(f"http://{host}:{port}")
 
 
+def _connect_wam(endpoint: str, dashboard_events) -> Any:
+    """Bind the borrowed WAM worker; its owner keeps the service running."""
+    from robots.metaworld.wam_client import MetaWorldWAMClient
+
+    _, probe = try_spawn_server(
+        {}, dashboard_events, "wam", lambda: (None, make_rpc_client(endpoint))
+    )
+    try:
+        return try_wait_server(
+            {},
+            dashboard_events,
+            "wam",
+            probe,
+            None,
+            30,
+            post_fn=lambda: MetaWorldWAMClient.connect(endpoint),
+        )
+    finally:
+        probe.close()
+
+
 def _init_runtime(args, output_dir, dashboard_events, components=None):
+    """Bind the external WAM before starting or borrowing the environment."""
     from robots.metaworld.env_client import MetaWorldEnvClient
 
-    if components == set():
-        return [], {}
-    if components is not None and components != {"env"}:
-        raise ValueError("MetaWorld only has the env runtime component")
+    available = {"env", "wam"} if args.am_endpoint else {"env"}
+    selected = available if components is None else set(components)
+    if unknown := selected - available:
+        raise ValueError(
+            f"expected MetaWorld runtime components in {sorted(available)}, "
+            f"got {sorted(unknown)}"
+        )
+    runtime_kwargs: dict[str, Any] = {}
+    if "wam" in selected:
+        runtime_kwargs["wam_client"] = _connect_wam(args.am_endpoint, dashboard_events)
+    if "env" not in selected:
+        return [], runtime_kwargs
     daemons = {}
-    daemon, rpc = try_spawn_server(
-        daemons, dashboard_events, "env", lambda: _spawn(args, output_dir)
-    )
     expected = {
         "task": args.task,
         "seed": args.seed,
         "max_episode_steps": args.max_episode_steps,
         "camera": args.camera,
     }
+    try:
+        daemon, rpc = try_spawn_server(
+            daemons, dashboard_events, "env", lambda: _spawn(args, output_dir)
+        )
 
-    def connect() -> MetaWorldEnvClient:
-        client = MetaWorldEnvClient(rpc, expected_meta=expected)
-        write_json_atomic(output_dir / "environment.json", client.get_runtime_info())
-        return client
+        def connect() -> MetaWorldEnvClient:
+            client = MetaWorldEnvClient(rpc, expected_meta=expected)
+            write_json_atomic(
+                output_dir / "environment.json", client.get_runtime_info()
+            )
+            return client
 
-    client = try_wait_server(
-        daemons,
-        dashboard_events,
-        "env",
-        rpc,
-        daemon,
-        120,
-        post_fn=connect,
-    )
-    return list(daemons.values()), {
-        "env_client": client,
-        "am_endpoint": args.am_endpoint,
-    }
+        runtime_kwargs["env_client"] = try_wait_server(
+            daemons,
+            dashboard_events,
+            "env",
+            rpc,
+            daemon,
+            120,
+            post_fn=connect,
+        )
+    except BaseException:
+        if "wam_client" in runtime_kwargs:
+            runtime_kwargs["wam_client"].close()
+            dashboard_events.emit(RuntimeStatusEvent("wam", "pending"))
+        raise
+    return list(daemons.values()), runtime_kwargs
 
 
 def _finalize(context) -> Path:
@@ -209,12 +244,17 @@ METAWORLD_DASHBOARD_SPEC: DashboardSpec = {
 def _resolve_dashboard(args) -> DashboardSpec:
     spec = dict(METAWORLD_DASHBOARD_SPEC)
     if args.am_endpoint:
+        # Each TaskRun binds its own worker session, released with its toolkit.
+        spec["runtime_components"] = (
+            *spec["runtime_components"],
+            {"name": "wam", "label": "WAM", "scope": "unique"},
+        )
         spec["primitives"] = (*spec["primitives"], "wam_act")
     return spec
 
 
 def get_robot_spec() -> RobotSpec:
-    """Describe the MetaWorld CLI and environment-only Dashboard runtime."""
+    """Describe the MetaWorld CLI and its env and optional WAM Dashboard runtime."""
     return RobotSpec(
         name="metaworld",
         prompts=PromptBundle(system=system_prompt, user=user_prompt),
