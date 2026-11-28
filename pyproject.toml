@@ -292,6 +292,19 @@ conflicts = [
         { extra = "robotwin" },
         { extra = "robodojo-sim" },
     ],
+    # MetaWorld 3.0.0 requires MuJoCo 3.14.0; the LIBERO extras pin MuJoCo 3.3.0.
+    [
+        { extra = "metaworld" },
+        { extra = "libero" },
+    ],
+    [
+        { extra = "metaworld" },
+        { extra = "libero-pro" },
+    ],
+    [
+        { extra = "metaworld" },
+        { extra = "libero-plus" },
+    ],
 ]
 
 [tool.uv.extra-build-dependencies]
