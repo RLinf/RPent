@@ -1,22 +1,96 @@
 MetaWorld
 =========
 
-MetaWorld 接入通过 RGB-D 观测和有步数上限的笛卡尔控制操作 Sawyer 机械臂。
-支持 MetaWorld 3.0.0 的 MT10 清单中的十种任务，分别作为固定 MT1 episode 运行。
-视觉 planner 调用脚本动作原语，无需 VLA 或分割模型权重。
+在 `MetaWorld <https://github.com/Farama-Foundation/Metaworld>`_ 中用 RPent 运行桌面操作任务。视觉规划器根据 RGB-D 观测，调用脚本化的笛卡尔运动工具控制 MuJoCo 中的 Sawyer 机械臂，不需要 VLA 模型权重。
 
-支持的任务
-----------
+概览
+----
 
-* ``reach-v3``、``push-v3``、``pick-place-v3``
-* ``door-open-v3``、``drawer-open-v3``、``drawer-close-v3``
-* ``button-press-topdown-v3``、``peg-insert-side-v3``
-* ``window-open-v3``、``window-close-v3``
+安装前先确认支持的动作模型、规划器、任务和硬件。
 
-安装与单次运行
---------------
+.. grid:: 2 4 4 4
+   :gutter: 2
 
-在支持 EGL 的 Linux GPU 机器上使用独立 Python 3.11 环境：
+   .. grid-item-card:: 动作模型
+
+      默认使用脚本化的笛卡尔运动工具；也可以接入兼容的外部 WAM worker。
+
+   .. grid-item-card:: 规划器
+
+      ``api``、``claude_code``、``codex``、``gemini_cli``、``opencode``
+
+   .. grid-item-card:: 任务
+
+      MetaWorld 3.0.0 MT10 中的十种任务，每种以一个固定的 MT1 episode 运行。
+
+   .. grid-item-card:: 硬件
+
+      Linux、Python 3.11；支持 EGL 的 GPU，或用 OSMesa 在 CPU 上渲染。
+
+任务
+~~~~
+
+每次运行用固定种子跑一种任务的一个 episode，结果不能当作 MT10 或 MT50 基准成绩。
+
+.. list-table::
+   :header-rows: 1
+
+   * - 任务
+     - 传给规划器的任务指令
+   * - ``reach-v3``
+     - Move the gripper to the visible red goal marker.
+   * - ``push-v3``
+     - Push the puck to the visible goal marker on the table.
+   * - ``pick-place-v3``
+     - Pick up the puck and place it at the visible goal marker.
+   * - ``door-open-v3``
+     - Pull the handle to open the door.
+   * - ``drawer-open-v3``
+     - Pull the drawer open using its handle.
+   * - ``drawer-close-v3``
+     - Push the drawer closed.
+   * - ``button-press-topdown-v3``
+     - Press the button down from above.
+   * - ``peg-insert-side-v3``
+     - Insert the peg into the side-facing hole.
+   * - ``window-open-v3``
+     - Slide the window open using its handle.
+   * - ``window-close-v3``
+     - Slide the window closed using its handle.
+
+观测与动作
+~~~~~~~~~~
+
+下表列出规划器看到的观测、推进仿真的工具和任务结果的判定方式。
+
+.. list-table::
+   :header-rows: 1
+
+   * - 项目
+     - 说明
+   * - 观测
+     - ``view_env_state`` 返回最新的 480 x 480 RGB 图像、末端位置、夹爪开度、任务指令、仿真步数 ``steps`` 和快照编号 ``step``。``back_project`` 从已记录的深度图读取世界坐标。物体和目标的坐标不提供给规划器。
+   * - 动作
+     - ``move_to`` 把末端移向世界坐标 XYZ 目标，``set_gripper`` 原地开合夹爪，手腕朝向固定。传入 ``--am-endpoint`` 后，``wam_act`` 执行外部 WAM worker 预测的动作片段。
+   * - 奖励与成功判定
+     - 以 MetaWorld 原生成功信号为准，写入 ``result.json`` 的 ``success``。episode 达到步数上限（默认 500）或原生成功判定触发时结束。规划器调用 ``finish``、``move_to`` 返回 ``reached`` 都不代表任务成功。
+   * - 任务指令
+     - 所选任务的固定指令，见上方任务表。
+
+.. dropdown:: 运动与反投影细节
+
+   ``move_to(target_xyz, gripper, max_steps=50)`` 闭环修正末端 XYZ 位置，每步最多移动 0.01 米（MetaWorld 原生动作缩放）。每次调用最多 100 步，返回 ``reached``、``distance_m`` 和 ``steps``。末端距目标不到 5 毫米、episode 结束或达到 ``max_steps`` 时停止。运动不做避障。
+
+   夹爪参数只在实际执行的仿真步上生效：+1 闭合，-1 张开。如果末端已在目标 5 毫米以内，``move_to`` 执行 0 步，夹爪保持不变。原地开合夹爪用 ``set_gripper(gripper, steps=10)``，每次最多 20 步。
+
+   原生成功容差可能宽于 5 毫米，所以 episode 可能在 ``move_to`` 返回 ``reached`` 前就已成功并结束。
+
+   调用 ``back_project`` 时，相机填 ``primary``，选区可写成 ``{"image_shape": [480, 480], "points_rc": [[240, 240]]}``，并传入 ``view_env_state`` 返回的 ``step``。``samples_xyz`` 按输入顺序给出以米为单位的世界坐标。深度无效或落在远裁剪平面上的像素对应 ``null``；所有选中像素都没有有效深度时，结果为 ``status: "need_observation"``。像素坐标超出图像范围时参数校验失败。观测工具不推进仿真。
+
+安装
+----
+
+创建独立的 Python 3.11 环境，安装 ``metaworld`` extra。MetaWorld 的任务资产随软件包安装，无需另外下载：
 
 .. code-block:: bash
 
@@ -24,123 +98,96 @@ MetaWorld 接入通过 RGB-D 观测和有步数上限的笛卡尔控制操作 Sa
    source .venv/bin/activate
    uv pip install -e ".[metaworld]"
 
-按照 :doc:`../guides/configure_planner` 配置 planner 后运行：
+.. note::
+
+   这个 extra 固定 MuJoCo 3.14.0，与 ``libero``、``libero-pro`` 和 ``libero-plus`` 要求的 MuJoCo 3.3.0 冲突。
+
+运行一个任务
+------------
+
+按 :doc:`../guides/configure_planner` 配置规划器凭据，设置模型名后运行一个任务：
+
+.. code-block:: bash
+
+   export PLANNER_MODEL=openai/your-model
+   rpent --robot metaworld --task reach-v3 --seed 0 \
+     --planner api --model "$PLANNER_MODEL" \
+     --output-dir ./runs/metaworld-reach
+
+``rpent`` 会启动环境服务、运行规划器，结束后关闭环境服务。常用参数：
+
+- ``--task``：上表中的任务之一，默认 ``reach-v3``。
+- ``--seed``：0 到 4294967295 之间的整数，默认 0。
+- ``--camera``：默认 ``corner2``，也可选 ``corner``、``corner3``、``topview``、``behindGripper`` 和 ``gripperPOV``。
+- ``--max-episode-steps``：episode 步数上限，默认 500。
+- ``--cuda-device``：EGL 渲染使用的物理 CUDA GPU，例如 ``--cuda-device 0``。
+
+MetaWorld 只使用本地记忆，初始为空；用 ``--memory-dir`` 指定记忆目录。不支持 ``--memory-profile hf``、探索模式和 Flash Mode。
+
+要使用 Dashboard，把 ``--task reach-v3 --seed 0`` 换成 ``--dashboard``，再用 ``/rpent-task reach-v3 0`` 领取任务。Dashboard 为每个任务启动新的环境服务，因此不能与 ``--env-endpoint`` 同时使用。详见 :doc:`../guides/dashboard`。
+
+.. dropdown:: 独立仿真环境与已运行的环境服务
+
+   要在另一个 Python 环境中运行仿真，传入 ``--sim-python /path/to/python``。这个解释器需要已从本仓库安装 ``.[metaworld]``。
+
+   要复用已运行的环境服务，启动时使用与本次运行相同的任务、种子、相机和步数上限：
+
+   .. code-block:: bash
+
+      python -m robots.metaworld.env_server --task reach-v3 --seed 0 \
+        --port 18765 --video-dir ./runs/standalone/videos
+
+   然后用相同的任务和种子连接：
+
+   .. code-block:: bash
+
+      rpent --robot metaworld --task reach-v3 --seed 0 \
+        --env-endpoint http://127.0.0.1:18765 \
+        --planner api --model "$PLANNER_MODEL"
+
+   连接时会重置 episode，所以每次运行应独占一个环境服务。``rpent`` 不会关闭它连接的环境服务；渲染设备和视频目录由启动该服务的人设置。
+
+查看结果
+--------
+
+每次运行把记录写入 ``--output-dir``：
+
+- ``result.json``：``success`` 是 MetaWorld 原生成功判定，``planner_finish`` 是规划器调用 ``finish`` 时的报告。环境结果不可用时，``success`` 为 ``null``。文件还记录任务、种子、相机、步数上限和规划器预算。
+- ``states.json``，以及每次工具调用后保存的 RGB 图像和深度图。
+- ``videos/episode_0000.mp4``：由 ``rpent`` 启动环境服务时录制，包含初始帧和每个已执行仿真步后的一帧。
+- ``environment.json``：仿真进程的依赖版本、步数上限、动作缩放和渲染设置。
+- ``env_server.log``：环境服务日志。
+
+外部动作模型
+------------
+
+要让规划器调用已运行、支持 MetaWorld 的 WAM worker，加上 ``--am-endpoint``：
 
 .. code-block:: bash
 
    rpent --robot metaworld --task reach-v3 --seed 0 \
      --planner api --model "$PLANNER_MODEL" \
-     --memory-dir ./memory/metaworld \
-     --output-dir ./runs/metaworld-reach
+     --am-endpoint http://HOST:PORT \
+     --output-dir ./runs/metaworld-wam
 
-将 ``PLANNER_MODEL`` 设为已配置的、带 provider 前缀的模型名称。
-默认使用本地 memory，可以使用空目录；显式指定 ``--memory-profile hf``
-会在参数校验阶段报错。
-CLI 自动启动和清理自有环境服务。``--sim-python`` 可指定独立仿真解释器；
-``--env-endpoint`` 可连接已有服务，但任务、seed、相机和步数限制必须匹配。
-连接会重置固定 episode，因此应独占该服务。
-已有服务由其启动者负责关闭，runner 不会停止它；需要录制时，在启动服务时指定 ``--video-dir``：
+规划器可额外调用 ``wam_act(max_chunks=1)``，每次执行最多 ``max_chunks`` 个预测动作片段（上限 20）。``move_to`` 和 ``set_gripper`` 仍可使用。RPent 在启动环境服务前先检查 worker，Dashboard 中 worker 状态显示为 ``ENV`` 旁边的 ``WAM``。
 
-.. code-block:: bash
+worker 需要自行启动和关闭，并使用针对 MetaWorld 训练的模型；RPent 不附带这类模型，LIBERO 或 RoboTwin 的模型权重也不能直接接入。
 
-   python -m robots.metaworld.env_server --task drawer-open-v3 --seed 0 \
-     --port 18765 --video-dir ./runs/standalone/videos
+.. dropdown:: WAM worker 要求
 
-观测与控制
-----------
+   worker 需要实现 :doc:`../development/add_action_model` 中的 WAM 接口，并报告 embodiment ``metaworld_sawyer_4d`` 和动作空间 ``metaworld.cartesian.delta.v1``。它只能请求 ``primary`` 相机、``eef_position``\ （3 个值）和 ``gripper_opening``\ （1 个值）。
 
-``view_env_state`` 返回最近一次 480 x 480 RGB 图像、末端位置、
-夹爪开度、任务指令和仿真步数。
-共享工具 ``back_project`` 的相机名为 ``primary``。例如，传入选区
-``{"image_shape": [480, 480], "points_rc": [[240, 240]]}``，
-即可从 ``samples_xyz`` 按输入顺序读取表面世界坐标（米）。
-相机坐标轴为 x 向右、y 向上、z 向后。
-内参对应像素中心，RGB-D 使用单采样渲染并关闭多重采样抗锯齿，以保证几何对齐。
-越界像素、非正或非有限深度，以及远裁剪平面的背景像素会被拒绝。
-两种观测工具均不推进物理仿真，也不更新原生帧历史。
-即使后续动作的状态抓取失败，反投影仍使用已保存图像对应的深度与标定；
-继续操作前应查看该快照记录的步数。
+   每个请求包含 ``images.primary`` 下以左上角为原点的 RGB 图像、``state.eef_position`` 下以米为单位的末端世界坐标、``state.gripper_opening`` 下形状为 ``[1]`` 的归一化夹爪开度，以及任务指令。worker 返回有限的 ``[N, 4]`` 动作，取值在 ``[-1, 1]`` 内。前三维是按 0.01 米缩放的世界坐标 XYZ 增量，第四维是夹爪命令（+1 闭合，-1 张开）。控制频率为 80 Hz，手腕朝向固定。
 
-``move_to(target_xyz, gripper, max_steps=50)`` 根据当前末端位置闭环修正，
-使用 MetaWorld 原生的 0.01 米动作缩放。每次最多 100 步，
-返回是否到达、剩余距离和实际步数。手腕朝向固定。
-运动中的夹爪参数 +1 表示关闭，-1 表示打开；
-原地操作夹爪请使用 ``set_gripper(gripper, steps=10)``，每次最多 20 步。
-零步结束的 move_to 不会改变夹爪。
-动作不具备避障能力，并在 episode 结束时停止。到达一个位置不等于任务成功。
+   worker 不兼容时，在启动环境服务前报错；动作片段无效时，在执行任何一步前报错。取消操作或 episode 结束会停止后续动作。每次运行或每个 Dashboard 任务各自绑定一个 worker 会话，任务结束时释放。
 
-默认相机为 ``corner2``，``--camera`` 还可选择 ``corner``、
-``corner3``、``topview``、``behindGripper`` 和 ``gripperPOV``。
-默认 episode 上限为 500 步；到达步数上限或满足原生成功判定时结束。
-任务的原生容差可能大于动作原语的位置容差。
+故障排查
+--------
 
-结果与适用范围
---------------
+先查看输出目录中的 ``env_server.log``。
 
-``result.json`` 分别记录原生成功判定与 planner 的结束声明，
-同时保存 seed、相机、episode 和 planner 预算。
-``environment.json`` 保存仿真进程实际使用的依赖版本、原生步数限制、
-动作缩放、渲染配置和视频路径。即使使用 ``--sim-python``，这些信息也来自仿真解释器。
-
-``states.json`` 及 RGB、深度文件记录各工具调用结束后的状态。
-自有服务以原生控制频率流式写入 ``videos/episode_0000.mp4``，
-包含初始帧，以及每个已接受仿真步后的 RGB 帧。只读调用和被拒绝的动作不增加帧。
-重置会关闭上一个视频并使用新的编号文件名，不覆盖已有视频。
-视频帧直接写入编码器，不在 planner 内存中累计。
-Planner 不获得 reset 工具或原生专家策略。
-
-传给 planner 的观测只包含相机数据和机器人自身状态。
-MetaWorld 扁平观测中额外包含的物体、目标坐标不会被传出。
-当前运行是构造时固定 seed、``num_tasks=1`` 的单次 MT1 episode，
-不是 MT10/MT50 完整评测，也不代表其基准成功率。
-尚未实现探索模式和 Flash 回放。
-
-环境服务直接包装原生 MetaWorld。
-RLinf 现有包装器管理训练所需的向量化 worker，没有提供此处所需的标定深度和渲染接口。
-接入复用 RPent 的 Env RPC、主线程调度、进程生命周期、Toolkit 和产物管理；
-物理仿真、任务定义和成功判定仍由原生 MetaWorld 提供。
-
-验证
-----
-
-.. code-block:: bash
-
-   pytest tests/unit_tests/robots/metaworld -q
-   CUDA_VISIBLE_DEVICES=0 bash tests/e2e_tests/run_gpu_suite.sh \
-     metaworld /path/to/new-results /path/to/new-venvs
-
-干净 GPU 环境测试覆盖十个任务的 RGB-D、所有支持的相机、
-与真实倾斜平面渲染对照的像素中心反投影、只读观测不变量、非法及结束后动作的拒绝、
-真实且有步数上限的工具调用、finish 记录、重置前后的视频帧数和自有进程清理。
-该测试不调用远程 planner，也不要求任务成功。
-维护者可以通过 ``/ci-metaworld`` 请求同一套检查。
-
-外部动作模型
-------------
-
-在前面的运行命令中追加 ``--am-endpoint http://HOST:PORT``，即可连接兼容的
-WAM 服务并启用 ``wam_act(max_chunks=1)``。默认脚本工具仍可使用。
-工具包直接连接无状态服务。对于需要会话的服务，工具包会在连接时注册并重置本次运行的会话，在关闭时释放会话。
-
-服务须实现共享的 ``wam.*`` RPC 协议，并匹配
-``robots/metaworld/control.py`` 中的 ``METAWORLD_CONTROL``。
-输入包括左上原点 RGB（``images.primary``）、以米为单位的世界坐标
-``state.eef_position``、形状为 ``[1]`` 的归一化夹爪开度
-``state.gripper_opening`` 以及任务指令。
-输出为有限值 ``[N, 4]`` 动作，范围 ``[-1, 1]``：前三维是缩放系数为
-0.01 米的世界坐标 XYZ 增量，第四维为夹爪命令（+1 闭合，-1 张开）；
-控制频率为 80 Hz，手腕方向固定。
-
-控制协议不匹配、所需观测不可用或动作片段无效时，会在执行前报错。
-取消操作和 episode 结束都会停止后续动作；模型预测图像不会替代真实仿真观测。
-此接入不附带 MetaWorld 预训练模型或权重启动器，不能仅更换 endpoint 就使用
-LIBERO/RoboTwin 权重。模型适配方法见 :doc:`../development/add_action_model`。
-
-渲染设备选择
-------------
-
-使用 ``--cuda-device N`` 为自动启动的环境选择物理 CUDA 设备。
-共享映射函数会将 CUDA 序号转换为 EGL 设备索引，并保留已有的
-``MUJOCO_EGL_DEVICE_ID`` 设置。``MUJOCO_GL`` 默认为 ``egl``；
-显式设置的 ``osmesa`` 等后端会被保留，且不会触发 EGL 设备探测。
-借用的外部环境服务须由其启动者配置渲染设备。
+- **没有支持 EGL 的 GPU，环境服务无法启动。** 安装 OSMesa 库，并在运行 ``rpent`` 前执行 ``export MUJOCO_GL=osmesa``；RPent 会沿用你设置的后端。
+- **渲染用错了 GPU。** 用 ``--cuda-device 0`` 指定物理 GPU 序号。如果环境变量中已设置 ``MUJOCO_EGL_DEVICE_ID``，以它为准，``--cuda-device`` 不生效。
+- **使用** ``--env-endpoint`` **时连接失败。** 启动环境服务时使用与本次运行相同的 ``--task``、``--seed``、``--camera`` 和 ``--max-episode-steps``。
+- **使用** ``--am-endpoint`` **时，环境服务启动前就报错。** worker 在 30 秒内没有响应，或报告的 embodiment 或动作空间不匹配；见上方“WAM worker 要求”。
