@@ -1,0 +1,76 @@
+# Copyright 2026 The RPent Authors.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     https://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+"""Connect a compatible external WAM to MetaWorld's native controller."""
+
+import numpy as np
+
+from robots.metaworld.control import METAWORLD_CONTROL
+from robots.metaworld.observation import physical_observation
+from rpent.robots.components.am_client_base import BaseWAMClient
+
+
+class MetaWorldWAMClient(BaseWAMClient):
+    @classmethod
+    def connect(cls, endpoint: str) -> "MetaWorldWAMClient":
+        """Probe without a session; session-based workers require binding before metadata."""
+        from rpent.utils.rpc import RpcError, make_rpc_client, wait_for_ready
+
+        rpc = make_rpc_client(endpoint)
+        try:
+            wait_for_ready(rpc, timeout_s=30)
+            try:
+                model = cls(rpc)
+            except RpcError as exc:
+                if (
+                    exc.method != "wam.get_model_meta"
+                    or "requires a bound session" not in str(exc)
+                ):
+                    raise
+            else:
+                if not model.model_meta["uses_sessions"]:
+                    return model
+            rpc.close()
+            rpc = make_rpc_client(endpoint, enable_sessions=True)
+            wait_for_ready(rpc, timeout_s=30)
+            model = cls(rpc)
+            model.reset()
+            return model
+        except BaseException:
+            rpc.close()
+            raise
+
+    def __init__(self, client):
+        super().__init__(client)
+        self.validate_contract(METAWORLD_CONTROL)
+        if not set(self.model_meta["camera_roles"]) <= {"primary"}:
+            raise ValueError("MetaWorld provides only the primary camera")
+        available = {"eef_position": 3, "gripper_opening": 1}
+        if any(
+            available.get(k) != v for k, v in self.model_meta["state_schema"].items()
+        ):
+            raise ValueError("WAM requires unavailable MetaWorld state")
+        if self.model_meta.get("joint_target_history_shape"):
+            raise ValueError("MetaWorld does not provide joint target history")
+
+    def predict(self, obs):
+        request = {
+            **physical_observation(obs),
+            "embodiment": METAWORLD_CONTROL["embodiment"],
+            "action_space": METAWORLD_CONTROL["action_space"],
+        }
+        result = super().predict(request)
+        if np.any(np.abs(result["actions"]) > 1):
+            raise ValueError("MetaWorld WAM actions must be in [-1, 1]")
+        return result

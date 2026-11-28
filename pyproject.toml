@@ -74,6 +74,13 @@ Documentation = "https://rpent.readthedocs.io/en/latest/"
 "Bug Report" = "https://github.com/RLinf/RPent/issues"
 
 [project.optional-dependencies]
+metaworld = [
+    "metaworld==3.0.0",
+    # MetaWorld 3.0.0 assumes 11-element weld data; MuJoCo 3.17 uses 12.
+    "mujoco==3.14.0",
+    "packaging",
+    "imageio-ffmpeg",
+]
 test = [
     "coverage",
     "docutils",
@@ -284,6 +291,19 @@ conflicts = [
     [
         { extra = "robotwin" },
         { extra = "robodojo-sim" },
+    ],
+    # MetaWorld 3.0.0 requires MuJoCo 3.14.0; the LIBERO extras pin MuJoCo 3.3.0.
+    [
+        { extra = "metaworld" },
+        { extra = "libero" },
+    ],
+    [
+        { extra = "metaworld" },
+        { extra = "libero-pro" },
+    ],
+    [
+        { extra = "metaworld" },
+        { extra = "libero-plus" },
     ],
 ]
 

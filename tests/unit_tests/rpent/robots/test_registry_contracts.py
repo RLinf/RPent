@@ -35,6 +35,7 @@ EXPECTED_ROBOTS = (
     "efe",
     "franka",
     "libero",
+    "metaworld",
     "robocasa",
     "robodojo",
     "robolab",
@@ -46,6 +47,12 @@ EXPECTED_ROBOTS = (
 ROBOTS_WITHOUT_DASHBOARD = ("efe",)
 
 PROMPT_VARIABLES = {
+    "metaworld": {
+        "instruction": "Reach the visible goal",
+        "seed": 0,
+        "max_episode_steps": 500,
+        "memory_dir": "/memory",
+    },
     "yam": {
         "task_id": 1,
         "seed": 0,
