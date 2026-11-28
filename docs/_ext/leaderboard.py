@@ -21,6 +21,7 @@ from pathlib import Path
 
 from docutils import nodes
 from jinja2 import Environment, FileSystemLoader
+from leaderboard_ingest import LeaderboardValidationError, validate_data
 from sphinx.application import Sphinx
 from sphinx.errors import ExtensionError
 from sphinx.util.docutils import SphinxDirective
@@ -142,6 +143,10 @@ def load_data(path: Path = ASSETS / "results.json") -> dict:
                 raise ExtensionError(
                     f"Leaderboard: unknown derived result in {record_id}"
                 )
+    try:
+        validate_data(data)
+    except LeaderboardValidationError as error:
+        raise ExtensionError(str(error)) from error
     return data
 
 
