@@ -47,6 +47,7 @@ RPent 面向以下四类用户：
 
 ## 最新动态
 
+- [2026/11] 🔥 新增按组件隔离的环境安装与诊断工具 `./rpent-install.sh`（`rpent-install`），替代原有的 `pyproject.toml` extras。详见 [安装与迁移指南](https://rpent.readthedocs.io/zh-cn/latest/rst_source/get_started/installation.html)。
 - [2026/11] 🔥 修复 API 规划器性能较差的问题。搭配 DeepSeek V4.1 Flash，API 规划器在 RoboTwin C2R 上的成功率达到 **65.6%（164/250）**。详见 [排行榜](https://rpent.readthedocs.io/zh-cn/latest/rst_source/leaderboard/index.html)。
 - [2026/11] 🔥 RPent 支持通过 Harbor 运行 Embodied First Exam（EFE）任务，可使用 Skills 或任务原生动作。详见 [EFE 使用指南](https://rpent.readthedocs.io/zh-cn/latest/rst_source/simulators/efe.html)。
 - [2026/11] 🔥 新增[具身 RGB-D 工具包](https://rpent.readthedocs.io/zh-cn/latest/rst_source/toolkits/rgbd.html)，可从已记录的相机观测中读取三维坐标、分割物体并测量指定部位的尺寸。

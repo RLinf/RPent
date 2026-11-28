@@ -78,6 +78,27 @@ def test_documented_multi_component_and_variant_installs_resolve(catalog):
     assert sim_robodojo.overrides
 
 
+@pytest.mark.parametrize(
+    "targets",
+    [
+        ["model-molmo", "sim-robotwin"],
+        ["model-molmo", "model-lingbot"],
+        ["sim-robocasa", "sim-libero"],
+        ["sim-robocasa", "sim-libero_plus"],
+        ["robot-robocasa", "robot-libero"],
+        ["robot-robocasa", "robot-libero_plus"],
+    ],
+)
+def test_incompatible_simulator_and_model_pairs_conflict(catalog, targets):
+    core = read_core_dependencies(catalog.root)
+    planner = read_planner_dependencies(catalog.root)
+    resolution = resolve(
+        targets, catalog, core_dependencies=core, planner_dependencies=planner
+    )
+    assert not resolution.ok
+    assert any("env_conflicts" in err for err in resolution.errors)
+
+
 @pytest.mark.parametrize("kind", ["robot", "sim", "model", "tool"])
 def test_every_probe_names_modules_the_install_can_import(catalog, kind):
     for component in catalog.components.values():

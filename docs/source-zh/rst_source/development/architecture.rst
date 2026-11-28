@@ -53,7 +53,7 @@ RPent 将任务规划、工具执行和环境运行分开：规划器选择工�
 
 共享执行逻辑、接口和模型基类位于 ``rpent/``，各机器人的具体实现位于 ``robots/`` 下的独立包。可安装的共享仿真器、模型服务、工具和基础设施组件放在 ``components/``：每个组件各自独立成目录并包含 ``component.toml``，其中 ``components/infra/`` 下的基础设施组件仅提供清单、不含源码。
 
-``tests/tooling/layout.py`` 按 ``robots/`` → ``components/models/`` → ``components/sim/`` → ``rpent/`` 的依赖方向检查导入边界：
+``tests/tooling/layout.py`` 按 ``robots/`` → ``components/tools/`` → ``components/models/`` → ``components/sim/`` → ``rpent/`` 的依赖方向检查导入边界：
 
 - 核心 ``rpent/`` 按名称动态发现组件，不静态导入具体机器人、仿真器、模型或工具；唯一例外是 ``rpent/cli/flywheel.py`` 导入 ``components/tools``。
 - ``components/sim/`` 仅依赖 ``rpent/``；``components/models/`` 仅依赖 ``rpent/`` 与 ``components/sim/``；``components/tools/`` 仅依赖 ``rpent/`` 与 ``components/models/`` 中的模型 client。

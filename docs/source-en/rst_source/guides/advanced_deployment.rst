@@ -19,10 +19,13 @@ LIBERO Environment Service
 --------------------------
 
 One environment service is pinned to a suite, task, seed, and max episode
-steps; those values must match the RPent client exactly. On the env host:
+steps; those values must match the RPent client exactly. On the env host,
+install ``sim-libero`` in its own environment and start the service:
 
 .. code-block:: bash
 
+   ./rpent-install.sh install sim-libero --venv .venv-sim-libero
+   source .venv-sim-libero/bin/activate
    export LIBERO_TYPE=pro
    python -m components.sim.libero.env_server \
      --suite libero_object_swap --task 2 --seed 0 \
@@ -102,10 +105,13 @@ requires APXInf-compatible weights and does not convert raw RLinf
 SAM3 Service
 ------------
 
-On the SAM3 host, set the local checkpoint path and start the HTTP service:
+On the SAM3 host, install ``model-sam3`` in its own environment, set the local
+checkpoint path, and start the HTTP service:
 
 .. code-block:: bash
 
+   ./rpent-install.sh install model-sam3 --venv .venv-sam3
+   source .venv-sam3/bin/activate
    export SAM3_CHECKPOINT_PATH=/path/to/sam3/sam3.pt
    python -m components.models.sam3.server \
      --cuda-device 0 \

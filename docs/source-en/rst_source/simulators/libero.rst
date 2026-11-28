@@ -207,7 +207,7 @@ and SAM3 setup above. Pi0.5 weights are not needed for WAM. With Cosmos on port 
      --planner api --model <planner-model>
 
 Fast-WAM uses ``--am-backend fast-wam`` and its worker endpoint. For LIBERO-Pro,
-select a Pro suite and ``--libero-type pro`` in a Pro environment. WAM excludes
+select a Pro suite and ``--libero-type pro`` in the ``robot-libero`` environment. WAM excludes
 LIBERO-Plus, Flash and exploration. WAM uses a required local memory manager
 and file tools, with a backend-specific directory that may be empty.
 Use ``--memory-dir`` to select a compatible local corpus; HF memory is unsupported.

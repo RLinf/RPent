@@ -318,7 +318,9 @@ Manual Run (Debugging)
 
 Connect ``rpent`` directly to an already-running EFE task service to debug
 prompts or tool calls outside Harbor (this does not start a simulator or run
-the verifier):
+the verifier). For standalone host debugging outside ``$EFE_ROOT/.venv``, you
+can create a dedicated environment with
+``./rpent-install.sh install robot-efe --venv .venv-efe``:
 
 .. code-block:: bash
 

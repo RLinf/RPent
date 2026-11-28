@@ -88,6 +88,8 @@ range:
 
 .. code-block:: bash
 
+   git clone https://github.com/RLinf/RPent.git
+   cd RPent
    ./rpent-install.sh install robot-robocasa --venv .venv-robocasa
    source .venv-robocasa/bin/activate
 

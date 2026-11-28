@@ -40,9 +40,9 @@
    * - RoboDojo
      - ``./rpent-install.sh install robot-robodojo --venv .venv-robodojo``
      - 3.11 · :doc:`../simulators/robodojo`
-   * - EFE
+   * - EFE（宿主机调试）
      - ``./rpent-install.sh install robot-efe --venv .venv-efe``
-     - 3.12 · :doc:`../simulators/efe`
+     - 3.12 · :doc:`../simulators/efe`\ （Harbor Trial 使用 ``$EFE_ROOT/.venv``）
    * - 单臂 Franka
      - ``./rpent-install.sh install robot-franka --venv .venv-franka-real``
      - 3.12 · :doc:`../real_world_robots/franka`
@@ -148,10 +148,10 @@ PyPI 镜像与 CUDA PyTorch 后端
 
 .. dropdown:: 环境复用、叠加包与 Wheel 范围
 
-   - **默认路径：** 省略 ``--venv`` 时，环境创建在源码目录的 ``.rpent/venvs/<组件名以 + 连接>`` 下。
-   - **复用与叠加包：** 对相同组件集合重复执行 ``install`` 会在原环境中原地更新依赖。用户额外安装的包（如 ``modelscope``、``pre-commit`` 或可编辑安装的 RLinf）会被保留。需要彻底重建时传入 ``--force``；若重建失败，原有环境会被恢复。
-   - **外部管理的虚拟环境：** ``rpent-install`` 不会覆盖非空普通目录；对非本工具创建的已有虚拟环境，未传 ``--force`` 时也会拒绝写入。若环境由外部工具维护，只运行服务的主机（如 :doc:`../real_world_robots/yam` 中的推理机）请执行 ``uv pip install -e .``；还需运行 ``rpent`` CLI 的环境（如 :doc:`../simulators/efe` 中的 Harbor）请执行 ``uv pip install -e ".[planner]"``。
-   - **PyPI wheel 与源码目录：** ``pip install rpent`` 只包含核心运行时（``rpent[planner]`` 额外包含规划器适配器与 Dashboard），不含机器人集成与仿真/模型组件。运行机器人请在源码目录中通过 ``./rpent-install.sh`` 创建环境。
+   - **默认路径**：省略 ``--venv`` 时，环境创建在源码目录的 ``.rpent/venvs/<组件名以 + 连接>`` 下。
+   - **复用与叠加包**：对相同组件集合重复执行 ``install`` 会在原环境中原地更新依赖。用户额外安装的包（如 ``modelscope``、``pre-commit`` 或可编辑安装的 RLinf）会被保留。需要彻底重建时传入 ``--force``；若重建失败，原有环境会被恢复。
+   - **外部管理的虚拟环境**：``rpent-install`` 不会覆盖非空普通目录；对非本工具创建的已有虚拟环境，未传 ``--force`` 时也会拒绝写入。若环境由外部工具维护，只运行服务的主机（如 :doc:`../real_world_robots/yam` 中的推理机）请执行 ``uv pip install -e .``；还需运行 ``rpent`` CLI 的环境（如 :doc:`../simulators/efe` 中的 Harbor）请执行 ``uv pip install -e ".[planner]"``。
+   - **PyPI wheel 与源码目录**：``pip install rpent`` 只包含核心运行时（``rpent[planner]`` 额外包含规划器适配器与 Dashboard），不含机器人集成与仿真/模型组件。运行机器人请在源码目录中通过 ``./rpent-install.sh`` 创建环境。
 
 .. dropdown:: 开发者工具：查看与校验组件
 
@@ -202,7 +202,7 @@ PyPI 镜像与 CUDA PyTorch 后端
 配置路径后 LIBERO / LIBERO-PRO 仍报找不到资源
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-开启 ``UV_LINK_MODE=symlink`` 时，环境里的 ``rpent-liberopro`` 和 ``rpent-libero`` 只是指向只读 ``uv`` 缓存的软链接，运行时按相对路径找资产会落进缓存目录导致报错。可改用复制模式重建环境，或从 ``uv pip freeze`` 取出对应包的依赖行并单独以复制模式重装：
+开启 ``UV_LINK_MODE=symlink`` 时，环境里的 ``rpent-liberopro`` 和 ``rpent-libero`` 只是指向只读 ``uv`` 缓存的软链接，运行时按相对路径找资源会落进缓存目录导致报错。可改用复制模式重建环境，或从 ``uv pip freeze`` 取出对应包的依赖行并单独以复制模式重装：
 
 .. code-block:: bash
 
@@ -215,9 +215,9 @@ PyPI 镜像与 CUDA PyTorch 后端
 安装很慢、拉取 GitHub 卡住或并发锁超时
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-- **共用缓存变慢：** 多人或多任务共享同一个 ``uv`` 缓存目录时，请保持使用同一个 PyPI 镜像源；随意切换镜像源会错失缓存，重新下载大体积依赖包。
-- **并发安装超时：** 同一个 Python 版本的多个安装任务同时写入共享缓存容易抢锁超时，建议顺序安装，并适当调大 ``UV_LOCK_TIMEOUT``\ （如 ``UV_LOCK_TIMEOUT=1200``）。
-- **拉取 GitHub 很慢：** 可在安装命令前通过 Git 临时环境变量走镜像加速，无需修改宿主机全局配置。``<镜像前缀>`` 需包含 ``https://`` 且不要带末尾斜杠（例如 ``https://gh-proxy.com``；带末尾斜杠会拼出失效的 ``//https://github.com/``）：
+- **共用缓存变慢**：多人或多任务共享同一个 ``uv`` 缓存目录时，请保持使用同一个 PyPI 镜像源；随意切换镜像源会错失缓存，重新下载大体积依赖包。
+- **并发安装超时**：同一个 Python 版本的多个安装任务同时写入共享缓存容易抢锁超时，建议顺序安装，并适当调大 ``UV_LOCK_TIMEOUT``\ （如 ``UV_LOCK_TIMEOUT=1200``）。
+- **拉取 GitHub 很慢**：可在安装命令前通过 Git 临时环境变量走镜像加速，无需修改宿主机全局配置。``<镜像前缀>`` 需包含 ``https://`` 且不要带末尾斜杠（例如 ``https://gh-proxy.com``；带末尾斜杠会拼出失效的 ``//https://github.com/``）：
 
   .. code-block:: bash
 

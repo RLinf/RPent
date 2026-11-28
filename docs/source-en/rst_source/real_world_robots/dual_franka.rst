@@ -21,13 +21,16 @@ arms, local SAM3, and their dependencies:
 
 .. code-block:: bash
 
+   git clone https://github.com/RLinf/RPent.git
+   cd RPent
    ./rpent-install.sh install robot-dual_franka \
      --venv .venv-dual-franka-real
    source .venv-dual-franka-real/bin/activate
 
 If Python package downloads are slow, set the
 `Tsinghua PyPI mirror <https://mirrors.tuna.tsinghua.edu.cn/help/pypi/>`_
-before running that install command:
+before running that install command (see :doc:`../get_started/installation` for
+other mirror and CUDA backend options):
 
 .. code-block:: bash
 

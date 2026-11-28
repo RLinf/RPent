@@ -53,11 +53,7 @@ pre-commit install
 # ./rpent-install.sh install robot-robotwin infra-dev --venv .venv-robotwin-dev
 ```
 
-以上 robot 命令是不同选择；只安装当前改动涉及的机器人。运行该机器人的代码或
-测试前，先用 `source .venv-<robot>-dev/bin/activate` 激活对应环境，它会替代
-`.venv-dev`。`-dev` 后缀把它与安装指南中同名机器人的环境区分开：两者包含的
-组件不同，`rpent-install` 不会把其中一套装进另一套的目录。各环境的具体配置见
-[安装指南](docs/source-zh/rst_source/get_started/installation.rst)。
+以上三条机器人安装命令按需任选其一，只安装当前改动涉及的机器人。运行该机器人的代码或测试前，先用 `source .venv-<robot>-dev/bin/activate` 激活对应环境，它会替代 `.venv-dev`。`-dev` 后缀把它与安装指南中同名机器人的环境区分开：两者包含的组件不同，`rpent-install` 不会把其中一套装进另一套的目录。各环境的具体配置见[安装指南](docs/source-zh/rst_source/get_started/installation.rst)。
 
 ### 第 3 步：开发
 
@@ -72,11 +68,7 @@ pre-commit install
   `import rpent`、robot 发现和 CLI help 仍然可用。集成专用依赖应写进该组件
   自己的 `dependencies`。
 - **保持已有接口和行为兼容。** 修改 API、命令行参数、配置或保存数据的格式时，检查已有调用和数据是否仍可使用。即使参数名称和类型不变，也要检查其含义、默认值和执行行为是否改变。确需改变现有用法时，说明影响和调整方式，并更新相关调用、测试和文档。
-- **改动应配套测试。** 新行为和 bug 修复应包含测试。refactor 应保持已有测试通过；
-  如果行为发生变化，请同步更新测试并说明原因。单测必须能在普通 CPU 机器上离线
-  跑通；需要模型或服务输出时使用 fake。安装器单测放在
-  `tests/unit_tests/rpent/install/`，使用合成清单；针对仓库内 `component.toml`、
-  组件清单和依赖清单的跨文件契约放在 `tests/unit_tests/installs/`。仓库结构与导入边界检查放在 `tests/tooling/`，对应单测放在 `tests/unit_tests/tooling/`。
+- **改动应配套测试。** 新行为和 bug 修复应包含测试。refactor 应保持已有测试通过；如果行为发生变化，请同步更新测试并说明原因。单测必须能在普通 CPU 机器上离线跑通；需要模型或服务输出时使用 fake。安装器单测放在 `tests/unit_tests/rpent/install/`，使用合成清单；针对仓库内 `component.toml` 及组件依赖的跨文件契约放在 `tests/unit_tests/installs/`。仓库结构与导入边界检查放在 `tests/tooling/`，对应单测放在 `tests/unit_tests/tooling/`。
 - **遵循项目代码风格。** pre-commit 负责 Ruff 格式化和 lint。公共 Python API 应有
   类型标注和 Google 风格 docstring，运行时信息应使用项目 logger，而不是 `print`。
 

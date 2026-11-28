@@ -16,10 +16,12 @@ worker.
 Install
 -------
 
-Install ``robot-franka`` into its own environment:
+Install ``robot-franka`` into its own environment from the RPent repository root:
 
 .. code-block:: bash
 
+   git clone https://github.com/RLinf/RPent.git
+   cd RPent
    ./rpent-install.sh install robot-franka --venv .venv-franka-real
    source .venv-franka-real/bin/activate
 

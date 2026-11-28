@@ -64,7 +64,7 @@ self-contained directory with a ``component.toml`` manifest, and components
 under ``components/infra/`` provide only that manifest without source code.
 
 Import boundaries are enforced by ``tests/tooling/layout.py`` along the layer
-order ``robots/`` → ``components/models/`` → ``components/sim/`` → ``rpent/``:
+order ``robots/`` → ``components/tools/`` → ``components/models/`` → ``components/sim/`` → ``rpent/``:
 
 - Core ``rpent/`` discovers components dynamically and never imports concrete
   robots, simulators, models, or tools statically; the only exception is

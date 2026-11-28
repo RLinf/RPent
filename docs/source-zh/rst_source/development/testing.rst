@@ -141,8 +141,9 @@ GitHub 在每次推送和 PR 时自动运行 CPU 单元测试，并在日志中�
 
 套件失败时，可在 ``/path/to/new-output-dir`` 下查看各套件的 JUnit XML 报告、每个用例目录内的 ``env_server.log`` / 模型服务日志，以及 ``*-daemon-cleanup.txt`` 进程清理记录。
 
-在已安装机器人环境且安装了 ``infra-dev``\ （提供 ``pytest`` 及测试依赖）的机器上，可用 pytest 的 ``-k`` 过滤表达式（如 ``pi05``、``rldx``）直接调试单个套件或用例：
+在同时安装了目标机器人与 ``infra-dev``\ （提供 ``pytest`` 及测试依赖，如 ``./rpent-install.sh install robot-libero infra-dev --venv .venv-libero-dev``）的同一个虚拟环境中，设置好 GPU 与 EGL 环境变量（资源不在默认 ``/mnt/public/rpent_shared`` 时另设 ``RPENT_SHARED_ROOT``）后，可用 pytest 的 ``-k`` 过滤表达式（如 ``pi05``、``rldx``）直接调试单个套件或用例：
 
 .. code-block:: bash
 
-   RPENT_E2E_SUITE=<target> pytest tests/e2e_tests/test_suites.py -v -k <expression>
+   CUDA_VISIBLE_DEVICES=0 MUJOCO_GL=egl PYOPENGL_PLATFORM=egl \
+     RPENT_E2E_SUITE=<target> pytest tests/e2e_tests/test_suites.py -v -k <expression>

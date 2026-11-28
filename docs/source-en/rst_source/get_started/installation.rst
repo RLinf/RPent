@@ -46,9 +46,9 @@ platform's guide for extra system prerequisites or asset downloads.
    * - RoboDojo
      - ``./rpent-install.sh install robot-robodojo --venv .venv-robodojo``
      - 3.11 · :doc:`../simulators/robodojo`
-   * - EFE
+   * - EFE (host debug)
      - ``./rpent-install.sh install robot-efe --venv .venv-efe``
-     - 3.12 · :doc:`../simulators/efe`
+     - 3.12 · :doc:`../simulators/efe` (Harbor trials use ``$EFE_ROOT/.venv``)
    * - Single-Arm Franka
      - ``./rpent-install.sh install robot-franka --venv .venv-franka-real``
      - 3.12 · :doc:`../real_world_robots/franka`

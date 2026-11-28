@@ -47,6 +47,7 @@ RPent is built for four kinds of users:
 
 ## What's NEW!
 
+- [2026/11] 🔥 Replaced per-robot `pyproject.toml` extras with per-component environment installation and diagnostics via `./rpent-install.sh` (`rpent-install`). See the [installation & migration guide](https://rpent.readthedocs.io/en/latest/rst_source/get_started/installation.html).
 - [2026/11] 🔥 Fixed an issue that caused the API planner to underperform. With DeepSeek V4.1 Flash, the API planner achieved a success rate of **65.6% (164/250)** on RoboTwin C2R. See the [Leaderboard](https://rpent.readthedocs.io/en/latest/rst_source/leaderboard/index.html).
 - [2026/11] 🔥 RPent supports Embodied First Exam (EFE) tasks through Harbor, with Skills or the task's native actions. See the [EFE guide](https://rpent.readthedocs.io/en/latest/rst_source/simulators/efe.html).
 - [2026/11] 🔥 Added an [embodied RGB-D toolkit](https://rpent.readthedocs.io/en/latest/rst_source/toolkits/rgbd.html) for reading 3D coordinates, segmenting objects, and measuring object parts from recorded camera views.

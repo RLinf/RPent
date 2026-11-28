@@ -17,12 +17,14 @@ RPent 通过 RLinf ``RealWorldEnv`` worker 控制双节点双臂 Franka 系统�
 
 .. code-block:: bash
 
+   git clone https://github.com/RLinf/RPent.git
+   cd RPent
    ./rpent-install.sh install robot-dual_franka \
      --venv .venv-dual-franka-real
    source .venv-dual-franka-real/bin/activate
 
 
-下载 Python 依赖较慢时，可在执行该安装命令前设置 `清华 PyPI 镜像 <https://mirrors.tuna.tsinghua.edu.cn/help/pypi/>`_：
+下载 Python 依赖较慢时，可在执行该安装命令前设置 `清华 PyPI 镜像 <https://mirrors.tuna.tsinghua.edu.cn/help/pypi/>`_\ （其他镜像与 CUDA 后端选项见 :doc:`../get_started/installation`）：
 
 .. code-block:: bash
 

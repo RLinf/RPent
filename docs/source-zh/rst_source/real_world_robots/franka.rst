@@ -15,10 +15,12 @@ RPent 可以通过 RLinf 的 ``RealWorldEnv`` worker 控制单台 Franka 机械�
 安装
 ----
 
-把 ``robot-franka`` 安装到独立环境：
+在 RPent 仓库根目录把 ``robot-franka`` 安装到独立环境：
 
 .. code-block:: bash
 
+   git clone https://github.com/RLinf/RPent.git
+   cd RPent
    ./rpent-install.sh install robot-franka --venv .venv-franka-real
    source .venv-franka-real/bin/activate
 

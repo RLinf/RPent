@@ -85,6 +85,8 @@ to run the RLinf installer or clone RoboTwin separately:
 
 .. code-block:: bash
 
+   git clone https://github.com/RLinf/RPent.git
+   cd RPent
    ./rpent-install.sh install robot-robotwin --venv .venv-robotwin
    source .venv-robotwin/bin/activate
 

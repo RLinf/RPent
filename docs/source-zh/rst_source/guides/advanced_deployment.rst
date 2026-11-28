@@ -10,10 +10,12 @@ Dashboard Session 不支持 ``--env-endpoint``，因为每个 TaskRun 都需要�
 LIBERO 环境服务
 ---------------
 
-一个环境服务固定对应一组 suite、task、seed 和最大 episode 步数，这些参数必须与 RPent 客户端完全一致。在环境主机上运行：
+一个环境服务固定对应一组 suite、task、seed 和最大 episode 步数，这些参数必须与 RPent 客户端完全一致。在环境主机上安装 ``sim-libero`` 并启动服务：
 
 .. code-block:: bash
 
+   ./rpent-install.sh install sim-libero --venv .venv-sim-libero
+   source .venv-sim-libero/bin/activate
    export LIBERO_TYPE=pro
    python -m components.sim.libero.env_server \
      --suite libero_object_swap --task 2 --seed 0 \
@@ -75,10 +77,12 @@ APXInf-robo 原生的 OpenPI WebSocket 服务不是 RPent RPC endpoint，请使�
 SAM3 服务
 ---------
 
-在 SAM3 主机上设置本地 checkpoint 路径并启动 HTTP 服务：
+在 SAM3 主机上安装 ``model-sam3``，设置本地 checkpoint 路径并启动 HTTP 服务：
 
 .. code-block:: bash
 
+   ./rpent-install.sh install model-sam3 --venv .venv-sam3
+   source .venv-sam3/bin/activate
    export SAM3_CHECKPOINT_PATH=/path/to/sam3/sam3.pt
    python -m components.models.sam3.server \
      --cuda-device 0 \

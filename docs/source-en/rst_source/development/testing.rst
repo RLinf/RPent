@@ -158,10 +158,14 @@ On a host with a dedicated NVIDIA GPU, EGL, and the target's assets and checkpoi
 
 When a suite fails, inspect ``/path/to/new-output-dir`` for the per-suite JUnit XML report, ``env_server.log`` / model-server logs inside each case subdirectory, and ``*-daemon-cleanup.txt`` for leftover-process diagnostics.
 
-In an already-installed robot environment that also has ``infra-dev`` installed
-(for ``pytest`` and test helpers), run a single suite or case directly with a
-pytest ``-k`` filter (for example ``pi05`` or ``rldx``):
+In an already-installed virtual environment that includes both the target robot
+and ``infra-dev`` (for ``pytest`` and test helpers, for example
+``./rpent-install.sh install robot-libero infra-dev --venv .venv-libero-dev``),
+set the GPU and EGL environment variables (plus ``RPENT_SHARED_ROOT`` if assets
+live outside ``/mnt/public/rpent_shared``) and run a single suite or case
+directly with a pytest ``-k`` filter (for example ``pi05`` or ``rldx``):
 
 .. code-block:: bash
 
-   RPENT_E2E_SUITE=<target> pytest tests/e2e_tests/test_suites.py -v -k <expression>
+   CUDA_VISIBLE_DEVICES=0 MUJOCO_GL=egl PYOPENGL_PLATFORM=egl \
+     RPENT_E2E_SUITE=<target> pytest tests/e2e_tests/test_suites.py -v -k <expression>

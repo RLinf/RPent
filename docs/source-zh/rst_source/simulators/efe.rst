@@ -311,7 +311,7 @@ IK 技能（**Skills**）：
 ----------------
 
 不经过 Harbor 时，可直接用 ``rpent`` 连接已启动的 EFE 任务服务以调试 Prompt 或\
-工具调用（该命令不会启动仿真器，也不运行评分程序）：
+工具调用（该命令不会启动仿真器，也不运行评分程序）。若需在 ``$EFE_ROOT/.venv`` 之外创建独立的宿主机调试环境，可执行 ``./rpent-install.sh install robot-efe --venv .venv-efe``：
 
 .. code-block:: bash
 

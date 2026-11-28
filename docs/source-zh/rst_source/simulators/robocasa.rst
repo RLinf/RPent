@@ -85,6 +85,8 @@ Target50 包含以下任务类别，完整任务、seed 和运行限制见本页
 
 .. code-block:: bash
 
+   git clone https://github.com/RLinf/RPent.git
+   cd RPent
    ./rpent-install.sh install robot-robocasa --venv .venv-robocasa
    source .venv-robocasa/bin/activate
 
