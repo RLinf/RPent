@@ -5,9 +5,27 @@
 # You may obtain a copy of the License at
 #
 #     https://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 
 """YAM real-robot extension."""
 
-from robots.yam.robot_spec import get_robot_spec, get_toolkit
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from robots.yam.robot_spec import get_robot_spec, get_toolkit
 
 __all__ = ["get_robot_spec", "get_toolkit"]
+
+
+def __getattr__(name: str) -> Any:
+    """Load runtime factories only when requested, keeping control imports light."""
+    if name in __all__:
+        from robots.yam import robot_spec
+
+        return getattr(robot_spec, name)
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

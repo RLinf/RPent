@@ -47,7 +47,7 @@ These options control the planner, memory, output directory, and Dashboard.
        but can also increase task duration.
    * - ``--planner-timeout-s``
      - ``—``
-     - An explicit timeout value in seconds takes precedence. Otherwise, defaults are resolved in priority order; see the code for that order.
+     - Wall-clock timeout in seconds for online planner runs (interactive API/Claude terminal sessions are exempt). Defaults to ``CODEX_TIMEOUT_S`` (``codex`` only), ``GEMINI_CLI_TIMEOUT_S`` (``gemini_cli`` only), ``CELL_TIMEOUT_S``, or ``1200``.
    * - ``--codex-sandbox``
      - ``full-access``
      - Codex shell sandbox: ``read-only``, ``workspace-write``, or ``full-access``. Other planners ignore this flag.
@@ -103,7 +103,7 @@ These options control the planner, memory, output directory, and Dashboard.
 Environment Options
 -------------------
 
-LIBERO selects tasks with ``--suite``, ``--task``, ``--seed``, and ``--libero-type``; the variant defaults to ``LIBERO_TYPE`` or ``pro``. RoboCasa365 and RoboTwin use ``--task-name``. Franka uses ``--task-id`` and ``--robot-config``. See :doc:`../simulators/libero`, :doc:`../simulators/robocasa`, :doc:`../simulators/robotwin`, :doc:`../real_world_robots/franka`, and :doc:`../real_world_robots/dual_franka` for details.
+LIBERO selects tasks with ``--suite``, ``--task``, ``--seed``, and ``--libero-type``; when omitted, the variant uses ``LIBERO_TYPE`` if set, otherwise infers ``standard`` for base suites and ``pro`` for perturbation suites. RoboCasa365 and RoboTwin use ``--task-name``. Franka uses ``--task-id`` and ``--robot-config``. See :doc:`../simulators/libero`, :doc:`../simulators/robocasa`, :doc:`../simulators/robotwin`, :doc:`../real_world_robots/franka`, and :doc:`../real_world_robots/dual_franka` for details.
 
 ``--env-endpoint``, ``--am-endpoint``, and LIBERO’s ``--sam3-endpoint`` connect to existing environment, action-model (VLA or WAM), and SAM3 services respectively. RPent RPC addresses use ``[protocol://]host:port``, defaulting to ``http``. LingBot uses native WebSocket; see :doc:`../simulators/robotwin`. See :doc:`advanced_deployment` for GPU assignment and remote services.
 
@@ -233,7 +233,7 @@ Set the credentials and endpoint for your chosen planner in the launch shell.
      - ``CODEX_API_KEY``
      - ``CODEX_BASE_URL``
 
-See :doc:`configure_planner` for model selection, endpoint precedence, and local server examples. Use ``rpent-check-llm`` for connectivity checks and ``rpent-memory`` for the operations in :doc:`memory`.
+See :doc:`configure_planner` for model selection, endpoint precedence, and local server examples. Use ``rpent-install`` (or ``./rpent-install.sh`` from a fresh checkout) to create and diagnose component environments (see :doc:`../get_started/installation`), ``rpent-check-llm`` for connectivity checks, and ``rpent-memory`` for the operations in :doc:`memory`.
 
 Each environment reads its own resource variables, including LIBERO’s ``PI05_CHECKPOINT_PATH`` and ``SAM3_CHECKPOINT_PATH``, RoboCasa365’s ``ROBOCASA_ASSETS_PATH``, and RoboTwin’s ``ROBOTWIN_ASSETS_PATH`` and ``LINGBOT_MODEL_PATH``.
 

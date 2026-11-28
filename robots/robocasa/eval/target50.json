@@ -9,15 +9,15 @@
   "dependencies": {
     "robocasa": {
       "repository": "https://github.com/RLinf/robocasa",
-      "branch": "rpent"
+      "branch": "rpent_v0.2"
     },
     "rldx": {
       "repository": "https://github.com/RLinf/RLDX-1",
-      "branch": "rpent"
+      "branch": "rpent_v0.2"
     },
     "robosuite": {
       "repository": "https://github.com/RLinf/robosuite",
-      "branch": "rpent"
+      "branch": "rpent_v0.2"
     },
     "rldx_checkpoint": {
       "repository": "RLWRLD/RLDX-1-FT-RC365",

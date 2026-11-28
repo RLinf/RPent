@@ -1,0 +1,18 @@
+schema = 2
+name = "sim-robodojo"
+probe = "components.sim.robodojo"
+python = ">=3.11,<3.12"
+# Isaac Sim 5.1 wheels are published for glibc 2.35 and newer.
+manylinux = "2_35"
+# RoboDojo runs on its own RLinf fork, so it cannot share an environment with
+# infra-rlinf or the MuJoCo-based simulators.
+env_conflicts = ["infra-rlinf", "sim-libero", "sim-robotwin"]
+extra-index-urls = ["https://pypi.nvidia.com"]
+overrides = ["requirements/robodojo-override.txt"]
+
+dependencies = [
+  "rlinf @ git+https://github.com/littleZ05/RLinf.git@rpent/robodojo",
+  "rlinf-robodojo-runtime @ git+https://github.com/RLinf/RoboDojo.git@rpent_v0.2",
+  "pyarrow>=21.0.0,<26.0.0",
+  "scipy",
+]

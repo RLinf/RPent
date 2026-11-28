@@ -1,0 +1,15 @@
+component = "robot-robocasa"
+env = { ROBOCASA_ASSETS_PATH = "assets/robocasa-kitchen", RLDX_CHECKPOINT_PATH = "models/RLDX-1-FT-RC365" }
+
+[[cases]]
+name = "rldx"
+models = ["model-rldx"]
+args = [
+  "--task-name", "OpenDrawer", "--split", "target", "--seed", "0",
+  "--am-checkpoint", "{env:RLDX_CHECKPOINT_PATH}",
+  "--env-cuda-device", "{gpu}", "--vla-cuda-device", "{gpu}",
+]
+action_tool = "rldx_skill"
+action_count_field = "steps_applied"
+skip_tools = ["reset"]
+tool_args = { rldx_skill = { max_chunks = 1, prompt = "open the drawer" } }

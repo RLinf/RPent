@@ -1,0 +1,20 @@
+schema = 2
+name = "sim-libero"
+probe = "components.sim.libero"
+python = ">=3.10,<3.13"
+# LIBERO-PRO is the supported benchmark; the plain LIBERO packages
+# provide the task suites it builds on.
+# MuJoCo 3.4+ changes LIBERO settling, misplacing objects and reducing
+# task success; see https://github.com/RLinf/RLinf/issues/1460.
+requires = ["infra-rlinf"]
+# The robot slices already refuse to share an environment; the simulator stack
+# is what cannot. RoboTwin ships incompatible MuJoCo/Torch builds and RoboDojo
+# brings Isaac Sim, so naming two simulators conflicts even when no slice is
+# named. LIBERO-plus replaces these packages, so it cannot sit alongside them.
+env_conflicts = ["sim-robotwin", "sim-robodojo", "sim-libero_plus"]
+
+dependencies = [
+  "rpent-libero @ git+https://github.com/RLinf/LIBERO.git@rpent",
+  "rpent-liberopro @ git+https://github.com/RLinf/LIBERO-PRO.git@rpent",
+  "mujoco==3.3.0",
+]

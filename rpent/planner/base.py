@@ -28,8 +28,6 @@ from urllib.parse import unquote, urlsplit, urlunsplit
 
 from rpent.dashboard.events import DashboardEventSink
 from rpent.dashboard.interaction import DashboardInteractionPort
-from rpent.tools.base import ToolResult
-from rpent.tools.toolkit import Toolkit
 from rpent.utils.config import (
     get_memory_dir,
     get_repo_root,
@@ -37,6 +35,12 @@ from rpent.utils.config import (
 
 if TYPE_CHECKING:
     from pydantic_ai.models import Model
+
+    # These are contracts for the planner's own interfaces, not imports it
+    # executes; keeping them here lets the CLI read this module's constants
+    # without the planner packages installed.
+    from rpent.tools.base import ToolResult
+    from rpent.tools.toolkit import Toolkit
 
 #: MCP namespace prefix for RPent tools (``mcp__<server>__<tool>``).
 #: Toolkits expose plain tool names; planners add/strip this prefix.

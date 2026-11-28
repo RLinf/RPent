@@ -80,38 +80,31 @@ Installation
 
 RoboTwin requires Python 3.11. The host must already provide a compatible
 CUDA toolkit/NVCC, a compiler toolchain, and the system GL/EGL/Vulkan
-libraries that SAPIEN depends on. Create an environment and install the
-RoboTwin dependency set:
+libraries that SAPIEN depends on. Install ``robot-robotwin``; you do not need
+to run the RLinf installer or clone RoboTwin separately:
 
 .. code-block:: bash
 
    git clone https://github.com/RLinf/RPent.git
    cd RPent
-   uv venv --python 3.11 .venv-robotwin
+   ./rpent-install.sh install robot-robotwin --venv .venv-robotwin
    source .venv-robotwin/bin/activate
-   uv pip install -e ".[robotwin]"
 
-You do not need to run the RLinf installer or clone RoboTwin separately.
-
-For networks closer to Chinese mirrors:
+For networks closer to Chinese PyPI mirrors, pass ``--index-url`` (see
+:doc:`../get_started/installation` for mirror and CUDA backend options):
 
 .. code-block:: bash
 
-   uv pip install -e ".[robotwin]" \
-      --default-index https://mirrors.aliyun.com/pypi/simple \
-      --index https://pypi.tuna.tsinghua.edu.cn/simple
+   ./rpent-install.sh install robot-robotwin --venv .venv-robotwin \
+     --index-url https://mirrors.aliyun.com/pypi/simple
 
 .. note::
 
-   ``.[robotwin]`` uses SAPIEN 3.0.0b1. Other versions can change simulator
-   observations and reduce model performance.
-
-.. note::
-
-   The RoboTwin and LingBot runtimes in ``.[robotwin]`` are installed from
-   released PyPI packages. cuRobo is still built from a GitHub official tag,
-   so the installation needs access to GitHub even when a PyPI mirror is
-   configured.
+   - ``sim-robotwin`` pins SAPIEN 3.0.0b1; other versions can change simulator
+     observations and reduce model performance.
+   - The RoboTwin and LingBot runtimes come from PyPI, but cuRobo is still
+     built from a GitHub tag, so installation requires GitHub access even with
+     a PyPI mirror.
 
 Download Assets
 ---------------
@@ -156,7 +149,9 @@ RoboTwin evaluation, exploration and memory configuration.
 In a separate Python 3.11 model environment, install the policy dependencies
 following the official
 `UniWAM RoboTwin deployment guide <https://github.com/UniWAM/UniWAM/tree/8dcd3401bccda8c002fc558e356b975b1789eecd/inference/robotwin/uniwam>`_,
-then install RPent with ``pip install -e /path/to/RPent``.
+then install RPent with ``pip install -e /path/to/RPent``. That environment
+belongs to the UniWAM deployment rather than to an ``rpent-install`` component,
+so ``rpent-install doctor`` does not cover it.
 A verified dependency combination is Torch 2.6.0+cu124, torchvision 0.21.0+cu124,
 FlashAttention 2.7.4.post1, Transformers 4.57.3, Diffusers 0.35.1,
 DeepSpeed 0.16.9 and NumPy 1.26.4.
@@ -199,7 +194,7 @@ To reuse the model across tasks, start a standalone worker in the model environm
 
 .. code-block:: bash
 
-   python -m rpent.robots.components.uniwam.server \
+   python -m components.models.uniwam.server \
       --checkpoint /path/to/uniwam --port 8118
 
 For task runs, replace ``--am-checkpoint`` and ``--am-python`` with
@@ -251,7 +246,7 @@ the complete option list.
    ``--seed`` is the exact RoboTwin scene seed. For the standard
    ``demo_randomized`` evaluation, use one of the five validated seeds for the
    selected task in the `RoboTwin evaluation suite
-   <https://github.com/RLinf/RPent/blob/main/robots/robotwin/eval/demo_randomized.json>`_.
+   <https://github.com/RLinf/RPent/blob/main/components/sim/robotwin/eval/demo_randomized.json>`_.
 
    The suite was filtered with RoboTwin expert execution: seeds that could not
    be initialized stably or did not pass the expert rollout were skipped.
@@ -381,7 +376,7 @@ This run produced 156 successes, 58 task failures, and 36 episode timeouts.
 
 The evaluation covers 50 RoboTwin tasks and runs five episodes per task, for a
 total of 250 episodes. For each task, use the five official verified expert
-seeds listed in ``robots/robotwin/eval/demo_randomized.json``. Because the
+seeds listed in ``components/sim/robotwin/eval/demo_randomized.json``. Because the
 solvable seeds can differ across tasks, select each task's corresponding seeds
 from that file rather than applying one fixed seed list to every task.
 For a listed task/seed pair, RPent also binds the table's ``task_language``

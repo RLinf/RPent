@@ -1,0 +1,15 @@
+schema = 2
+name = "robot-robolab"
+probe = "robots.robolab"
+planner = true
+# Both environments run Python 3.11: Isaac Sim 5.0 and Isaac Lab 2.2 support
+# that minor, and the policy environment is validated on the same one.
+python = ">=3.11,<3.12"
+# RoboLab runs on the RLinf runtime and talks to the Pi0.5 policy. OpenPI
+# uses NumPy 1.x, and PyArrow 26 requires NumPy 2 at import time.
+requires = ["infra-rlinf", "model-openpi"]
+env_conflicts = ["robot-robotwin", "model-molmo", "robot-robodojo", "sim-robodojo"]
+
+dependencies = [
+  "pyarrow<26",
+]

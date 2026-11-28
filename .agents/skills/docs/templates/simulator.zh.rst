@@ -75,13 +75,12 @@
 安装与资源准备
 --------------
 
-创建独立 Python 环境并安装 ``<extra>`` 依赖组：
+在独立虚拟环境中安装 ``robot-<name>`` 组件：
 
 .. code-block:: bash
 
-   uv venv --python 3.11
-   source .venv/bin/activate
-   uv pip install -e ".[<extra>]"
+   ./rpent-install.sh install robot-<name> --venv .venv-<name>
+   source .venv-<name>/bin/activate
 
 下载所需的仿真资源和动作模型权重：
 

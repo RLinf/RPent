@@ -22,9 +22,9 @@ from types import ModuleType, SimpleNamespace
 import numpy as np
 import pytest
 
-from robots.robodojo.access import ARX_X5_JOINT_FIELDS, CAMERAS
+from components.sim.robodojo.access import ARX_X5_JOINT_FIELDS, CAMERAS
+from components.sim.robodojo.env_facade import RoboDojoEnvFacade
 from robots.robodojo.env_client import RoboDojoEnvClient
-from robots.robodojo.env_facade import RoboDojoEnvFacade
 
 
 @pytest.fixture
@@ -44,19 +44,20 @@ def agent_module(monkeypatch):
 
         stub.RoboDojoEnv = RoboDojoEnv
         monkeypatch.setitem(sys.modules, name, stub)
-    monkeypatch.delitem(sys.modules, "robots.robodojo.rlinf_env", raising=False)
-    module = importlib.import_module("robots.robodojo.rlinf_env")
+    monkeypatch.delitem(sys.modules, "components.sim.robodojo.rlinf_env", raising=False)
+    module = importlib.import_module("components.sim.robodojo.rlinf_env")
     yield module
-    sys.modules.pop("robots.robodojo.rlinf_env", None)
+    sys.modules.pop("components.sim.robodojo.rlinf_env", None)
 
 
 @pytest.fixture
 def make_agent(agent_module):
-    def create(native, *, meta=None, slot=None, recorder=None):
+    def create(native, *, meta=None, slot=None, recorder=None, fresh_reset=False):
         agent = object.__new__(agent_module.RoboDojoAgentEnv)
         agent.meta = meta or {}
         agent.eval_fair = agent.meta.get("mode") == "eval-fair"
         agent._closed = False
+        agent._fresh_reset = fresh_reset
         agent.recorder = recorder or SimpleNamespace(
             record=lambda obs: None, close=lambda: []
         )

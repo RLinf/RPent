@@ -38,7 +38,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import route  # noqa: E402
 
 HEADER = re.compile(r"# Copyright (\d{4}) The RPent Authors\.")
-PACKAGE_ROOTS = ("rpent", "robots", "toolkits")
+PACKAGE_ROOTS = ("rpent", "robots", "components")
+STANDALONE_SCRIPT_DIRS = frozenset({"robots/dual_franka/calibration"})
 
 
 def check_pre_commit(paths: list[str]) -> list[route.Finding]:
@@ -109,7 +110,7 @@ def check_pre_commit(paths: list[str]) -> list[route.Finding]:
 
 
 def check_init(root: Path | None = None) -> list[route.Finding]:
-    """Every directory with Python files under rpent/, robots/, toolkits/ needs __init__.py."""
+    """Every directory with Python files under rpent/, robots/, components/ needs __init__.py."""
     base = root or route.REPO_ROOT
     findings: list[route.Finding] = []
     for pkg in PACKAGE_ROOTS:
@@ -121,6 +122,9 @@ def check_init(root: Path | None = None) -> list[route.Finding]:
         ):
             if "__pycache__" in directory.parts:
                 continue
+            rel_dir = directory.relative_to(base).as_posix()
+            if rel_dir in STANDALONE_SCRIPT_DIRS:
+                continue
             if (
                 any(directory.glob("*.py"))
                 and not (directory / "__init__.py").is_file()
@@ -128,7 +132,7 @@ def check_init(root: Path | None = None) -> list[route.Finding]:
                 findings.append(
                     route.Finding(
                         "major",
-                        directory.relative_to(base).as_posix(),
+                        rel_dir,
                         None,
                         "code/init",
                         "has Python files but no __init__.py",
@@ -179,7 +183,7 @@ def check_test_layout(change: route.Change) -> list[route.Finding]:
                 None,
                 "code/test-layout",
                 "new test file directly under tests/unit_tests/; mirror the component "
-                "under tests/unit_tests/{rpent,robots,toolkits,calibration_tools,skills}/",
+                "under tests/unit_tests/{rpent,robots,components,skills}/",
             )
         ]
     return []

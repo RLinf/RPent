@@ -78,33 +78,26 @@ C2R 使用干净场景中的成功轨迹作为经验，在随机场景中评测�
 安装
 ----
 
-RoboTwin 要求 Python 3.11。宿主机需预先具备兼容的 CUDA toolkit/NVCC、编译工具链以及 SAPIEN 依赖的系统级 GL/EGL/Vulkan 库。创建虚拟环境并安装 RoboTwin 所需依赖：
+RoboTwin 要求 Python 3.11。宿主机需预先具备兼容的 CUDA toolkit/NVCC、编译工具链以及 SAPIEN 依赖的系统级 GL/EGL/Vulkan 库。安装 ``robot-robotwin`` 即可，无需运行 RLinf 安装器，也无需单独克隆 RoboTwin：
 
 .. code-block:: bash
 
    git clone https://github.com/RLinf/RPent.git
    cd RPent
-   uv venv --python 3.11 .venv-robotwin
+   ./rpent-install.sh install robot-robotwin --venv .venv-robotwin
    source .venv-robotwin/bin/activate
-   uv pip install -e ".[robotwin]"
 
-用户不需要运行 RLinf 安装器，也不需要单独克隆 RoboTwin。
-
-国内网络可使用 PyPI 镜像加速：
+国内网络可通过 ``--index-url`` 指定 PyPI 镜像（更多镜像与 CUDA 后端参数见 :doc:`../get_started/installation`）：
 
 .. code-block:: bash
 
-   uv pip install -e ".[robotwin]" \
-      --default-index https://mirrors.aliyun.com/pypi/simple \
-      --index https://pypi.tuna.tsinghua.edu.cn/simple
+   ./rpent-install.sh install robot-robotwin --venv .venv-robotwin \
+     --index-url https://mirrors.aliyun.com/pypi/simple
 
 .. note::
 
-   ``.[robotwin]`` 使用 SAPIEN 3.0.0b1。其他版本可能改变仿真观测，导致模型效果下降。
-
-.. note::
-
-   ``.[robotwin]`` 的 RoboTwin 与 LingBot 运行时已作为发布包安装到 PyPI； cuRobo 仍从 GitHub 官方 tag 源码构建，因此即使配置了 PyPI 镜像，安装时仍需能访问 GitHub。
+   - ``sim-robotwin`` 固定使用 SAPIEN 3.0.0b1，其他版本可能改变仿真观测并导致模型效果下降。
+   - RoboTwin 与 LingBot 运行时已上架 PyPI，但 cuRobo 仍从 GitHub 官方 tag 源码构建，因此即使配置了 PyPI 镜像，安装时仍需能访问 GitHub。
 
 下载仿真资源
 ------------
@@ -143,12 +136,7 @@ UniWAM 后端
 支持 RoboTwin 的评估、探索和记忆配置。
 不传 ``prompt`` 时使用原生任务指令，也可以通过该参数指定本次调用的子任务指令。
 
-在独立的 Python 3.11 模型环境中，按
-`UniWAM 官方 RoboTwin 部署说明 <https://github.com/UniWAM/UniWAM/tree/8dcd3401bccda8c002fc558e356b975b1789eecd/inference/robotwin/uniwam>`_
-安装策略依赖，再安装 RPent：``pip install -e /path/to/RPent``。
-已验证的依赖组合为 Torch 2.6.0+cu124、torchvision 0.21.0+cu124、
-FlashAttention 2.7.4.post1、Transformers 4.57.3、Diffusers 0.35.1、
-DeepSpeed 0.16.9 和 NumPy 1.26.4。
+在独立的 Python 3.11 模型环境中，按 `UniWAM 官方 RoboTwin 部署说明 <https://github.com/UniWAM/UniWAM/tree/8dcd3401bccda8c002fc558e356b975b1789eecd/inference/robotwin/uniwam>`_ 安装策略依赖，再安装 RPent：``pip install -e /path/to/RPent``。该环境由 UniWAM 部署维护，不由 ``rpent-install`` 组件管理，``rpent-install doctor`` 不覆盖它。已验证的依赖组合为 Torch 2.6.0+cu124、torchvision 0.21.0+cu124、FlashAttention 2.7.4.post1、Transformers 4.57.3、Diffusers 0.35.1、DeepSpeed 0.16.9 和 NumPy 1.26.4。
 
 从 `UniWAM 模型集合 <https://huggingface.co/collections/chenpyyy/uniwam>`_
 获取 RoboTwin-clean history-flow checkpoint，并准备
@@ -187,7 +175,7 @@ RPent 负责启动和清理模型进程。
 
 .. code-block:: bash
 
-   python -m rpent.robots.components.uniwam.server \
+   python -m components.models.uniwam.server \
       --checkpoint /path/to/uniwam --port 8118
 
 运行任务时，用 ``--am-endpoint http://127.0.0.1:8118`` 替换
@@ -226,7 +214,7 @@ Fast-WAM 配置
 
 .. note::
 
-   ``--seed`` 是 RoboTwin 的精确场景随机种子。使用标准 ``demo_randomized`` 配置进行评测时，请从 `RoboTwin evaluation suite <https://github.com/RLinf/RPent/blob/main/robots/robotwin/eval/demo_randomized.json>`_ 中选择当前任务对应的 5 个已验证 seed。
+   ``--seed`` 是 RoboTwin 的精确场景随机种子。使用标准 ``demo_randomized`` 配置进行评测时，请从 `RoboTwin evaluation suite <https://github.com/RLinf/RPent/blob/main/components/sim/robotwin/eval/demo_randomized.json>`_ 中选择当前任务对应的 5 个已验证 seed。
 
    这些 seed 已通过 RoboTwin expert 执行筛选；无法稳定初始化或 expert 执行未成功的候选 seed 已被跳过。自定义运行仍可显式指定表中没有的其他 seed。
 
@@ -295,7 +283,7 @@ RPent 默认使用 RoboTwin 的 ``demo_randomized`` 任务配置，该配置带�
 
 本次评测中，156 次运行成功，58 次任务失败，36 次运行超时。
 
-评测覆盖 RoboTwin 的 50 个任务，每个任务运行 5 次，共计 250 次。每个任务使用的 5 个 seed 来自 ``robots/robotwin/eval/demo_randomized.json``，均经 RoboTwin 官方 expert 程序验证。由于不同任务的可解 seed 可能不同，请根据该文件为每个任务选择对应 seed，不要对所有任务统一使用一组固定 seed。对于表中列出的任务与 seed 组合，RPent 会按该 seed 复位到对应场景，再使用表内的 ``task_language`` 作为任务指令；未列出的自定义 seed 仍使用 RoboTwin 原生环境生成的指令。
+评测覆盖 RoboTwin 的 50 个任务，每个任务运行 5 次，共计 250 次。每个任务使用的 5 个 seed 来自 ``components/sim/robotwin/eval/demo_randomized.json``，均经 RoboTwin 官方 expert 程序验证。由于不同任务的可解 seed 可能不同，请根据该文件为每个任务选择对应 seed，不要对所有任务统一使用一组固定 seed。对于表中列出的任务与 seed 组合，RPent 会按该 seed 复位到对应场景，再使用表内的 ``task_language`` 作为任务指令；未列出的自定义 seed 仍使用 RoboTwin 原生环境生成的指令。
 
 单次运行的复现命令如下：
 

@@ -40,15 +40,19 @@ RPent 的三条核心设计原则是服务化、标准化和可组合（service-
    * - :doc:`RoboTwin <../simulators/robotwin>`
      - LingBot-VLA、双臂仿真任务和 C2R 复现。
    * - :doc:`RoboDojo <../simulators/robodojo>`
-     - Isaac Sim 双臂 ARX-X5 操作，使用 RLinf Pi0.5 策略。
+     - Isaac Sim 双臂 ARX-X5 操作，支持 VPP2 与 Awomo05 策略。
+   * - :doc:`RoboLab <../simulators/robolab>`
+     - RLinf RoboLab Isaac Sim 仿真环境与策略部署。
+   * - :doc:`EFE <../simulators/efe>`
+     - 通过 Harbor 运行 Embodied First Exam（EFE）任务，支持 Skills 或原生动作。
    * - :doc:`单臂 Franka <../real_world_robots/franka>`
      - 硬件准备、标定、自检和运行。
    * - :doc:`双臂 Franka <../real_world_robots/dual_franka>`
      - 双节点部署、操作与人工参与的探索。
    * - :doc:`YAM <../real_world_robots/yam>`
-     - 已有任务演示；安装使用文档即将推出。
+     - 双臂双机部署、手动技能测试与任务运行。
    * - :doc:`SO-101 <../real_world_robots/so101>`
-     - 内容即将推出。
+     - 规划中（暂未支持）。
 
 在线规划器可选择 ``api``、``claude_code``、``codex``、``gemini_cli`` 或 ``opencode``；LIBERO 还提供用于执行已有计划的 :doc:`Flash Mode <../guides/flash>`。模型服务配置见 :doc:`../guides/configure_planner`。
 

@@ -39,7 +39,7 @@ redirects = {
     "rst_source/resources/release_notes": "release_v0.1.html",
     "rst_source/simulators/robocasa_reference": "robocasa.html#reproduce-target50",
     "rst_source/benchmarks": "leaderboard/index.html",
-    "rst_source/installation": "get_started/quickstart.html",
+    "rst_source/installation": "get_started/installation.html",
     "rst_source/overview": "get_started/overview.html",
     "rst_source/quickstart": "get_started/quickstart.html",
     "rst_source/leaderboard": "leaderboard/index.html",

@@ -22,6 +22,10 @@ robot runtime, no output directory — and classifies the outcome.
 The layer is deliberately UI-agnostic: it reports a machine-readable ``status``
 plus structured credential metadata and the provider's verbatim ``detail``.
 Human-readable remediation text belongs to the CLI and the Dashboard, not here.
+
+Like the CLI, this module must stay importable with only the runtime layer
+installed: it imports each provider SDK inside ``check_llm``, never at module
+scope, so ``rpent --help`` works without ``rpent[planner]``.
 """
 
 from __future__ import annotations

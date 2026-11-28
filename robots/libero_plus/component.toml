@@ -1,0 +1,18 @@
+schema = 2
+name = "robot-libero_plus"
+# LIBERO-plus single-environment install: uses the robots.libero slice with
+# sim-libero_plus (robosuite<1.5) instead of sim-libero. No __init__.py lives
+# here so CLI robot discovery continues to expose `--robot libero`.
+probe = "liberoplus"
+planner = true
+python = ">=3.10,<3.13"
+requires = [
+  "sim-libero_plus",
+  "model-openpi",
+  "model-sam3",
+  "tool-flywheel",
+  "tool-rgbd",
+]
+env_conflicts = ["robot-franka", "robot-dual_franka", "robot-robotwin"]
+
+dependencies = []

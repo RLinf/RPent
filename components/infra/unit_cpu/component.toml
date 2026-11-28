@@ -1,0 +1,23 @@
+schema = 2
+name = "infra-unit_cpu"
+probe = "torch"
+# The unit environment is the dev environment plus the exporter component and
+# the CPU packages the suite imports: a Torch-built model stack (model servers
+# import Torch at module scope, and many tests import those modules) and the
+# OpenCV the dual-arm calibration preview uses. The CPU wheel keeps the hosted
+# runner small; the extra index lets uv fall through from PyPI to the PyTorch
+# CPU build.
+#
+# The exporter and calibration tests skip themselves when their packages are
+# missing, which would turn a selected test into a green run that checked
+# nothing, so this environment installs what they import. The calibration
+# requirements pin OpenCV 4.x, and OpenCV 5 changes the ChArUco drawing path
+# the preview image assertions rely on, so the pin is repeated here.
+requires = ["infra-dev", "tool-flywheel"]
+extra-index-urls = ["https://download.pytorch.org/whl/cpu"]
+index-strategy = "unsafe-first-match"
+
+dependencies = [
+  "opencv-python-headless==4.10.0.84",
+  "torch==2.6.0+cpu",
+]

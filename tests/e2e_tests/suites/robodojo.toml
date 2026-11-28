@@ -1,0 +1,46 @@
+component = "robot-robodojo"
+optional_models = ["xpolicylab"]
+base_args = [
+  "--task", "put_bottles_into_dustbin", "--seed", "0", "--layout", "1",
+  "--env-cuda-device", "{gpu0}", "--sam3-cuda-device", "{gpu0}",
+]
+env = { ROBODOJO_ASSETS_ROOT = "assets/robodojo", OMNI_KIT_ACCEPT_EULA = "YES", SAM3_CHECKPOINT_PATH = "models/sam3/sam3.pt" }
+
+[setup]
+materialize_pkgs = ["isaacsim-kernel"]
+post_install_cmd = [
+  "uv", "pip", "install", "--python", "{python}", "--no-deps",
+  "-e", "assets/robodojo-isaaclab/source/isaaclab",
+  "-e", "assets/robodojo-isaaclab/source/isaaclab_assets",
+  "-e", "assets/robodojo-isaaclab/source/isaaclab_tasks",
+]
+
+[tool_args]
+view_env_state = { step = 0 }
+segment = { text_prompt = "the pink bottle on the table", step = 0 }
+sample_world_xyz = { view = "head", pixels = [[240, 320]], step = 0 }
+query_world_map = { view = "head", bbox = [230, 310, 250, 330], step = 0 }
+set_gripper = { arm = "left", val = 0.5, steps = 2 }
+
+[[cases]]
+name = "vpp2"
+gpus = 2
+# Wan2.1-I2V-14B DiT (31G) + Action2B (3.8G) + UMT5-XXL (11G) + CLIP (4.5G) exceeds 24 GiB GPUs.
+min_gpu_memory_gb = 64
+models = ["model-vpp2", "model-sam3", "model-xpolicylab"]
+args = ["--am-backend", "vpp2", "--am-checkpoint", "models/vpp2", "--am-python", "venvs/vpp2/bin/python", "--am-cuda-device", "{gpu1}"]
+require_paths = ["models/vpp2/checkpoints/joint2b_s100000/action.pt"]
+action_tool = "vpp2_act"
+action_count_field = "executed_actions"
+require_post_action_image = true
+tool_args = { vpp2_act = { chunks = 1, instruction = "Pick up the pink bottle on the table" } }
+
+[[cases]]
+name = "awomo05"
+gpus = 2
+models = ["model-awomo05", "model-sam3", "model-xpolicylab"]
+args = ["--am-backend", "awomo05", "--am-checkpoint", "models/awomo05", "--am-python", "venvs/awomo05/bin/python", "--am-cuda-device", "{gpu1}"]
+require_paths = ["models/awomo05/checkpoints/model.pt"]
+action_tool = "awomo05_act"
+action_count_field = "executed_actions"
+require_post_action_image = true

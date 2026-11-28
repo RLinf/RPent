@@ -16,21 +16,22 @@ worker.
 Install
 -------
 
-Install libfranka 0.19.0 first by following the `official quick-install guide
-<https://docs.ros.org/en/humble/p/libfranka/__README.html#quick-install>`_.
-
-Clone RPent and install its Python dependencies. If you already have the
-checkout, enter it and run ``uv sync``:
+Install ``robot-franka`` into its own environment from the RPent repository root:
 
 .. code-block:: bash
 
    git clone https://github.com/RLinf/RPent.git
    cd RPent
-   uv sync --extra franka
+   ./rpent-install.sh install robot-franka --venv .venv-franka-real
+   source .venv-franka-real/bin/activate
 
-This installs RLinf ``release/v0.4``, ``rpent-openpi``, and Franka camera,
-gripper, and teleoperation dependencies into ``.venv``. The included
-``franky-control`` wheel bundles libfranka 0.19.0.
+It includes RLinf, ``rpent-openpi``, and the Franka camera, gripper, and
+teleoperation dependencies. The included ``franky-control`` wheel already
+bundles libfranka 0.19.0, so a separate system install is only needed if you
+replace the bundled wheel or use ROS tooling (see the `official quick-install
+guide <https://docs.ros.org/en/humble/p/libfranka/__README.html#quick-install>`_).
+The commands below run ``.venv-franka-real/bin/rpent`` so they use that
+environment; activating it and running ``rpent`` is equivalent.
 
 Calibration
 -----------
@@ -83,6 +84,19 @@ startup:
    ray stop --force
    ray start --head
 
+Safety
+------
+
+.. warning::
+
+   Keep an operator at the hardware emergency stop (E-stop) whenever motion is
+   enabled, and confirm the workspace is clear before starting any command.
+   Validate task ``0`` with very small motions before attempting a grasp. Stop
+   immediately if camera and state results disagree, if a requested motion is
+   not reached, or if any calibration is uncertain. After an E-stop or
+   unexpected stop, inspect the physical scene, clear any obstruction, reset
+   the robot controller, and restart the session before resuming.
+
 Run a Smoke Test
 ----------------
 
@@ -94,7 +108,7 @@ correctly. To run it, launch RPent with task ``0``:
 .. code-block:: bash
 
    # replace --robot-config with your own config
-   uv run --extra franka rpent --robot franka --task-id 0 \
+   .venv-franka-real/bin/rpent --robot franka --task-id 0 \
      --planner claude_code --model claude-opus-4-8 \
      --robot-config robots/franka/config/example.yaml
 
@@ -113,7 +127,7 @@ statistics match the current Franka training configuration:
 
 .. code-block:: bash
 
-   uv run --extra franka rpent --robot franka --task-id 1 \
+   .venv-franka-real/bin/rpent --robot franka --task-id 1 \
      --am-endpoint http://VLA_HOST:PORT \
      --planner claude_code --model claude-opus-4-8 \
      --robot-config robots/franka/config/example.yaml
@@ -129,13 +143,6 @@ The extension exposes ``view_env_state``, ``view_camera_meta``, ``move_delta``,
 ``rotate_delta``, ``open_gripper``, ``close_gripper``, and ``vla_grasp``.
 Mutating tools capture robot state, wrist and external RGB images, optional
 aligned depth arrays, and camera metadata in RPent's central ``EnvState``.
-
-Safety
-------
-
-Keep an operator at the emergency stop. Validate task ``0`` with very small
-motions before attempting a grasp. Stop when camera/state results disagree,
-when the requested motion is not reached, or when any calibration is uncertain.
 
 .. _franka-flash:
 

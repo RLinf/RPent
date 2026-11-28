@@ -207,7 +207,7 @@ first set that directory and locate the Codex executable bundled with the SDK:
 .. code-block:: bash
 
    cd /path/to/RPent
-   source .venv/bin/activate
+   source .venv-libero/bin/activate
    export CODEX_HOME="$PWD/.codex-rpent-live"
    export CODEX_SQLITE_HOME="$CODEX_HOME"
    export CODEX_BIN="$(python -c 'from codex_cli_bin import bundled_codex_path; print(bundled_codex_path())')"
@@ -389,7 +389,7 @@ Common settings are listed below; see :doc:`cli` for all options:
    * - ``--max-turns``
      - RPent tool-call budget for the whole task, default ``100``. Follow-up messages and interrupts do not reset it.
    * - ``--planner-timeout-s``
-     - An explicit timeout value in seconds takes precedence. Otherwise, defaults are resolved in priority order; see the code for that order.
+     - Wall-clock timeout in seconds for online planner runs (interactive API/Claude terminal sessions are exempt). Defaults to ``CODEX_TIMEOUT_S`` (``codex`` only), ``GEMINI_CLI_TIMEOUT_S`` (``gemini_cli`` only), ``CELL_TIMEOUT_S``, or ``1200``.
    * - ``--max-tokens``
      - ``api`` only: token limit per response, default ``8192``.
    * - ``--reasoning-effort``

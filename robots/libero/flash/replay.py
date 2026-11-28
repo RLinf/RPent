@@ -36,10 +36,10 @@ from typing import Any
 
 import numpy as np
 
+from components.models.molmo.client import MolmoClient
 from robots.libero import tools as libero_tools
 from robots.libero.flash.prompts import build as prompt_for
 from robots.libero.memory import replay_directory
-from rpent.robots.components.molmo_client import MolmoClient
 from rpent.session import EnvState
 
 #: ``<family>_<suite>_t<task>_s<seed>``, the tag the CLI builds per cell.

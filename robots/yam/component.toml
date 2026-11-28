@@ -1,0 +1,18 @@
+schema = 2
+name = "robot-yam"
+probe = "robots.yam"
+planner = true
+python = ">=3.11,<3.12"
+# Control-machine component for YAM. RLinf comes from the YAM guide's pinned
+# checkout (which carries rlinf.envs.real.yam). On the GPU inference machine,
+# RLinf's installer builds the OpenPI/YAM venv and RPent is added with
+# `uv pip install -e .`. i2rt 1.1.2 requires click<8.2; huggingface-hub 2.x
+# requires click>=8.4.
+
+dependencies = [
+  "huggingface_hub>=0.24,<1",
+  "omegaconf>=2.3,<3",
+  "mujoco>=3.2,<4",
+  "pyrealsense2>=2.55,<3",
+  "imageio-ffmpeg",
+]

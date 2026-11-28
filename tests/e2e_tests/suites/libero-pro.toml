@@ -1,0 +1,51 @@
+robot = "libero"
+component = "robot-libero"
+optional_models = ["apxinf"]
+base_args = ["--suite", "libero_object_swap", "--task", "2", "--seed", "0", "--max-episode-steps", "1024", "--libero-type", "pro"]
+env = { LIBERO_CONFIG_PATH = "{output_dir}/libero-config", SAM3_CHECKPOINT_PATH = "models/sam3/sam3.pt" }
+
+[setup]
+reinstall_copy_pkg = "rpent-liberopro"
+post_install_cmd = ["liberopro-download-assets", "--link", "assets/libero-pro"]
+
+[tool_args]
+segment = { prompt = "basket", step = 0 }
+back_project = { camera = "agentview", row_range = [120, 140], col_range = [120, 140], resolution = "low" }
+rotate_wrist = { delta_yaw = 0.05, max_steps = 1 }
+rotate_pitch = { delta_pitch = 0.05, max_steps = 1 }
+
+[[cases]]
+name = "pi05"
+models = ["model-openpi", "model-sam3"]
+args = ["--env-cuda-device", "{gpu}", "--vla-cuda-device", "{gpu}", "--sam3-cuda-device", "{gpu}"]
+env = { PI05_CHECKPOINT_PATH = "models/RLinf-Pi05-LIBERO-130-fullshot-SFT" }
+action_tool = "pi0_doubled"
+action_count_field = "chunks_used"
+tool_args = { pi0_doubled = { prompt = "perform one bounded action chunk for the current task", max_chunks = 1 } }
+
+[[cases]]
+name = "apxinf"
+models = ["model-apxinf", "model-sam3"]
+args = [
+  "--env-cuda-device", "{gpu}",
+  "--sam3-cuda-device", "{gpu}",
+  "--vla-endpoint", "{sidecar_endpoint}",
+]
+action_tool = "pi0_doubled"
+action_count_field = "chunks_used"
+tool_args = { pi0_doubled = { prompt = "perform one bounded action chunk for the current task", max_chunks = 1 } }
+
+[cases.sidecar]
+endpoint_env = "RPENT_APXINF_ENDPOINT"
+cmd = [
+  "venvs/apxinf/bin/python", "-m", "components.models.apxinf.server",
+  "--embodiment", "libero",
+  "--model-path", "models/RLinf-Pi05-LIBERO-130-fullshot-SFT",
+  "--transport", "http",
+  "--host", "127.0.0.1",
+  "--port", "{port}",
+  "--cuda-device", "{gpu}",
+  "--parent-watch",
+]
+endpoint = "http://127.0.0.1:{port}"
+ready_timeout_s = 300

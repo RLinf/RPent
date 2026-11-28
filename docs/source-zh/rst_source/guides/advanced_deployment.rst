@@ -10,12 +10,14 @@ Dashboard Session 不支持 ``--env-endpoint``，因为每个 TaskRun 都需要�
 LIBERO 环境服务
 ---------------
 
-一个环境服务固定对应一组 suite、task、seed 和最大 episode 步数，这些参数必须与 RPent 客户端完全一致。在环境主机上运行：
+一个环境服务固定对应一组 suite、task、seed 和最大 episode 步数，这些参数必须与 RPent 客户端完全一致。在环境主机上安装 ``sim-libero`` 并启动服务：
 
 .. code-block:: bash
 
+   ./rpent-install.sh install sim-libero --venv .venv-sim-libero
+   source .venv-sim-libero/bin/activate
    export LIBERO_TYPE=pro
-   python -m robots.libero.env_server \
+   python -m components.sim.libero.env_server \
      --suite libero_object_swap --task 2 --seed 0 \
      --max-episode-steps 10000 \
      --cuda-device 0 \
@@ -26,12 +28,14 @@ LIBERO 环境服务
 Pi0.5 VLA 服务
 --------------
 
-在 VLA 主机上设置 checkpoint 路径并启动 HTTP 服务：
+在 VLA 主机上把模型服务装进独立的环境，再设置 checkpoint 路径并启动 HTTP 服务：
 
 .. code-block:: bash
 
+   ./rpent-install.sh install model-openpi infra-rlinf --venv .venv-openpi
+   source .venv-openpi/bin/activate
    export PI05_CHECKPOINT_PATH=/path/to/rlinf-pi05-libero-130-fullshot-sft
-   python -m rpent.robots.components.pi05_vla_server \
+   python -m components.models.openpi.server \
      --embodiment libero \
      --cuda-device 0 \
      --transport http --host 0.0.0.0 --port VLA_PORT
@@ -51,7 +55,7 @@ APXInf 适配器可以替代 Pi0.5 服务。在已安装 RPent 的环境中，�
 
 .. code-block:: bash
 
-   python -m rpent.robots.components.apxinf_vla_server \
+   python -m components.models.apxinf.server \
      --embodiment libero \
      --model-path /path/to/pi05-libero \
      --tokenizer-path /path/to/tokenizer.model \
@@ -59,7 +63,7 @@ APXInf 适配器可以替代 Pi0.5 服务。在已安装 RPent 的环境中，�
      --precision bf16 \
      --transport http --host 127.0.0.1 --port 8220
 
-在 LIBERO 命令中增加 ``--vla-endpoint http://127.0.0.1:8220``。跨主机访问时，将服务绑定到可访问的网络接口，并使用服务端地址。用完后需自行停止这个外部服务；省略 endpoint 会启动 OpenPI。
+在 LIBERO 命令中增加 ``--am-endpoint http://127.0.0.1:8220``。跨主机访问时，将服务绑定到可访问的网络接口，并使用服务端地址。用完后需自行停止这个外部服务；省略 endpoint 会启动 OpenPI。
 APXInf-robo 原生的 OpenPI WebSocket 服务不是 RPent RPC endpoint，请使用上述适配器。
 
 适配器仅支持 eval 模式，模型配置如下：
@@ -73,12 +77,14 @@ APXInf-robo 原生的 OpenPI WebSocket 服务不是 RPent RPC endpoint，请使�
 SAM3 服务
 ---------
 
-在 SAM3 主机上设置本地 checkpoint 路径并启动 HTTP 服务：
+在 SAM3 主机上安装 ``model-sam3``，设置本地 checkpoint 路径并启动 HTTP 服务：
 
 .. code-block:: bash
 
+   ./rpent-install.sh install model-sam3 --venv .venv-sam3
+   source .venv-sam3/bin/activate
    export SAM3_CHECKPOINT_PATH=/path/to/sam3/sam3.pt
-   python -m rpent.robots.components.sam3_server \
+   python -m components.models.sam3.server \
      --cuda-device 0 \
      --transport http --host 0.0.0.0 --port SAM3_PORT
 

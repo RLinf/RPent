@@ -287,8 +287,8 @@ def replay(
 
 def replay_card(toolkit: Any, cell_tag: str, note: Callable[[str], None]) -> dict:
     """Run the robot-owned Flash hook and close its Molmo connection."""
+    from components.models.molmo.client import MolmoClient
     from robots.franka.runtime_config import get_robot_config_path, load_mapping
-    from rpent.robots.components.molmo_client import MolmoClient
     from rpent.utils.rpc import make_rpc_client
 
     options = toolkit.flash_options
@@ -296,7 +296,7 @@ def replay_card(toolkit: Any, cell_tag: str, note: Callable[[str], None]) -> dic
         raise ValueError("missing or mismatched Flash plan")
     if options["card"]["requirements"] != fingerprint():
         raise ValueError("configuration changed after card preparation")
-    from rpent.robots.components.grounding_agent import GroundingAgent
+    from components.models.molmo.grounding_agent import GroundingAgent
 
     agent = (
         GroundingAgent(

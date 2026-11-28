@@ -1,0 +1,53 @@
+robot = "libero"
+component = "robot-libero"
+optional_models = ["fast_wam", "uniwam", "cosmos_policy", "cosmos3"]
+base_args = ["--suite", "libero_object", "--task", "0", "--seed", "0", "--max-episode-steps", "1024", "--libero-type", "standard"]
+env = { LIBERO_CONFIG_PATH = "{output_dir}/libero-config", SAM3_CHECKPOINT_PATH = "models/sam3/sam3.pt" }
+
+[setup]
+reinstall_copy_pkg = "rpent-libero"
+post_install_cmd = ["libero-download-assets", "--link", "assets/libero-standard"]
+
+[tool_args]
+segment = { prompt = "basket", step = 0 }
+back_project = { camera = "agentview", row_range = [120, 140], col_range = [120, 140], resolution = "low" }
+rotate_wrist = { delta_yaw = 0.05, max_steps = 1 }
+rotate_pitch = { delta_pitch = 0.05, max_steps = 1 }
+
+[[cases]]
+name = "pi05"
+models = ["model-openpi", "model-sam3"]
+args = ["--env-cuda-device", "{gpu}", "--vla-cuda-device", "{gpu}", "--sam3-cuda-device", "{gpu}"]
+env = { PI05_CHECKPOINT_PATH = "models/RLinf-Pi05-LIBERO-SFT" }
+action_tool = "pi0_doubled"
+action_count_field = "chunks_used"
+tool_args = { pi0_doubled = { prompt = "perform one bounded action chunk for the current task", max_chunks = 1 } }
+
+[[cases]]
+name = "fast-wam"
+models = ["model-fast_wam", "model-sam3"]
+args = [
+  "--am-backend", "fast-wam",
+  "--am-checkpoint", "models/fastwam/libero_uncond_2cam224.pt",
+  "--am-python", "venvs/fastwam/bin/python",
+  "--fast-wam-config", "models/fastwam/libero_config.yaml",
+  "--fast-wam-dataset-stats", "models/fastwam/libero_uncond_2cam224_dataset_stats.json",
+]
+action_tool = "wam_act"
+action_count_field = "chunks"
+
+[[cases]]
+name = "cosmos-policy"
+models = ["model-cosmos_policy", "model-sam3"]
+require_env = ["RPENT_COSMOS_ENDPOINT"]
+args = ["--am-backend", "cosmos-policy", "--am-endpoint", "{env:RPENT_COSMOS_ENDPOINT}"]
+action_tool = "wam_act"
+action_count_field = "chunks"
+
+[[cases]]
+name = "cosmos3"
+models = ["model-cosmos3", "model-sam3"]
+require_env = ["RPENT_COSMOS3_ENDPOINT"]
+args = ["--am-backend", "cosmos3", "--am-endpoint", "{env:RPENT_COSMOS3_ENDPOINT}"]
+action_tool = "wam_act"
+action_count_field = "chunks"

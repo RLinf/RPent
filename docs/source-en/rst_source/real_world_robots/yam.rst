@@ -19,57 +19,58 @@ video, see :doc:`YAM demo <../real_world_demos/yam>`.
 Installation
 ------------
 
-Use Linux and Python 3.11. This guide uses two machines:
+Use Linux, Python 3.11, and `uv <https://docs.astral.sh/uv/getting-started/installation/>`_
+(see :doc:`../get_started/installation` for mirror and backend flags). This
+guide uses two machines:
 
 * **Control machine**: connects both arm CAN interfaces and three RealSense cameras, and
   runs ENV and RPent.
 * **Inference machine**: runs the Pi0.5 VLA service on an NVIDIA GPU.
 
-Use the same RPent code and RLinf commit on both machines. Install uv following
-:doc:`../get_started/quickstart`, then prepare the environment on each machine:
+Use the same RPent code and RLinf commit on both machines. Prepare both checkouts
+first, then install the YAM environment on each machine as described below:
 
 .. code-block:: bash
 
    git clone https://github.com/RLinf/RPent.git /path/to/RPent
-   cd /path/to/RPent
-   uv venv --python 3.11
-   source .venv/bin/activate
-
    git clone --branch main https://github.com/RLinf/RLinf.git /path/to/RLinf
    git -C /path/to/RLinf checkout --detach 196d40b6dec6f7a4063edee31cfeaa6ca0ee435a
 
 **Control machine installation**
 
-From the RPent repository root on the control machine, install RPent, RLinf, the i2rt
-SDK and the required build dependencies together:
+Create ``.venv-yam-real`` with the ``robot-yam`` component, then add RLinf, the
+i2rt SDK and the required build dependencies:
 
 .. code-block:: bash
 
    cd /path/to/RPent
+   ./rpent-install.sh install robot-yam --venv .venv-yam-real
+   source .venv-yam-real/bin/activate
    uv pip install --torch-backend cpu \
      --build-constraints /path/to/RLinf/requirements/embodied/envs/yam-build-constraints.txt \
-     -e '.[yam]' -e /path/to/RLinf \
+     -e /path/to/RLinf \
      -r /path/to/RLinf/requirements/embodied/envs/yam.txt
    uv pip check
 
 **Inference machine installation**
 
-On the inference machine, use RLinf's installer to install YAM and OpenPI dependencies,
-then install RPent:
+On the inference machine, use RLinf's installer to install YAM and OpenPI
+dependencies into ``.venv-yam-real``, then install RPent into that environment:
 
 .. code-block:: bash
 
    cd /path/to/RLinf
    bash requirements/install.sh embodied --model openpi --env yam \
-     --venv /path/to/RPent/.venv --install-rlinf
+     --venv /path/to/RPent/.venv-yam-real --install-rlinf
    cd /path/to/RPent
-   uv pip install -e '.[yam]'
+   source .venv-yam-real/bin/activate
+   uv pip install --python .venv-yam-real/bin/python -e /path/to/RPent
    uv pip check
 
 If system dependencies are already installed, append ``--no-root`` to the installer
 command.
 
-In each new terminal, enter the RPent repository on that machine and activate ``.venv``.
+In each new terminal, enter the RPent repository on that machine and activate ``.venv-yam-real``.
 
 .. _yam-calibration:
 
@@ -194,13 +195,26 @@ Codex Configuration
 Before using Codex, configure separate runtime directories and log in by following
 :ref:`planner-codex-isolation`.
 
+Safety
+------
+
+.. warning::
+
+   Keep an operator at the hardware emergency stop (E-stop) before running
+   ``reset_pose``, manual skill tests, or ``rpent --robot yam``. Confirm both
+   arms' workspaces and reset paths are clear, remove any objects held in the
+   grippers before resetting, and verify basic actions before running VLA
+   rollouts. If execution state is uncertain or an unexpected motion occurs,
+   trigger the hardware E-stop, inspect the physical scene, recover the arms,
+   and restart the services before resuming.
+
 .. _id3:
 .. _yam-services:
 
 Start the Two-Machine Services
 ------------------------------
 
-Activate the installed ``.venv`` on each machine and start the services as follows:
+Activate the installed ``.venv-yam-real`` on each machine and start the services as follows:
 
 * **Control machine**: runs RPent, ENV and operator commands, with both arm CAN
   interfaces and all three cameras connected.
@@ -216,7 +230,7 @@ consistent:
 .. code-block:: bash
 
    cd /path/to/RPent
-   source .venv/bin/activate
+   source .venv-yam-real/bin/activate
    export TASK_ID=1
 
 **1. Control machine: start ENV**
@@ -236,7 +250,7 @@ then run:
 
 .. code-block:: bash
 
-   python -m rpent.robots.components.pi05_vla_server \
+   python -m components.models.openpi.server \
      --embodiment yam --model-path "$YAM_MODEL_PATH" \
      --norm-stats-path "$YAM_MODEL_PATH/norm_stats.json" \
      --transport socket --host 127.0.0.1 --port 8220
@@ -407,9 +421,8 @@ VLA also provides ``pi05_act``.
 
 Select one arm with ``arm=left/right`` for basic actions. ``move_to`` uses xyz in metres
 in ``left_base`` and wxyz quaternions. ``rotate_wrist`` uses degrees. Gripper ``val=0``
-closes and ``val=1`` opens.
-
-Use ``set_gripper`` or ``release`` to open or close a gripper.
+closes and ``val=1`` opens: use ``set_gripper`` for an explicit opening value, or
+``release`` to open the gripper directly.
 
 .. _yam-exploration:
 

@@ -23,10 +23,11 @@ from typing import Annotated, Any, Literal
 import numpy as np
 from pydantic import Field
 
+from components.models.lingbot.client import LingBotVLAClient
+from components.models.lingbot.contracts import MODEL_SPEC
+from components.sim.robotwin.contracts import ROBOTWIN_CAMERA_NAMES
+from components.sim.robotwin.wam_client import RoboTwinWAMClient
 from robots.robotwin.env_client import RoboTwinEnvClient
-from robots.robotwin.robot_spec import MODEL_SPEC, ROBOTWIN_CAMERA_NAMES
-from robots.robotwin.vla_client import LingBotVLAClient
-from robots.robotwin.wam_client import RoboTwinWAMClient
 from rpent.session.env_capture import CapturingEnvClient
 from rpent.tools import ToolResult, tool
 

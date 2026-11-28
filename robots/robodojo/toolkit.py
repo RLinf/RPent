@@ -110,7 +110,7 @@ class RoboDojoToolkit(Toolkit):
 
     def flash_observation(self) -> dict:
         """Refresh the public observation used by live Flash grounding."""
-        from robots.robodojo.access import public_observation
+        from components.sim.robodojo.access import public_observation
 
         if not self.eval_fair:
             raise RuntimeError("Flash requires eval-fair toolkit")

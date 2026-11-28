@@ -15,17 +15,18 @@ RPent 可以通过 RLinf 的 ``RealWorldEnv`` worker 控制单台 Franka 机械�
 安装
 ----
 
-请先按照 `libfranka 官方快速安装指南 <https://docs.ros.org/en/humble/p/libfranka/__README.html#quick-install>`_ 安装 libfranka 0.19.0。
-
-克隆 RPent 并安装 Python 依赖。若已有仓库，进入仓库后执行 ``uv sync``：
+在 RPent 仓库根目录把 ``robot-franka`` 安装到独立环境：
 
 .. code-block:: bash
 
    git clone https://github.com/RLinf/RPent.git
    cd RPent
-   uv sync --extra franka
+   ./rpent-install.sh install robot-franka --venv .venv-franka-real
+   source .venv-franka-real/bin/activate
 
-该命令将 RLinf ``release/v0.4``、``rpent-openpi`` 以及 Franka 的相机、夹爪和遥操作依赖安装到 ``.venv``。其中的 ``franky-control`` wheel 已包含 libfranka 0.19.0。
+该组件包含 RLinf、``rpent-openpi`` 以及 Franka 的相机、夹爪和遥操作依赖。其中的 ``franky-control`` wheel 已打包 libfranka 0.19.0，通常无需单独安装系统库；替换内置 wheel 或使用 ROS 工具时，再按 `libfranka 官方快速安装指南 <https://docs.ros.org/en/humble/p/libfranka/__README.html#quick-install>`_ 安装 0.19.0。
+
+下文命令直接运行 ``.venv-franka-real/bin/rpent``，先激活环境再运行 ``rpent`` 效果相同。
 
 标定（Calibration）
 ----------------------
@@ -63,6 +64,13 @@ Ray 在启动时会捕获环境变量，因此必须先设置 node rank 再启�
    ray stop --force
    ray start --head
 
+安全要求
+--------
+
+.. warning::
+
+   开启机器人运动时，操作员必须值守在硬件急停（E-stop）旁，并在执行任何运动命令前确认工作空间净空。尝试抓取前，先用极小幅度动作验证任务 ``0``。一旦相机与状态结果不一致、目标运动未到位，或任何标定存在疑问，应立即触发急停。急停或异常停止后，先检查现场并清除障碍，复位机器人控制器后再重启会话。
+
 运行冒烟测试
 ------------
 
@@ -73,7 +81,7 @@ Ray 在启动时会捕获环境变量，因此必须先设置 node rank 再启�
 .. code-block:: bash
 
    # replace --robot-config with your own config
-   uv run --extra franka rpent --robot franka --task-id 0 \
+   .venv-franka-real/bin/rpent --robot franka --task-id 0 \
      --planner claude_code --model claude-opus-4-8 \
      --robot-config robots/franka/config/example.yaml
 
@@ -86,7 +94,7 @@ RPent 提供了一个使用 VLA 抓取物品的演示。任务 ``1`` 提供 ``vl
 
 .. code-block:: bash
 
-   uv run --extra franka rpent --robot franka --task-id 1 \
+   .venv-franka-real/bin/rpent --robot franka --task-id 1 \
      --am-endpoint http://VLA_HOST:PORT \
      --planner claude_code --model claude-opus-4-8 \
      --robot-config robots/franka/config/example.yaml
@@ -97,11 +105,6 @@ RPent 提供了一个使用 VLA 抓取物品的演示。任务 ``1`` 提供 ``vl
 --------------
 
 Franka 扩展提供 ``view_env_state``、``view_camera_meta``、``move_delta``、 ``rotate_delta``、``open_gripper``、``close_gripper`` 和 ``vla_grasp``。所有会改变环境状态的工具都会把机器人状态、腕部与外部 RGB 图像、可选的对齐深度数组和相机元数据保存到 RPent 统一的 ``EnvState`` 中。
-
-安全要求
---------
-
-操作员必须守在急停按钮旁。在尝试抓取之前，先用极小幅度动作验证任务 ``0``。一旦相机与状态结果不一致、目标运动没有到位，或任何标定存在疑问，应立即停止。
 
 .. _franka-flash:
 
@@ -165,6 +168,7 @@ Franka Flash 任务卡
 真机任务成功。
 
 .. _agent:
+.. _optional-agent-grounding-fallback:
 
 Flash 模式加入大模型 Agent 介入选点
 ------------------------------------------

@@ -21,14 +21,15 @@ model raised RPent's task success rate from 70% to 73% on LIBERO-PRO and from
 Installation
 ------------
 
-The example below uses LIBERO-PRO. Follow :doc:`../get_started/quickstart` for
-environment setup and simulator assets, and :doc:`configure_planner` for API
-credentials. From the RPent repository root, install LIBERO-PRO with the
-optional export dependencies:
+The example below uses LIBERO-PRO. Follow :doc:`../get_started/installation`
+for environment setup and :doc:`../get_started/quickstart` for simulator
+assets; configure API credentials in :doc:`configure_planner`. ``robot-libero``
+requires ``tool-flywheel``, so the LIBERO environment installed from the
+installation page already carries the exporter.
 
-.. code-block:: bash
-
-   uv pip install -e ".[libero-pro,flywheel]"
+To export existing trajectories without installing a simulator, create a
+standalone exporter environment with
+``./rpent-install.sh install tool-flywheel --venv .venv-flywheel``.
 
 Record a Trajectory
 -------------------

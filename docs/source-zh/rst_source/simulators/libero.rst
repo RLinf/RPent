@@ -34,7 +34,7 @@ LIBERO
 
    .. grid-item-card:: 硬件
 
-      Linux、NVIDIA GPU；Python 3.11；CUDA 与 EGL。
+      Linux、NVIDIA GPU；Python 3.12；CUDA 与 EGL。
 
 .. _libero-pro:
 
@@ -95,27 +95,25 @@ LIBERO
 
 首次使用 LIBERO-PRO，请先完成 :doc:`../get_started/quickstart` 的安装、资源下载和模型配置。本页用于选择更多任务与复现实验。
 
-其他 LIBERO 版本请在独立环境中安装对应 extra，再下载资源；每个 Python 环境只安装一种 LIBERO 版本：
+``robot-libero`` 同时安装 standard LIBERO 与 LIBERO-PRO；LIBERO-plus 需要 ``robosuite<1.5``，请安装独立环境 ``robot-libero_plus``。运行时用 ``--libero-type`` 选择版本，并下载对应资源：
 
 .. list-table::
    :header-rows: 1
 
-   * - 版本
+   * - ``--libero-type``
      - 安装命令
      - 资源下载
    * - ``standard``
-     - ``uv pip install -e ".[libero]"``
+     - ``./rpent-install.sh install robot-libero --venv .venv-libero``
      - ``libero-download-assets --skip-existing``
    * - ``pro``
-     - ``uv pip install -e ".[libero-pro]"``
+     - ``./rpent-install.sh install robot-libero --venv .venv-libero``
      - ``liberopro-download-assets --skip-existing``
    * - ``plus``
-     - ``uv pip install -e ".[libero-plus]"``
+     - ``./rpent-install.sh install robot-libero_plus --venv .venv-libero-plus``
      - ``liberoplus-download-assets --skip-existing``
 
-以上各组依赖均包含 Pi0.5（``rpent-openpi``）、SAM3 和 RLinf 运行时（``rpent-rlinf``）。模型权重需按下文单独下载。
-
-运行时通过 ``--libero-type`` 选择与安装包一致的版本。
+上述环境均已包含 Pi0.5（``rpent-openpi``）、SAM3 与 RLinf 运行时（``infra-rlinf``）。模型权重需按下文单独下载。
 
 VLA 配置
 --------
@@ -125,6 +123,7 @@ VLA 配置
 .. code-block:: bash
 
    hf download RLinf/RLinf-Pi05-LIBERO-130-fullshot-SFT \
+     --exclude optimizer.pt \
      --local-dir /path/to/rlinf-pi05-libero-130-fullshot-sft
 
    export PI05_CHECKPOINT_PATH=/path/to/rlinf-pi05-libero-130-fullshot-sft
@@ -191,7 +190,7 @@ WAM 评测
      --am-endpoint http://127.0.0.1:8116 --memory-profile local \
      --planner api --model <planner-model>
 
-Fast-WAM 使用 ``--am-backend fast-wam`` 及其 worker 地址。LIBERO-Pro 需在 Pro 环境中选择 Pro suite 并指定 ``--libero-type pro``。WAM 不支持 LIBERO-Plus、Flash 和探索。WAM 必须启用本地记忆管理器和文件工具，默认目录按后端区分，语料允许为空；可通过 ``--memory-dir`` 指定兼容的本地语料，目前不支持 HF 记忆。``wam_act(prompt=None, max_chunks=1)`` 替换 Pi0.5 工具，每次执行 1 至 4 个 chunk，每个 chunk 前重新获取观测。每个 chunk 的动作数由 worker 的 ``chunk_size`` 元数据声明。prompt 仅覆盖本次调用，chunk 预算不指定在 chunk 内的哪一步停止。
+Fast-WAM 使用 ``--am-backend fast-wam`` 及其 worker 地址。LIBERO-Pro 需在 ``robot-libero`` 环境中选择 Pro suite 并指定 ``--libero-type pro``。WAM 不支持 LIBERO-Plus、Flash 和探索。WAM 必须启用本地记忆管理器和文件工具，默认目录按后端区分，语料允许为空；可通过 ``--memory-dir`` 指定兼容的本地语料，目前不支持 HF 记忆。``wam_act(prompt=None, max_chunks=1)`` 替换 Pi0.5 工具，每次执行 1 至 4 个 chunk，每个 chunk 前重新获取观测。每个 chunk 的动作数由 worker 的 ``chunk_size`` 元数据声明。prompt 仅覆盖本次调用，chunk 预算不指定在 chunk 内的哪一步停止。
 
 查看结果
 ------------
@@ -248,9 +247,9 @@ Long 结果使用 `reproduce/libero <https://github.com/RLinf/RPent/tree/reprodu
 
 LIBERO 将仿真和模型推理分别放在独立服务器中运行，工具集通过对应客户端执行规划器的请求。
 
-- **env_server** （``robots/libero/env_server.py``）—— 负责运行 LIBERO 的 MuJoCo 环境并通过 EGL 渲染。它通过 RPC 传输（默认使用 HTTP；添加 ``--transport socket`` 后使用 pickle-framed socket）对外暴露 ``reset``、``step``、``chunk_step``、``render_camera``、 ``get_camera_meta`` 等接口。
-- **vla_server** （``rpent/robots/components/pi05_vla_server.py``）—— 持有 Pi0.5 权重，通过同一套 RPC 传输（HTTP 或 socket）暴露 ``predict``。
-- **sam3_server** （``rpent/robots/components/sam3_server.py``）—— 加载 SAM 3.0，根据文字描述或目标物体上的一个像素点，分割出目标区域。如果模型给出多个候选结果，只保留评分最高的一个，并通过同一套 RPC 传输（HTTP 或 socket）返回压缩 PNG 格式的分割掩码（mask）。
+- **env_server** （``components/sim/libero/env_server.py``）—— 负责运行 LIBERO 的 MuJoCo 环境并通过 EGL 渲染。它通过 RPC 传输（默认使用 HTTP；添加 ``--transport socket`` 后使用 pickle-framed socket）对外暴露 ``reset``、``step``、``chunk_step``、``render_camera``、 ``get_camera_meta`` 等接口。
+- **vla_server** （``components/models/openpi/server.py``）—— 持有 Pi0.5 权重，通过同一套 RPC 传输（HTTP 或 socket）暴露 ``predict``。
+- **sam3_server** （``components/models/sam3/server.py``）—— 加载 SAM 3.0，根据文字描述或目标物体上的一个像素点，分割出目标区域。如果模型给出多个候选结果，只保留评分最高的一个，并通过同一套 RPC 传输（HTTP 或 socket）返回压缩 PNG 格式的分割掩码（mask）。
 - **toolkit（工具集）** （``robots/libero/toolkit.py``）—— 定义 LLM 能调用的工具：``pi0_pick`` （交给 Pi0.5）、``move_to``、``rotate_wrist``、 ``back_project``、``view_env_state``、``finish``…
 
 规划器可调用的工具

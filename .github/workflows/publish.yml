@@ -1,0 +1,35 @@
+name: Publish
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: Run unit, layout, and manifest checks
+    uses: ./.github/workflows/unittest.yml
+    with:
+      skip_package: true
+
+  package:
+    name: Build and verify distributions
+    needs: verify
+    uses: ./.github/workflows/package.yml
+
+  publish:
+    name: Publish to PyPI
+    needs: package
+    environment: pypi
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+      - uses: pypa/gh-action-pypi-publish@release/v1

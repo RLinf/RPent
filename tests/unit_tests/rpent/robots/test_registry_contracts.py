@@ -14,6 +14,8 @@
 
 from __future__ import annotations
 
+import importlib
+import sys
 from argparse import ArgumentParser
 from dataclasses import FrozenInstanceError
 from pathlib import Path
@@ -21,11 +23,10 @@ from string import Formatter
 
 import pytest
 
-from robots.robotwin.robot_spec import (
-    MODEL_SPEC,
+from components.models.lingbot.contracts import MODEL_SPEC, vla_runtime_contract
+from components.sim.robotwin.contracts import (
     ROBOTWIN_CAMERA_NAMES,
     env_runtime_contract,
-    vla_runtime_contract,
 )
 from rpent.robots import enumerate_robots, get_robot_spec
 from rpent.robots.robot_spec import RobotSpec, RunConfig
@@ -137,6 +138,44 @@ PROMPT_VARIABLES = {
 }
 
 
+class _BlockImport:
+    """A meta-path finder that fails one top-level import with a given name."""
+
+    def __init__(self, module: str, missing: str) -> None:
+        self._module = module
+        self._missing = missing
+
+    def find_spec(self, name, path=None, target=None):
+        if name == self._module:
+            raise ModuleNotFoundError(
+                f"No module named {self._missing!r}", name=self._missing
+            )
+        return None
+
+
+def test_robot_discovery_survives_a_core_only_wheel(monkeypatch) -> None:
+    # A core-only wheel ships no ``robots`` package; discovery finds nothing so
+    # the CLI can explain it instead of failing on the import.
+    monkeypatch.delitem(sys.modules, "robots", raising=False)
+    monkeypatch.setattr(
+        sys, "meta_path", [_BlockImport("robots", "robots"), *sys.meta_path]
+    )
+
+    assert enumerate_robots() == ()
+
+
+def test_robot_discovery_keeps_an_internal_import_error(monkeypatch) -> None:
+    # A robot package that cannot import its own dependency must not look like
+    # "no robots"; the error names the package to install.
+    monkeypatch.delitem(sys.modules, "robots", raising=False)
+    monkeypatch.setattr(
+        sys, "meta_path", [_BlockImport("robots", "torch"), *sys.meta_path]
+    )
+
+    with pytest.raises(ModuleNotFoundError, match="torch"):
+        enumerate_robots()
+
+
 def _format_fields(template: str) -> set[str]:
     return {
         field_name
@@ -157,6 +196,28 @@ def test_registry_discovers_exactly_the_source_checkout_robots() -> None:
         assert (spec.flywheel is not None) == (
             name in {"libero", "robocasa", "robodojo", "robotwin"}
         )
+
+
+def test_a_robot_missing_its_own_dependency_keeps_that_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    real_import_module = importlib.import_module
+
+    def import_module(name: str):
+        if name == "robots.robocasa":
+            raise ModuleNotFoundError("No module named 'robosuite'", name="robosuite")
+        return real_import_module(name)
+
+    monkeypatch.setattr(importlib, "import_module", import_module)
+
+    with pytest.raises(ModuleNotFoundError) as excinfo:
+        get_robot_spec("robocasa")
+    assert excinfo.value.name == "robosuite"
+
+
+def test_an_unimportable_robot_package_is_an_unknown_name() -> None:
+    with pytest.raises(ValueError, match="unknown robot: 'no_such_robot'"):
+        get_robot_spec("no_such_robot")
 
 
 @pytest.mark.parametrize("robot_name", EXPECTED_ROBOTS)

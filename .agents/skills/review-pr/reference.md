@@ -20,7 +20,7 @@ A mismatch with RPent conventions, bloated workaround, or dead boilerplate is a 
 
 - [ ] **Sibling**: matches the newest idiomatic sibling on `main` (`git log "$BASE" -- <dir>`), not legacy boilerplate.
 - [ ] **Patterns**: follows [code/patterns.md § Design](../code/patterns.md#design) (no robot/planner-name branches in shared code, contained robot code under `robots/<robot>/`, single-owner abstractions, fix at owning layer, direct common path, preserved behavior).
-- [ ] **Extension points**: plugs into `RobotSpec`, `Toolkit`, `Planner`, `BaseEnvClient`/`BaseVLAClient`/`BaseWAMClient`, `runtime.py` helpers, and `toolkits/`.
+- [ ] **Extension points**: plugs into `RobotSpec`, `Toolkit`, `Planner`, `BaseEnvClient`/`BaseVLAClient`/`BaseWAMClient`, `runtime.py` helpers, and `components/tools/rgbd/`.
 - [ ] **Lazy imports and packaging**: optional simulator/VLA/hardware imports stay inside use sites; `import rpent`, `enumerate_robots()`, and `rpent --help` work with base dependencies only.
 - [ ] **Test-driven guards**: no product code weakened for incomplete test mocks/stubs (`getattr`/`hasattr` or fallback branches); fix the test instead.
 - [ ] **Prompts and tools**: rendered variables and tool names match `Toolkit.list_tools()` across planners; large payloads stay out of tool-result text; instructions stay concise.
@@ -28,15 +28,15 @@ A mismatch with RPent conventions, bloated workaround, or dead boilerplate is a 
 
 ## reuse
 
-- [ ] **Duplication**: reuses existing RPent and RLinf helpers (`rpent/robots/components/`, `rpent/robots/runtime.py`, `rpent/utils/rpc/`, `rpent/utils/daemon.py`, `toolkits/`, `tests/e2e_tests/common.py`, and shared docs guides/partials).
+- [ ] **Duplication**: reuses existing RPent and RLinf helpers (`rpent/components/`, `rpent/robots/runtime.py`, `rpent/utils/rpc/`, `rpent/utils/daemon.py`, `components/tools/rgbd/`, `tests/e2e_tests/runner.py`, and shared docs guides/partials).
 - [ ] **Citation**: cite the existing helper as `main:<path>:<line>` when flagging reuse; name the closest comparison when nothing applies.
 
 ## tests, docs, and docs-style
 
 Area scripts and checklists run in step 6 ([code § Check](../code/SKILL.md#check), [robots § Check](../robots/SKILL.md#check), [docs § Check](../docs/SKILL.md#check)). Review these PR-wide checks alongside them:
 
-- [ ] **Coverage and completeness**: user-facing changes include offline CPU tests that fail without the change; new robot integrations ship `pyproject.toml` extras/conflicts, offline unit tests, real-component/policy-chain e2e tests, paired EN/ZH docs, and README highlights.
-- [ ] **Docs readability (fresh agent)**: run a fresh-agent pass (no `rpent/`, `robots/`, or `toolkits/` context) following [docs § Check](../docs/SKILL.md#check) and `docs/rules/` for plain human prose, native Chinese, concise main paths, no internal code citations or developer internals leaking into user guides, no non-runnable placeholder examples (`example.com`), and no negative-contrast restatement.
+- [ ] **Coverage and completeness**: user-facing changes include offline CPU tests that fail without the change; new robot integrations ship `component.toml` manifests, offline unit tests, declarative GPU e2e suites, paired EN/ZH docs, and README highlights.
+- [ ] **Docs readability (fresh agent)**: run a fresh-agent pass (no `rpent/`, `robots/`, or `components/` context) following [docs § Check](../docs/SKILL.md#check) and `docs/rules/` for plain human prose, native Chinese, concise main paths, no internal code citations or developer internals leaking into user guides, no non-runnable placeholder examples (`example.com`), and no negative-contrast restatement.
 - [ ] **Sibling alignment**: compare new simulator/robot guides against the closest current sibling on `main` and check `conf.py` redirects for moved pages.
 
 ## style

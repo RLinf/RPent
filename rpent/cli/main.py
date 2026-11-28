@@ -24,7 +24,7 @@
 # in `pyproject.toml`):
 #
 # ```bash
-# rpent --robot libero --suite libero_object_task --task 0 --seed 0 [...]
+# rpent --robot <name> --suite <suite> --task 0 --seed 0 [...]
 # ```
 #
 # ## Note
@@ -43,12 +43,9 @@ import sys
 import time
 from collections.abc import Callable
 from dataclasses import replace
+from importlib.util import find_spec
 from pathlib import Path
 
-from rpent.cli.tui import (
-    start_first_prompt_resolver,
-    start_interactive_reader,
-)
 from rpent.dashboard.events import (
     NullDashboardEventSink,
     RunStartedEvent,
@@ -66,17 +63,35 @@ from rpent.planner.check import (
     EXTERNALLY_CONFIGURED_PLANNERS,
 )
 from rpent.robots import RunConfig, enumerate_robots, get_robot_spec, get_toolkit
-from rpent.session.planner_capture import (
-    end_planner_task,
-    start_planner_task,
-    task_config_snapshot,
-)
 from rpent.utils.logging import get_logger, init_output_dir
 from rpent.utils.mcp_servers import (
     McpServerSpec,
     load_mcp_config,
     merge_mcp_servers,
 )
+
+# The ``rpent`` console script ships with the core wheel, but a run needs the
+# planner layer.
+_PLANNER_CORE_MODULE = "pydantic_ai"
+
+
+def _missing_planner_module() -> str | None:
+    """Return the planner-layer module this environment lacks, if any.
+
+    Probe it explicitly instead of importing planner modules at module import
+    time, so ``--help`` and argument validation work in a core-only environment
+    and every planner import stays at its use site. ``pydantic_ai`` is the one
+    module every run needs, because ``build_planner`` imports it; an optional
+    package (``--tui``, MCP) or a backend that is missing fails at its own
+    import, which names it.
+    """
+    try:
+        found = find_spec(_PLANNER_CORE_MODULE) is not None
+    except ModuleNotFoundError:
+        # A meta-path finder reports a blocked module the same way.
+        found = False
+    return None if found else _PLANNER_CORE_MODULE
+
 
 logger = get_logger("agent")
 
@@ -413,6 +428,40 @@ def _start_continuation_session(
 
 def main() -> int:
     parser = _build_argparser()
+    help_requested = "-h" in sys.argv or "--help" in sys.argv
+    robot_requested = any(
+        arg in {"--robot", "--env"} or arg.startswith(("--robot=", "--env="))
+        for arg in sys.argv[1:]
+    )
+    # A run needs the planner layer; report it before argument validation runs:
+    # a core-only install also discovers no robots, so ``--robot <name>`` would
+    # otherwise fail the empty choice list instead of explaining what to
+    # install. ``--help`` stays available because it never needs a robot.
+    missing_planner = _missing_planner_module()
+    if missing_planner is not None and not help_requested:
+        print(
+            "the rpent CLI needs the planner layer, which this environment does "
+            f"not provide (missing {missing_planner!r}); install it with "
+            '`pip install "rpent[planner]"`, or run inside the environment '
+            "rpent-install created for the robot",
+            file=sys.stderr,
+        )
+        return 1
+    # The planner layer can be installed into a wheel-only environment too, and
+    # ``robots/`` still comes only from a checkout. Report that the same way:
+    # ``--robot <name>`` (including ``--robot <name> --help``) would otherwise
+    # fail the empty choice list.
+    if not enumerate_robots() and (not help_requested or robot_requested):
+        print(
+            "the rpent CLI found no robot components: robot packages live only "
+            "in a source checkout, which an installed wheel does not carry. "
+            "From a checkout, build the robot's environment with "
+            "`./rpent-install.sh install robot-<name> --venv <venv>` and run "
+            "the CLI inside it; RPENT_REPO_ROOT only adds a manual-run path "
+            "that no fingerprint or `doctor` check covers",
+            file=sys.stderr,
+        )
+        return 1
     # Two-phase argparse: first grab --robot / --env / --dashboard so we know
     # which robot's flags to add and whether to make its required flags optional.
     early, _ = parser.parse_known_args()
@@ -425,10 +474,18 @@ def main() -> int:
         logger.warning("--env is deprecated and will be removed; use --robot instead")
         early.robot_name = early.env_name
     if early.robot_name is None:
-        if "-h" not in sys.argv and "--help" not in sys.argv:
+        if not help_requested:
             parser.error("--robot is required")
     else:
-        robot_spec = get_robot_spec(early.robot_name)
+        try:
+            robot_spec = get_robot_spec(early.robot_name)
+        except ImportError as exc:
+            print(
+                f"cannot load robot {early.robot_name!r}: {exc}. Its environment "
+                "installs the packages it imports",
+                file=sys.stderr,
+            )
+            return 1
         robot_spec.add_cli_args(parser, use_dashboard=early.dashboard)
     parser.add_argument(
         "-h",
@@ -583,6 +640,11 @@ def main() -> int:
     input_queue: "queue.Queue[str | None] | None" = None
     await_first_prompt: "Callable[[], str | None] | None" = None
     if args.tui and not native_cli:
+        from rpent.cli.tui import (
+            start_first_prompt_resolver,
+            start_interactive_reader,
+        )
+
         input_queue = queue.Queue()
         queued_help = (
             "Messages queue until the current turn completes.\n"
@@ -730,6 +792,12 @@ def main() -> int:
                     return True
 
                 operator_input.bind_verdict(accept_verdict)
+            from rpent.session.planner_capture import (
+                end_planner_task,
+                start_planner_task,
+                task_config_snapshot,
+            )
+
             task_state = None
             result = None
             finish_result = None

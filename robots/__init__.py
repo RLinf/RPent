@@ -14,9 +14,10 @@
 
 """Robot implementations loaded by name.
 
-Each subpackage (e.g. :mod:`robots.libero`) bundles the agent-side robot
-package (``get_robot_spec`` / ``get_toolkit`` factories, toolkit, prompts,
-guides) together with its server-side scripts (``env_server.py`` /
-``vla_server.py``). The robot registry in :mod:`rpent.robots.base` resolves a
-robot by importing ``robots.<name>``.
+Each subpackage (e.g. :mod:`robots.libero`) holds one robot's agent-side
+package: the ``get_robot_spec`` / ``get_toolkit`` factories, toolkit, prompts
+and guides. Simulator services live under :mod:`components.sim`, and real-robot
+slices keep their own ``env_server.py`` next to the robot code. The robot
+registry in :mod:`rpent.robots.base` resolves a robot by importing
+``robots.<name>``.
 """

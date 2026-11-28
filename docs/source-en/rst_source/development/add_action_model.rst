@@ -16,7 +16,7 @@ the missing transforms.
 
 VLA and WAM share AM base classes for RPC registration and prediction dispatch.
 VLA retains its existing model-specific payloads and inference paths. WAM uses
-the physical observation and native control declarations in ``am_contracts.py``
+the physical observation and native control declarations in ``rpent/components/models/contracts.py``
 to connect platform clients to model adapters.
 
 The WAM execution path illustrates the platform/model boundary:
@@ -29,7 +29,7 @@ The WAM execution path illustrates the platform/model boundary:
      -> wam_act: observe, predict, execute, record
      -> observation.py + wam_client.py: physical observations and control identity
      -> BaseWAMClient -> existing HTTP/socket RPC -> BaseWAMFacade
-     -> <model>/adapter/encode.py -> predict_native -> adapter/decode.py
+     -> encode -> predict_native -> decode
      -> action chunk -> platform env_client.chunk_step -> simulator
 
 ``wam_act`` lives in LIBERO's ``tools.py`` and RoboTwin's ``primitives.py``.
@@ -41,28 +41,28 @@ toolkit owns registration, cancellation, state capture and recording.
 
    * - Location
      - Responsibility
-   * - ``robots/<platform>/observation.py``
+   * - ``components/sim/<platform>/observation.py``
      - Extract named physical sensors and state. No model normalization.
-   * - ``robots/<platform>/control.py``
+   * - ``components/sim/<platform>/control.py``
      - Define native action order, semantics and execution mode.
-   * - ``robots/<platform>/wam_client.py``
+   * - ``components/sim/<platform>/wam_client.py``
      - Select a compatible controller and attach execution identity to observations.
-   * - ``rpent/robots/components/am_contracts.py``
-     - Declare shared physical observations/native control and WAM-specific capability, request and result dictionaries in separate sections.
-   * - ``am_client_base.py``
+   * - ``rpent/components/models/contracts.py``
+     - Declare shared physical observations/native control and the AM request built on them, then WAM-specific capability, request and result dictionaries in separate sections.
+   * - ``rpent/components/models/client.py``
      - Define the shared ``BaseAMClient`` and its VLA/WAM subclasses; share prediction dispatch and timeouts, keeping each contract's arguments and checks.
-   * - ``am_facade_base.py``
+   * - ``rpent/components/models/facade.py``
      - Share prediction routes, optional model metadata and RPC session setup through ``BaseAMFacade``; keep VLA and WAM behavior in subclasses.
-   * - ``am_runtime.py``
+   * - ``rpent/components/models/backends.py``
      - Register common deployment options, resolve VLA/WAM settings into ``AMConfig``, and start workers with their Python, working directory and GPU configuration.
-   * - ``rpent/robots/components/pi05_vla_client.py``
+   * - ``components/models/openpi/client.py``
      - Adapt platform observations and model outputs for Pi0.5; other VLA integrations provide their own model clients.
    * - ``<model>/runtime_config.py``
      - Supply WAM model-specific arguments, defaults and configuration requirements.
    * - ``<model>/server.py``
-     - Load a WAM model or connect its native service, and implement the inference call.
-   * - ``<model>/adapter/{__init__,encode,decode}.py``
-     - Register paired transforms, build model input and restore native actions.
+     - Load a WAM model or connect its native service, and implement ``encode``, ``predict_native`` and ``decode``.
+   * - ``<model>/adapter/__init__.py``
+     - Declare the platforms the model serves and the contract each one reports.
 
 Physical observations are reusable by VLA and WAM integrations. Model encoders
 remain distinct: Cosmos uses LIBERO's xyzw quaternion in a 9D state, whereas
@@ -76,14 +76,14 @@ For a WAM worker, the call chain is:
 .. code-block:: text
 
    robot_spec._init_runtime()
-     -> am_runtime.select_am(args, platform): resolve AMConfig and model options
-     -> robots.runtime.try_spawn_server(spawn_fn)
-          -> am_runtime.start_wam_service(config, output_dir)
+     -> rpent.components.models.backends.select_am(args, platform): resolve AMConfig and model options
+     -> rpent.robots.runtime.try_spawn_server(spawn_fn)
+          -> rpent.components.models.backends.start_wam_service(config, output_dir)
                -> AMConfig.spawn_worker() -> ProcessDaemon.start()
                -> make_rpc_client()
                -> return daemon + RPC client
           -> register owned daemon
-     -> robots.runtime.try_wait_server(post_fn)
+     -> rpent.robots.runtime.try_wait_server(post_fn)
           -> wait for readiness
           -> create platform WAM client and check control compatibility
           -> report ready to Dashboard
@@ -92,10 +92,10 @@ VLA launchers also use ``AMConfig.spawn_worker()``. Platforms retain their
 transport and model command arguments, including LingBot's native WebSocket
 connection and RoboCasa's session-enabled RPC. ``ProcessDaemon`` closes its
 log on a failed spawn. The shared
-``robots/runtime.py`` owns readiness, component status and group cleanup after
+``rpent/robots/runtime.py`` owns readiness, component status and group cleanup after
 resource handoff. Borrowed endpoints return no owned daemon.
 
-``am_runtime.add_am_args(parser, platform=...)`` registers supported backends
+``rpent.components.models.backends.add_am_args(parser, platform=...)`` registers supported backends
 and common options. GPU selection and compatibility aliases are documented in
 :doc:`../guides/cli`.
 
@@ -112,9 +112,10 @@ Add a VLA
 Because the model runs in its own process, adding a model-based
 primitive requires a few additional components:
 
-1. **Write ``vla_server.py``.** This process owns only the model weights
-   and CUDA context. Use
-   :class:`rpent.robots.components.am_facade_base.BaseVLAFacade` as the base
+1. **Implement the model server** (``components/models/<name>/server.py``). This process owns only
+   the model weights and CUDA context. Give the package a
+   ``component.toml`` manifest alongside it. Use
+   :class:`rpent.components.models.facade.BaseVLAFacade` as the base
    class, implement ``predict``, and register any additional model RPCs by
    extending ``_register_rpc``:
 
@@ -132,17 +133,17 @@ primitive requires a few additional components:
    ``shutdown``, parent-death detection, and resource cleanup.
 
 2. **Write a model client.** Subclass
-   :class:`rpent.robots.components.am_client_base.BaseVLAClient`, which
+   :class:`rpent.components.models.client.BaseVLAClient`, which
    provides the common ``vla.predict`` call, and add only the
    environment-specific input / output adaptation. See
-   ``rpent.robots.components.pi05_vla_client.Pi05VLAClient`` for the LIBERO
+   ``components.models.openpi.client.Pi05VLAClient`` for the LIBERO
    implementation.
 
 3. **Add a method to the primitives.** In the current
    robot's primitives class, call the model client, pass
    the returned action chunk to the environment, and return a
    ``ToolResult``. The model client API is
-   :meth:`rpent.robots.components.pi05_vla_client.Pi05VLAClient.predict`,
+   :meth:`components.models.openpi.client.Pi05VLAClient.predict`,
    which reads the instruction from ``env_obs["task_descriptions"]`` and
    returns a ``[chunk, action_dim]`` numpy action chunk (batch dim already
    stripped):
@@ -230,22 +231,23 @@ request construction, action denormalization and rotation conversion; its
 RPent reuses its existing LIBERO client and maps observations and predictions
 at that boundary. These backends require different checkpoints.
 
-1. Create a model package under ``rpent/robots/components/``. Its
-   ``server.py`` subclasses ``BaseWAMFacade`` and implements
-   ``predict_native``; provide a required ``(encode, decode)`` adapter pair.
-2. Register each supported platform in the model's ``ADAPTERS`` mapping
-   using ``WAMAdapterSpec`` from ``am_facade_base.py``. The model metadata factory declares checkpoint
-   identity, camera/state requirements, native control and executable chunk size.
-   Declare ``joint_target_history_shape`` if the model requires executed joint targets,
-   and validate the checkpoint's history settings at startup.
-   Encode physical observations into model inputs; decode predictions into the
-   declared platform action format.
+1. Create a model package under ``components/models/`` with a
+   ``component.toml`` manifest. Its
+   ``server.py`` subclasses ``BaseWAMFacade``, which calls ``encode``,
+   ``predict_native`` and ``decode`` in that order. Implement the three methods
+   and keep whatever checkpoint state they need on the instance.
+2. Register each supported platform in the model's ``ADAPTERS`` mapping. Each
+   entry declares checkpoint identity, camera/state requirements, native control
+   and executable chunk size. Declare ``joint_target_history_shape`` if the
+   model requires executed joint targets, and validate the checkpoint's history
+   settings at startup. Encode physical observations into model inputs; decode
+   predictions into the declared platform action format.
 3. Reuse a platform's ``wam_client.py`` when its observation and control
    contracts fit. ``BaseWAMClient`` fetches ``wam.get_model_meta`` once at
    initialization; the platform checks control compatibility before executing
    predictions. The client retains metadata in ``model_meta``.
 4. Add model deployment options in ``runtime_config.py`` and register the
-   backend in ``am_runtime.WAM_BACKENDS``; model-specific launch logic stays
+   backend in ``rpent.components.models.backends.WAM_BACKENDS``; model-specific launch logic stays
    in the model package. Declare session usage in the
    model package, and implement ``reset_native`` if inference retains
    session history.
@@ -303,9 +305,9 @@ Add a Platform and Check Compatibility
 
 For another platform, provide physical observations, native control definitions,
 a platform client and tool/runtime wiring. Each supported model still needs a
-matching checkpoint and paired transforms; registration does not establish
-checkpoint compatibility. RoboTwin's EEF16 controller is defined, but its
-current Fast-WAM adapter uses qpos14. Cosmos Policy has no RoboTwin adapter.
+matching checkpoint and its own transforms; registration does not establish
+checkpoint compatibility. RoboTwin's EEF16 controller is defined, but Fast-WAM's
+RoboTwin facade uses qpos14. Cosmos Policy serves no RoboTwin contract.
 
 ``future_observation`` and ``value`` reserve space for model predictions.
 Separate forecasting/planning RPCs and planner consumption of predictions are
@@ -341,7 +343,7 @@ simulator in the RPent environment. From the provisioned Cosmos source directory
 .. code-block:: bash
 
    PYTHONPATH=/path/to/RPent /path/to/cosmos/.venv/bin/python \
-     -m rpent.robots.components.cosmos_policy.server \
+     -m components.models.cosmos_policy.server \
      --checkpoint /path/to/cosmos-libero --cuda-device 0 --port 8116
 
 The checkpoint directory contains ``Cosmos-Policy-LIBERO-Predict2-2B.pt``,
@@ -370,7 +372,7 @@ not implement its three-camera/qpos14 interface.
 
    CUDA_VISIBLE_DEVICES=0 PYTHONPATH=/path/to/RPent \
      /path/to/fast-wam/venv/bin/python \
-     -m rpent.robots.components.fast_wam.server \
+     -m components.models.fast_wam.server \
      --platform libero --checkpoint /path/to/fast-wam-libero.pt \
      --config /path/to/worker.yaml --dataset-stats /path/to/dataset_stats.json \
      --port 8117
@@ -416,7 +418,7 @@ SGLang dependencies. The RPC worker runs in that environment:
 .. code-block:: bash
 
    PYTHONPATH=/path/to/RPent:/path/to/RLinf /path/to/sglang-env/bin/python \
-     -m rpent.robots.components.cosmos3.server \
+     -m components.models.cosmos3.server \
      --platform libero --checkpoint nvidia/cosmos3-nano-libero10-sdg-export-S2_s43 \
      --config /path/to/cosmos3.yaml \
      --sglang-endpoint http://127.0.0.1:30000 --port 8118
@@ -523,6 +525,4 @@ Tests
 -----
 
 Extend the existing adapter, RPC and platform tests for each new model/platform
-pair. Test locations, GPU prerequisites, commands and the distinction between
-integration checks and task-success benchmarks are documented in
-``tests/README.md``.
+pair. See :doc:`testing` for test locations, GPU prerequisites and commands.

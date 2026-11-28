@@ -49,7 +49,7 @@ def test_load_areas_discovers_all_rpent_area_skills():
         ("*.py", "a/b.py", False),
         (
             ".github/workflows/embodied-gpu-e2e*.yml",
-            ".github/workflows/embodied-gpu-e2e-run.yml",
+            ".github/workflows/embodied-gpu-e2e-extra.yml",
             True,
         ),
         ("docs/source-?/index.rst", "docs/source-e/index.rst", True),

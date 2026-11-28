@@ -3,11 +3,11 @@
 </div>
 
 <div align="center">
-<a href="https://arxiv.org/abs/2607.08448"><img src="https://img.shields.io/badge/arXiv-Paper-red?logo=arxiv"></a>
+<a href="https://arxiv.org/abs/2607.08448"><img src="https://img.shields.io/badge/arXiv-Paper-red?logo=arxiv" alt="arXiv Paper"></a>
 <a href="https://huggingface.co/RLinf"><img src="https://img.shields.io/badge/HuggingFace-yellow?logo=huggingface&logoColor=white" alt="Hugging Face"></a>
-<a href="https://rpent.readthedocs.io/en/latest/"><img src="https://img.shields.io/badge/Documentation-Purple?color=8A2BE2&logo=readthedocs"></a>
-<a href="https://rpent.readthedocs.io/zh-cn/latest/"><img src="https://img.shields.io/badge/中文文档-red?logo=readthedocs"></a>
-<a href="https://github.com/RLinf/misc/blob/main/pic/wechat.jpg?raw=true"><img src="https://img.shields.io/badge/微信-green?logo=wechat&amp"></a>
+<a href="https://rpent.readthedocs.io/en/latest/"><img src="https://img.shields.io/badge/Documentation-Purple?color=8A2BE2&logo=readthedocs" alt="Documentation"></a>
+<a href="https://rpent.readthedocs.io/zh-cn/latest/"><img src="https://img.shields.io/badge/中文文档-red?logo=readthedocs" alt="Chinese Documentation"></a>
+<a href="https://github.com/RLinf/misc/blob/main/pic/wechat.jpg?raw=true"><img src="https://img.shields.io/badge/微信-green?logo=wechat" alt="WeChat"></a>
 </div>
 
 <div align="center">
@@ -47,6 +47,7 @@ RPent is built for four kinds of users:
 
 ## What's NEW!
 
+- [2026/11] 🔥 Replaced per-robot `pyproject.toml` extras with per-component environment installation and diagnostics via `./rpent-install.sh` (`rpent-install`). See the [installation & migration guide](https://rpent.readthedocs.io/en/latest/rst_source/get_started/installation.html).
 - [2026/11] 🔥 Fixed an issue that caused the API planner to underperform. With DeepSeek V4.1 Flash, the API planner achieved a success rate of **65.6% (164/250)** on RoboTwin C2R. See the [Leaderboard](https://rpent.readthedocs.io/en/latest/rst_source/leaderboard/index.html).
 - [2026/11] 🔥 RPent supports Embodied First Exam (EFE) tasks through Harbor, with Skills or the task's native actions. See the [EFE guide](https://rpent.readthedocs.io/en/latest/rst_source/simulators/efe.html).
 - [2026/11] 🔥 Added an [embodied RGB-D toolkit](https://rpent.readthedocs.io/en/latest/rst_source/toolkits/rgbd.html) for reading 3D coordinates, segmenting objects, and measuring object parts from recorded camera views.
@@ -57,7 +58,7 @@ RPent is built for four kinds of users:
 - [2026/09] 🔥 RPent supports Franka single-arm and dual-arm real-robot extensions. Doc: [Franka](https://rpent.readthedocs.io/en/latest/rst_source/real_world_robots/franka.html) · [Dual Franka](https://rpent.readthedocs.io/en/latest/rst_source/real_world_robots/dual_franka.html).
 - [2026/08] 🔥 RPent supports RoboCasa with RLDX-1 as manipulation model. See the [RoboCasa setup and Target50 guide](https://rpent.readthedocs.io/en/latest/rst_source/simulators/robocasa.html).
 - [2026/08] 🔥 RPent supports the non-reasoning mode, which reduces average execution time by ~40%.
-- [2026/08] 🔥 RPent supports exploration mode for LIBERO. Doc: [LIBERO exploration mode](https://rpent.readthedocs.io/en/latest/rst_source/simulators/libero.html#exploration-and-local-memory-evaluation).
+- [2026/08] 🔥 RPent supports exploration mode for LIBERO. Doc: [LIBERO exploration mode](https://rpent.readthedocs.io/en/latest/rst_source/simulators/libero.html#libero-exploration).
 - [2026/08] 🔥 RPent supports RoboTwin with LingBot-VLA for dual-arm manipulation tasks. Doc: [RoboTwin](https://rpent.readthedocs.io/en/latest/rst_source/simulators/robotwin.html).
 - [2026/07] 🔥 Our first RPent publication, [Harness VLA: Steering Frozen VLAs into Reliable Manipulation Primitives via Memory-Guided Agents](https://arxiv.org/abs/2607.08448), is released.
 
@@ -96,9 +97,9 @@ RPent is built for four kinds of users:
             <li>DreamZero</li>
             <li><a href="https://rpent.readthedocs.io/en/latest/rst_source/simulators/robodojo.html#vpp2-setup">VPP2</a> (RoboDojo) ✅</li>
             <li><a href="https://rpent.readthedocs.io/en/latest/rst_source/simulators/robodojo.html#awomo05-setup">Awomo05</a> (RoboDojo) ✅</li>
-            <li><a href="docs/source-en/rst_source/development/add_action_model.rst">Cosmos Policy</a> (LIBERO / LIBERO-Pro)</li>
-            <li><a href="docs/source-en/rst_source/development/add_action_model.rst">Fast-WAM</a> (LIBERO / LIBERO-Pro / RoboTwin)</li>
-            <li><a href="docs/source-en/rst_source/development/add_action_model.rst">UniWAM</a> (RoboTwin)</li>
+            <li><a href="https://rpent.readthedocs.io/en/latest/rst_source/development/add_action_model.html">Cosmos Policy</a> (LIBERO / LIBERO-Pro)</li>
+            <li><a href="https://rpent.readthedocs.io/en/latest/rst_source/development/add_action_model.html">Fast-WAM</a> (LIBERO / LIBERO-Pro / RoboTwin)</li>
+            <li><a href="https://rpent.readthedocs.io/en/latest/rst_source/development/add_action_model.html">UniWAM</a> (RoboTwin)</li>
           </ul>
         </ul>
       </td>
@@ -116,8 +117,8 @@ RPent is built for four kinds of users:
         <ul style="margin-left: 0; padding-left: 16px;">
           <li><a href="https://rpent.readthedocs.io/en/latest/rst_source/real_world_robots/franka.html">Franka</a> ✅</li>
           <li><a href="https://rpent.readthedocs.io/en/latest/rst_source/real_world_robots/dual_franka.html">Dual Franka</a> ✅</li>
-          <li>SO-101</li>
-          <li>YAM</li>
+          <li>SO-101 (planned)</li>
+          <li><a href="https://rpent.readthedocs.io/en/latest/rst_source/real_world_robots/yam.html">YAM</a> ✅</li>
         </ul>
       </td>
     </tr>
@@ -130,29 +131,18 @@ RPent is built for four kinds of users:
 
 ```bash
 git clone https://github.com/RLinf/RPent rpent && cd rpent
-pip install -e ".[libero-pro]"  # Recommended default (LIBERO-PRO)
+# Recommended default (LIBERO-PRO):
+./rpent-install.sh install robot-libero --venv .venv-libero
+source .venv-libero/bin/activate
 
-# Other environment configurations:
-pip install -e ".[robocasa]"    # RoboCasa
-pip install -e ".[robotwin]"    # RoboTwin
-pip install -e ".[robolab]"     # RoboLab policy environment
-pip install -e ".[franka]"      # Franka and dual Franka
+# Other robots install the same way, each into its own environment (uncomment one):
+# ./rpent-install.sh install robot-robocasa --venv .venv-robocasa
+# ./rpent-install.sh install robot-robotwin --venv .venv-robotwin
+# ./rpent-install.sh install robot-robolab --venv .venv-robolab-policy
+# ./rpent-install.sh install robot-franka --venv .venv-franka-real
 ```
 
-`.[libero-pro]` is the recommended default. See the [installation docs](https://rpent.readthedocs.io/en/latest/rst_source/get_started/quickstart.html) for other environments.
-
-For RoboLab simulator setup, model checkpoints, and a single-task example, see the
-[RoboLab guide](https://rpent.readthedocs.io/en/latest/rst_source/simulators/robolab.html).
-
-For RoboCasa setup, task memory, and the Target50 protocol, see the
-[RoboCasa guide](https://rpent.readthedocs.io/en/latest/rst_source/simulators/robocasa.html).
-
-RoboCasa uses current-task files in `robocasa/task-specific/` together with
-`robocasa/global/GLOBAL_MEMORY.md` from
-[RPent-memory](https://huggingface.co/datasets/RLinf/RPent-memory/tree/main/robocasa).
-The CLI and Dashboard provide both layers for on-demand reading, with no
-full-read requirement before actions. HF memory follows the current branch
-without a fixed data revision.
+`robot-libero` is the recommended default. See the [installation docs](https://rpent.readthedocs.io/en/latest/rst_source/get_started/installation.html) for all components and diagnostics, or jump directly to the [RoboLab guide](https://rpent.readthedocs.io/en/latest/rst_source/simulators/robolab.html) and [RoboCasa guide](https://rpent.readthedocs.io/en/latest/rst_source/simulators/robocasa.html) (including [RPent-memory](https://huggingface.co/datasets/RLinf/RPent-memory/tree/main/robocasa) and Target50 setup).
 
 The example below continues with LIBERO-PRO.
 
@@ -164,7 +154,7 @@ liberopro-download-assets --skip-existing
 
 > 💡 Slow connection to Hugging Face? Download through the mirror: `HF_ENDPOINT=https://hf-mirror.com liberopro-download-assets --skip-existing`.
 
-See the [installation docs](https://rpent.readthedocs.io/en/latest/rst_source/get_started/quickstart.html) for other simulators.
+See the [installation docs](https://rpent.readthedocs.io/en/latest/rst_source/get_started/installation.html) for other simulators.
 
 **3. Configure keys and checkpoints, then run.**
 
@@ -182,30 +172,29 @@ export PI05_CHECKPOINT_PATH=$PWD/checkpoints/RLinf-Pi05-LIBERO-130-fullshot-SFT
 
 # SAM 3.0 checkpoint — download from
 # https://modelscope.cn/models/facebook/sam3
-pip install -U modelscope
+uv pip install -U modelscope
 
-modelscope download facebook/sam3 \
-  --local-dir ./checkpoints/sam3
+modelscope download --model facebook/sam3 sam3.pt \
+  --local_dir ./checkpoints/sam3
 
 export SAM3_CHECKPOINT_PATH=$PWD/checkpoints/sam3/sam3.pt
-export LIBERO_TYPE=pro
 
 # Run one task: libero_object_swap, task 2, seed 0, using Claude Code
 # with Claude Opus 4.8.
-rpent --robot libero --suite libero_object_swap --task 2 --seed 0 \
+rpent --robot libero --libero-type pro --suite libero_object_swap --task 2 --seed 0 \
   --env-cuda-device 0 --am-cuda-device 0 --sam3-cuda-device 0 \
   --planner claude_code --model claude-opus-4-8
 ```
 
 See the [planner docs](https://rpent.readthedocs.io/en/latest/rst_source/guides/configure_planner.html) to configure other planners (`api`, `codex`, `gemini_cli`, `opencode`) and model providers.
-For the exploration workflow and local-memory evaluation, see [LIBERO exploration mode](https://rpent.readthedocs.io/en/latest/rst_source/simulators/libero.html#exploration-and-local-memory-evaluation).
+For the exploration workflow and local-memory evaluation, see [LIBERO exploration mode](https://rpent.readthedocs.io/en/latest/rst_source/simulators/libero.html#libero-exploration).
 
 ### Interactive CLI mode
 
 With `claude_code`, `codex`, `gemini_cli`, or `opencode`, add `--tui` (`-t`) for terminal interaction. The built-in task is pre-filled at the `you>` prompt; edit it or press Enter to submit. Follow-up messages queue until the current turn completes. Use `/interrupt [message]` to interrupt; an attached message goes ahead of the queue. `/help` lists commands; `/quit` or Ctrl-D ends the session. Requires a TTY. The `api` planner uses a native CLI that runs the preset task first and accepts follow-ups between runs; use `/exit` to close it.
 
 ```bash
-rpent --robot libero --suite libero_object_swap --task 2 --seed 0 \
+rpent --robot libero --libero-type pro --suite libero_object_swap --task 2 --seed 0 \
   --planner claude_code --model claude-opus-4-8 --tui
 ```
 

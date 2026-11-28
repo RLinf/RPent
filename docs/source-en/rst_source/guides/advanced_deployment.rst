@@ -19,12 +19,15 @@ LIBERO Environment Service
 --------------------------
 
 One environment service is pinned to a suite, task, seed, and max episode
-steps; those values must match the RPent client exactly. On the env host:
+steps; those values must match the RPent client exactly. On the env host,
+install ``sim-libero`` in its own environment and start the service:
 
 .. code-block:: bash
 
+   ./rpent-install.sh install sim-libero --venv .venv-sim-libero
+   source .venv-sim-libero/bin/activate
    export LIBERO_TYPE=pro
-   python -m robots.libero.env_server \
+   python -m components.sim.libero.env_server \
      --suite libero_object_swap --task 2 --seed 0 \
      --max-episode-steps 10000 \
      --cuda-device 0 \
@@ -36,12 +39,15 @@ stop the old service and start a new one.
 Pi0.5 VLA Service
 -----------------
 
-On the VLA host, set the checkpoint path and start the HTTP service:
+On the VLA host, install the model service in its own environment, then set
+the checkpoint path and start the HTTP service:
 
 .. code-block:: bash
 
+   ./rpent-install.sh install model-openpi infra-rlinf --venv .venv-openpi
+   source .venv-openpi/bin/activate
    export PI05_CHECKPOINT_PATH=/path/to/rlinf-pi05-libero-130-fullshot-sft
-   python -m rpent.robots.components.pi05_vla_server \
+   python -m components.models.openpi.server \
      --embodiment libero \
      --cuda-device 0 \
      --transport http --host 0.0.0.0 --port VLA_PORT
@@ -67,7 +73,7 @@ Start the service with that environment's Python:
 
 .. code-block:: bash
 
-   python -m rpent.robots.components.apxinf_vla_server \
+   python -m components.models.apxinf.server \
      --embodiment libero \
      --model-path /path/to/pi05-libero \
      --tokenizer-path /path/to/tokenizer.model \
@@ -75,7 +81,7 @@ Start the service with that environment's Python:
      --precision bf16 \
      --transport http --host 127.0.0.1 --port 8220
 
-Add ``--vla-endpoint http://127.0.0.1:8220`` to the LIBERO command. For remote
+Add ``--am-endpoint http://127.0.0.1:8220`` to the LIBERO command. For remote
 access, bind to a reachable interface and use the server's address. Stop this
 external service yourself when finished. Omitting the endpoint starts OpenPI.
 APXInf-robo's native OpenPI WebSocket server is not an RPent RPC endpoint;
@@ -99,12 +105,15 @@ requires APXInf-compatible weights and does not convert raw RLinf
 SAM3 Service
 ------------
 
-On the SAM3 host, set the local checkpoint path and start the HTTP service:
+On the SAM3 host, install ``model-sam3`` in its own environment, set the local
+checkpoint path, and start the HTTP service:
 
 .. code-block:: bash
 
+   ./rpent-install.sh install model-sam3 --venv .venv-sam3
+   source .venv-sam3/bin/activate
    export SAM3_CHECKPOINT_PATH=/path/to/sam3/sam3.pt
-   python -m rpent.robots.components.sam3_server \
+   python -m components.models.sam3.server \
      --cuda-device 0 \
      --transport http --host 0.0.0.0 --port SAM3_PORT
 

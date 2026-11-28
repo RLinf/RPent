@@ -1,0 +1,13 @@
+schema = 2
+name = "sim-robocasa"
+probe = "components.sim.robocasa"
+python = ">=3.10,<3.11"
+requires = ["infra-rlinf"]
+# RoboCasa installs its own robosuite fork; RoboTwin and LIBERO stacks require
+# incompatible simulator/robosuite builds.
+env_conflicts = ["sim-robotwin", "sim-libero", "sim-libero_plus"]
+
+dependencies = [
+  "rpent-robocasa365 @ git+https://github.com/RLinf/robocasa.git@rpent_v0.2",
+  "robosuite @ git+https://github.com/RLinf/robosuite.git@rpent_v0.2",
+]

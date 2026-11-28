@@ -18,7 +18,7 @@ The reader of a user-facing page is an engineer running tasks with RPent who has
 
 - Describe what the reader runs, configures, and observes: CLI flags, install extras, environment variables, saved artifacts, and the environment's native success criterion.
 - Name a piece of code only when the reader types, runs, opens, or edits it: commands, CLI flags, config keys, paths, and—on Development pages—the public classes and hooks a contributor implements or calls.
-- Never explain user-facing behavior by touring `rpent/`, `robots/`, or `toolkits/` modules.
+- Never explain user-facing behavior by touring `rpent/`, `robots/`, or `components/` modules.
 - Rewrite code-tour sentences around observable behavior:
   - Before: "`rpent/cli/main.py` calls `RobotSpec.init_runtime`, which spawns `ProcessDaemon` servers and passes handles to `Toolkit`."
   - After: "Running `rpent --robot libero` starts the environment, VLA, and perception services, executes tool calls from the planner, and saves step images and run status under `--output-dir`."

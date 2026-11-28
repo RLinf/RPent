@@ -80,29 +80,33 @@ RoboDojo
 --------------
 
 NVIDIA 驱动版本建议参考 `Isaac Sim 5.1 官方系统要求 <https://docs.isaacsim.omniverse.nvidia.com/5.1.0/installation/requirements.html>`_。\
-宿主机还需具备构建 cuRobo 所需的 CUDA toolkit/NVCC 和编译工具链。从 RPent 根目录创建独立环境并安装依赖：
+宿主机还需具备构建 cuRobo 所需的 CUDA toolkit/NVCC 和编译工具链。创建 ``robot-robodojo`` 环境：
 
 .. code-block:: bash
 
-   uv venv --python 3.11 .venv-robodojo
+   ./rpent-install.sh install robot-robodojo --venv .venv-robodojo
    source .venv-robodojo/bin/activate
-   uv pip install -e ".[robodojo-sim,sam3]" --extra-index-url https://pypi.nvidia.com \
-     --override requirements/robodojo-override.txt
+
+该命令会安装 RoboDojo 仿真运行时、SAM3 与动作模型客户端依赖（含 VPP2、Awomo05 客户端与 Pi0.5 VLA 支持）。
 
 .. dropdown:: Blackwell GPU 安装
 
-   使用 Blackwell GPU 时，请安装 PyTorch 2.7.0 的 CUDA 12.8 构建。首次安装或重新安装时，使用以下命令，\
-   通过 ``--torch-backend=cu128`` 选择 CUDA 12.8 构建：
+   Blackwell GPU 需要 CUDA 12.8 版 PyTorch。本项目固定的 PyTorch 2.7.0 也提供 CUDA 12.6 构建，\
+   但该构建不支持 Blackwell。使用这类 GPU 首次安装时，请传入 ``--torch-backend cu128``\ （或先导出 ``UV_TORCH_BACKEND=cu128``）：
 
    .. code-block:: bash
 
-      uv pip install -e ".[robodojo-sim,sam3]" --extra-index-url https://pypi.nvidia.com \
-        --override requirements/robodojo-override.txt \
-        --torch-backend=cu128
+      ./rpent-install.sh install robot-robodojo --venv .venv-robodojo --torch-backend cu128
 
    如果环境中已安装 ``torch==2.7.0+cu126``，uv 会认为它满足版本要求，继续保留原有安装。\
-   此时需在上面的命令末尾再添加 ``--reinstall-package torch --reinstall-package torchvision``，\
-   强制替换为 CUDA 12.8 构建。
+   此时需在环境中显式替换：
+
+   .. code-block:: bash
+
+      UV_TORCH_BACKEND=cu128 uv pip install --python .venv-robodojo/bin/python \
+        --override components/sim/robodojo/requirements/robodojo-override.txt \
+        --reinstall-package torch --reinstall-package torchvision \
+        torch==2.7.0 torchvision
 
 当前固定的 IsaacLab 版本需要 editable 安装，才能找到扩展配置。克隆到一个可写目录，并在同一环境中执行：
 
@@ -192,11 +196,11 @@ VPP2 配置
 
 .. dropdown:: 手动启动 VPP2 服务（可选）
 
-   需要自行管理模型服务时，在模型环境中安装策略依赖和 RPent 核心包，然后启动：
+   需要自行管理模型服务时，在模型环境中安装策略依赖和 RPent 核心包，然后在 RPent 源码目录中启动：
 
    .. code-block:: bash
 
-      python -m robots.robodojo.vpp2_server --model-path /path/to/vpp2 \
+      python -m components.models.vpp2.server --model-path /path/to/vpp2 \
         --host 127.0.0.1 --port 9201
 
    在 RPent／仿真环境的任务命令中添加 ``--am-endpoint socket://127.0.0.1:9201``。RPent 负责启动和关闭自己创建的模型进程；独立启动的服务由其启动者管理。远端部署见 :doc:`../guides/advanced_deployment`。
@@ -237,11 +241,11 @@ Awomo05 配置
 
 .. dropdown:: 手动启动 Awomo05 服务（可选）
 
-   需要自行管理模型服务时，在模型环境中安装策略依赖和 RPent 核心包，然后启动：
+   需要自行管理模型服务时，在模型环境中安装策略依赖和 RPent 核心包，然后在 RPent 源码目录中启动：
 
    .. code-block:: bash
 
-      python -m robots.robodojo.awomo05_server --model-path /path/to/awomo05 \
+      python -m components.models.awomo05.server --model-path /path/to/awomo05 \
         --host 127.0.0.1 --port 9205
 
    在 RPent／仿真环境的任务命令中添加 ``--am-endpoint socket://127.0.0.1:9205``。RPent 负责启动和关闭自己创建的模型进程；独立启动的服务由其启动者管理。远端部署见 :doc:`../guides/advanced_deployment`。
@@ -372,7 +376,7 @@ SAM3 用于物体分割。先在 `facebook/sam3 模型页面 <https://huggingfac
 使用 ``--task`` 选择任务。固定场景通过 ``--seed`` 选择官方布局组，通过 ``--layout`` 选择组内布局，两者默认均为 ``0``。例如，``--task stack_blocks --seed 0 --layout 2`` 使用第 0 组的第 2 个布局。需要随机生成场景时，添加 ``--random``，此时 ``--layout`` 不生效。
 
 - ``--env-cuda-device``、``--am-cuda-device``、``--sam3-cuda-device``：分别选择本地服务的 GPU；省略时回退到 ``--cuda-device``，再沿用 ``CUDA_VISIBLE_DEVICES``。
-- ``--am-backend``：选择动作模型，目前支持 ``vpp2`` 或 ``awomo05``。
+- ``--am-backend``：选择动作模型，目前支持 ``vpp2``\ （默认）或 ``awomo05``。
 - ``--am-checkpoint``：指向包含 ``policy/`` 和 ``checkpoints/`` 的资源根目录，覆盖所选后端的 ``VPP2_MODEL_PATH`` 或 ``AWOMO05_MODEL_PATH``。
 - ``--env-endpoint``、``--sam3-endpoint``、``--am-endpoint``：连接已有 RPent RPC 服务；VLA 协议必须匹配所选后端。
 - ``--source-root``：使用本地 RoboDojo 源码替代包内源码。
@@ -460,3 +464,12 @@ SAM3 用于物体分割。先在 `facebook/sam3 模型页面 <https://huggingfac
    这会将 RoboDojo 匹配的 5.0 在线资源地址改为本地路径。它并不代表所有 Isaac Sim 资源均可离线使用；\
    若仍有其他在线资源加载失败（例如 ``Assets/Isaac/5.1`` 路径），需另外准备对应版本的资产并配置本地加载，\
    见 `NVIDIA 本地资产说明 <https://docs.isaacsim.omniverse.nvidia.com/5.1.0/installation/install_faq.html#isaac-sim-setup-assets-content-pack>`_。
+
+精简 Linux 容器缺少 libXt.so.6
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+在精简版 Ubuntu 或 Docker 容器中，``robodojo_env_server.log`` 可能在加载 Isaac Sim MaterialX 插件（``libMaterialXRenderHw.so``、``libMaterialXRenderGlsl.so``、``libusd_usdBakeMtlx.so``）时报错 ``libXt.so.6: cannot open shared object file``。在宿主机或容器镜像中安装 ``libxt6`` 即可解决：
+
+.. code-block:: bash
+
+   apt-get update && apt-get install -y libxt6

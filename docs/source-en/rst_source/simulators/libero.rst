@@ -34,7 +34,7 @@ Check the model, task, and runtime requirements before following the installatio
 
    .. grid-item-card:: Hardware
 
-      Linux, NVIDIA GPU; Python 3.11; CUDA and EGL.
+      Linux, NVIDIA GPU; Python 3.12; CUDA and EGL.
 
 .. _core-libero-pro-suites:
 
@@ -98,28 +98,29 @@ Installation and Resources
 
 For a first LIBERO-PRO run, complete the installation, asset downloads, and model setup in :doc:`../get_started/quickstart`. Continue here to select tasks and reproduce experiments.
 
-For another variant, install the matching extra in an isolated environment and download its assets. Install only one LIBERO variant per Python environment:
+``robot-libero`` installs the standard LIBERO and LIBERO-PRO packages together.
+For LIBERO-plus (which requires ``robosuite<1.5``), install ``robot-libero_plus``
+in its own virtual environment. Choose the variant at runtime with
+``--libero-type`` and download the matching assets:
 
 .. list-table::
    :header-rows: 1
 
-   * - Variant
+   * - ``--libero-type``
      - Install
      - Assets
    * - ``standard``
-     - ``uv pip install -e ".[libero]"``
+     - ``./rpent-install.sh install robot-libero --venv .venv-libero``
      - ``libero-download-assets --skip-existing``
    * - ``pro``
-     - ``uv pip install -e ".[libero-pro]"``
+     - ``./rpent-install.sh install robot-libero --venv .venv-libero``
      - ``liberopro-download-assets --skip-existing``
    * - ``plus``
-     - ``uv pip install -e ".[libero-plus]"``
+     - ``./rpent-install.sh install robot-libero_plus --venv .venv-libero-plus``
      - ``liberoplus-download-assets --skip-existing``
 
-Each extra includes Pi0.5 (``rpent-openpi``), SAM3, and the RLinf runtime
-(``rpent-rlinf``). Download model weights separately as described below.
-
-At runtime, set ``--libero-type`` to match the installed variant.
+Each environment includes Pi0.5 (``rpent-openpi``), SAM3, and the RLinf runtime
+(``infra-rlinf``). Download model weights separately as described below.
 
 VLA Configuration
 -----------------
@@ -132,6 +133,7 @@ then point at it via ``PI05_CHECKPOINT_PATH``:
 .. code-block:: bash
 
    hf download RLinf/RLinf-Pi05-LIBERO-130-fullshot-SFT \
+     --exclude optimizer.pt \
      --local-dir /path/to/rlinf-pi05-libero-130-fullshot-sft
 
    export PI05_CHECKPOINT_PATH=/path/to/rlinf-pi05-libero-130-fullshot-sft
@@ -205,7 +207,7 @@ and SAM3 setup above. Pi0.5 weights are not needed for WAM. With Cosmos on port 
      --planner api --model <planner-model>
 
 Fast-WAM uses ``--am-backend fast-wam`` and its worker endpoint. For LIBERO-Pro,
-select a Pro suite and ``--libero-type pro`` in a Pro environment. WAM excludes
+select a Pro suite and ``--libero-type pro`` in the ``robot-libero`` environment. WAM excludes
 LIBERO-Plus, Flash and exploration. WAM uses a required local memory manager
 and file tools, with a backend-specific directory that may be empty.
 Use ``--memory-dir`` to select a compatible local corpus; HF memory is unsupported.
@@ -286,14 +288,14 @@ What Runs Where
 LIBERO separates simulation and model inference into services. The toolkit
 uses their clients to execute the planner's requests.
 
-- **env_server** (``robots/libero/env_server.py``) — owns the LIBERO
+- **env_server** (``components/sim/libero/env_server.py``) — owns the LIBERO
   MuJoCo env and EGL rendering. Exposes ``reset``, ``step``,
   ``chunk_step``, ``render_camera``, ``get_camera_meta``, … over an RPC
   transport (HTTP by default; socket via ``--transport socket``).
-- **vla_server** (``rpent/robots/components/pi05_vla_server.py``) — owns the Pi0.5
+- **vla_server** (``components/models/openpi/server.py``) — owns the Pi0.5
   weights. Exposes ``predict`` over the same RPC transport (HTTP or
   socket).
-- **sam3_server** (``rpent/robots/components/sam3_server.py``) — loads SAM 3.0 and
+- **sam3_server** (``components/models/sam3/server.py``) — loads SAM 3.0 and
   segments a target region from a text description or one pixel on the target
   object. If the model produces multiple candidates, it selects the one with
   the highest model score and returns its mask as a compressed PNG through the

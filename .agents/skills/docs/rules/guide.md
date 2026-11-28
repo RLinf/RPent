@@ -30,7 +30,7 @@ Keep user guides focused on running and configuring RPent; do not mix developer 
 
 | Belongs in `development/` or `guides/cli.rst` | Keep in the user guide instead |
 |---|---|
-| `rpent/`, `robots/`, and `toolkits/` module tours, class hierarchies, and internal RPC/scheduler flow | Observable CLI behavior, config keys, tool names the planner calls, and saved run artifacts |
+| `rpent/`, `robots/`, and `components/` module tours, class hierarchies, and internal RPC/scheduler flow | Observable CLI behavior, config keys, tool names the planner calls, and saved run artifacts |
 | How to implement a new `RobotSpec`, `Toolkit`, `Planner`, `BaseEnvFacade`, or `BaseVLAClient` | Link to `development/add_robot.rst`, `development/add_primitive.rst`, `development/add_action_model.rst`, or `development/add_planner.rst` |
 | Exhaustive CLI flag matrices and internal storage schemas | The 3–5 flags for the main path, plus a link to `guides/cli.rst` |
 | Per-robot install extras and hardware calibration steps | Link to the matching page under `simulators/` or `real_world_robots/` |
@@ -52,5 +52,5 @@ Describe the task, embed the video with controls and a direct HTTP 200 URL, link
 
 - [ ] Title and headings name tasks (or exact flags on `guides/cli.rst`), not internal classes or modules.
 - [ ] Prerequisites precede the first command, and one copyable main path runs end to end (no placeholder domains like `example.com`).
-- [ ] No internal `rpent/`, `robots/`, or `toolkits/` source paths, class inventories, or duplicated `development/` content.
+- [ ] No internal `rpent/`, `robots/`, or `components/` source paths, class inventories, or duplicated `development/` content.
 - [ ] Every flag, default, and output artifact matches the current implementation.

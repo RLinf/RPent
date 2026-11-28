@@ -42,7 +42,7 @@
      - 在线规划器的推理强度：``none``、``low``、``medium``、``high`` 或 ``xhigh``，实际支持取决于后端和模型。在我们的 LIBERO Pro Long 评测中，关闭 reasoning 将平均运行时间从约 13.2 分钟缩短至 7.9 分钟（约 40%）。较高强度可能提升任务成功率，但也有可能增大任务完成时间。
    * - ``--planner-timeout-s``
      - ``—``
-     - 超时值（秒）优先使用显式传入的值；未传入时按优先级取默认值，具体顺序见代码。
+     - 在线规划器运行的墙钟超时（秒；终端交互式 API/Claude 会话不受限）。默认按优先级取 ``CODEX_TIMEOUT_S``\ （仅 ``codex``）、``GEMINI_CLI_TIMEOUT_S``\ （仅 ``gemini_cli``）、``CELL_TIMEOUT_S`` 或 ``1200``。
    * - ``--codex-sandbox``
      - ``full-access``
      - Codex Shell 沙箱，可选 ``read-only``、``workspace-write`` 或 ``full-access``。其他规划器会忽略此参数。
@@ -98,13 +98,13 @@
 环境参数
 ------------
 
-LIBERO 使用 ``--suite``、``--task``、``--seed`` 和 ``--libero-type`` 选择任务；默认类型为 ``LIBERO_TYPE`` 或 ``pro``。RoboCasa365 和 RoboTwin 使用 ``--task-name``。Franka 使用 ``--task-id`` 和 ``--robot-config``。具体选项见 :doc:`../simulators/libero`、:doc:`../simulators/robocasa`、:doc:`../simulators/robotwin`、:doc:`../real_world_robots/franka` 和 :doc:`../real_world_robots/dual_franka`。
+LIBERO 使用 ``--suite``、``--task``、``--seed`` 和 ``--libero-type`` 选择任务；未指定时优先读取 ``LIBERO_TYPE``，否则按 suite 推断（基础套件为 ``standard``，扰动套件为 ``pro``）。RoboCasa365 和 RoboTwin 使用 ``--task-name``。Franka 使用 ``--task-id`` 和 ``--robot-config``。具体选项见 :doc:`../simulators/libero`、:doc:`../simulators/robocasa`、:doc:`../simulators/robotwin`、:doc:`../real_world_robots/franka` 和 :doc:`../real_world_robots/dual_franka`。
 
 ``--env-endpoint``、``--am-endpoint`` 和 LIBERO 的 ``--sam3-endpoint`` 分别连接已有的环境、动作模型（VLA 或 WAM）和 SAM3 服务。RPent RPC 地址格式为 ``[protocol://]host:port``，默认协议为 ``http``；LingBot 使用原生 WebSocket，见 :doc:`../simulators/robotwin`。GPU 分配和远程服务见 :doc:`advanced_deployment`。
 
-``--am-backend`` 选择当前平台支持的一个动作模型；LIBERO 默认使用 ``pi05``，RoboTwin 支持 ``lingbot``（默认）、``fast-wam`` 和 ``uniwam``。VLA 和 WAM 共用 ``--am-endpoint`` 连接已有服务，共用 ``--am-checkpoint``、``--am-python``、``--am-root`` 和 ``--am-cuda-device`` 配置本地部署。使用 endpoint 时，显式传入本地部署参数会报错。
+``--am-backend`` 选择当前平台支持的一个动作模型；LIBERO 默认使用 ``pi05``，RoboTwin 支持 ``lingbot``\ （默认）、``fast-wam`` 和 ``uniwam``。VLA 和 WAM 共用 ``--am-endpoint`` 连接已有服务，共用 ``--am-checkpoint``、``--am-python``、``--am-root`` 和 ``--am-cuda-device`` 配置本地部署。使用 endpoint 时，显式传入本地部署参数会报错。
 
-``--am-checkpoint`` 按后端要求提供本地权重或服务模型标识；UniWAM 使用 :doc:`../simulators/robotwin` 中说明的资源根目录。``--am-python`` 指定已准备好的模型解释器，VLA 默认使用当前解释器；``--am-root`` 指定工作目录，默认使用 RPent 仓库目录，Cosmos Policy 则要求其源码目录。Franka 和 YAM 仅提供外部服务连接。
+``--am-checkpoint`` 按后端要求提供本地权重或服务模型标识；UniWAM 使用 :doc:`../simulators/robotwin` 中说明的资源根目录。``--am-python`` 指定已准备好的模型解释器，VLA 默认使用当前解释器；``--am-root`` 指定工作目录，默认使用 RPent 仓库目录，Cosmos Policy 则要求其源码目录。单臂 Franka 和 YAM 仅支持连接外部 VLA 服务。
 
 Cosmos Policy、Cosmos3 和 Fast-WAM 采用 ``local`` 记忆模式并注册记忆文件工具，默认目录按后端区分，可通过 ``--memory-dir`` 指定目录；目前不支持 HF 记忆、Flash 和探索模式。UniWAM 保留 RoboTwin 的探索和 memory 选择，见 :doc:`../simulators/robotwin`。模型启动参数及支持的组合见 :doc:`../development/add_action_model`。
 
@@ -195,7 +195,7 @@ RPent CLI 保留原有 ``--cuda-device`` 作为本地服务的共享默认值；
      - ``CODEX_API_KEY``
      - ``CODEX_BASE_URL``
 
-模型选择、地址优先级和本地服务示例见 :doc:`configure_planner`。连接检查使用 ``rpent-check-llm``；记忆管理使用 ``rpent-memory``，操作方法见 :doc:`memory`。
+模型选择、地址优先级和本地服务示例见 :doc:`configure_planner`。环境安装与诊断使用 ``rpent-install``\ （首次在源码目录中运行使用 ``./rpent-install.sh``，见 :doc:`../get_started/installation`）；连接检查使用 ``rpent-check-llm``；记忆管理使用 ``rpent-memory``，操作方法见 :doc:`memory`。
 
 模型与资源路径由各环境读取，例如 LIBERO 的 ``PI05_CHECKPOINT_PATH``、``SAM3_CHECKPOINT_PATH``，RoboCasa365 的 ``ROBOCASA_ASSETS_PATH``，以及 RoboTwin 的 ``ROBOTWIN_ASSETS_PATH``、``LINGBOT_MODEL_PATH``。
 

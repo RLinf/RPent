@@ -1,0 +1,12 @@
+schema = 2
+name = "tool-flywheel"
+probe = "components.tools.flywheel"
+python = ">=3.10,<3.13"
+# LeRobot 0.3.x expects Fraction frame rates, PyAV 19 returns
+# AVRational, and PyArrow 26 requires NumPy 2 at import time.
+
+dependencies = [
+  "lerobot>=0.3.3,<0.4",
+  "av<19",
+  "pyarrow<26",
+]

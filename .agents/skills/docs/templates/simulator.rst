@@ -76,13 +76,12 @@ The table distinguishes planner tools, action-model inputs, and the environment'
 Installation and Resources
 --------------------------
 
-Create an isolated Python environment and install the ``<extra>`` extra:
+Install the ``robot-<name>`` component into an isolated virtual environment:
 
 .. code-block:: bash
 
-   uv venv --python 3.11
-   source .venv/bin/activate
-   uv pip install -e ".[<extra>]"
+   ./rpent-install.sh install robot-<name> --venv .venv-<name>
+   source .venv-<name>/bin/activate
 
 Download the required simulator assets and action-model weights:
 

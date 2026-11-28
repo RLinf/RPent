@@ -161,7 +161,7 @@ def _decorator_is_tool(dec: ast.expr) -> bool:
 def _tool_names(root: Path) -> set[str]:
     """Registered user-facing tool names declared with ``@tool`` or ``Tool``."""
     names: set[str] = set()
-    for folder in ("rpent", "robots", "toolkits"):
+    for folder in ("rpent", "robots", "components", "toolkits"):
         target = root / folder
         if not target.is_dir():
             continue
@@ -233,10 +233,10 @@ def _json_keys(obj: object) -> set[str]:
 
 
 def code_names(root: Path) -> frozenset[str]:
-    """Classes and functions under ``rpent/``, ``robots/``, and ``toolkits/``, minus config/user names."""
+    """Classes and functions under ``rpent/``, ``robots/``, ``components/``, and ``toolkits/``, minus config/user names."""
     defined: set[str] = set()
     keys: set[str] = set()
-    for folder in ("rpent", "robots", "toolkits"):
+    for folder in ("rpent", "robots", "components", "toolkits"):
         target = root / folder
         if not target.is_dir():
             continue
@@ -301,7 +301,7 @@ def check_page(
             for token in LITERAL.findall(text):
                 token = token.strip().removesuffix("()")
                 internal = (
-                    token.startswith(("rpent/", "robots/", "toolkits/"))
+                    token.startswith(("rpent/", "robots/", "components/", "toolkits/"))
                     and ":" not in token
                     and not token.endswith((".yaml", ".yml", ".json"))
                 ) or (
@@ -325,9 +325,9 @@ def check_page(
                     .lstrip("~")
                     .removesuffix("()")
                 )
-                if target.startswith(("rpent.", "robots.", "toolkits.")) or any(
-                    part in names for part in target.split(".")
-                ):
+                if target.startswith(
+                    ("rpent.", "robots.", "components.", "toolkits.")
+                ) or any(part in names for part in target.split(".")):
                     add(
                         CODE_NAME_SEVERITY[kind],
                         number,

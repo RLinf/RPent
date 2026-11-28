@@ -92,7 +92,14 @@ def test_memory_cli_merge_rejects_missing_required_output_dir(
     monkeypatch.setattr(
         sys,
         "argv",
-        ["rpent-memory", "merge", "--cell", "10_task_t2_s0"],
+        [
+            "rpent-memory",
+            "--memory-dir",
+            "./memory",
+            "merge",
+            "--cell",
+            "10_task_t2_s0",
+        ],
     )
 
     with pytest.raises(SystemExit) as exc_info:

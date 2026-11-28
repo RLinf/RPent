@@ -48,7 +48,7 @@ RPent（Recursive Physical Agent）是一个开源框架，用于构建在与物
 
       了解执行流程，添加机器人、动作原语或规划器。
 
-选择环境：:doc:`LIBERO <rst_source/simulators/libero>` · :doc:`RoboCasa365 <rst_source/simulators/robocasa>` · :doc:`RoboTwin <rst_source/simulators/robotwin>`。真机部署见 :doc:`单臂 Franka <rst_source/real_world_robots/franka>` 和 :doc:`双臂 Franka <rst_source/real_world_robots/dual_franka>`；:doc:`YAM <rst_source/real_world_demos/yam>` 提供任务演示。
+按需组件安装见 :doc:`安装文档 <rst_source/get_started/installation>`。也可直接进入仿真平台（:doc:`LIBERO <rst_source/simulators/libero>` · :doc:`RoboCasa365 <rst_source/simulators/robocasa>` · :doc:`RoboTwin <rst_source/simulators/robotwin>` · :doc:`RoboDojo <rst_source/simulators/robodojo>` · :doc:`RoboLab <rst_source/simulators/robolab>` · :doc:`EFE <rst_source/simulators/efe>`）或真机部署指南（:doc:`单臂 Franka <rst_source/real_world_robots/franka>` · :doc:`双臂 Franka <rst_source/real_world_robots/dual_franka>` · :doc:`YAM <rst_source/real_world_robots/yam>`）。
 
 .. toctree::
    :maxdepth: 2
@@ -58,6 +58,7 @@ RPent（Recursive Physical Agent）是一个开源框架，用于构建在与物
    :caption: 开始使用
 
    RPent 简介 <rst_source/get_started/overview>
+   安装 <rst_source/get_started/installation>
    快速开始 <rst_source/get_started/quickstart>
 
 .. toctree::
@@ -146,6 +147,7 @@ RPent（Recursive Physical Agent）是一个开源框架，用于构建在与物
    添加动作原语 <rst_source/development/add_primitive>
    添加动作模型 <rst_source/development/add_action_model>
    添加规划器 <rst_source/development/add_planner>
+   测试与 CI <rst_source/development/testing>
 
 .. toctree::
    :maxdepth: 2

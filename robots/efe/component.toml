@@ -1,0 +1,9 @@
+schema = 2
+name = "robot-efe"
+probe = "robots.efe"
+planner = true
+python = ">=3.10,<3.13"
+# EFE drives an episode through the task container's client, and its Harbor
+# adapter loads only inside a trial.
+
+dependencies = []

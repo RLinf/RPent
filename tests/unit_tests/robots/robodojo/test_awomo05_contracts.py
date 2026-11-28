@@ -7,9 +7,9 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
-from robots.robodojo import awomo05_server as server
-from robots.robodojo.access import ARX_X5_JOINT_FIELDS, CAMERAS
-from robots.robodojo.awomo05_client import Awomo05Client
+from components.models.awomo05 import server
+from components.models.awomo05.client import Awomo05Client
+from components.sim.robodojo.access import ARX_X5_JOINT_FIELDS, CAMERAS
 from robots.robodojo.primitives import RoboDojoPrimitives
 from rpent.tools.toolkit import ToolCancelled
 
